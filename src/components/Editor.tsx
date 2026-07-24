@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { Photo, Recipe, ToolId } from '../types';
 import { TOOLS, emptyRecipe, isRecipeEmpty } from '../toolDefs';
 import { applyRecipe } from '../imageEngine';
+import { smoothSkin } from '../api';
 
 const MAX_PREVIEW = 1400;
 
@@ -22,8 +23,15 @@ export default function Editor({
 }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const originalRef = useRef<ImageData | null>(null);
+  const aiImgRef = useRef<HTMLImageElement | null>(null);
   const [showOriginal, setShowOriginal] = useState(false);
   const [loading, setLoading] = useState(true);
+
+  // AI tool state
+  const [aiStrength, setAiStrength] = useState(60);
+  const [aiBusy, setAiBusy] = useState(false);
+  const [aiInfo, setAiInfo] = useState<string | null>(null);
+  const [aiVersion, setAiVersion] = useState(0);
 
   // Load the image and capture its original pixels once per photo.
   useEffect(() => {
@@ -51,7 +59,7 @@ export default function Editor({
     };
   }, [photo.url]);
 
-  // Redraw whenever the recipe or before/after toggle changes.
+  // Redraw whenever recipe / before-after / AI result changes.
   useEffect(() => {
     if (loading) return;
     const canvas = canvasRef.current;
@@ -60,7 +68,16 @@ export default function Editor({
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    if (showOriginal || isRecipeEmpty(recipe)) {
+    if (showOriginal) {
+      ctx.putImageData(orig, 0, 0);
+      return;
+    }
+    if (aiImgRef.current) {
+      // AI result takes over the canvas (scaled to preview size)
+      ctx.drawImage(aiImgRef.current, 0, 0, canvas.width, canvas.height);
+      return;
+    }
+    if (isRecipeEmpty(recipe)) {
       ctx.putImageData(orig, 0, 0);
       return;
     }
@@ -71,18 +88,53 @@ export default function Editor({
     );
     applyRecipe(copy.data, recipe);
     ctx.putImageData(copy, 0, 0);
-  }, [recipe, showOriginal, loading]);
+  }, [recipe, showOriginal, loading, aiVersion]);
 
   function setTool(id: ToolId, value: number) {
     onRecipeChange({ ...recipe, [id]: value });
   }
+
+  async function runSkin() {
+    setAiBusy(true);
+    setAiInfo('מעבד…');
+    try {
+      const res = await smoothSkin(photo.url, aiStrength);
+      await new Promise<void>((resolve) => {
+        const img = new Image();
+        img.onload = () => {
+          aiImgRef.current = img;
+          resolve();
+        };
+        img.onerror = () => resolve();
+        img.src = res.image;
+      });
+      setAiInfo(`✓ עור זוהה: ${Math.round(res.skinCoverage * 100)}% מהתמונה`);
+      setAiVersion((v) => v + 1);
+    } catch {
+      aiImgRef.current = null;
+      setAiInfo('✗ מנוע ה-AI לא זמין — ודא שהמנוע רץ');
+    } finally {
+      setAiBusy(false);
+    }
+  }
+
+  function clearAi() {
+    aiImgRef.current = null;
+    setAiInfo(null);
+    setAiVersion((v) => v + 1);
+  }
+
+  const aiActive = aiImgRef.current !== null;
 
   return (
     <div className="editor">
       <div className="canvas-wrap">
         {loading && <div className="loading">טוען…</div>}
         <canvas ref={canvasRef} className="preview-canvas" />
-        <div className="canvas-name">{photo.name}</div>
+        <div className="canvas-name">
+          {photo.name}
+          {aiActive && <span className="ai-tag">AI</span>}
+        </div>
       </div>
 
       <aside className="tool-panel">
@@ -119,6 +171,33 @@ export default function Editor({
               </div>
             );
           })}
+
+          <div className="ai-section">
+            <div className="ai-head">✨ כלי AI · החלקת עור</div>
+            <div className="tool">
+              <div className="tool-row">
+                <label>עוצמה</label>
+                <span className="val">{aiStrength}</span>
+              </div>
+              <input
+                type="range"
+                min={0}
+                max={100}
+                step={1}
+                value={aiStrength}
+                onChange={(e) => setAiStrength(Number(e.target.value))}
+              />
+            </div>
+            <button className="ai-btn" disabled={aiBusy} onClick={runSkin}>
+              {aiBusy ? 'מעבד…' : 'החלקת עור (AI)'}
+            </button>
+            {aiActive && !aiBusy && (
+              <button className="linklike" onClick={clearAi}>
+                בטל AI
+              </button>
+            )}
+            {aiInfo && <div className="ai-info">{aiInfo}</div>}
+          </div>
         </div>
 
         <div className="tool-actions">

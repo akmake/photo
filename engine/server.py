@@ -1,0 +1,69 @@
+"""Local AI tool engine (sidecar).
+
+A tiny dependency-light HTTP server the desktop app talks to over localhost.
+In the packaged Electron app this process is spawned as a sidecar; images never
+leave the machine. Each AI tool is one endpoint under /tools/*.
+"""
+
+import json
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+import skin
+
+PORT = 8756
+
+
+class Handler(BaseHTTPRequestHandler):
+    def _cors(self):
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Access-Control-Allow-Methods", "POST, GET, OPTIONS")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type")
+        self.send_header("Access-Control-Allow-Private-Network", "true")
+
+    def do_OPTIONS(self):
+        self.send_response(204)
+        self._cors()
+        self.end_headers()
+
+    def do_GET(self):
+        if self.path == "/health":
+            self._json(200, {"status": "ok", "tools": ["skin-smooth"]})
+        else:
+            self._json(404, {"error": "not found"})
+
+    def do_POST(self):
+        if self.path != "/tools/skin-smooth":
+            self._json(404, {"error": "not found"})
+            return
+        try:
+            length = int(self.headers.get("Content-Length", 0))
+            body = json.loads(self.rfile.read(length))
+            out_b64, coverage = skin.process(
+                body["image"], float(body.get("strength", 50))
+            )
+            self._json(
+                200,
+                {
+                    "image": "data:image/png;base64," + out_b64,
+                    "skinCoverage": round(coverage, 4),
+                },
+            )
+        except Exception as e:  # noqa: BLE001 - surface errors to the client
+            self._json(500, {"error": str(e)})
+
+    def _json(self, code, obj):
+        payload = json.dumps(obj).encode("utf-8")
+        self.send_response(code)
+        self._cors()
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(payload)))
+        self.end_headers()
+        self.wfile.write(payload)
+
+    def log_message(self, *args):
+        pass  # keep the console quiet
+
+
+if __name__ == "__main__":
+    print(f"skin engine listening on http://127.0.0.1:{PORT}")
+    ThreadingHTTPServer(("127.0.0.1", PORT), Handler).serve_forever()
