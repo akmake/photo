@@ -11,6 +11,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import common
 import raw
+import render
 import skin
 import background
 import cleanup
@@ -74,6 +75,12 @@ class Handler(BaseHTTPRequestHandler):
         if self.path == "/decode":
             self._decode()
             return
+        if self.path == "/render":
+            self._render()
+            return
+        if self.path == "/export":
+            self._export()
+            return
         parts = self.path.strip("/").split("/")
         if len(parts) == 3 and parts[0] == "tools" and parts[2] == "apply":
             tool_id = parts[1]
@@ -93,6 +100,55 @@ class Handler(BaseHTTPRequestHandler):
                 self._json(500, {"error": str(e)})
         else:
             self._json(404, {"error": "not found"})
+
+    def _body(self):
+        length = int(self.headers.get("Content-Length", 0))
+        return json.loads(self.rfile.read(length))
+
+    def _render(self):
+        """Run a whole recipe in one pass. { image|path, recipe:[...] }"""
+        try:
+            body = self._body()
+            if body.get("path"):
+                img = common.load_image(body["path"])
+            else:
+                img = common.b64_to_image(body["image"])
+            out, meta = render.render(img, body.get("recipe", []))
+            self._json(
+                200,
+                {
+                    "image": "data:image/jpeg;base64," + common.image_to_jpeg_b64(out),
+                    "meta": meta,
+                },
+            )
+        except Exception as e:  # noqa: BLE001
+            self._json(500, {"error": str(e)})
+
+    def _export(self):
+        """Render files from disk and save them. { files:[paths], recipe|perFile,
+        dest, format, quality }"""
+        try:
+            body = self._body()
+            files = body.get("files", [])
+            dest = body["dest"]
+            fmt = body.get("format", "jpeg")
+            quality = int(body.get("quality", render.DEFAULT_QUALITY))
+            per_file = body.get("perFile") or {}
+            default_recipe = body.get("recipe", [])
+
+            written, errors = [], []
+            for path in files:
+                try:
+                    recipe = per_file.get(path, default_recipe)
+                    out_path, _ = render.export(path, recipe, dest, fmt, quality)
+                    written.append(out_path)
+                except Exception as e:  # noqa: BLE001 - one bad file must not
+                    errors.append({"file": path, "error": str(e)})  # kill the batch
+            self._json(
+                200, {"written": written, "errors": errors, "count": len(written)}
+            )
+        except Exception as e:  # noqa: BLE001
+            self._json(500, {"error": str(e)})
 
     def _decode(self):
         """RAW -> preview JPEG. Accepts { path } or { image: base64 }, maxDim."""

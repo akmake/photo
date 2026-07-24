@@ -56,42 +56,47 @@ def _bokeh(rgb_f: np.ndarray, radius: int, bloom: float) -> np.ndarray:
     return np.clip(out, 0, 255)
 
 
-def _refine_edges(rgb: np.ndarray, mask: np.ndarray, feather: float) -> np.ndarray:
-    """Snap the mask to real image edges so hair doesn't look cut out."""
-    h, w = rgb.shape[:2]
-    guide_r = max(4, int(0.012 * max(h, w)))
-    m8 = (np.clip(mask, 0, 1) * 255).astype(np.uint8)
-    if hasattr(cv2, "ximgproc"):
-        try:
-            refined = cv2.ximgproc.guidedFilter(rgb, m8, guide_r, 500.0)
-            m = refined.astype(np.float32) / 255.0
-        except cv2.error:
-            m = mask
-    else:
-        m = mask
-    fr = max(1, int(feather * 0.010 * max(h, w))) | 1
-    return np.clip(cv2.GaussianBlur(m, (fr, fr), 0), 0.0, 1.0)
+def _feather(mask: np.ndarray, amount: float, max_dim: int) -> np.ndarray:
+    """Light optional softening. The alpha already comes edge-refined from the
+    matting tool, so this is a taste control, not a fix."""
+    if amount <= 0:
+        return mask
+    fr = max(1, int(amount * 0.004 * max_dim)) | 1
+    return np.clip(cv2.GaussianBlur(mask, (fr, fr), 0), 0.0, 1.0)
 
 
 def process(image_b64: str, params: dict):
-    """params: { amount: 0..100, feather: 0..100, bokeh: 0..100 }"""
+    """HTTP wrapper — internal chaining uses apply()."""
     img = common.b64_to_image(image_b64)
-    rgb = common.to_np(img)
+    out, meta = apply(common.to_np(img), params)
+    return common.image_to_b64(common.to_pil(out)), meta
+
+
+def apply(rgb, params: dict):
+    """params: { amount: 0..100, feather: 0..100, bokeh: 0..100 }"""
     amount = common.clamp01(params.get("amount", 60))
     feather = common.clamp01(params.get("feather", 40))
     bloom = common.clamp01(params.get("bokeh", 50))
 
     if amount <= 0:
-        return common.image_to_b64(img), {"subjectCoverage": 0.0}
+        return rgb, {"subjectCoverage": 0.0}
 
     h, w = rgb.shape[:2]
-    mask = masks.get_mask(rgb, "subject")
-    soft = _refine_edges(rgb, mask, feather)
-    rgb_f = rgb.astype(np.float32)
+    mask = masks.get_mask(rgb, "subject")  # soft alpha from the matting tool
+    soft = _feather(mask, feather, max(h, w))
+
+    # The blurred layers are low-frequency by definition, so they are built at
+    # the working resolution and scaled back up. Only the final composite runs
+    # at full resolution, which is what keeps the SUBJECT perfectly sharp.
+    small = common.downscale(rgb)
+    sc = small.shape[1] / w
+    rgb_f = small.astype(np.float32)
 
     # --- depth-of-field: blur grows with distance from the subject's plane ---
-    d = depth_mod.get_depth(rgb)  # 1 = closest
-    inside = d[mask > 0.5]
+    d = depth_mod.get_depth(small)  # 1 = closest
+    mask_s = common.downscale(mask)
+    soft_s = common.downscale(soft)
+    inside = d[mask_s > 0.5]
     subject_plane = float(np.median(inside)) if inside.size else float(np.median(d))
 
     # distance from the subject's plane, in BOTH directions (a real lens also
@@ -101,18 +106,24 @@ def process(image_b64: str, params: dict):
     dof = np.clip(dist / max(hi, 1e-6), 0.0, 1.0)
 
     # the subject itself always stays perfectly sharp
-    dof = dof * (1.0 - soft)
+    dof = dof * (1.0 - soft_s)
 
-    radius = max(2, int(amount * 0.035 * max(h, w)))
+    radius = max(2, int(amount * 0.035 * max(small.shape[:2])))
     t = dof * BLUR_LEVELS
 
-    out = rgb_f.copy()
+    blurred = rgb_f.copy()
     for i in range(1, BLUR_LEVELS + 1):
         layer = _bokeh(rgb_f, max(1, int(radius * i / BLUR_LEVELS)), bloom)
         wgt = np.clip(t - (i - 1), 0.0, 1.0)[..., None]
-        out = out * (1.0 - wgt) + layer * wgt
+        blurred = blurred * (1.0 - wgt) + layer * wgt
 
-    return common.image_to_b64(common.to_pil(out)), {
+    # composite at FULL resolution: sharp original where the subject is,
+    # upscaled blur elsewhere
+    blurred_full = common.upscale_to(blurred, rgb.shape)
+    m3 = soft[..., None]
+    out = rgb.astype(np.float32) * m3 + blurred_full * (1.0 - m3)
+
+    return np.clip(out, 0, 255).astype(np.uint8), {
         "subjectCoverage": round(float(mask.mean()), 4),
         "subjectPlane": round(subject_plane, 3),
     }

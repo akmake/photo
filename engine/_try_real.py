@@ -13,7 +13,7 @@ SRC = sys.argv[1]
 OUT_DIR = sys.argv[2]
 MAXDIM = int(sys.argv[3]) if len(sys.argv) > 3 else 1200
 
-img = Image.open(SRC).convert("RGB")
+img = common.load_image(SRC)
 scale = min(1.0, MAXDIM / max(img.size))
 img = img.resize((round(img.width * scale), round(img.height * scale)), Image.LANCZOS)
 print("working size:", img.size)

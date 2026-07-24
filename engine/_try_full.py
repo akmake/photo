@@ -14,7 +14,7 @@ import background
 
 SRC, OUT_DIR = sys.argv[1], sys.argv[2]
 
-img = Image.open(SRC).convert("RGB")
+img = common.load_image(SRC)
 print("size:", img.size)
 before = img.copy()
 
