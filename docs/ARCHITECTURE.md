@@ -130,6 +130,12 @@ get_mask(rgb, kind) -> float32 mask (H,W) in 0..1
 
 **המשמעות:** כלי AI חדש = לבחור kind + לכתוב פעולת פיקסלים. **לא לחבר מודל חדש בכל פעם.**
 
+### עומק (`engine/depth.py`) — MiDaS small (MIT) דרך onnxruntime
+
+> **כלל:** "לחתוך את הנושא ולטשטש אחיד את כל מה שמאחור" מייצר **אפקט מדבקה** — כי בעדשה אמיתית הטשטוש **גדל עם המרחק**. לכן טשטוש הרקע מרכיב מספר רמות טשטוש לפי `|depth − subject_plane|`: הקרקע לרגלי המצולם נשארת חדה, הרקע הרחוק נמס, וגם החזית הקרובה מתרככת — כמו עומק שדה אמיתי. **בוקה** מתקבל מקרנל **עגול** + פריחת היילייטים, לא מגאוסיאן.
+>
+> *מגבלת זיכרון ידועה:* קומפוזיציית הרמות מחושבת על התמונה כולה — לייצוא ברזולוציה מלאה נצטרך לעבוד באריחים (tiles).
+
 > **כלל מוצר — סף רזולוציה לריטוש פנים:** כלי פנים (ניקיון עור, החלקה, עיניים, סומק) **מסרבים לפעול** כשרוחב הפנים קטן מ-~180px (ניקיון) / ~120px (החלקה), ומחזירים `faceTooSmall`. הסיבה: בפנים של 70px, פצעון ונחיר הם באותו גודל — "ניקוי" מוחק תווי פנים אמיתיים. **עדיף לסרב מאשר לייצר בוץ.** ריטוש פנים אמיתי דורש פנים של 800–1500px, כלומר קובץ מקורי מהמצלמה.
 
 > **לקח מהשטח:** `subject` אינו "כל מה שאינו רקע" — כביסה תלויה מסווגת כ"בגדים" ונכנסה בטעות. התיקון: שומרים רק רכיבים קשירים שמכילים **אדם אמיתי** (עור/שיער).
@@ -160,6 +166,7 @@ GET  /tools                       → רישום הכלים (id, kind, params, c
 POST /tools/{id}/apply            → { imagePath|image, params } → image  (כלי בודד, לתצוגה/cache)
 POST /render                      → { imagePath, recipe, size } → image  (רינדור-אמת מלא)
 POST /analyze                     → { imagePath } → הצעות (auto-style, מאפיינים שזוהו)
+POST /decode                      → { path | image, maxDim } → תצוגת JPEG   (פענוח RAW)
 POST /export                      → { photos[], recipe|perPhoto, format, dest }  (עתידי)
 ```
 
@@ -205,12 +212,13 @@ POST /export                      → { photos[], recipe|perPhoto, format, dest 
 | אפקט ציור שמן | 1 | blur+posterize (קירוב; Kuwahara בהמשך) | — | ✅ בנוי |
 | חידוד | 1 | unsharp mask | — | ✅ בנוי |
 | החלקת עור | 2 | מסכה: BiSeNet (עתידי) / YCbCr (POC) | MIT | 🟢 POC בנוי |
-| טשטוש רקע / בוקה | 2 | MediaPipe selfie-multiclass | Apache 2.0 | ✅ **בנוי** |
+| טשטוש רקע / בוקה | 2 | MediaPipe selfie-multiclass **+ MiDaS small (עומק)** | Apache 2.0 / MIT | ✅ **בנוי — מבוסס עומק** |
 | חידוד עיניים | 2 | MediaPipe FaceMesh | Apache | ⏳ |
 | הורדת פצעונים / אובייקטים | 3 | LaMa (inpainting) | Apache | ⏳ |
 | חידוד/שחזור פנים | 3 | GFPGAN | Apache | ⏳ |
 | החלפת שמיים | 3 | SkyAR | לבדוק | ⏳ |
-| פענוח RAW | 1 | rawpy (LibRaw) | MIT/LGPL | ⏳ |
+| פענוח RAW | 1 | rawpy (LibRaw) | MIT/LGPL | 🟡 מנוע מוכן (`/decode`); חיבור ל-UI מחכה ל-Electron |
+| ניקיון עור (פצעונים) | 2 | face-skin mask + `cv2.inpaint` | Apache/BSD | ✅ בנוי (עם סף רזולוציה) |
 | קאלינג (עיניים עצומות/פוקוס/כפולים) | — | MediaPipe/OpenCV/imagehash | Apache/BSD | 🔮 מודול עתידי |
 | ❌ להימנע | — | CodeFormer / BRIA RMBG | לא-מסחרי | 🚫 |
 

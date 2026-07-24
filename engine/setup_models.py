@@ -20,6 +20,10 @@ MODELS = {
         "https://storage.googleapis.com/mediapipe-models/face_landmarker/"
         "face_landmarker/float16/latest/face_landmarker.task"
     ),
+    # monocular depth (MiDaS small, MIT) — depth-of-field gradient
+    "midas_small.onnx": (
+        "https://github.com/isl-org/MiDaS/releases/download/v2_1/model-small.onnx"
+    ),
 }
 
 if __name__ == "__main__":

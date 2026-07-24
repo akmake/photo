@@ -26,6 +26,7 @@ export const TOOLS: ToolDef[] = [
     batchPolicy: 'absolute',
     params: [
       { id: 'amount', label: 'עוצמה', min: 0, max: 100, step: 1, default: 60 },
+      { id: 'bokeh', label: 'אופי בוקה', min: 0, max: 100, step: 1, default: 50 },
       { id: 'feather', label: 'ריכוך קצוות', min: 0, max: 100, step: 1, default: 40 },
     ],
   },

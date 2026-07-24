@@ -11,6 +11,7 @@ import {
 } from '../toolRegistry';
 import { applyGlobalTool } from '../imageEngine';
 import { applyAiTool } from '../api';
+import StyleBar from './StyleBar';
 
 const MAX_PREVIEW = 1200;
 
@@ -218,6 +219,8 @@ export default function Editor({
             לפני / אחרי
           </button>
         </div>
+
+        <StyleBar recipe={recipe} onApply={onRecipeChange} />
 
         {/* Every tool is rendered generically from the registry. */}
         <div className="tools">

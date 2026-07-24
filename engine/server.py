@@ -5,9 +5,12 @@ In the packaged Electron app this process is spawned as a sidecar; images never
 leave the machine. Each AI tool is dispatched under /tools/{id}/apply.
 """
 
+import base64
 import json
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
+import common
+import raw
 import skin
 import background
 import cleanup
@@ -68,6 +71,9 @@ class Handler(BaseHTTPRequestHandler):
             self._json(404, {"error": "not found"})
 
     def do_POST(self):
+        if self.path == "/decode":
+            self._decode()
+            return
         parts = self.path.strip("/").split("/")
         if len(parts) == 3 and parts[0] == "tools" and parts[2] == "apply":
             tool_id = parts[1]
@@ -87,6 +93,28 @@ class Handler(BaseHTTPRequestHandler):
                 self._json(500, {"error": str(e)})
         else:
             self._json(404, {"error": "not found"})
+
+    def _decode(self):
+        """RAW -> preview JPEG. Accepts { path } or { image: base64 }, maxDim."""
+        try:
+            length = int(self.headers.get("Content-Length", 0))
+            body = json.loads(self.rfile.read(length))
+            max_dim = int(body.get("maxDim", 0))
+            if body.get("path"):
+                img = raw.decode_path(body["path"], max_dim)
+            else:
+                data = base64.b64decode(body["image"].split(",", 1)[-1])
+                img = raw.decode_bytes(data, max_dim)
+            self._json(
+                200,
+                {
+                    "image": "data:image/jpeg;base64," + common.image_to_jpeg_b64(img),
+                    "width": img.width,
+                    "height": img.height,
+                },
+            )
+        except Exception as e:  # noqa: BLE001
+            self._json(500, {"error": str(e)})
 
     def _json(self, code, obj):
         payload = json.dumps(obj).encode("utf-8")

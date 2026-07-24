@@ -19,6 +19,13 @@ def image_to_b64(img: Image.Image) -> str:
     return base64.b64encode(buf.getvalue()).decode("ascii")
 
 
+def image_to_jpeg_b64(img: Image.Image, quality: int = 90) -> str:
+    """Smaller than PNG — used for previews sent to the UI."""
+    buf = io.BytesIO()
+    img.save(buf, format="JPEG", quality=quality)
+    return base64.b64encode(buf.getvalue()).decode("ascii")
+
+
 def to_np(img: Image.Image) -> np.ndarray:
     return np.asarray(img).astype(np.uint8)
 
