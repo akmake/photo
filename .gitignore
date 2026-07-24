@@ -45,3 +45,6 @@ coverage/
 engine/.venv/
 __pycache__/
 *.pyc
+
+# AI model weights (downloaded via engine/setup_models.py)
+engine/models/

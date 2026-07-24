@@ -1,17 +1,18 @@
 import { useEffect, useRef, useState } from 'react';
-import type { Photo, Recipe, ParamValues } from '../types';
+import type { Photo, Recipe, ToolInstance } from '../types';
 import {
   getTool,
-  getInstance,
   defaultRecipe,
   isToolAtDefault,
   updateToolParams,
   setToolEnabled,
+  activeTools,
+  orderedInstances,
 } from '../toolRegistry';
-import { applyToneColor } from '../imageEngine';
+import { applyGlobalTool } from '../imageEngine';
 import { applyAiTool } from '../api';
 
-const MAX_PREVIEW = 1400;
+const MAX_PREVIEW = 1200;
 
 interface Props {
   photo: Photo;
@@ -46,25 +47,28 @@ export default function Editor({
   selectedCount,
 }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const originalRef = useRef<ImageData | null>(null); // preview-scale original
-  const aiBaseRef = useRef<ImageData | null>(null); // image after AI tools (null = original)
+  const originalRef = useRef<ImageData | null>(null);
+  const aiBaseRef = useRef<ImageData | null>(null);
   const aiKeyRef = useRef<string>('');
 
   const [showOriginal, setShowOriginal] = useState(false);
   const [loading, setLoading] = useState(true);
   const [aiBusy, setAiBusy] = useState(false);
   const [aiInfo, setAiInfo] = useState<string | null>(null);
+  const [renderMs, setRenderMs] = useState(0);
+  const [openGroups, setOpenGroups] = useState<Set<string>>(new Set(['tone-color']));
 
-  const toneDef = getTool('tone-color');
-  const toneInst = getInstance(recipe, 'tone-color');
-  const skinDef = getTool('skin');
-  const skinInst = getInstance(recipe, 'skin');
+  // Every enabled AI tool, in pipeline order. They chain through the engine.
+  const enabledAi = orderedInstances(recipe).filter(
+    (i) => getTool(i.toolId).kind === 'ai' && i.enabled,
+  );
 
-  // The cache key for the AI stage (which AI tools + params are active).
   function aiKey(): string {
-    return skinInst.enabled ? `skin:${skinInst.params.strength}` : 'none';
+    if (enabledAi.length === 0) return 'none';
+    return enabledAi.map((i) => `${i.toolId}:${JSON.stringify(i.params)}`).join('|');
   }
 
+  // The render pipeline: AI stage (cached) → global tools in order.
   function draw() {
     const canvas = canvasRef.current;
     const orig = originalRef.current;
@@ -76,42 +80,49 @@ export default function Editor({
       ctx.putImageData(orig, 0, 0);
       return;
     }
+    const t0 = performance.now();
     const base = aiBaseRef.current ?? orig;
-    if (!toneInst.enabled || isToolAtDefault(toneInst)) {
-      ctx.putImageData(base, 0, 0);
-      return;
-    }
-    const copy = new ImageData(
-      new Uint8ClampedArray(base.data),
-      base.width,
-      base.height,
+    const globals = activeTools(recipe).filter(
+      (i) => getTool(i.toolId).kind === 'global',
     );
-    applyToneColor(copy.data, toneInst.params);
-    ctx.putImageData(copy, 0, 0);
+    let img: ImageData = base;
+    for (const inst of globals) {
+      img = applyGlobalTool(inst.toolId, img, inst.params);
+    }
+    ctx.putImageData(img, 0, 0);
+    setRenderMs(Math.round(performance.now() - t0));
   }
 
-  // Recompute the AI stage (runs enabled AI tools on the original via the engine).
   async function ensureAiStage(): Promise<void> {
     const key = aiKey();
     if (key === aiKeyRef.current) return;
 
-    if (!skinInst.enabled) {
-      aiBaseRef.current = null; // base is the original
+    if (enabledAi.length === 0) {
+      aiBaseRef.current = null;
       aiKeyRef.current = key;
       setAiInfo(null);
       return;
     }
-
     setAiBusy(true);
     const t0 = performance.now();
     try {
       const orig = originalRef.current!;
-      const res = await applyAiTool('skin', photo.url, skinInst.params);
-      aiBaseRef.current = await loadImageData(res.image, orig.width, orig.height);
+      // chain each AI tool's output into the next
+      let current = photo.url;
+      const notes: string[] = [];
+      for (const inst of enabledAi) {
+        const res = await applyAiTool(inst.toolId, current, inst.params);
+        current = res.image;
+        const metaKey = res.meta ? Object.keys(res.meta)[0] : undefined;
+        if (res.meta && metaKey) {
+          notes.push(
+            `${getTool(inst.toolId).label} ${Math.round(res.meta[metaKey] * 100)}%`,
+          );
+        }
+      }
+      aiBaseRef.current = await loadImageData(current, orig.width, orig.height);
       aiKeyRef.current = key;
-      const ms = Math.round(performance.now() - t0);
-      const cov = Math.round((res.meta?.skinCoverage ?? 0) * 100);
-      setAiInfo(`✓ עור זוהה: ${cov}% · ${ms}ms`);
+      setAiInfo(`✓ ${notes.join(' · ')} · ${Math.round(performance.now() - t0)}ms`);
     } catch {
       aiBaseRef.current = null;
       aiKeyRef.current = 'none';
@@ -121,7 +132,6 @@ export default function Editor({
     }
   }
 
-  // Load the image once per photo, capture original pixels, draw.
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
@@ -151,17 +161,14 @@ export default function Editor({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [photo.url]);
 
-  // Pipeline: on any recipe / before-after change, refresh the AI stage
-  // (debounced — it hits the engine) then draw the global tools on top.
   useEffect(() => {
     if (loading) return;
     let cancelled = false;
-
     if (aiKey() === aiKeyRef.current) {
-      draw(); // only global / before-after changed — instant
+      draw();
       return;
     }
-    draw(); // show current state while the engine works
+    draw();
     const timer = setTimeout(async () => {
       await ensureAiStage();
       if (!cancelled) draw();
@@ -173,9 +180,18 @@ export default function Editor({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [recipe, showOriginal, loading]);
 
-  function setToneParam(id: string, value: number) {
-    const patch: ParamValues = { [id]: value };
-    onRecipeChange(updateToolParams(recipe, 'tone-color', patch));
+  function toggleGroup(id: string) {
+    setOpenGroups((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function isActive(inst: ToolInstance): boolean {
+    const def = getTool(inst.toolId);
+    return def.kind === 'ai' ? inst.enabled : !isToolAtDefault(inst);
   }
 
   return (
@@ -185,7 +201,8 @@ export default function Editor({
         <canvas ref={canvasRef} className="preview-canvas" />
         <div className="canvas-name">
           {photo.name}
-          {skinInst.enabled && <span className="ai-tag">AI</span>}
+          {enabledAi.length > 0 && <span className="ai-tag">AI</span>}
+          {renderMs > 0 && <span className="ms">{renderMs}ms</span>}
         </div>
       </div>
 
@@ -202,74 +219,79 @@ export default function Editor({
           </button>
         </div>
 
+        {/* Every tool is rendered generically from the registry. */}
         <div className="tools">
-          {/* Global tool: tone & color */}
-          <div className="section-head">{toneDef.label}</div>
-          {toneDef.params.map((spec) => {
-            const val = toneInst.params[spec.id];
-            const active = val !== spec.default;
+          {orderedInstances(recipe).map((inst) => {
+            const def = getTool(inst.toolId);
+            const open = openGroups.has(def.id);
+            const active = isActive(inst);
             return (
-              <div className={`tool ${active ? 'active' : ''}`} key={spec.id}>
-                <div className="tool-row">
-                  <label>{spec.label}</label>
-                  <span className="val">{val}</span>
+              <div className={`tool-group ${active ? 'on' : ''}`} key={def.id}>
+                <div className="group-head" onClick={() => toggleGroup(def.id)}>
+                  <span className="caret">{open ? '▾' : '▸'}</span>
+                  <span className="group-title">
+                    {def.kind === 'ai' ? '✨ ' : ''}
+                    {def.label}
+                  </span>
+                  {def.kind === 'ai' ? (
+                    <label className="switch" onClick={(e) => e.stopPropagation()}>
+                      <input
+                        type="checkbox"
+                        checked={inst.enabled}
+                        onChange={(e) =>
+                          onRecipeChange(setToolEnabled(recipe, def.id, e.target.checked))
+                        }
+                      />
+                      <span className="slider-sw" />
+                    </label>
+                  ) : (
+                    active && <span className="dot" />
+                  )}
                 </div>
-                <input
-                  type="range"
-                  min={spec.min}
-                  max={spec.max}
-                  step={spec.step}
-                  value={val}
-                  onChange={(e) => setToneParam(spec.id, Number(e.target.value))}
-                  onDoubleClick={() => setToneParam(spec.id, spec.default)}
-                />
+
+                {open && (
+                  <div className="group-body">
+                    {def.params.map((spec) => {
+                      const val = inst.params[spec.id];
+                      const on = val !== spec.default;
+                      return (
+                        <div className={`tool ${on ? 'active' : ''}`} key={spec.id}>
+                          <div className="tool-row">
+                            <label>{spec.label}</label>
+                            <span className="val">{val}</span>
+                          </div>
+                          <input
+                            type="range"
+                            min={spec.min}
+                            max={spec.max}
+                            step={spec.step}
+                            value={val}
+                            onChange={(e) =>
+                              onRecipeChange(
+                                updateToolParams(recipe, def.id, {
+                                  [spec.id]: Number(e.target.value),
+                                }),
+                              )
+                            }
+                            onDoubleClick={() =>
+                              onRecipeChange(
+                                updateToolParams(recipe, def.id, {
+                                  [spec.id]: spec.default,
+                                }),
+                              )
+                            }
+                          />
+                        </div>
+                      );
+                    })}
+                    {def.kind === 'ai' && inst.enabled && (aiBusy || aiInfo) && (
+                      <div className="ai-info">{aiBusy ? 'מעבד…' : aiInfo}</div>
+                    )}
+                  </div>
+                )}
               </div>
             );
           })}
-
-          {/* AI tool: skin — a first-class citizen of the recipe */}
-          <div className="ai-section">
-            <div className="section-head ai">
-              <span>✨ {skinDef.label}</span>
-              <label className="switch">
-                <input
-                  type="checkbox"
-                  checked={skinInst.enabled}
-                  onChange={(e) =>
-                    onRecipeChange(setToolEnabled(recipe, 'skin', e.target.checked))
-                  }
-                />
-                <span className="slider-sw" />
-              </label>
-            </div>
-            {skinInst.enabled && (
-              <>
-                <div className="tool active">
-                  <div className="tool-row">
-                    <label>{skinDef.params[0].label}</label>
-                    <span className="val">{skinInst.params.strength}</span>
-                  </div>
-                  <input
-                    type="range"
-                    min={skinDef.params[0].min}
-                    max={skinDef.params[0].max}
-                    step={skinDef.params[0].step}
-                    value={skinInst.params.strength}
-                    onChange={(e) =>
-                      onRecipeChange(
-                        updateToolParams(recipe, 'skin', {
-                          strength: Number(e.target.value),
-                        }),
-                      )
-                    }
-                  />
-                </div>
-                {(aiBusy || aiInfo) && (
-                  <div className="ai-info">{aiBusy ? 'מעבד…' : aiInfo}</div>
-                )}
-              </>
-            )}
-          </div>
         </div>
 
         <div className="tool-actions">

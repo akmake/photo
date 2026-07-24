@@ -1,10 +1,15 @@
 import { useCallback, useMemo, useState } from 'react';
+import type { InputHTMLAttributes } from 'react';
 import type { Photo, Recipe } from './types';
 import { defaultRecipe, isRecipeActive, cloneRecipe } from './toolRegistry';
 import Editor from './components/Editor';
 
-// webkitdirectory isn't in the standard input typings.
-const dirProps = { webkitdirectory: '', directory: '', multiple: true } as never;
+// webkitdirectory / directory aren't in the standard React input typings.
+const dirProps = {
+  webkitdirectory: '',
+  directory: '',
+  multiple: true,
+} as unknown as InputHTMLAttributes<HTMLInputElement>;
 
 let idCounter = 0;
 

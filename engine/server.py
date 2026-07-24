@@ -9,21 +9,42 @@ import json
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import skin
+import background
+import cleanup
 
 PORT = 8756
 
 # Tool registry (mirrors the front-end registry; source of truth for the engine).
 TOOLS = [
     {
+        "id": "skin-cleanup",
+        "kind": "ai",
+        "category": "local-ai",
+        "params": [{"id": "strength", "min": 0, "max": 100, "default": 60}],
+    },
+    {
         "id": "skin",
         "kind": "ai",
         "category": "local-ai",
         "params": [{"id": "strength", "min": 0, "max": 100, "default": 60}],
     },
+    {
+        "id": "background-blur",
+        "kind": "ai",
+        "category": "scene",
+        "params": [
+            {"id": "amount", "min": 0, "max": 100, "default": 60},
+            {"id": "feather", "min": 0, "max": 100, "default": 40},
+        ],
+    },
 ]
 
 # id -> callable(image_b64, params) -> (out_b64, meta)
-DISPATCH = {"skin": skin.process}
+DISPATCH = {
+    "skin-cleanup": cleanup.process,
+    "skin": skin.process,
+    "background-blur": background.process,
+}
 
 
 class Handler(BaseHTTPRequestHandler):
