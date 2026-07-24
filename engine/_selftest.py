@@ -28,7 +28,8 @@ if __name__ == "__main__":
     img = make_noisy_skin()
     before = np.asarray(img).astype(np.float32)
     mask = skin.skin_mask(img)
-    out_b64, coverage = skin.process(to_b64(img), 80)
+    out_b64, meta = skin.process(to_b64(img), {"strength": 80})
+    coverage = meta["skinCoverage"]
     after = np.asarray(skin.b64_to_image(out_b64)).astype(np.float32)
 
     # local variance proxy: std of (pixel - 3x3-ish blurred) inside skin region

@@ -1,8 +1,15 @@
 import { useEffect, useRef, useState } from 'react';
-import type { Photo, Recipe, ToolId } from '../types';
-import { TOOLS, emptyRecipe, isRecipeEmpty } from '../toolDefs';
-import { applyRecipe } from '../imageEngine';
-import { smoothSkin } from '../api';
+import type { Photo, Recipe, ParamValues } from '../types';
+import {
+  getTool,
+  getInstance,
+  defaultRecipe,
+  isToolAtDefault,
+  updateToolParams,
+  setToolEnabled,
+} from '../toolRegistry';
+import { applyToneColor } from '../imageEngine';
+import { applyAiTool } from '../api';
 
 const MAX_PREVIEW = 1400;
 
@@ -14,6 +21,23 @@ interface Props {
   selectedCount: number;
 }
 
+function loadImageData(src: string, w: number, h: number): Promise<ImageData> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => {
+      const c = document.createElement('canvas');
+      c.width = w;
+      c.height = h;
+      const ctx = c.getContext('2d', { willReadFrequently: true });
+      if (!ctx) return reject(new Error('no ctx'));
+      ctx.drawImage(img, 0, 0, w, h);
+      resolve(ctx.getImageData(0, 0, w, h));
+    };
+    img.onerror = reject;
+    img.src = src;
+  });
+}
+
 export default function Editor({
   photo,
   recipe,
@@ -22,21 +46,87 @@ export default function Editor({
   selectedCount,
 }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const originalRef = useRef<ImageData | null>(null);
-  const aiImgRef = useRef<HTMLImageElement | null>(null);
+  const originalRef = useRef<ImageData | null>(null); // preview-scale original
+  const aiBaseRef = useRef<ImageData | null>(null); // image after AI tools (null = original)
+  const aiKeyRef = useRef<string>('');
+
   const [showOriginal, setShowOriginal] = useState(false);
   const [loading, setLoading] = useState(true);
-
-  // AI tool state
-  const [aiStrength, setAiStrength] = useState(60);
   const [aiBusy, setAiBusy] = useState(false);
   const [aiInfo, setAiInfo] = useState<string | null>(null);
-  const [aiVersion, setAiVersion] = useState(0);
 
-  // Load the image and capture its original pixels once per photo.
+  const toneDef = getTool('tone-color');
+  const toneInst = getInstance(recipe, 'tone-color');
+  const skinDef = getTool('skin');
+  const skinInst = getInstance(recipe, 'skin');
+
+  // The cache key for the AI stage (which AI tools + params are active).
+  function aiKey(): string {
+    return skinInst.enabled ? `skin:${skinInst.params.strength}` : 'none';
+  }
+
+  function draw() {
+    const canvas = canvasRef.current;
+    const orig = originalRef.current;
+    if (!canvas || !orig) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    if (showOriginal) {
+      ctx.putImageData(orig, 0, 0);
+      return;
+    }
+    const base = aiBaseRef.current ?? orig;
+    if (!toneInst.enabled || isToolAtDefault(toneInst)) {
+      ctx.putImageData(base, 0, 0);
+      return;
+    }
+    const copy = new ImageData(
+      new Uint8ClampedArray(base.data),
+      base.width,
+      base.height,
+    );
+    applyToneColor(copy.data, toneInst.params);
+    ctx.putImageData(copy, 0, 0);
+  }
+
+  // Recompute the AI stage (runs enabled AI tools on the original via the engine).
+  async function ensureAiStage(): Promise<void> {
+    const key = aiKey();
+    if (key === aiKeyRef.current) return;
+
+    if (!skinInst.enabled) {
+      aiBaseRef.current = null; // base is the original
+      aiKeyRef.current = key;
+      setAiInfo(null);
+      return;
+    }
+
+    setAiBusy(true);
+    const t0 = performance.now();
+    try {
+      const orig = originalRef.current!;
+      const res = await applyAiTool('skin', photo.url, skinInst.params);
+      aiBaseRef.current = await loadImageData(res.image, orig.width, orig.height);
+      aiKeyRef.current = key;
+      const ms = Math.round(performance.now() - t0);
+      const cov = Math.round((res.meta?.skinCoverage ?? 0) * 100);
+      setAiInfo(`✓ עור זוהה: ${cov}% · ${ms}ms`);
+    } catch {
+      aiBaseRef.current = null;
+      aiKeyRef.current = 'none';
+      setAiInfo('✗ מנוע ה-AI לא זמין');
+    } finally {
+      setAiBusy(false);
+    }
+  }
+
+  // Load the image once per photo, capture original pixels, draw.
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
+    aiBaseRef.current = null;
+    aiKeyRef.current = '';
     const img = new Image();
     img.onload = () => {
       if (cancelled) return;
@@ -52,79 +142,41 @@ export default function Editor({
       ctx.drawImage(img, 0, 0, w, h);
       originalRef.current = ctx.getImageData(0, 0, w, h);
       setLoading(false);
+      draw();
     };
     img.src = photo.url;
     return () => {
       cancelled = true;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [photo.url]);
 
-  // Redraw whenever recipe / before-after / AI result changes.
+  // Pipeline: on any recipe / before-after change, refresh the AI stage
+  // (debounced — it hits the engine) then draw the global tools on top.
   useEffect(() => {
     if (loading) return;
-    const canvas = canvasRef.current;
-    const orig = originalRef.current;
-    if (!canvas || !orig) return;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
+    let cancelled = false;
 
-    if (showOriginal) {
-      ctx.putImageData(orig, 0, 0);
+    if (aiKey() === aiKeyRef.current) {
+      draw(); // only global / before-after changed — instant
       return;
     }
-    if (aiImgRef.current) {
-      // AI result takes over the canvas (scaled to preview size)
-      ctx.drawImage(aiImgRef.current, 0, 0, canvas.width, canvas.height);
-      return;
-    }
-    if (isRecipeEmpty(recipe)) {
-      ctx.putImageData(orig, 0, 0);
-      return;
-    }
-    const copy = new ImageData(
-      new Uint8ClampedArray(orig.data),
-      orig.width,
-      orig.height,
-    );
-    applyRecipe(copy.data, recipe);
-    ctx.putImageData(copy, 0, 0);
-  }, [recipe, showOriginal, loading, aiVersion]);
+    draw(); // show current state while the engine works
+    const timer = setTimeout(async () => {
+      await ensureAiStage();
+      if (!cancelled) draw();
+    }, 250);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [recipe, showOriginal, loading]);
 
-  function setTool(id: ToolId, value: number) {
-    onRecipeChange({ ...recipe, [id]: value });
+  function setToneParam(id: string, value: number) {
+    const patch: ParamValues = { [id]: value };
+    onRecipeChange(updateToolParams(recipe, 'tone-color', patch));
   }
-
-  async function runSkin() {
-    setAiBusy(true);
-    setAiInfo('מעבד…');
-    try {
-      const res = await smoothSkin(photo.url, aiStrength);
-      await new Promise<void>((resolve) => {
-        const img = new Image();
-        img.onload = () => {
-          aiImgRef.current = img;
-          resolve();
-        };
-        img.onerror = () => resolve();
-        img.src = res.image;
-      });
-      setAiInfo(`✓ עור זוהה: ${Math.round(res.skinCoverage * 100)}% מהתמונה`);
-      setAiVersion((v) => v + 1);
-    } catch {
-      aiImgRef.current = null;
-      setAiInfo('✗ מנוע ה-AI לא זמין — ודא שהמנוע רץ');
-    } finally {
-      setAiBusy(false);
-    }
-  }
-
-  function clearAi() {
-    aiImgRef.current = null;
-    setAiInfo(null);
-    setAiVersion((v) => v + 1);
-  }
-
-  const aiActive = aiImgRef.current !== null;
 
   return (
     <div className="editor">
@@ -133,7 +185,7 @@ export default function Editor({
         <canvas ref={canvasRef} className="preview-canvas" />
         <div className="canvas-name">
           {photo.name}
-          {aiActive && <span className="ai-tag">AI</span>}
+          {skinInst.enabled && <span className="ai-tag">AI</span>}
         </div>
       </div>
 
@@ -151,57 +203,77 @@ export default function Editor({
         </div>
 
         <div className="tools">
-          {TOOLS.map((t) => {
-            const active = recipe[t.id] !== t.default;
+          {/* Global tool: tone & color */}
+          <div className="section-head">{toneDef.label}</div>
+          {toneDef.params.map((spec) => {
+            const val = toneInst.params[spec.id];
+            const active = val !== spec.default;
             return (
-              <div className={`tool ${active ? 'active' : ''}`} key={t.id}>
+              <div className={`tool ${active ? 'active' : ''}`} key={spec.id}>
                 <div className="tool-row">
-                  <label>{t.label}</label>
-                  <span className="val">{recipe[t.id]}</span>
+                  <label>{spec.label}</label>
+                  <span className="val">{val}</span>
                 </div>
                 <input
                   type="range"
-                  min={t.min}
-                  max={t.max}
-                  step={t.step}
-                  value={recipe[t.id]}
-                  onChange={(e) => setTool(t.id, Number(e.target.value))}
-                  onDoubleClick={() => setTool(t.id, t.default)}
+                  min={spec.min}
+                  max={spec.max}
+                  step={spec.step}
+                  value={val}
+                  onChange={(e) => setToneParam(spec.id, Number(e.target.value))}
+                  onDoubleClick={() => setToneParam(spec.id, spec.default)}
                 />
               </div>
             );
           })}
 
+          {/* AI tool: skin — a first-class citizen of the recipe */}
           <div className="ai-section">
-            <div className="ai-head">✨ כלי AI · החלקת עור</div>
-            <div className="tool">
-              <div className="tool-row">
-                <label>עוצמה</label>
-                <span className="val">{aiStrength}</span>
-              </div>
-              <input
-                type="range"
-                min={0}
-                max={100}
-                step={1}
-                value={aiStrength}
-                onChange={(e) => setAiStrength(Number(e.target.value))}
-              />
+            <div className="section-head ai">
+              <span>✨ {skinDef.label}</span>
+              <label className="switch">
+                <input
+                  type="checkbox"
+                  checked={skinInst.enabled}
+                  onChange={(e) =>
+                    onRecipeChange(setToolEnabled(recipe, 'skin', e.target.checked))
+                  }
+                />
+                <span className="slider-sw" />
+              </label>
             </div>
-            <button className="ai-btn" disabled={aiBusy} onClick={runSkin}>
-              {aiBusy ? 'מעבד…' : 'החלקת עור (AI)'}
-            </button>
-            {aiActive && !aiBusy && (
-              <button className="linklike" onClick={clearAi}>
-                בטל AI
-              </button>
+            {skinInst.enabled && (
+              <>
+                <div className="tool active">
+                  <div className="tool-row">
+                    <label>{skinDef.params[0].label}</label>
+                    <span className="val">{skinInst.params.strength}</span>
+                  </div>
+                  <input
+                    type="range"
+                    min={skinDef.params[0].min}
+                    max={skinDef.params[0].max}
+                    step={skinDef.params[0].step}
+                    value={skinInst.params.strength}
+                    onChange={(e) =>
+                      onRecipeChange(
+                        updateToolParams(recipe, 'skin', {
+                          strength: Number(e.target.value),
+                        }),
+                      )
+                    }
+                  />
+                </div>
+                {(aiBusy || aiInfo) && (
+                  <div className="ai-info">{aiBusy ? 'מעבד…' : aiInfo}</div>
+                )}
+              </>
             )}
-            {aiInfo && <div className="ai-info">{aiInfo}</div>}
           </div>
         </div>
 
         <div className="tool-actions">
-          <button className="secondary" onClick={() => onRecipeChange(emptyRecipe())}>
+          <button className="secondary" onClick={() => onRecipeChange(defaultRecipe())}>
             איפוס
           </button>
           <button

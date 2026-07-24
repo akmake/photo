@@ -56,9 +56,10 @@ def smooth_skin(img: Image.Image, strength: float) -> Image.Image:
     return Image.fromarray(np.clip(result, 0, 255).astype(np.uint8))
 
 
-def process(image_b64: str, strength_pct: float):
+def process(image_b64: str, params: dict):
+    """Apply the skin tool. params: { strength: 0..100 }."""
     img = b64_to_image(image_b64)
-    strength = max(0.0, min(1.0, strength_pct / 100.0))
+    strength = max(0.0, min(1.0, float(params.get("strength", 60)) / 100.0))
     out = smooth_skin(img, strength)
     coverage = float(skin_mask(img).mean())  # fraction detected as skin
-    return image_to_b64(out), coverage
+    return image_to_b64(out), {"skinCoverage": round(coverage, 4)}

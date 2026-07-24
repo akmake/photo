@@ -1,30 +1,45 @@
-// Core domain types for the recipe-builder editor.
+// Core domain model. Every tool — global or AI — is the same citizen here.
 
-export type ToolId =
-  | 'exposure'
-  | 'contrast'
-  | 'highlights'
-  | 'shadows'
-  | 'temperature'
-  | 'tint'
-  | 'saturation'
-  | 'vibrance';
+export type ToolKind = 'global' | 'ai';
+export type BatchPolicy = 'absolute' | 'adaptive';
+export type ToolCategory = 'raw' | 'local-ai' | 'tone-color' | 'scene' | 'artistic';
 
-// A recipe is the set of tool values the photographer dialed in.
-export type Recipe = Record<ToolId, number>;
-
-export interface ToolDef {
-  id: ToolId;
-  label: string; // Hebrew label
+export interface ToolParamSpec {
+  id: string;
+  label: string; // Hebrew
   min: number;
   max: number;
   step: number;
   default: number;
 }
 
+export interface ToolDef {
+  id: string;
+  label: string; // Hebrew
+  kind: ToolKind;
+  category: ToolCategory;
+  order: number; // pipeline order (lower runs first)
+  batchPolicy: BatchPolicy;
+  params: ToolParamSpec[];
+}
+
+export type ParamValues = Record<string, number>;
+
+// A tool placed in a recipe, with the values the photographer chose.
+export interface ToolInstance {
+  toolId: string;
+  params: ParamValues;
+  enabled: boolean;
+}
+
+// The recipe: an ordered, non-destructive stack of tools. This is the heart.
+export interface Recipe {
+  tools: ToolInstance[];
+}
+
 export interface Photo {
   id: string;
   name: string;
   url: string; // object URL to the local file
-  recipe: Recipe; // the recipe currently applied to this photo
+  recipe: Recipe;
 }

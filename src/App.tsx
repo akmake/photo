@@ -1,6 +1,6 @@
 import { useCallback, useMemo, useState } from 'react';
 import type { Photo, Recipe } from './types';
-import { emptyRecipe, isRecipeEmpty } from './toolDefs';
+import { defaultRecipe, isRecipeActive, cloneRecipe } from './toolRegistry';
 import Editor from './components/Editor';
 
 // webkitdirectory isn't in the standard input typings.
@@ -26,7 +26,7 @@ export default function App() {
         id: `p${idCounter++}`,
         name: file.name,
         url: URL.createObjectURL(file),
-        recipe: emptyRecipe(),
+        recipe: defaultRecipe(),
       });
     }
     if (imgs.length === 0) return;
@@ -53,7 +53,7 @@ export default function App() {
     const recipe = openPhoto.recipe;
     setPhotos((prev) =>
       prev.map((p) =>
-        selected.has(p.id) ? { ...p, recipe: { ...recipe } } : p,
+        selected.has(p.id) ? { ...p, recipe: cloneRecipe(recipe) } : p,
       ),
     );
   }, [openPhoto, selected]);
@@ -62,13 +62,13 @@ export default function App() {
     return <EmptyState onFolder={loadFolder} />;
   }
 
-  const editedCount = photos.filter((p) => !isRecipeEmpty(p.recipe)).length;
+  const editedCount = photos.filter((p) => isRecipeActive(p.recipe)).length;
 
   return (
     <div className="app">
       <header className="topbar">
         <div className="brand">
-          סטודיו<span> · עורך תמונות</span>
+          Signet<span> · עורך תמונות</span>
         </div>
         <div className="topbar-meta">
           {photos.length} תמונות · {editedCount} נערכו · {selected.size} מסומנות
@@ -128,7 +128,7 @@ function Thumb({
   onOpen: () => void;
   onToggle: () => void;
 }) {
-  const edited = !isRecipeEmpty(photo.recipe);
+  const edited = isRecipeActive(photo.recipe);
   return (
     <div
       className={`thumb ${open ? 'open' : ''} ${selected ? 'selected' : ''}`}
@@ -155,7 +155,7 @@ function EmptyState({ onFolder }: { onFolder: (f: FileList) => void }) {
   return (
     <div className="empty">
       <div className="empty-card">
-        <div className="empty-logo">סטודיו</div>
+        <div className="empty-logo">SIGNET</div>
         <h1>עורך התמונות</h1>
         <p>טעני תיקיית תמונות, בני מתכון עריכה על תמונה אחת, והחילי אותו על כל השאר.</p>
         <label className="primary big">

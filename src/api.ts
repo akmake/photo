@@ -1,5 +1,6 @@
 // Talks to the local Python engine (sidecar) over localhost.
-// Images never leave the machine.
+// Images never leave the machine. In the browser dev harness images travel as
+// data URLs; in the packaged Electron app they'll travel as local file paths.
 const ENGINE = 'http://127.0.0.1:8756';
 
 export async function checkEngine(): Promise<boolean> {
@@ -21,20 +22,24 @@ async function urlToDataURL(url: string): Promise<string> {
   });
 }
 
-export interface SkinResult {
+export interface AiToolResult {
   image: string; // data URL of the processed image
-  skinCoverage: number; // 0..1 fraction detected as skin
+  meta?: Record<string, number>;
 }
 
-export async function smoothSkin(
-  imageUrl: string,
-  strength: number,
-): Promise<SkinResult> {
-  const dataUrl = await urlToDataURL(imageUrl);
-  const r = await fetch(`${ENGINE}/tools/skin-smooth`, {
+// Uniform call for any AI tool: POST /tools/{id}/apply.
+export async function applyAiTool(
+  toolId: string,
+  imageUrlOrData: string,
+  params: Record<string, number>,
+): Promise<AiToolResult> {
+  const image = imageUrlOrData.startsWith('data:')
+    ? imageUrlOrData
+    : await urlToDataURL(imageUrlOrData);
+  const r = await fetch(`${ENGINE}/tools/${toolId}/apply`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ image: dataUrl, strength }),
+    body: JSON.stringify({ image, params }),
   });
   if (!r.ok) throw new Error(`engine ${r.status}`);
   return r.json();

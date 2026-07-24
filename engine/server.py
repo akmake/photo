@@ -2,7 +2,7 @@
 
 A tiny dependency-light HTTP server the desktop app talks to over localhost.
 In the packaged Electron app this process is spawned as a sidecar; images never
-leave the machine. Each AI tool is one endpoint under /tools/*.
+leave the machine. Each AI tool is dispatched under /tools/{id}/apply.
 """
 
 import json
@@ -11,6 +11,19 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import skin
 
 PORT = 8756
+
+# Tool registry (mirrors the front-end registry; source of truth for the engine).
+TOOLS = [
+    {
+        "id": "skin",
+        "kind": "ai",
+        "category": "local-ai",
+        "params": [{"id": "strength", "min": 0, "max": 100, "default": 60}],
+    },
+]
+
+# id -> callable(image_b64, params) -> (out_b64, meta)
+DISPATCH = {"skin": skin.process}
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -27,29 +40,32 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         if self.path == "/health":
-            self._json(200, {"status": "ok", "tools": ["skin-smooth"]})
+            self._json(200, {"status": "ok", "tools": [t["id"] for t in TOOLS]})
+        elif self.path == "/tools":
+            self._json(200, {"tools": TOOLS})
         else:
             self._json(404, {"error": "not found"})
 
     def do_POST(self):
-        if self.path != "/tools/skin-smooth":
+        parts = self.path.strip("/").split("/")
+        if len(parts) == 3 and parts[0] == "tools" and parts[2] == "apply":
+            tool_id = parts[1]
+            fn = DISPATCH.get(tool_id)
+            if fn is None:
+                self._json(404, {"error": f"unknown tool {tool_id}"})
+                return
+            try:
+                length = int(self.headers.get("Content-Length", 0))
+                body = json.loads(self.rfile.read(length))
+                out_b64, meta = fn(body["image"], body.get("params", {}))
+                self._json(
+                    200,
+                    {"image": "data:image/png;base64," + out_b64, "meta": meta},
+                )
+            except Exception as e:  # noqa: BLE001 - surface errors to the client
+                self._json(500, {"error": str(e)})
+        else:
             self._json(404, {"error": "not found"})
-            return
-        try:
-            length = int(self.headers.get("Content-Length", 0))
-            body = json.loads(self.rfile.read(length))
-            out_b64, coverage = skin.process(
-                body["image"], float(body.get("strength", 50))
-            )
-            self._json(
-                200,
-                {
-                    "image": "data:image/png;base64," + out_b64,
-                    "skinCoverage": round(coverage, 4),
-                },
-            )
-        except Exception as e:  # noqa: BLE001 - surface errors to the client
-            self._json(500, {"error": str(e)})
 
     def _json(self, code, obj):
         payload = json.dumps(obj).encode("utf-8")
@@ -65,5 +81,5 @@ class Handler(BaseHTTPRequestHandler):
 
 
 if __name__ == "__main__":
-    print(f"skin engine listening on http://127.0.0.1:{PORT}")
+    print(f"engine listening on http://127.0.0.1:{PORT}")
     ThreadingHTTPServer(("127.0.0.1", PORT), Handler).serve_forever()
