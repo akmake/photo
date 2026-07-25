@@ -9,6 +9,7 @@ import base64
 import json
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
+import abpn
 import common
 import raw
 import render
@@ -20,6 +21,12 @@ PORT = 8756
 
 # Tool registry (mirrors the front-end registry; source of truth for the engine).
 TOOLS = [
+    {
+        "id": "face-retouch",
+        "kind": "ai",
+        "category": "local-ai",
+        "params": [{"id": "strength", "min": 0, "max": 100, "default": 70}],
+    },
     {
         "id": "skin-cleanup",
         "kind": "ai",
@@ -45,6 +52,7 @@ TOOLS = [
 
 # id -> callable(image_b64, params) -> (out_b64, meta)
 DISPATCH = {
+    "face-retouch": abpn.process,
     "skin-cleanup": cleanup.process,
     "skin": skin.process,
     "background-blur": background.process,

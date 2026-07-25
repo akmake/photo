@@ -16,6 +16,7 @@ import numpy as np
 import common
 import masks
 
+import abpn
 import background
 import cleanup
 import skin
@@ -25,6 +26,7 @@ import globals_py
 # All entries share the (rgb, params) -> (rgb, meta) contract so the frame stays
 # a numpy array for the whole chain — no PNG round-trip between steps.
 TOOLS = {
+    "face-retouch": (abpn.apply, 8),  # learned model — the primary skin tool
     "skin-cleanup": (cleanup.apply, 10),
     "skin": (skin.apply, 20),
     "background-blur": (background.apply, 25),

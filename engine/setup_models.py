@@ -24,6 +24,11 @@ MODELS = {
     "midas_small.onnx": (
         "https://github.com/isl-org/MiDaS/releases/download/v2_1/model-small.onnx"
     ),
+    # learned skin retouching (DAMO ABPN U-Net, Apache 2.0)
+    "pytorch_model.pt": (
+        "https://www.modelscope.cn/api/v1/models/damo/"
+        "cv_unet_skin_retouching_torch/repo?Revision=master&FilePath=pytorch_model.pt"
+    ),
 }
 
 if __name__ == "__main__":

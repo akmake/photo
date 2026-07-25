@@ -3,3 +3,4 @@ pillow
 mediapipe
 rawpy
 onnxruntime
+torch

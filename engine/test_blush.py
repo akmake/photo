@@ -13,9 +13,12 @@ import sys
 import cv2
 import numpy as np
 
+import abpn
 import common
 import masks
 import cleanup
+
+TOOLS = {"cleanup": cleanup.apply, "abpn": abpn.apply}
 
 # Max allowed drift of mean cheek colour, in Lab units. ~1.0 is the threshold
 # of human perception for a large flat area, so 0.6 is a strict bar.
@@ -38,17 +41,18 @@ def check(path: str) -> bool:
         print(f"  SKIP {path}: no cheeks detected")
         return True
 
-    out, meta = cleanup.apply(rgb, {"strength": 90})  # worst case: most aggressive
-    after = cheek_stats(out, cheeks)
-
-    drift = np.abs(after - before)
-    ok = bool((drift <= TOL).all())
-    print(
-        f"  {'PASS' if ok else 'FAIL'}  {path.split(chr(92))[-1]}  "
-        f"dL={drift[0]:.3f} da={drift[1]:.3f} db={drift[2]:.3f}  "
-        f"(tol {TOL})  {meta}"
-    )
-    return ok
+    name = path.split(chr(92))[-1]
+    all_ok = True
+    for tool, fn in TOOLS.items():
+        out, meta = fn(rgb, {"strength": 90})  # worst case: most aggressive
+        drift = np.abs(cheek_stats(out, cheeks) - before)
+        ok = bool((drift <= TOL).all())
+        all_ok &= ok
+        print(
+            f"  {'PASS' if ok else 'FAIL'}  {tool:8s} {name}  "
+            f"dL={drift[0]:.3f} da={drift[1]:.3f} db={drift[2]:.3f}  (tol {TOL})"
+        )
+    return all_ok
 
 
 if __name__ == "__main__":

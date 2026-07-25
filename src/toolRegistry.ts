@@ -9,6 +9,15 @@ import type {
 // in the app needs to special-case it — the UI and pipeline are built from this.
 export const TOOLS: ToolDef[] = [
   {
+    id: 'face-retouch',
+    label: 'ריטוש פנים (AI)',
+    kind: 'ai',
+    category: 'local-ai',
+    order: 8, // the learned model runs first, on neutral data
+    batchPolicy: 'absolute',
+    params: [{ id: 'strength', label: 'עוצמה', min: 0, max: 100, step: 1, default: 70 }],
+  },
+  {
     id: 'skin',
     label: 'החלקת עור',
     kind: 'ai',
