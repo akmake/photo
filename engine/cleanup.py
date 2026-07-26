@@ -27,6 +27,159 @@ import skinmodel
 
 # A face must be at least this wide (px) for blemish healing to be safe.
 MIN_FACE_PX = 180
+FOREHEAD_CENTER = 10
+CHIN_BOTTOM = 152
+NOSE_TIP = 1
+
+
+def _bright_debris_confidence(
+    model: skinmodel.SkinModel,
+    region: np.ndarray,
+    protected: np.ndarray,
+    face_d: float,
+    strength: float,
+) -> np.ndarray:
+    """Detect tiny bright debris without making the main detector crease-blind.
+
+    The general novelty score deliberately downweights Lab lightness because
+    shadows and facial folds are mostly luminance. Small white crumbs are also
+    mostly luminance, so they need a separate detector whose safety comes from
+    SCALE and COMPACTNESS instead of globally raising the L-channel weight.
+    """
+    usable = region > 0.5
+    out = np.zeros(region.shape, np.float32)
+    if usable.sum() < 64:
+        return out
+
+    light_mid = model.mid[..., 0]
+    median = float(np.median(light_mid[usable]))
+    sigma = skinmodel._robust_sigma(light_mid[usable])
+    z = (light_mid - median) / sigma
+
+    # A low threshold grows the complete flake; a high peak is still required
+    # before any component is accepted. Strength changes sensitivity without
+    # changing the geometric safety limits.
+    extent_z = 3.4 - strength * 1.0
+    seed_z = 8.4 - strength * 2.0
+    # Bright eyelid rims and hair gaps are compact too. Keep a face-scaled
+    # margin from actual features/hair; real cheek and mouth debris remains
+    # eligible even when it is close to a protected anatomical crease.
+    safe_distance = cv2.distanceTransform(
+        (protected < 0.1).astype(np.uint8), cv2.DIST_L2, 3
+    )
+    interior = safe_distance > max(3.0, face_d * 0.035)
+    extent = ((z > extent_z) & (region > 0.35) & interior).astype(np.uint8)
+    count, labels, stats, _ = cv2.connectedComponentsWithStats(extent, 8)
+
+    max_side = max(5, int(face_d * 0.045))
+    max_area = max(12, int((face_d * 0.04) ** 2))
+    max_radius = max(2.0, face_d * 0.018)
+    for index in range(1, count):
+        component = labels == index
+        if float(z[component].max()) < seed_z:
+            continue
+        if (
+            stats[index, cv2.CC_STAT_WIDTH] > max_side
+            or stats[index, cv2.CC_STAT_HEIGHT] > max_side
+            or stats[index, cv2.CC_STAT_AREA] > max_area
+        ):
+            continue
+        radius = float(
+            cv2.distanceTransform(component.astype(np.uint8), cv2.DIST_L2, 3).max()
+        )
+        if radius > max_radius:
+            continue
+        out[component] = 1.0
+
+    if out.any():
+        # A one-pixel highlight would disappear below decide()'s 0.60 seed after
+        # feathering. Give accepted debris a tiny solid core; decide() still
+        # controls its final halo and size.
+        out = cv2.dilate(out, np.ones((3, 3), np.uint8))
+        out *= region
+    return out
+
+
+def _reflection_matrix(rgb: np.ndarray) -> np.ndarray | None:
+    """Reflection across the facial midline, or None when symmetry is unsafe."""
+    faces = masks._face_landmarks(rgb)
+    if len(faces) != 1:
+        return None
+    lm = faces[0]
+    h, w = rgb.shape[:2]
+
+    def point(index: int) -> np.ndarray:
+        return np.array([lm[index].x * w, lm[index].y * h], np.float32)
+
+    left = point(masks.FACE_LEFT)
+    right = point(masks.FACE_RIGHT)
+    nose = point(NOSE_TIP)
+    dl = float(np.linalg.norm(nose - left))
+    dr = float(np.linalg.norm(nose - right))
+    # A strongly turned face is not a mirror image in camera space.  Falling
+    # back is safer than copying a foreshortened cheek onto the visible cheek.
+    if min(dl, dr) / max(dl, dr, 1e-5) < 0.55:
+        return None
+
+    top = point(FOREHEAD_CENTER)
+    bottom = point(CHIN_BOTTOM)
+    direction = bottom - top
+    length = float(np.linalg.norm(direction))
+    if length < 20:
+        return None
+    direction /= length
+
+    # Reflection around a line through `top` with unit direction d:
+    # R = 2dd^T - I, translation keeps the line fixed.
+    reflect = 2.0 * np.outer(direction, direction) - np.eye(2, dtype=np.float32)
+    translate = top - reflect @ top
+    return np.column_stack([reflect, translate]).astype(np.float32)
+
+
+def _heal_with_symmetry(
+    crop: np.ndarray,
+    repair: np.ndarray,
+    conf: np.ndarray,
+    region: np.ndarray,
+    face_d: float,
+) -> tuple[np.ndarray, int]:
+    """Use clean opposite-side skin first, with the current healer as fallback."""
+    matrix = _reflection_matrix(crop)
+    allowed = (region > 0.35).astype(np.uint8)
+    if matrix is None:
+        return healing.inpaint_texture(crop, repair, allowed), 0
+
+    h, w = crop.shape[:2]
+    mirrored = cv2.warpAffine(
+        crop,
+        matrix,
+        (w, h),
+        flags=cv2.INTER_LINEAR,
+        borderMode=cv2.BORDER_REFLECT_101,
+    )
+
+    # Creases are valid donors; actual features, hair and non-skin are not.
+    donor_skin = masks.get_mask(crop, "face-skin")
+    donor_features = masks.get_mask(crop, "face-features")
+    donor_hair = masks.get_mask(crop, "hair")
+    donor_ok = (
+        (donor_skin > 0.35) & (donor_features < 0.15) & (donor_hair < 0.15)
+    ).astype(np.uint8)
+    donor_valid = cv2.warpAffine(
+        donor_ok, matrix, (w, h), flags=cv2.INTER_NEAREST, borderValue=0
+    )
+
+    # Be stricter for donors than for repairs.  Even a weakly suspicious patch
+    # on the opposite side is rejected instead of being copied.
+    suspect = (conf > 0.12).astype(np.uint8)
+    halo = max(3, int(face_d * 0.008)) | 1
+    suspect = cv2.dilate(suspect, np.ones((halo, halo), np.uint8))
+    donor_suspect = cv2.warpAffine(
+        suspect, matrix, (w, h), flags=cv2.INTER_NEAREST, borderValue=1
+    )
+    return healing.symmetric_reconstruct(
+        crop, repair, mirrored, donor_valid, donor_suspect, allowed
+    )
 
 
 def process(image_b64: str, params: dict):
@@ -69,7 +222,8 @@ def confidence(rgb, params: dict):
     # estimated one-sidedly along every one of those borders, which then reads
     # as deviation. `face-features` is the honest sampling exclusion: eyes,
     # brows, lips and nostrils are the only parts that genuinely are not skin.
-    support = np.clip(skin - masks.get_mask(rgb, "face-features") - hair, 0.0, 1.0)
+    simple_features = masks.get_mask(rgb, "face-features")
+    support = np.clip(skin - simple_features - hair, 0.0, 1.0)
 
     model = skinmodel.build(rgb, region, face_d, support=support)
 
@@ -81,6 +235,12 @@ def confidence(rgb, params: dict):
     conf = np.clip((model.novelty - lo) / (hi - lo), 0.0, 1.0)
     conf = conf * conf * (3 - 2 * conf)  # smoothstep: no hard edges
     conf *= region
+    conf = np.maximum(
+        conf,
+        _bright_debris_confidence(
+            model, region, np.maximum(simple_features, hair), face_d, strength
+        ),
+    )
 
     # Safety net: a blemish is LOCAL. Anything larger than this is skin
     # character the model failed to absorb (a broad shadow, strong blush on an
@@ -215,7 +375,9 @@ def apply(rgb, params: dict):
         repair = decide(conf, face_c)
         if not repair.any():
             return rgb, {"spotsRemoved": 0, "correctedPx": 0}
-        healed = healing.inpaint_texture(crop, repair, (region > 0.35).astype(np.uint8))
+        healed, symmetry_used = _heal_with_symmetry(
+            crop, repair, conf, region, face_c
+        )
         # Reconstruction is all-or-nothing: it replaces what is under the mark.
         # Cross-fading it with the original at the confidence value would leave a
         # proportional ghost of the very thing it rebuilt — which is exactly what
@@ -228,7 +390,11 @@ def apply(rgb, params: dict):
         out = rgb.copy()
         out[y0:y1, x0:x1] = np.clip(out_crop, 0, 255).astype(np.uint8)
         n, _, stats, _ = cv2.connectedComponentsWithStats(repair, connectivity=8)
-        return out, {"spotsRemoved": max(0, n - 1), "correctedPx": int(area)}
+        return out, {
+            "spotsRemoved": max(0, n - 1),
+            "correctedPx": int(area),
+            "symmetryUsed": symmetry_used,
+        }
     else:
         # low is reassembled untouched -> natural colour cannot be neutralised.
         # mid is where the blemish lives -> suppressed by confidence.

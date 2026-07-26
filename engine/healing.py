@@ -314,6 +314,264 @@ def inpaint_texture(
     return output
 
 
+def symmetric_reconstruct(
+    rgb: np.ndarray,
+    mask: np.ndarray,
+    mirrored_rgb: np.ndarray,
+    donor_valid: np.ndarray,
+    donor_suspect: np.ndarray,
+    allowed_region: np.ndarray | None = None,
+) -> tuple[np.ndarray, int]:
+    """Prefer the anatomically matching point on the other side of the face.
+
+    ``mirrored_rgb`` is already aligned to this face by the caller.  The
+    opposite side is used only when the complete repair component maps to skin
+    and does not overlap another suspected blemish.  Components that fail those
+    checks retain the ordinary inpaint+texture result.
+
+    A per-component Lab offset matches local illumination without removing the
+    mirrored structure.  This is the useful part of facial symmetry: a real
+    crease or contour on one side can survive a repair on the other.
+    """
+    binary = _binary(mask)
+    if not binary.any():
+        return rgb.copy(), 0
+
+    allowed = (
+        np.ones(binary.shape, np.uint8)
+        if allowed_region is None
+        else _binary(allowed_region)
+    )
+    valid = _binary(donor_valid)
+    suspect = _binary(donor_suspect)
+
+    # This is also the safe fallback for every component whose opposite side is
+    # occluded, outside skin, or itself blemished.
+    output = inpaint_texture(rgb, binary, allowed)
+    source_lab = cv2.cvtColor(rgb, cv2.COLOR_RGB2LAB).astype(np.float32)
+    mirror_lab = cv2.cvtColor(mirrored_rgb, cv2.COLOR_RGB2LAB).astype(np.float32)
+
+    used = 0
+    count, labels, stats, _ = cv2.connectedComponentsWithStats(binary, 8)
+    for index in range(1, count):
+        if stats[index, cv2.CC_STAT_AREA] < 2:
+            continue
+        component = labels == index
+        if float(valid[component].mean()) < 0.98 or suspect[component].any():
+            continue
+
+        ys, xs = np.where(component)
+        lesion_w = int(xs.max() - xs.min() + 1)
+        lesion_h = int(ys.max() - ys.min() + 1)
+        margin = max(5, int(max(lesion_w, lesion_h) * 0.9))
+        x0 = max(0, int(xs.min()) - margin)
+        y0 = max(0, int(ys.min()) - margin)
+        x1 = min(rgb.shape[1], int(xs.max()) + margin + 1)
+        y1 = min(rgb.shape[0], int(ys.max()) + margin + 1)
+
+        local_mask = component[y0:y1, x0:x1].astype(np.uint8)
+        ring_size = _odd(max(5, int(np.sqrt(float(local_mask.sum())) * 0.75)))
+        ring = cv2.dilate(
+            local_mask, np.ones((ring_size, ring_size), np.uint8)
+        ).astype(bool)
+        ring &= ~local_mask.astype(bool)
+        ring &= allowed[y0:y1, x0:x1] > 0
+        ring &= valid[y0:y1, x0:x1] > 0
+        ring &= suspect[y0:y1, x0:x1] == 0
+        if ring.sum() < 16:
+            continue
+
+        target_patch = source_lab[y0:y1, x0:x1]
+        mirror_patch = mirror_lab[y0:y1, x0:x1]
+        delta = np.median(target_patch[ring] - mirror_patch[ring], axis=0)
+        # Luminance may legitimately differ across the face; chroma should not
+        # jump enough to manufacture a differently coloured patch.
+        delta = np.clip(delta, [-18.0, -8.0, -8.0], [18.0, 8.0, 8.0])
+        candidate_lab = np.clip(mirror_patch + delta[None, None, :], 0, 255).astype(
+            np.uint8
+        )
+        candidate = cv2.cvtColor(candidate_lab, cv2.COLOR_LAB2RGB).astype(np.float32)
+
+        feather = _odd(max(3, int(np.sqrt(float(local_mask.sum())) * 0.22)))
+        alpha = cv2.GaussianBlur(local_mask.astype(np.float32), (feather, feather), 0)
+        alpha = np.clip(alpha * 1.35, 0.0, 1.0)[..., None]
+        current = output[y0:y1, x0:x1].astype(np.float32)
+        mixed = current * (1.0 - alpha) + candidate * alpha
+        output[y0:y1, x0:x1] = np.clip(mixed, 0, 255).astype(np.uint8)
+        used += 1
+
+    return output, used
+
+
+def consensus_texture(
+    rgb: np.ndarray,
+    mask: np.ndarray,
+    allowed_region: np.ndarray | None = None,
+    suspect_region: np.ndarray | None = None,
+) -> tuple[np.ndarray, dict]:
+    """Heal with a donor selected by agreement between many clean candidates.
+
+    Averaging donor pixels would erase real pore texture.  Instead candidates
+    vote through robust descriptors (tone, variation, gradient and texture
+    energy); the most representative surviving patch contributes its genuine
+    high-frequency texture while classical inpainting supplies local tone.
+    """
+    binary = _binary(mask)
+    if not binary.any():
+        return rgb.copy(), {"components": 0, "candidates": 0}
+
+    allowed = (
+        np.ones(binary.shape, np.uint8)
+        if allowed_region is None
+        else _binary(allowed_region)
+    )
+    suspect = (
+        np.zeros(binary.shape, np.uint8)
+        if suspect_region is None
+        else _binary(suspect_region)
+    )
+
+    halo_radius = _odd(max(7, int(np.sqrt(float(binary.sum())) * 0.35)))
+    forbidden = cv2.dilate(binary, np.ones((halo_radius, halo_radius), np.uint8))
+    ctx = _Context(rgb)
+    base = telea(rgb, binary)
+    output = base.copy()
+    base_lab_full = cv2.cvtColor(base, cv2.COLOR_RGB2LAB).astype(np.float32)
+    source_lab = ctx.lab
+    low = ctx.low(4.0)
+    texture = source_lab - cv2.GaussianBlur(source_lab, (0, 0), sigmaX=1.5)
+
+    used_components = 0
+    total_candidates = 0
+    count, labels, stats, _ = cv2.connectedComponentsWithStats(binary, 8)
+    for index in range(1, count):
+        if stats[index, cv2.CC_STAT_AREA] < 2:
+            continue
+        component = (labels == index).astype(np.uint8)
+        ys, xs = np.where(component > 0)
+        lesion_w = int(xs.max() - xs.min() + 1)
+        lesion_h = int(ys.max() - ys.min() + 1)
+        margin = max(8, int(max(lesion_w, lesion_h) * 1.4))
+        x0 = max(0, int(xs.min()) - margin)
+        y0 = max(0, int(ys.min()) - margin)
+        x1 = min(rgb.shape[1], int(xs.max()) + margin + 1)
+        y1 = min(rgb.shape[0], int(ys.max()) + margin + 1)
+        ph, pw = y1 - y0, x1 - x0
+        if ph < 7 or pw < 7:
+            continue
+
+        local_mask = component[y0:y1, x0:x1]
+        ring_size = _odd(max(5, int(max(lesion_w, lesion_h) * 0.8)))
+        kernel = np.ones((ring_size, ring_size), np.uint8)
+        ring = cv2.dilate(local_mask, kernel).astype(bool)
+        ring &= ~local_mask.astype(bool)
+        ring &= allowed[y0:y1, x0:x1] > 0
+        support = cv2.dilate(local_mask, kernel) > 0
+        if ring.sum() < 16:
+            continue
+
+        target_low = low[y0:y1, x0:x1]
+        target_grad = ctx.grad[y0:y1, x0:x1]
+        target_cx = (x0 + x1) * 0.5
+        target_cy = (y0 + y1) * 0.5
+        search_radius = max(ph, pw) * 6
+        step = max(2, min(ph, pw) // 10)
+        sx_min = max(0, int(target_cx - search_radius - pw / 2))
+        sx_max = min(rgb.shape[1] - pw, int(target_cx + search_radius - pw / 2))
+        sy_min = max(0, int(target_cy - search_radius - ph / 2))
+        sy_max = min(rgb.shape[0] - ph, int(target_cy + search_radius - ph / 2))
+
+        candidates = []
+        for sy in range(sy_min, sy_max + 1, step):
+            for sx in range(sx_min, sx_max + 1, step):
+                donor_allowed = allowed[sy : sy + ph, sx : sx + pw] > 0
+                donor_forbidden = forbidden[sy : sy + ph, sx : sx + pw] > 0
+                donor_suspect = suspect[sy : sy + ph, sx : sx + pw] > 0
+                if donor_allowed[support].mean() < 0.98:
+                    continue
+                if donor_forbidden[support].any() or donor_suspect[support].any():
+                    continue
+
+                donor_low = low[sy : sy + ph, sx : sx + pw]
+                donor_grad = ctx.grad[sy : sy + ph, sx : sx + pw]
+                donor_texture = texture[sy : sy + ph, sx : sx + pw]
+                colour_error = float(np.mean(np.abs(target_low[ring] - donor_low[ring])))
+                gradient_error = float(
+                    np.mean(np.abs(target_grad[ring] - donor_grad[ring]))
+                )
+                distance = float(
+                    np.hypot(sx + pw * 0.5 - target_cx, sy + ph * 0.5 - target_cy)
+                )
+                boundary_score = colour_error + gradient_error * 0.10 + distance * 0.002
+
+                lab_ring = source_lab[sy : sy + ph, sx : sx + pw][ring]
+                tex_ring = donor_texture[ring]
+                descriptor = np.concatenate(
+                    [
+                        np.mean(lab_ring, axis=0),
+                        np.std(lab_ring, axis=0),
+                        [float(np.mean(donor_grad[ring]))],
+                        np.mean(np.abs(tex_ring), axis=0),
+                    ]
+                ).astype(np.float32)
+                candidates.append((boundary_score, descriptor, sx, sy))
+
+        if len(candidates) < 3:
+            continue
+        candidates.sort(key=lambda item: item[0])
+        candidates = candidates[:32]
+        total_candidates += len(candidates)
+
+        descriptors = np.stack([item[1] for item in candidates])
+        median = np.median(descriptors, axis=0)
+        mad = 1.4826 * np.median(np.abs(descriptors - median), axis=0)
+        robust_scale = np.maximum(mad, 0.35)
+        consensus_distance = np.mean(
+            np.abs(descriptors - median) / robust_scale, axis=1
+        )
+        # Boundary fit still matters, but a lone "perfect" patch loses to the
+        # texture/tone pattern supported by the rest of the clean candidates.
+        boundary = np.array([item[0] for item in candidates], np.float32)
+        boundary = (boundary - np.median(boundary)) / max(
+            0.5, 1.4826 * float(np.median(np.abs(boundary - np.median(boundary))))
+        )
+        winner = int(np.argmin(consensus_distance + np.maximum(boundary, 0) * 0.25))
+        _, _, sx, sy = candidates[winner]
+
+        donor_high = texture[sy : sy + ph, sx : sx + pw]
+        base_patch = base_lab_full[y0:y1, x0:x1]
+        ring_tex = texture[y0:y1, x0:x1][ring]
+        # Measure what will actually land inside the hole. A donor can have
+        # lively texture on the ring yet be unusually smooth at the component's
+        # exact coordinates; measuring the ring repeated that smooth patch.
+        donor_amp = float(
+            np.mean(np.abs(donor_high[..., 0][local_mask.astype(bool)]))
+        )
+        target_amp = float(np.mean(np.abs(ring_tex[..., 0])))
+        # Feathering attenuates the graft at the same time that it hides its
+        # seam. Compensate before blending so the final repaired pixels, rather
+        # than the unblended candidate, match the surrounding texture energy.
+        gain = 1.0 if donor_amp < 1e-3 else float(
+            np.clip((target_amp / donor_amp) * 1.18, 0.65, 2.1)
+        )
+        candidate_lab = np.clip(base_patch + donor_high * gain, 0, 255).astype(np.uint8)
+        candidate = cv2.cvtColor(candidate_lab, cv2.COLOR_LAB2RGB).astype(np.float32)
+
+        feather = _odd(max(3, int(np.sqrt(float(local_mask.sum())) * 0.22)))
+        alpha = cv2.GaussianBlur(local_mask.astype(np.float32), (feather, feather), 0)
+        alpha = np.clip(alpha * 1.35, 0.0, 1.0)[..., None]
+        current = output[y0:y1, x0:x1].astype(np.float32)
+        output[y0:y1, x0:x1] = np.clip(
+            current * (1.0 - alpha) + candidate * alpha, 0, 255
+        ).astype(np.uint8)
+        used_components += 1
+
+    return output, {
+        "components": used_components,
+        "candidates": total_candidates,
+    }
+
+
 def patch_poisson(
     rgb: np.ndarray,
     mask: np.ndarray,
