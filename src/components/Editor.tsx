@@ -224,7 +224,9 @@ export default function Editor({
 
         {/* Every tool is rendered generically from the registry. */}
         <div className="tools">
-          {orderedInstances(recipe).map((inst) => {
+          {orderedInstances(recipe)
+            .filter((inst) => !getTool(inst.toolId).experimental)
+            .map((inst) => {
             const def = getTool(inst.toolId);
             const open = openGroups.has(def.id);
             const active = isActive(inst);

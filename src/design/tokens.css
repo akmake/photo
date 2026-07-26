@@ -1,0 +1,277 @@
+/* Design system — derived from the studio-OS mockup.
+ *
+ * Light, warm and low-contrast on purpose: the photographer looks at PHOTOS all
+ * day, and a dark chrome around a light image (or the reverse) shifts how she
+ * judges exposure. Everything here stays out of the way of the picture.
+ *
+ * One accent only. Orange marks "in progress / act here"; green marks "done".
+ * Nothing else is allowed to be saturated, so a coloured pixel in the UI always
+ * means something.
+ */
+
+:root {
+  /* surfaces */
+  --page: #f7f6f3;
+  --card: #ffffff;
+  --card-2: #fbfaf8;
+  --line: #eceae4;
+  --line-strong: #ddd9d0;
+
+  /* type */
+  --ink: #2b2b2b;
+  --ink-2: #6b6b6b;
+  --ink-3: #9a978f;
+
+  /* the single accent */
+  --accent: #f0812f;
+  --accent-ink: #c25f13;
+  --accent-soft: #fdf1e7;
+  --accent-line: #f8ddc4;
+
+  /* status */
+  --ok: #5aa97b;
+  --ok-soft: #e9f5ee;
+  --warn: #d9a441;
+  --danger: #d2604f;
+
+  /* geometry */
+  --r-sm: 8px;
+  --r: 12px;
+  --r-lg: 16px;
+  --sidebar-w: 236px;
+  --topbar-h: 72px;
+
+  --shadow-sm: 0 1px 2px rgba(30, 25, 15, 0.04);
+  --shadow: 0 2px 10px rgba(30, 25, 15, 0.05);
+  --shadow-lg: 0 8px 30px rgba(30, 25, 15, 0.10);
+
+  --font: 'Assistant', 'Rubik', 'Segoe UI', system-ui, -apple-system, sans-serif;
+}
+
+/* A surface must restate `color`, not just the tokens. `color` inherits its
+ * COMPUTED value from <body>, which resolved against the light tokens — so
+ * overriding --ink alone leaves every element that does not name var(--ink)
+ * explicitly still painting dark text on a dark panel. */
+[data-surface] {
+  color: var(--ink);
+  background: var(--page);
+}
+
+/* The editor's WORK AREA inverts — canvas, tools and filmstrip — because a
+ * photo has to be judged against a neutral surround; a bright frame around it
+ * shifts how its exposure reads. The app chrome around it stays light, which
+ * is both what the design shows and what Lightroom does. */
+[data-surface='studio'] {
+  --page: #1b1c20;
+  --card: #212328;
+  --card-2: #26282e;
+  --line: #32353d;
+  --line-strong: #3f434d;
+  --ink: #ececef;
+  --ink-2: #a6a8b0;
+  --ink-3: #7a7d86;
+  --accent-soft: #3a2a1c;
+  --accent-line: #543c26;
+  --ok-soft: #23342a;
+  --shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
+  --shadow-lg: 0 10px 34px rgba(0, 0, 0, 0.45);
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  font-family: var(--font);
+  background: var(--page);
+  color: var(--ink);
+  font-size: 14px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+button {
+  font: inherit;
+  color: inherit;
+  border: 0;
+  background: none;
+  cursor: pointer;
+}
+
+input,
+textarea,
+select {
+  font: inherit;
+  color: inherit;
+}
+
+/* ---------------------------------------------------------------- shared */
+
+.card {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-sm);
+}
+
+.card-pad {
+  padding: 20px 22px;
+}
+
+.card-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.card-sub {
+  font-size: 12.5px;
+  color: var(--ink-3);
+  margin-top: 2px;
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  height: 38px;
+  padding: 0 18px;
+  border-radius: var(--r-sm);
+  font-size: 13.5px;
+  font-weight: 600;
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+  border: 1px solid transparent;
+  transition: background 0.15s, border-color 0.15s;
+  white-space: nowrap;
+}
+
+.btn:hover {
+  border-color: var(--accent-line);
+}
+
+.btn-primary {
+  background: var(--accent);
+  color: #fff;
+}
+
+.btn-primary:hover {
+  background: var(--accent-ink);
+}
+
+.btn-ghost {
+  background: transparent;
+  color: var(--ink-2);
+  border: 1px solid var(--line);
+}
+
+.btn-ghost:hover {
+  background: var(--card-2);
+  border-color: var(--line-strong);
+}
+
+.btn-wide {
+  width: 100%;
+}
+
+.btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 24px;
+  padding: 0 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.pill-ok {
+  background: var(--ok-soft);
+  color: var(--ok);
+}
+
+.pill-run {
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+}
+
+.pill-idle {
+  background: var(--card-2);
+  color: var(--ink-3);
+  border: 1px solid var(--line);
+}
+
+.field {
+  width: 100%;
+  height: 40px;
+  padding: 0 14px;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--line);
+  background: var(--card-2);
+  color: var(--ink);
+  outline: none;
+}
+
+.field:focus {
+  border-color: var(--accent-line);
+  background: var(--card);
+}
+
+textarea.field {
+  height: auto;
+  min-height: 92px;
+  padding: 12px 14px;
+  resize: vertical;
+}
+
+.muted {
+  color: var(--ink-3);
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.spread {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.grid {
+  display: grid;
+  gap: 18px;
+}
+
+.scroll-y {
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--line-strong) transparent;
+}
+
+.scroll-y::-webkit-scrollbar {
+  width: 10px;
+}
+
+.scroll-y::-webkit-scrollbar-thumb {
+  background: var(--line-strong);
+  border-radius: 999px;
+  border: 3px solid var(--page);
+}

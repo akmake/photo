@@ -27,6 +27,119 @@ export interface AiToolResult {
   meta?: Record<string, number>;
 }
 
+/** What one tool reported about its own run. Values are whatever the tool
+ *  module chose to return — see engine/*.py, each `return rgb, {...}`. */
+export interface RenderStep {
+  tool: string;
+  ms: number;
+  meta: Record<string, number | string>;
+}
+
+export interface RenderResult {
+  image: string;
+  meta: { steps: RenderStep[] };
+}
+
+export interface CompareRegion {
+  bbox: [number, number, number, number];
+  centroid: [number, number];
+  areaPx: number;
+  areaPct: number;
+  meanDeltaE: number;
+  maxDeltaE: number;
+  structureRatio: number;
+  standoutRatio: number;
+  contentCorr: number;
+  confidence: number;
+  strong: boolean;
+  kind: 'added' | 'removed' | 'changed';
+  zone: string | null;
+}
+
+export interface CompareResponse {
+  overlay: string;
+  report: {
+    geometry: {
+      method: string;
+      rotationDeg: number;
+      scale: number;
+      sameSize: boolean;
+      inlierRatio?: number;
+    };
+    global: {
+      exposureStops: number;
+      contrastSlope: number;
+      shadowsShift: number;
+      highlightsShift: number;
+      warmthShift: number;
+      tintShift: number;
+      saturationRatio: number;
+      significant: boolean;
+    };
+    summary: {
+      regions: number;
+      strongRegions: number;
+      added: number;
+      removed: number;
+      changed: number;
+      localAreaPct: number;
+      deltaEThreshold: number;
+    };
+    regions: CompareRegion[];
+  };
+}
+
+/** Read an edit: what changed between two versions of the same frame. */
+export async function compareImages(
+  beforeDataUrl: string,
+  afterDataUrl: string,
+): Promise<CompareResponse> {
+  const r = await fetch(`${ENGINE}/compare`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ before: beforeDataUrl, after: afterDataUrl }),
+  });
+  if (!r.ok) {
+    let detail = `engine ${r.status}`;
+    try {
+      const j = await r.json();
+      if (j?.error) detail = j.error;
+    } catch {
+      /* keep the status-code message */
+    }
+    throw new Error(detail);
+  }
+  return r.json();
+}
+
+/** Run a whole recipe in ONE engine call. Unlike chaining applyAiTool(), this
+ *  computes masks once and returns a per-step report — which is the only way
+ *  to see WHY a tool did nothing. */
+export async function renderRecipe(
+  imageDataUrl: string,
+  tools: { toolId: string; params: Record<string, number>; enabled: boolean }[],
+  /** true for a file being saved: q97 with no chroma subsampling instead of
+   *  the q90 4:2:0 preview. */
+  deliver = false,
+): Promise<RenderResult> {
+  const r = await fetch(`${ENGINE}/render`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ image: imageDataUrl, recipe: tools, deliver }),
+  });
+  if (!r.ok) {
+    let detail = `engine ${r.status}`;
+    try {
+      const j = await r.json();
+      if (j?.error) detail = j.error;
+    } catch {
+      /* keep the status-code message */
+    }
+    throw new Error(detail);
+  }
+  return r.json();
+}
+
 // Uniform call for any AI tool: POST /tools/{id}/apply.
 export async function applyAiTool(
   toolId: string,

@@ -35,6 +35,18 @@ PORTRAIT_LEVELS = {
 
 DEFAULT_LEVEL = "light"
 
+# `skin-cleanup` (the blemish healer) is switched OFF pending rework — its
+# repairs read as patches rather than skin. The calibration above is left
+# intact so nothing has to be re-measured when it comes back; flipping this
+# one flag re-enables it everywhere, including /presets.
+#
+# The open diagnosis is in docs/RESEARCH-blush-eyes-hair.md's sibling thread:
+# `inpaint_texture` takes low frequencies from Telea diffusion and high
+# frequencies from a donor at sigma 1.5, and nothing supplies the band in
+# between — so a repair lands with the right colour, the right grain and no
+# structure. `patch_poisson` exists and is unused.
+SKIN_CLEANUP_ENABLED = False
+
 # The finishing tools that are safe to apply at any level — they add colour, not
 # smoothing, so they cannot contribute to a plastic face.
 COLOUR_DEFAULTS = {
@@ -50,7 +62,7 @@ def portrait(level: str = DEFAULT_LEVEL, colour: bool = True) -> list:
     tools = []
     if retouch:
         tools.append({"toolId": "face-retouch", "params": {"strength": retouch}})
-    if clean:
+    if clean and SKIN_CLEANUP_ENABLED:
         tools.append({"toolId": "skin-cleanup", "params": {"strength": clean}})
     if smooth:
         tools.append({"toolId": "skin", "params": {"strength": smooth}})

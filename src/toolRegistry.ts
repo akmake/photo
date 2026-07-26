@@ -18,6 +18,19 @@ export const TOOLS: ToolDef[] = [
     params: [{ id: 'strength', label: 'עוצמה', min: 0, max: 100, step: 1, default: 70 }],
   },
   {
+    // Engine-side this is `cleanup.py` — spot detection and healing. It is off
+    // in the default recipes (see engine/presets.py) pending rework, so it is
+    // marked experimental: the lab can drive it, the gallery editor cannot.
+    id: 'skin-cleanup',
+    label: 'ניקוי כתמים',
+    kind: 'ai',
+    category: 'local-ai',
+    order: 10,
+    batchPolicy: 'absolute',
+    experimental: true,
+    params: [{ id: 'strength', label: 'עוצמה', min: 0, max: 100, step: 1, default: 60 }],
+  },
+  {
     id: 'skin',
     label: 'החלקת עור',
     kind: 'ai',
@@ -25,6 +38,49 @@ export const TOOLS: ToolDef[] = [
     order: 20, // AI retouch runs on neutral data, before the creative grade
     batchPolicy: 'absolute',
     params: [{ id: 'strength', label: 'עוצמה', min: 0, max: 100, step: 1, default: 60 }],
+  },
+  // Colour work on the retouched face. These three are the same operation —
+  // a mask plus a push in Lab — and none of them reconstructs pixels, so they
+  // sit safely after smoothing and before the global grade.
+  {
+    id: 'blush',
+    label: 'סומק ורודם',
+    kind: 'ai',
+    category: 'local-ai',
+    order: 22,
+    batchPolicy: 'absolute',
+    params: [
+      { id: 'strength', label: 'עוצמה', min: 0, max: 100, step: 1, default: 45 },
+      { id: 'size', label: 'גודל', min: 0, max: 100, step: 1, default: 50 },
+      { id: 'warmth', label: 'חמימות', min: 0, max: 100, step: 1, default: 35 },
+    ],
+  },
+  {
+    id: 'eye-sparkle',
+    label: 'ברק בעיניים',
+    kind: 'ai',
+    category: 'local-ai',
+    order: 23,
+    batchPolicy: 'absolute',
+    params: [
+      { id: 'strength', label: 'עוצמה', min: 0, max: 100, step: 1, default: 50 },
+      { id: 'whites', label: 'לובן העין', min: 0, max: 100, step: 1, default: 40 },
+      { id: 'sparkle', label: 'חדות הקשתית', min: 0, max: 100, step: 1, default: 45 },
+    ],
+  },
+  {
+    id: 'hair-tones',
+    label: 'גוונים בשיער',
+    kind: 'ai',
+    category: 'local-ai',
+    order: 24,
+    batchPolicy: 'absolute',
+    params: [
+      { id: 'strength', label: 'עוצמה', min: 0, max: 100, step: 1, default: 45 },
+      { id: 'warmth', label: 'חמימות', min: -100, max: 100, step: 1, default: 40 },
+      { id: 'shine', label: 'ברק', min: 0, max: 100, step: 1, default: 35 },
+      { id: 'richness', label: 'עומק', min: 0, max: 100, step: 1, default: 40 },
+    ],
   },
   {
     id: 'background-blur',

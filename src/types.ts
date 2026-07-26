@@ -21,6 +21,9 @@ export interface ToolDef {
   order: number; // pipeline order (lower runs first)
   batchPolicy: BatchPolicy;
   params: ToolParamSpec[];
+  /** Reachable in the lab, kept out of the gallery editor. A tool being here
+   *  means it runs but is not trusted on a client's set yet. */
+  experimental?: boolean;
 }
 
 export type ParamValues = Record<string, number>;

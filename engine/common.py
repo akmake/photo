@@ -38,10 +38,15 @@ def image_to_b64(img: Image.Image) -> str:
     return base64.b64encode(buf.getvalue()).decode("ascii")
 
 
-def image_to_jpeg_b64(img: Image.Image, quality: int = 90) -> str:
-    """Smaller than PNG — used for previews sent to the UI."""
+def image_to_jpeg_b64(img: Image.Image, quality: int = 90, subsampling: int = 2) -> str:
+    """Smaller than PNG — used for previews sent to the UI.
+
+    `subsampling` defaults to 4:2:0, which is fine for a preview and wrong for
+    anything the photographer keeps: it throws away half the colour resolution.
+    Saving a file must pass subsampling=0 (see render.DEFAULT_QUALITY).
+    """
     buf = io.BytesIO()
-    img.save(buf, format="JPEG", quality=quality)
+    img.save(buf, format="JPEG", quality=quality, subsampling=subsampling)
     return base64.b64encode(buf.getvalue()).decode("ascii")
 
 

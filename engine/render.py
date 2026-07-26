@@ -24,6 +24,8 @@ import eyes
 import hairtone
 import skin
 import globals_py
+import hsl
+import grade_zones
 
 # toolId -> (callable, pipeline order). Lower order runs first.
 # All entries share the (rgb, params) -> (rgb, meta) contract so the frame stays
@@ -41,6 +43,10 @@ TOOLS = {
     "tone-color": (globals_py.tone_color, 30),
     "dimension": (globals_py.dimension, 35),
     "color-grade": (globals_py.color_grade, 40),
+    # Per-hue control sits BEFORE the zone grade: decide what each colour is,
+    # then tint the tonal zones on top of it.
+    "hsl": (hsl.apply, 41),
+    "grade-zones": (grade_zones.apply, 42),
     "light-point": (globals_py.light_point, 45),
     "glow": (globals_py.glow, 55),
     "oil-paint": (globals_py.oil_paint, 58),

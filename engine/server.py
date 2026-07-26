@@ -7,6 +7,7 @@ leave the machine. Each AI tool is dispatched under /tools/{id}/apply.
 
 import base64
 import json
+from concurrent.futures import ThreadPoolExecutor
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import abpn
@@ -20,8 +21,28 @@ import render
 import skin
 import background
 import cleanup
+import compare
+import grade_zones
+import hsl
+import recipe_fit
 
 PORT = 8756
+
+# Every request arrives on a NEW thread (ThreadingHTTPServer), and MediaPipe's
+# task objects are not thread-safe: masks.py locks their CREATION but the
+# .detect() / .segment() calls themselves ran on whatever thread the request
+# landed on, and those threads are destroyed the moment the response is sent.
+# That crashed the sidecar with a segfault after a batch of renders.
+#
+# One long-lived worker owns all image work: MediaPipe is always entered from
+# the same thread, and that thread never exits. The HTTP layer stays threaded
+# so /health still answers while a render is in flight.
+_WORKER = ThreadPoolExecutor(max_workers=1, thread_name_prefix="engine-image")
+
+
+def on_worker(fn, *args, **kwargs):
+    """Run image work on the one thread allowed to touch the models."""
+    return _WORKER.submit(fn, *args, **kwargs).result()
 
 # Tool registry (mirrors the front-end registry; source of truth for the engine).
 TOOLS = [
@@ -35,6 +56,10 @@ TOOLS = [
         "id": "skin-cleanup",
         "kind": "ai",
         "category": "local-ai",
+        # Off pending rework — see presets.SKIN_CLEANUP_ENABLED. Still listed
+        # and still dispatchable so it can be exercised directly while it is
+        # being fixed; it is only kept out of the default recipes.
+        "disabled": True,
         "params": [{"id": "strength", "min": 0, "max": 100, "default": 60}],
     },
     {
@@ -94,6 +119,8 @@ DISPATCH = {
     "eye-sparkle": eyes.process,
     "hair-tones": hairtone.process,
     "background-blur": background.process,
+    "hsl": hsl.process,
+    "grade-zones": grade_zones.process,
 }
 
 
@@ -137,6 +164,12 @@ class Handler(BaseHTTPRequestHandler):
         if self.path == "/render":
             self._render()
             return
+        if self.path == "/compare":
+            self._compare()
+            return
+        if self.path == "/fit-recipe":
+            self._fit_recipe()
+            return
         if self.path == "/export":
             self._export()
             return
@@ -150,7 +183,7 @@ class Handler(BaseHTTPRequestHandler):
             try:
                 length = int(self.headers.get("Content-Length", 0))
                 body = json.loads(self.rfile.read(length))
-                out_b64, meta = fn(body["image"], body.get("params", {}))
+                out_b64, meta = on_worker(fn, body["image"], body.get("params", {}))
                 self._json(
                     200,
                     {"image": "data:image/png;base64," + out_b64, "meta": meta},
@@ -172,12 +205,54 @@ class Handler(BaseHTTPRequestHandler):
                 img = common.load_image(body["path"])
             else:
                 img = common.b64_to_image(body["image"])
-            out, meta = render.render(img, body.get("recipe", []))
+            out, meta = on_worker(render.render, img, body.get("recipe", []))
+            # A preview and a file the photographer keeps are not the same
+            # picture. Previews stay small; `deliver` asks for the same settings
+            # render.export writes to disk — q97, no chroma subsampling.
+            if body.get("deliver"):
+                payload = "data:image/jpeg;base64," + common.image_to_jpeg_b64(
+                    out, render.DEFAULT_QUALITY, subsampling=0
+                )
+            else:
+                payload = "data:image/jpeg;base64," + common.image_to_jpeg_b64(out)
+            self._json(200, {"image": payload, "meta": meta})
+        except Exception as e:  # noqa: BLE001
+            self._json(500, {"error": str(e)})
+
+    def _compare(self):
+        """Read an edit. { before, after } -> report + annotated overlay."""
+        try:
+            body = self._body()
+            before = common.to_np(common.b64_to_image(body["before"]))
+            after = common.to_np(common.b64_to_image(body["after"]))
+            report, marked = on_worker(compare.analyze, before, after)
             self._json(
                 200,
                 {
-                    "image": "data:image/jpeg;base64," + common.image_to_jpeg_b64(out),
-                    "meta": meta,
+                    "report": report,
+                    "overlay": "data:image/jpeg;base64,"
+                    + common.image_to_jpeg_b64(common.to_pil(marked), 92),
+                },
+            )
+        except Exception as e:  # noqa: BLE001
+            self._json(500, {"error": str(e)})
+
+    def _fit_recipe(self):
+        """Learn a runnable recipe from a before/after pair, and report how
+        much of the edit it actually reproduces."""
+        try:
+            body = self._body()
+            before = common.to_np(common.b64_to_image(body["before"]))
+            after = common.to_np(common.b64_to_image(body["after"]))
+            params, report, fitted = on_worker(recipe_fit.fit, before, after)
+            self._json(
+                200,
+                {
+                    "recipe": recipe_fit.to_recipe(params),
+                    "params": params,
+                    "fit": report,
+                    "preview": "data:image/jpeg;base64,"
+                    + common.image_to_jpeg_b64(common.to_pil(fitted), 92),
                 },
             )
         except Exception as e:  # noqa: BLE001
@@ -199,7 +274,9 @@ class Handler(BaseHTTPRequestHandler):
             for path in files:
                 try:
                     recipe = per_file.get(path, default_recipe)
-                    out_path, _ = render.export(path, recipe, dest, fmt, quality)
+                    out_path, _ = on_worker(
+                        render.export, path, recipe, dest, fmt, quality
+                    )
                     written.append(out_path)
                 except Exception as e:  # noqa: BLE001 - one bad file must not
                     errors.append({"file": path, "error": str(e)})  # kill the batch
@@ -216,10 +293,10 @@ class Handler(BaseHTTPRequestHandler):
             body = json.loads(self.rfile.read(length))
             max_dim = int(body.get("maxDim", 0))
             if body.get("path"):
-                img = raw.decode_path(body["path"], max_dim)
+                img = on_worker(raw.decode_path, body["path"], max_dim)
             else:
                 data = base64.b64decode(body["image"].split(",", 1)[-1])
-                img = raw.decode_bytes(data, max_dim)
+                img = on_worker(raw.decode_bytes, data, max_dim)
             self._json(
                 200,
                 {

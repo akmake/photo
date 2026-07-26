@@ -1,0 +1,768 @@
+/* The lab bench.
+ *
+ * Same inverted work surface as the editor — a photo has to be judged against a
+ * neutral surround. The difference is the third region: a log that is a
+ * first-class part of the layout, not a tooltip, because in this screen the
+ * engine's report is half the product.
+ */
+
+.lab {
+  height: 100%;
+  min-height: 0;
+  direction: rtl;
+  display: grid;
+  grid-template-columns: 268px minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr) 186px;
+  grid-template-areas:
+    'tools canvas'
+    'tools log';
+  background: var(--page);
+  color: var(--ink);
+}
+
+/* ------------------------------------------------------------------ empty */
+
+.lab.lab-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.lab-empty-card {
+  width: min(460px, 90%);
+  text-align: center;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  padding: 40px 32px;
+}
+
+.lab-empty-card h2 {
+  font-size: 20px;
+  margin-bottom: 8px;
+}
+
+.lab-empty-card p {
+  color: var(--ink-2);
+  font-size: 13.5px;
+  margin-bottom: 22px;
+}
+
+/* ----------------------------------------------------------------- canvas */
+
+.lab-canvas {
+  grid-area: canvas;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  border-inline-start: 1px solid var(--line);
+}
+
+.lab-stage {
+  flex: 1 1 auto;
+  min-height: 0;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 14px;
+  /* A neutral mid-light surround. Not white — a photo judged against pure
+     white reads a stop darker than it is — and not the editor's near-black,
+     which is what was asked for. */
+  background: #e8e6e1;
+  overflow: hidden;
+  touch-action: none;
+}
+
+.lab-stage.pannable {
+  cursor: grab;
+}
+
+.lab-stage.pannable:active {
+  cursor: grabbing;
+}
+
+/* One transform drives every layer, so the original, the result and the diff
+   can never drift out of alignment while comparing.
+   The layer box is the whole stage and every layer uses object-fit: contain,
+   so all three letterbox identically. Sizing the wrapper to the image instead
+   made percentage heights resolve against an auto-height box, which is how the
+   picture ended up floating in a sea of empty stage. */
+.lab-zoomer {
+  position: absolute;
+  inset: 14px;
+  will-change: transform;
+}
+
+/* No transition on the swap: hold-to-compare is only useful if the two frames
+   land on the same pixels at the same instant. */
+.lab-img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+
+/* ------------------------------------------------------------------- zoom */
+
+.lab-zoombar {
+  position: absolute;
+  bottom: 14px;
+  inset-inline-start: 50%;
+  transform: translateX(50%);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 6px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.62);
+  backdrop-filter: blur(6px);
+  font-size: 12px;
+  color: #fff;
+}
+
+.lab-zoombar button {
+  min-width: 28px;
+  height: 26px;
+  padding: 0 9px;
+  border-radius: 999px;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.lab-zoombar button:hover {
+  background: rgba(255, 255, 255, 0.16);
+}
+
+.lab-zoombar span {
+  min-width: 46px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  opacity: 0.85;
+}
+
+.lab-zoombar i {
+  width: 1px;
+  height: 15px;
+  background: rgba(255, 255, 255, 0.25);
+  margin: 0 3px;
+}
+
+/* ------------------------------------------------------------- view mode */
+
+.lab-modes {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px;
+  border-radius: var(--r-sm);
+  background: var(--card-2);
+  border: 1px solid var(--line);
+}
+
+.lab-modes button {
+  height: 28px;
+  padding: 0 14px;
+  border-radius: 6px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--ink-2);
+}
+
+.lab-modes button.on {
+  background: var(--accent);
+  color: #fff;
+}
+
+.lab-modes button:disabled {
+  opacity: 0.4;
+}
+
+.lab-modes select {
+  height: 28px;
+  border-radius: 6px;
+  border: 1px solid var(--line-strong);
+  background: var(--card);
+  padding: 0 6px;
+  font-size: 12px;
+}
+
+.lab-spinner,
+.lab-badge-orig {
+  position: absolute;
+  top: 16px;
+  inset-inline-start: 16px;
+  padding: 5px 12px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  background: rgba(0, 0, 0, 0.6);
+  color: #fff;
+  backdrop-filter: blur(4px);
+}
+
+.lab-badge-orig {
+  inset-inline-start: auto;
+  inset-inline-end: 16px;
+  background: var(--accent);
+}
+
+.lab-canvas-bar {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 10px 16px;
+  border-top: 1px solid var(--line);
+  background: var(--card);
+}
+
+.lab-hold {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 36px;
+  padding: 0 16px;
+  border-radius: var(--r-sm);
+  font-size: 13px;
+  font-weight: 600;
+  background: var(--card-2);
+  border: 1px solid var(--line-strong);
+  color: var(--ink);
+  user-select: none;
+  touch-action: none;
+}
+
+.lab-hold:active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+.lab-hold:disabled {
+  opacity: 0.4;
+}
+
+.lab-hold kbd {
+  font: inherit;
+  font-size: 11px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: var(--page);
+  border: 1px solid var(--line-strong);
+  color: var(--ink-3);
+}
+
+.lab-meta {
+  font-size: 12px;
+  color: var(--ink-3);
+  font-variant-numeric: tabular-nums;
+}
+
+.lab-meta em {
+  font-style: normal;
+  color: var(--ink-3);
+  opacity: 0.7;
+}
+
+.lab-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12.5px;
+  color: var(--ink-2);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+/* ------------------------------------------------------------------ tools */
+
+.lab-tools {
+  grid-area: tools;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 12px;
+  background: var(--card);
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+/* Flex children shrink by default. With 14 tools in the column they were being
+   COMPRESSED to fit instead of scrolling, which cut the sliders off mid-row.
+   Nothing here may shrink — the column scrolls instead. */
+.lab-tools > * {
+  flex: 0 0 auto;
+}
+
+/* Compact: 14 tools have to be reachable without scrolling past one open
+   tool's ten sliders. */
+.lab-tool-head {
+  padding: 7px 10px;
+}
+
+.lab-tool-name {
+  font-size: 12.5px;
+}
+
+.lab-tools-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 2px;
+}
+
+.lab-tools-head h2 {
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.lab-tools-head .btn {
+  height: 30px;
+  padding: 0 12px;
+  font-size: 12px;
+}
+
+.lab-tool {
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  background: var(--card-2);
+  overflow: hidden;
+}
+
+.lab-tool.on {
+  border-color: var(--accent-line);
+  background: var(--accent-soft);
+}
+
+.lab-tool-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 11px;
+  cursor: pointer;
+}
+
+.lab-tool-name {
+  font-size: 13px;
+  font-weight: 600;
+  flex: 1 1 auto;
+}
+
+.lab-exp {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: var(--card);
+  border: 1px solid var(--line-strong);
+  color: var(--warn);
+}
+
+.lab-tool-body {
+  padding: 4px 11px 12px;
+}
+
+.lab-param + .lab-param {
+  margin-top: 10px;
+}
+
+.lab-param-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 12px;
+  color: var(--ink-2);
+  margin-bottom: 2px;
+}
+
+.lab-param-row .val {
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.lab-param input[type='range'] {
+  width: 100%;
+  height: 18px;
+  appearance: none;
+  background: transparent;
+  cursor: pointer;
+}
+
+.lab-param input[type='range']:disabled {
+  cursor: default;
+  opacity: 0.4;
+}
+
+.lab-param input[type='range']::-webkit-slider-runnable-track {
+  height: 3px;
+  border-radius: 999px;
+  background: var(--line-strong);
+}
+
+.lab-param input[type='range']::-webkit-slider-thumb {
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  margin-top: -5.5px;
+  border-radius: 50%;
+  background: var(--card);
+  border: 2px solid var(--accent);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+}
+
+.lab-param input[type='range']::-moz-range-track {
+  height: 3px;
+  border-radius: 999px;
+  background: var(--line-strong);
+}
+
+.lab-param input[type='range']::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--card);
+  border: 2px solid var(--accent);
+}
+
+/* ----------------------------------------------------------------- engine */
+
+.lab-engine {
+  font-size: 11.5px;
+  padding: 7px 10px;
+  border-radius: var(--r-sm);
+  line-height: 1.6;
+}
+
+.lab-engine.ok {
+  background: var(--ok-soft);
+  color: var(--ok);
+}
+
+.lab-engine.down {
+  background: var(--card-2);
+  border: 1px solid var(--danger);
+  color: var(--ink-2);
+}
+
+.lab-engine code {
+  display: block;
+  direction: ltr;
+  text-align: left;
+  margin-top: 5px;
+  font-size: 11px;
+  color: var(--ink);
+  word-break: break-all;
+}
+
+/* -------------------------------------------------------------------- log */
+
+.lab-log {
+  grid-area: log;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  border-top: 1px solid var(--line);
+  border-inline-start: 1px solid var(--line);
+  background: var(--card);
+}
+
+.lab-log-head {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--line);
+}
+
+.lab-log-head h3 {
+  font-size: 13.5px;
+  font-weight: 700;
+}
+
+.lab-log-head .muted {
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* The measured answer to "did anything change". */
+.lab-delta {
+  font-size: 12px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  padding: 3px 10px;
+  border-radius: 999px;
+}
+
+.lab-delta.zero {
+  background: var(--card-2);
+  color: var(--danger);
+  border: 1px solid var(--danger);
+}
+
+.lab-delta.tiny {
+  background: var(--card-2);
+  color: var(--warn);
+}
+
+.lab-delta.real {
+  background: var(--ok-soft);
+  color: var(--ok);
+}
+
+.lab-hint {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  font-size: 12.5px;
+  color: var(--ink);
+  background: var(--accent-soft);
+  border: 1px solid var(--accent-line);
+  border-radius: var(--r-sm);
+  padding: 9px 12px;
+  margin-bottom: 10px;
+}
+
+.lab-hint .btn {
+  height: 30px;
+  padding: 0 14px;
+  font-size: 12px;
+  flex: 0 0 auto;
+}
+
+.lab-log-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 10px 16px 16px;
+}
+
+.lab-log-idle {
+  font-size: 12.5px;
+  color: var(--ink-3);
+  max-width: 60ch;
+  line-height: 1.7;
+}
+
+.lab-step {
+  padding: 9px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.lab-step:last-child {
+  border-bottom: 0;
+}
+
+.lab-step-head {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  font-size: 13px;
+}
+
+.lab-step-mark {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex: 0 0 auto;
+}
+
+.lab-step.ok .lab-step-mark {
+  background: var(--ok);
+}
+
+.lab-step.idle .lab-step-mark {
+  background: var(--ink-3);
+}
+
+.lab-step.warn .lab-step-mark {
+  background: var(--danger);
+}
+
+.lab-step-ms {
+  font-size: 11.5px;
+  color: var(--ink-3);
+  font-variant-numeric: tabular-nums;
+}
+
+.lab-step-verdict {
+  font-size: 12.5px;
+  color: var(--ink-2);
+}
+
+.lab-step.warn .lab-step-verdict {
+  color: var(--danger);
+  font-weight: 600;
+}
+
+.lab-step.idle .lab-step-verdict {
+  color: var(--warn);
+  font-weight: 600;
+}
+
+.lab-step-facts {
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  margin: 6px 0 0 0;
+  padding-inline-start: 17px;
+  font-size: 12px;
+  color: var(--ink-2);
+}
+
+.lab-step-more {
+  margin-top: 5px;
+  margin-inline-start: 17px;
+}
+
+.lab-step-more summary {
+  font-size: 11px;
+  color: var(--ink-3);
+  cursor: pointer;
+  user-select: none;
+  width: max-content;
+}
+
+.lab-step-more summary:hover {
+  color: var(--ink-2);
+}
+
+.lab-step-more pre {
+  direction: ltr;
+  text-align: left;
+  margin-top: 6px;
+  padding: 8px 10px;
+  max-height: 260px;
+  overflow: auto;
+  border-radius: var(--r-sm);
+  background: var(--page);
+  border: 1px solid var(--line);
+  font-size: 10.5px;
+  line-height: 1.5;
+  color: var(--ink-2);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.lab-error {
+  font-size: 12.5px;
+  color: var(--danger);
+  background: var(--card-2);
+  border: 1px solid var(--danger);
+  border-radius: var(--r-sm);
+  padding: 9px 12px;
+  margin-bottom: 10px;
+}
+
+/* =========================================================== compare ==== */
+
+.cmp {
+  height: 100%;
+  min-height: 0;
+  direction: rtl;
+  display: grid;
+  grid-template-columns: 340px minmax(0, 1fr);
+  background: var(--page);
+  color: var(--ink);
+}
+
+.cmp-side {
+  min-height: 0;
+  overflow-y: auto;
+  padding: 16px;
+  background: var(--card);
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.cmp-side > * { flex: 0 0 auto; }
+.cmp-side h2 { font-size: 16px; font-weight: 700; }
+.cmp-side h3 { font-size: 13px; font-weight: 700; margin-bottom: 8px; }
+
+.cmp-intro { font-size: 12.5px; color: var(--ink-2); line-height: 1.6; }
+
+.cmp-slots { display: grid; gap: 8px; }
+
+.cmp-slot {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 12px; border-radius: var(--r-sm);
+  border: 1px dashed var(--line-strong); background: var(--card-2);
+  cursor: pointer; font-size: 12.5px;
+}
+.cmp-slot.on { border-style: solid; border-color: var(--accent-line); background: var(--accent-soft); }
+.cmp-slot-tag {
+  flex: 0 0 auto; font-weight: 700; font-size: 11px;
+  padding: 2px 8px; border-radius: 999px;
+  background: var(--card); border: 1px solid var(--line);
+}
+.cmp-slot-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink-2); }
+
+.cmp-block { border-top: 1px solid var(--line); padding-top: 12px; }
+
+.cmp-grade { list-style: none; display: flex; flex-wrap: wrap; gap: 6px; }
+.cmp-grade li {
+  font-size: 12px; font-weight: 600; padding: 4px 10px; border-radius: 999px;
+  background: var(--accent-soft); color: var(--accent-ink); border: 1px solid var(--accent-line);
+}
+
+.cmp-none { font-size: 12.5px; color: var(--ink-3); }
+.cmp-note { font-size: 12px; color: var(--ink-2); line-height: 1.6; }
+
+.cmp-counts { display: flex; gap: 6px; }
+.cmp-pill { font-size: 12px; font-weight: 700; padding: 4px 10px; border-radius: 999px; }
+.cmp-pill.added { background: var(--ok-soft); color: var(--ok); }
+.cmp-pill.removed { background: #fbecea; color: var(--danger); }
+.cmp-pill.changed { background: var(--accent-soft); color: var(--accent-ink); }
+
+.cmp-list { list-style: none; margin-top: 10px; display: flex; flex-direction: column; gap: 4px; }
+.cmp-item {
+  display: flex; gap: 9px; padding: 8px 9px; border-radius: var(--r-sm);
+  background: var(--card-2); border: 1px solid var(--line);
+  border-inline-start-width: 3px;
+}
+.cmp-item.added { border-inline-start-color: var(--ok); }
+.cmp-item.removed { border-inline-start-color: var(--danger); }
+.cmp-item.changed { border-inline-start-color: var(--accent); }
+.cmp-item.hot { background: var(--accent-soft); }
+.cmp-idx {
+  flex: 0 0 auto; width: 20px; height: 20px; border-radius: 50%;
+  background: var(--card); border: 1px solid var(--line-strong);
+  font-size: 11px; font-weight: 700; display: grid; place-items: center;
+}
+.cmp-item-head { display: flex; align-items: center; gap: 6px; font-size: 12.5px; }
+.cmp-zone { font-size: 11px; color: var(--ink-3); }
+.cmp-weak {
+  font-size: 10px; font-weight: 700; padding: 1px 6px; border-radius: 4px;
+  background: var(--card); border: 1px solid var(--line-strong); color: var(--warn);
+}
+.cmp-item-facts { font-size: 11.5px; color: var(--ink-3); margin-top: 2px; }
+
+.cmp-stage {
+  position: relative; min-height: 0; overflow: hidden;
+  display: flex; align-items: center; justify-content: center;
+  padding: 16px; background: #e8e6e1; border-inline-start: 1px solid var(--line);
+}
+.cmp-img { max-width: 100%; max-height: 100%; object-fit: contain; }
+.cmp-placeholder { font-size: 13px; color: var(--ink-3); }
+
+.cmp-viewbar {
+  position: absolute; bottom: 16px; inset-inline-start: 50%; transform: translateX(50%);
+  display: flex; gap: 4px; padding: 4px; border-radius: 999px;
+  background: rgba(0,0,0,0.62); backdrop-filter: blur(6px);
+}
+.cmp-viewbar button {
+  height: 28px; padding: 0 16px; border-radius: 999px;
+  font-size: 12.5px; font-weight: 600; color: #fff;
+}
+.cmp-viewbar button.on { background: var(--accent); }
