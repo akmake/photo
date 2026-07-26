@@ -20,6 +20,7 @@ neutralise natural rosiness — that is a structural guarantee, not a setting.
 import cv2
 import numpy as np
 
+import color_harmonization
 import common
 import healing
 import masks
@@ -378,22 +379,30 @@ def apply(rgb, params: dict):
         healed, symmetry_used = _heal_with_symmetry(
             crop, repair, conf, region, face_c
         )
-        # Reconstruction is all-or-nothing: it replaces what is under the mark.
-        # Cross-fading it with the original at the confidence value would leave a
-        # proportional ghost of the very thing it rebuilt — which is exactly what
-        # a partial blend did here. Apply it fully inside the mask and let a
-        # narrow feather hide the seam instead.
-        fr = max(3, int(face_c * 0.004)) | 1
-        blend = cv2.GaussianBlur(repair.astype(np.float32), (fr, fr), 0)
-        blend = np.clip(blend * 1.25, 0.0, 1.0)[..., None]
-        out_crop = crop.astype(np.float32) * (1 - blend) + healed.astype(np.float32) * blend
+        # Colour and texture have different boundaries.  The reconstructed core
+        # supplies content/pores, while direct boundary correspondences find
+        # healthy local skin beyond any contaminated halo and constrain a
+        # spatially varying colour correction.  The harmonizer performs its own
+        # narrow texture transition; a second generic feather here would erase
+        # the direct colour relationship it just established.
+        harmonized = color_harmonization.harmonize(
+            crop,
+            healed,
+            repair,
+            region,
+            conf,
+            face_c,
+            color_harmonization.HarmonizationConfig.from_params(params),
+        )
+        out_crop = harmonized.image
         out = rgb.copy()
-        out[y0:y1, x0:x1] = np.clip(out_crop, 0, 255).astype(np.uint8)
+        out[y0:y1, x0:x1] = out_crop
         n, _, stats, _ = cv2.connectedComponentsWithStats(repair, connectivity=8)
         return out, {
             "spotsRemoved": max(0, n - 1),
             "correctedPx": int(area),
             "symmetryUsed": symmetry_used,
+            "colorHarmonization": harmonized.metadata,
         }
     else:
         # low is reassembled untouched -> natural colour cannot be neutralised.

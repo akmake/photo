@@ -352,7 +352,9 @@ POST /export                      → { photos[], recipe|perPhoto, format, dest 
 | חידוד | 1 | unsharp mask | — | ✅ בנוי |
 | החלקת עור | 2 | מסכה: BiSeNet (עתידי) / YCbCr (POC) | MIT | 🟢 POC בנוי |
 | טשטוש רקע / בוקה | 2 | MediaPipe selfie-multiclass **+ MiDaS small (עומק)** | Apache 2.0 / MIT | ✅ **בנוי — מבוסס עומק** |
-| חידוד עיניים | 2 | MediaPipe FaceMesh | Apache | ⏳ |
+| **סומק** (`blush.py`) | 2 | MediaPipe FaceMesh — פס על עצם הלחי | Apache | ✅ **בנוי** |
+| **ברק בעיניים** (`eyes.py`) | 2 | MediaPipe FaceMesh — נקודות אישון 468-477 | Apache | ✅ **בנוי** |
+| **גוונים בשיער** (`hairtone.py`) | 2 | MediaPipe selfie-multiclass (מחלקת שיער) | Apache 2.0 | ✅ **בנוי** |
 | הורדת פצעונים / אובייקטים | 3 | LaMa (inpainting) | Apache | ⏳ |
 | חידוד/שחזור פנים | 3 | GFPGAN | Apache | ⏳ |
 | החלפת שמיים | 3 | SkyAR | לבדוק | ⏳ |

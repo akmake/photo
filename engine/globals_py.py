@@ -160,8 +160,14 @@ def _dimension(rgb, params):
         out = out + delta[..., None]
 
     if vignette:
-        # a smooth radial falloff carries no detail — build it small, scale up
-        sh, sw = 256, max(1, int(256 * w / h)) if h >= w else (max(1, int(256 * h / w)), 256)
+        # a smooth radial falloff carries no detail — build it small, scale up.
+        # 256 goes on the SHORT side; written as a statement because as a
+        # conditional expression the `else` branch binds to sw alone and
+        # silently makes it a tuple on landscape frames.
+        if h >= w:
+            sh, sw = 256, max(1, int(256 * w / h))
+        else:
+            sh, sw = max(1, int(256 * h / w)), 256
         yy, xx = np.mgrid[0:sh, 0:sw].astype(np.float32)
         cx, cy = sw / 2.0, sh / 2.0
         t = np.sqrt((xx - cx) ** 2 + (yy - cy) ** 2) / np.sqrt(cx * cx + cy * cy)

@@ -10,7 +10,11 @@ import json
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import abpn
+import blush
 import common
+import eyes
+import hairtone
+import presets
 import raw
 import render
 import skin
@@ -40,6 +44,37 @@ TOOLS = [
         "params": [{"id": "strength", "min": 0, "max": 100, "default": 60}],
     },
     {
+        "id": "blush",
+        "kind": "ai",
+        "category": "local-ai",
+        "params": [
+            {"id": "strength", "min": 0, "max": 100, "default": 45},
+            {"id": "size", "min": 0, "max": 100, "default": 50},
+            {"id": "warmth", "min": 0, "max": 100, "default": 35},
+        ],
+    },
+    {
+        "id": "eye-sparkle",
+        "kind": "ai",
+        "category": "local-ai",
+        "params": [
+            {"id": "strength", "min": 0, "max": 100, "default": 50},
+            {"id": "whites", "min": 0, "max": 100, "default": 40},
+            {"id": "sparkle", "min": 0, "max": 100, "default": 45},
+        ],
+    },
+    {
+        "id": "hair-tones",
+        "kind": "ai",
+        "category": "local-ai",
+        "params": [
+            {"id": "strength", "min": 0, "max": 100, "default": 50},
+            {"id": "warmth", "min": -100, "max": 100, "default": 40},
+            {"id": "shine", "min": 0, "max": 100, "default": 35},
+            {"id": "richness", "min": 0, "max": 100, "default": 40},
+        ],
+    },
+    {
         "id": "background-blur",
         "kind": "ai",
         "category": "scene",
@@ -55,6 +90,9 @@ DISPATCH = {
     "face-retouch": abpn.process,
     "skin-cleanup": cleanup.process,
     "skin": skin.process,
+    "blush": blush.process,
+    "eye-sparkle": eyes.process,
+    "hair-tones": hairtone.process,
     "background-blur": background.process,
 }
 
@@ -76,6 +114,19 @@ class Handler(BaseHTTPRequestHandler):
             self._json(200, {"status": "ok", "tools": [t["id"] for t in TOOLS]})
         elif self.path == "/tools":
             self._json(200, {"tools": TOOLS})
+        elif self.path == "/presets":
+            # One dial for the whole skin stack — see presets.py for why the
+            # three strengths are not exposed as three separate decisions.
+            self._json(200, {
+                "portrait": {
+                    "levels": list(presets.PORTRAIT_LEVELS),
+                    "default": presets.DEFAULT_LEVEL,
+                    "recipes": {
+                        name: presets.portrait(name)
+                        for name in presets.PORTRAIT_LEVELS
+                    },
+                }
+            })
         else:
             self._json(404, {"error": "not found"})
 

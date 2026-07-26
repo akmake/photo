@@ -18,7 +18,10 @@ import masks
 
 import abpn
 import background
+import blush
 import cleanup
+import eyes
+import hairtone
 import skin
 import globals_py
 
@@ -29,6 +32,11 @@ TOOLS = {
     "face-retouch": (abpn.apply, 8),  # learned model — the primary skin tool
     "skin-cleanup": (cleanup.apply, 10),
     "skin": (skin.apply, 20),
+    # Colour work on the retouched face: after smoothing, which would otherwise
+    # wash a blush straight back out, and before any global grade.
+    "blush": (blush.apply, 22),
+    "eye-sparkle": (eyes.apply, 23),
+    "hair-tones": (hairtone.apply, 24),
     "background-blur": (background.apply, 25),
     "tone-color": (globals_py.tone_color, 30),
     "dimension": (globals_py.dimension, 35),
