@@ -50,8 +50,35 @@ def navier_stokes(rgb: np.ndarray, mask: np.ndarray) -> np.ndarray:
     return _classical(rgb, mask, cv2.INPAINT_NS)
 
 
+class _Context:
+    """Whole-image derivatives, computed once and shared by every component.
+
+    These used to be rebuilt inside the per-component search, which made a face
+    with a hundred blemishes cost a hundred full-frame Lab conversions and Sobel
+    passes. The blur is cached per (quantised) sigma so repeated components with
+    similar geometry reuse it.
+    """
+
+    def __init__(self, rgb: np.ndarray):
+        self.rgb = rgb
+        self.lab = cv2.cvtColor(rgb, cv2.COLOR_RGB2LAB).astype(np.float32)
+        gray = cv2.cvtColor(rgb, cv2.COLOR_RGB2GRAY).astype(np.float32)
+        gx = cv2.Sobel(gray, cv2.CV_32F, 1, 0, ksize=3)
+        gy = cv2.Sobel(gray, cv2.CV_32F, 0, 1, ksize=3)
+        self.grad = cv2.magnitude(gx, gy)
+        self._low: dict[float, np.ndarray] = {}
+
+    def low(self, sigma: float) -> np.ndarray:
+        key = round(max(1.5, float(sigma)) * 2.0) / 2.0
+        cached = self._low.get(key)
+        if cached is None:
+            cached = cv2.GaussianBlur(self.lab, (0, 0), sigmaX=key)
+            self._low[key] = cached
+        return cached
+
+
 def _component_patch(
-    rgb: np.ndarray,
+    ctx: _Context,
     component: np.ndarray,
     allowed: np.ndarray,
     forbidden: np.ndarray,
@@ -61,6 +88,7 @@ def _component_patch(
     if len(xs) == 0:
         return None
 
+    rgb = ctx.rgb
     h, w = rgb.shape[:2]
     lesion_w = int(xs.max() - xs.min() + 1)
     lesion_h = int(ys.max() - ys.min() + 1)
@@ -74,7 +102,6 @@ def _component_patch(
     if ph < 5 or pw < 5:
         return None
 
-    target = rgb[y0:y1, x0:x1]
     target_component = component[y0:y1, x0:x1]
     ring_size = max(3, int(max(lesion_w, lesion_h) * 0.8))
     kernel = np.ones((_odd(ring_size), _odd(ring_size)), np.uint8)
@@ -84,12 +111,8 @@ def _component_patch(
     if ring.sum() < 12:
         return None
 
-    lab = cv2.cvtColor(rgb, cv2.COLOR_RGB2LAB).astype(np.float32)
-    low = cv2.GaussianBlur(lab, (0, 0), sigmaX=max(1.5, margin * 0.22))
-    gray = cv2.cvtColor(rgb, cv2.COLOR_RGB2GRAY).astype(np.float32)
-    gx = cv2.Sobel(gray, cv2.CV_32F, 1, 0, ksize=3)
-    gy = cv2.Sobel(gray, cv2.CV_32F, 0, 1, ksize=3)
-    grad = cv2.magnitude(gx, gy)
+    low = ctx.low(margin * 0.22)
+    grad = ctx.grad
 
     target_low = low[y0:y1, x0:x1]
     target_grad = grad[y0:y1, x0:x1]
@@ -154,6 +177,7 @@ def patch_frequency(
         binary, np.ones((halo_radius, halo_radius), np.uint8)
     )
 
+    ctx = _Context(rgb)
     fallback = telea(rgb, binary)
     output = rgb.copy()
     count, labels, stats, _ = cv2.connectedComponentsWithStats(binary, 8)
@@ -162,7 +186,7 @@ def patch_frequency(
         if stats[index, cv2.CC_STAT_AREA] < 2:
             continue
         component = (labels == index).astype(np.uint8)
-        found = _component_patch(rgb, component, allowed, forbidden)
+        found = _component_patch(ctx, component, allowed, forbidden)
         if found is None:
             output[component > 0] = fallback[component > 0]
             continue
@@ -209,6 +233,87 @@ def patch_frequency(
     return output
 
 
+def inpaint_texture(
+    rgb: np.ndarray,
+    mask: np.ndarray,
+    allowed_region: np.ndarray | None = None,
+) -> np.ndarray:
+    """Reconstruct tone by diffusion, then graft real pore texture on top.
+
+    `patch_frequency` transplants a whole donor patch, so it imports the
+    donor's *structure* too and can invent a crease that was never there.
+    Here the low/mid frequencies come from classical inpainting — which is
+    exactly what diffusion is good at, seamless tone that follows the
+    surrounding illumination — and the donor contributes nothing but its
+    high-frequency skin texture, which is what diffusion destroys.
+    """
+    binary = _binary(mask)
+    if not binary.any():
+        return rgb.copy()
+
+    allowed = (
+        np.ones(binary.shape, np.uint8)
+        if allowed_region is None
+        else _binary(allowed_region)
+    )
+    halo_radius = _odd(max(7, int(np.sqrt(float(binary.sum())) * 0.35)))
+    forbidden = cv2.dilate(binary, np.ones((halo_radius, halo_radius), np.uint8))
+
+    ctx = _Context(rgb)
+    base = telea(rgb, binary)
+    output = base.copy()
+    count, labels, stats, _ = cv2.connectedComponentsWithStats(binary, 8)
+
+    for index in range(1, count):
+        if stats[index, cv2.CC_STAT_AREA] < 2:
+            continue
+        component = (labels == index).astype(np.uint8)
+        found = _component_patch(ctx, component, allowed, forbidden)
+        if found is None:
+            continue  # tone-only repair is still a valid result
+        (x0, y0, x1, y1), donor = found
+        local_mask = component[y0:y1, x0:x1].astype(np.float32)
+
+        # Pore-scale only. A larger sigma would drag donor structure back in.
+        sigma = 1.5
+        donor_lab = cv2.cvtColor(donor, cv2.COLOR_RGB2LAB).astype(np.float32)
+        donor_high = donor_lab - cv2.GaussianBlur(donor_lab, (0, 0), sigmaX=sigma)
+
+        base_patch = base[y0:y1, x0:x1]
+        base_lab = cv2.cvtColor(base_patch, cv2.COLOR_RGB2LAB).astype(np.float32)
+
+        # Match the grafted texture's amplitude to the skin ringing the repair,
+        # so the patch is neither flatter nor noisier than its neighbourhood.
+        ring_size = _odd(max(5, int(np.sqrt(float(local_mask.sum())) * 0.9)))
+        ring = cv2.dilate(
+            local_mask.astype(np.uint8), np.ones((ring_size, ring_size), np.uint8)
+        ).astype(bool)
+        ring &= ~local_mask.astype(bool)
+        ring &= allowed[y0:y1, x0:x1] > 0
+        gain = 1.0
+        if ring.sum() > 24:
+            source_lab = cv2.cvtColor(
+                rgb[y0:y1, x0:x1], cv2.COLOR_RGB2LAB
+            ).astype(np.float32)
+            target_high = source_lab - cv2.GaussianBlur(source_lab, (0, 0), sigmaX=sigma)
+            donor_amp = float(np.abs(donor_high[..., 0][ring]).mean())
+            target_amp = float(np.abs(target_high[..., 0][ring]).mean())
+            if donor_amp > 1e-3:
+                gain = float(np.clip(target_amp / donor_amp, 0.5, 2.0))
+
+        candidate_lab = np.clip(base_lab + donor_high * gain, 0, 255).astype(np.uint8)
+        candidate = cv2.cvtColor(candidate_lab, cv2.COLOR_LAB2RGB).astype(np.float32)
+
+        feather = _odd(max(3, int(np.sqrt(float(local_mask.sum())) * 0.22)))
+        alpha = cv2.GaussianBlur(local_mask, (feather, feather), 0)
+        alpha = np.clip(alpha * 1.35, 0.0, 1.0)[..., None]
+        current = output[y0:y1, x0:x1].astype(np.float32)
+        mixed = current * (1.0 - alpha) + candidate * alpha
+        output[y0:y1, x0:x1] = np.clip(mixed, 0, 255).astype(np.uint8)
+
+    return output
+
+
 def patch_poisson(
     rgb: np.ndarray,
     mask: np.ndarray,
@@ -227,6 +332,7 @@ def patch_poisson(
     forbidden = cv2.dilate(
         binary, np.ones((halo_radius, halo_radius), np.uint8)
     )
+    ctx = _Context(rgb)
     fallback = telea(rgb, binary)
     output = rgb.copy()
     count, labels, stats, _ = cv2.connectedComponentsWithStats(binary, 8)
@@ -235,7 +341,7 @@ def patch_poisson(
         if stats[index, cv2.CC_STAT_AREA] < 2:
             continue
         component = (labels == index).astype(np.uint8)
-        found = _component_patch(rgb, component, allowed, forbidden)
+        found = _component_patch(ctx, component, allowed, forbidden)
         if found is None:
             output[component > 0] = fallback[component > 0]
             continue
@@ -258,12 +364,14 @@ def apply(
     rgb: np.ndarray,
     mask: np.ndarray,
     allowed_region: np.ndarray | None = None,
-    method: str = "patch-frequency",
+    method: str = "inpaint-texture",
 ) -> np.ndarray:
     if method == "telea":
         return telea(rgb, mask)
     if method in {"navier-stokes", "ns"}:
         return navier_stokes(rgb, mask)
+    if method == "inpaint-texture":
+        return inpaint_texture(rgb, mask, allowed_region)
     if method == "patch-frequency":
         return patch_frequency(rgb, mask, allowed_region)
     if method == "patch-poisson":

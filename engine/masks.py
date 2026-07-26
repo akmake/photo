@@ -43,6 +43,12 @@ _landmarker = None
 # FaceMesh landmark index sets
 LEFT_EYE = [33, 7, 163, 144, 145, 153, 154, 155, 133, 173, 157, 158, 159, 160, 161, 246]
 RIGHT_EYE = [362, 382, 381, 380, 374, 373, 390, 249, 263, 466, 388, 387, 386, 385, 384, 398]
+# Upper lid rims — the lash line the eyelid fold runs parallel to, just above.
+LEFT_EYE_UPPER = [33, 246, 161, 160, 159, 158, 157, 173, 133]
+RIGHT_EYE_UPPER = [263, 466, 388, 387, 386, 385, 384, 398, 362]
+# Lower lid rims, corner to corner — the ridge the tear trough hangs under.
+LEFT_LOWER_LID = [33, 7, 163, 144, 145, 153, 154, 155, 133]
+RIGHT_LOWER_LID = [263, 249, 390, 373, 374, 380, 381, 382, 362]
 LEFT_EYEBROW = [46, 53, 52, 65, 55, 70, 63, 105, 66, 107]
 RIGHT_EYEBROW = [276, 283, 282, 295, 285, 300, 293, 334, 296, 336]
 LIPS = [
@@ -54,6 +60,27 @@ LEFT_CHEEK_CENTER = 50
 RIGHT_CHEEK_CENTER = 280
 FACE_LEFT = 234
 FACE_RIGHT = 454
+
+# Anatomy the old feature hulls missed entirely: the face's own CREASES and
+# contours. They read as strong deviations to the skin model — a fold changes
+# lightness and a lip border is the highest-contrast edge on the face — so
+# without them the detector spends its sensitivity on the person's structure
+# instead of on dirt.
+#
+# These are derived from a few anchors that survive pose changes rather than
+# from long hand-copied contour lists, and every band is deliberately THIN:
+# a child's food and scratch marks sit millimetres from the mouth corner and
+# the nasolabial fold, so a generous protection band here would make the marks
+# we most need to remove permanently unreachable.
+NOSE_ALA = (129, 358)  # outer edge of each nostril wing
+MOUTH_CORNERS = (61, 291)
+LOWER_LIP_BOTTOM = 17
+CHIN_CENTER = 199
+FACE_OVAL = [
+    10, 338, 297, 332, 284, 251, 389, 356, 454, 323, 361, 288, 397, 365,
+    379, 378, 400, 377, 152, 148, 176, 149, 150, 136, 172, 58, 132, 93,
+    234, 127, 162, 21, 54, 103, 67, 109,
+]
 
 
 def _segmenter_instance():
@@ -212,6 +239,121 @@ def _poly_mask(rgb: np.ndarray, polys, feather_px: int) -> np.ndarray:
     return m.astype(np.float32) / 255.0
 
 
+def _kern(size: float) -> np.ndarray:
+    k = max(1, int(size)) | 1
+    return np.ones((k, k), np.uint8)
+
+
+def anatomy_parts(rgb: np.ndarray, lm) -> "OrderedDict[str, np.ndarray]":
+    """Named protection regions for one face, as uint8 masks.
+
+    Returned per part (rather than pre-merged) so the debug view and the mask
+    are built from the same source — a protection region that is wrong is
+    otherwise invisible until it silently blocks a repair.
+    """
+    h, w = rgb.shape[:2]
+    fw = max(1.0, abs(lm[FACE_RIGHT].x - lm[FACE_LEFT].x) * w)
+
+    def pt(i):
+        return (int(round(lm[i].x * w)), int(round(lm[i].y * h)))
+
+    def blank():
+        return np.zeros((h, w), np.uint8)
+
+    parts: "OrderedDict[str, np.ndarray]" = OrderedDict()
+
+    # Eye, brow and the fold between them, each protected as what it actually is.
+    #
+    # These were one convex hull, because separate hulls left the eyelid crease
+    # exposed and the detector kept flagging it. That worked, and it walled off
+    # the entire upper orbit: an inflamed patch on the OUTER lid measured 0.0%
+    # eligible — zero pixels, confidence never even computed — while its colour
+    # said pigment outright (da=+3.0, db=+4.7 against the surrounding ring), the
+    # exact class this tool exists for. A protection that a real lesion cannot
+    # escape is not caution, it is a blind spot.
+    #
+    # So: hulls for the things that ARE regions, and a band for the thing that
+    # is a line. A hull spanning lash line to brow is convex, so it bulges past
+    # the outer canthus and swallows the lid — the same "fat hull" mistake the
+    # lip mask already made once. The fold is a stripe above the lash line;
+    # protect it as one. Measured at lift 0.035 / thickness 0.05: crease healing
+    # stays at 1px (identical to the merged hull) and the lid opens to 13.3%.
+    for side, eye, brow, upper in (
+        ("l", LEFT_EYE, LEFT_EYEBROW, LEFT_EYE_UPPER),
+        ("r", RIGHT_EYE, RIGHT_EYEBROW, RIGHT_EYE_UPPER),
+    ):
+        m = blank()
+        cv2.fillConvexPoly(m, cv2.convexHull(np.array([pt(i) for i in eye], np.int32)), 255)
+        parts[f"eye-{side}"] = cv2.dilate(m, _kern(fw * 0.030))  # lashes sit outside the ring
+
+        m = blank()
+        cv2.fillConvexPoly(m, cv2.convexHull(np.array([pt(i) for i in brow], np.int32)), 255)
+        parts[f"brow-{side}"] = cv2.dilate(m, _kern(fw * 0.012))
+
+        m = blank()
+        pts = np.array([(x, y - fw * 0.035) for x, y in (pt(i) for i in upper)], np.int32)
+        cv2.polylines(m, [pts[np.argsort(pts[:, 0])]], False, 255, max(2, int(fw * 0.050)))
+        parts[f"eyelid-crease-{side}"] = m
+
+    # Infraorbital hollow — the tear trough. Audited: 6 of 22 healed lesions sat
+    # in this band and every one was orbital shadow rather than dirt, another 2
+    # sat on the lid rim itself: 30% of all healing spent giving a small child
+    # retouched under-eyes. The colour weighting does not filter it, because the
+    # hollow is not merely darker — it is BLUISH, a genuine `b` deviation.
+    # A band that follows the lid, never a disc: the cheek below it is exactly
+    # where a child's real scratches live.
+    for name, lid in (("infraorbital-l", LEFT_LOWER_LID), ("infraorbital-r", RIGHT_LOWER_LID)):
+        m = blank()
+        pts = np.array([pt(i) for i in lid], np.int32)
+        pts = pts[np.argsort(pts[:, 0])]
+        drop = max(2, int(fw * 0.12))
+        cv2.fillPoly(m, [np.vstack([pts, (pts + [0, drop])[::-1]])], 255)
+        parts[name] = m
+
+    m = blank()
+    cv2.fillConvexPoly(m, cv2.convexHull(np.array([pt(i) for i in NOSE], np.int32)), 255)
+    parts["nose"] = cv2.dilate(m, _kern(fw * 0.010))
+
+    # Lips: the vermillion border is the highest-contrast edge on a face. It is
+    # protected as a THIN band, not by fattening the hull — a fat lip mask is
+    # what blocked healing of the marks beside the mouth.
+    m = blank()
+    cv2.fillConvexPoly(m, cv2.convexHull(np.array([pt(i) for i in LIPS], np.int32)), 255)
+    parts["lips"] = cv2.dilate(m, _kern(fw * 0.012))
+
+    # Nasolabial fold: ala of the nose to the mouth corner. Kept narrow on
+    # purpose — the scratch we are trying to remove sits right beside it.
+    m = blank()
+    for ala, corner in zip(NOSE_ALA, MOUTH_CORNERS):
+        cv2.line(m, pt(ala), pt(corner), 255, max(2, int(fw * 0.022)))
+    parts["nasolabial"] = m
+
+    # Mentolabial sulcus: the crease under the lower lip.
+    m = blank()
+    lip = pt(LOWER_LIP_BOTTOM)
+    chin = pt(CHIN_CENTER)
+    mid = ((lip[0] + chin[0]) // 2, (lip[1] + chin[1]) // 2)
+    cv2.ellipse(
+        m,
+        mid,
+        (max(2, int(fw * 0.16)), max(2, int(fw * 0.035))),
+        0,
+        0,
+        360,
+        255,
+        -1,
+    )
+    parts["chin-crease"] = m
+
+    # Face contour: the jaw/hairline edge is a tonal cliff, not skin.
+    m = blank()
+    oval = np.array([pt(i) for i in FACE_OVAL], np.int32)
+    cv2.polylines(m, [oval], True, 255, max(2, int(fw * 0.030)))
+    parts["contour"] = m
+
+    return parts
+
+
 _CACHE: "OrderedDict[tuple, np.ndarray]" = OrderedDict()
 _CACHE_MAX = 24
 
@@ -314,6 +456,38 @@ def _compute_mask(rgb: np.ndarray, kind: str) -> np.ndarray:
                 g = max(1, int(fw * grow_ratio))
                 part = cv2.dilate(part, np.ones((g, g), np.uint8))
                 m = np.maximum(m, part)
+        k = max(3, int(min(h, w) * 0.003)) | 1
+        return cv2.GaussianBlur(m, (k, k), 0).astype(np.float32) / 255.0
+
+    if kind == "face-anatomy":
+        # Superset of `face-features`: adds the face's own creases and contour.
+        faces = _face_landmarks(rgb)
+        if not faces:
+            return np.zeros((h, w), dtype=np.float32)
+        m = np.zeros((h, w), dtype=np.uint8)
+        for lm in faces:
+            for part in anatomy_parts(rgb, lm).values():
+                m = np.maximum(m, part)
+        k = max(3, int(min(h, w) * 0.003)) | 1
+        return cv2.GaussianBlur(m, (k, k), 0).astype(np.float32) / 255.0
+
+    if kind == "face-oval":
+        # Containment, not protection: the filled facial contour.
+        #
+        # `face-skin` comes from segmentation and happily includes the EAR, the
+        # neck and jaw spill — all of it real skin, none of it a face. Measured
+        # on the test frame: 28% of every pixel the cleanup healed landed there,
+        # on 5.6% of the eligible area — a fivefold over-representation, and
+        # the ear is a mass of ridges and shadow that no skin model can explain.
+        # Fails OPEN (all ones) when there are no landmarks, so this can only
+        # ever narrow a face we actually found.
+        faces = _face_landmarks(rgb)
+        if not faces:
+            return np.ones((h, w), dtype=np.float32)
+        m = np.zeros((h, w), dtype=np.uint8)
+        for lm in faces:
+            pts = np.array([[lm[i].x * w, lm[i].y * h] for i in FACE_OVAL], np.int32)
+            cv2.fillPoly(m, [pts], 255)
         k = max(3, int(min(h, w) * 0.003)) | 1
         return cv2.GaussianBlur(m, (k, k), 0).astype(np.float32) / 255.0
 

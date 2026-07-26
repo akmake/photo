@@ -21,6 +21,7 @@ import cv2
 import numpy as np
 
 import common
+import healing
 import masks
 import skinmodel
 
@@ -43,22 +44,39 @@ def confidence(rgb, params: dict):
     if face_d < MIN_FACE_PX:
         return None
 
-    features = masks.get_mask(rgb, "face-features")
+    # Anatomy, not just features: creases and the lip border read as strong
+    # deviations to the skin model, so without them the detector spends its
+    # sensitivity on the face's own structure instead of on dirt.
+    features = masks.get_mask(rgb, "face-anatomy")
     hair = masks.get_mask(rgb, "hair")
     hr = max(3, int(face_d * 0.035)) | 1
     hair = cv2.dilate(hair, np.ones((hr, hr), np.uint8))
 
-    region = np.clip(skin - features - hair, 0.0, 1.0)
+    # Judged area is confined to the face itself. Note this narrows `region`
+    # only — `support` below deliberately keeps the jaw and ear as colour
+    # samples, because cutting the sample at the same line would reintroduce
+    # exactly the one-sided-neighbourhood bias this split exists to remove.
+    region = np.clip(skin - features - hair, 0.0, 1.0) * masks.get_mask(rgb, "face-oval")
     er = max(1, int(face_d * 0.03))
     region = cv2.erode(region, np.ones((er, er), np.uint8))
     if region.max() <= 0:
         return None
 
-    model = skinmodel.build(rgb, region, face_d)
+    # Where the model may SAMPLE is a different question from where it may HEAL.
+    # `region` withholds the creases, the contour band and an erosion margin —
+    # rightly, we must not heal those. But they are still real examples of this
+    # skin, and sampling only inside `region` leaves the model's smooth field
+    # estimated one-sidedly along every one of those borders, which then reads
+    # as deviation. `face-features` is the honest sampling exclusion: eyes,
+    # brows, lips and nostrils are the only parts that genuinely are not skin.
+    support = np.clip(skin - masks.get_mask(rgb, "face-features") - hair, 0.0, 1.0)
+
+    model = skinmodel.build(rgb, region, face_d, support=support)
 
     # Mahalanobis distance is chi-like with 3 dof, so the bar is set in sigmas.
-    # strength 0 -> 4.5 sigma (only blatant marks), 1 -> 2.2 sigma (subtle too)
-    lo = 4.5 - strength * 2.3
+    # strength 0 -> 4.5 sigma (only blatant marks), 1 -> 1.5 sigma (everything
+    # the skin model cannot explain, including faint residue and dry patches).
+    lo = 4.5 - strength * 3.0
     hi = lo + 1.6
     conf = np.clip((model.novelty - lo) / (hi - lo), 0.0, 1.0)
     conf = conf * conf * (3 - 2 * conf)  # smoothstep: no hard edges
@@ -81,6 +99,80 @@ def confidence(rgb, params: dict):
     fr = max(3, int(face_d * 0.006)) | 1
     conf = cv2.GaussianBlur(conf, (fr, fr), 0)
     return conf, region, face_d, model
+
+
+def _fill_holes(mask: np.ndarray) -> np.ndarray:
+    """Make every component solid. Only the outer contour of each is kept."""
+    contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    out = np.zeros_like(mask)
+    cv2.drawContours(out, contours, -1, 1, thickness=cv2.FILLED)
+    return out
+
+
+def decide(conf: np.ndarray, face_d: float) -> np.ndarray:
+    """Turn a per-pixel confidence map into solid per-LESION masks.
+
+    Thresholding pixel by pixel is what broke every previous attempt: a lesion
+    is a REGION, and a ragged mask full of pinholes makes reconstruction sample
+    the blemish in order to repair the blemish — so the mark survives its own
+    removal.
+
+    Hysteresis fixes both ends of that with one mechanism. A HIGH bar decides
+    *whether* something is a lesion at all; a LOW bar decides *how far that
+    lesion extends*. Speckles with no confident core are dropped instead of
+    being healed, and a real mark keeps the faint halo that a single threshold
+    would have sliced off.
+    """
+    seed = (conf > 0.60).astype(np.uint8)
+    if not seed.any():
+        return np.zeros(conf.shape, np.uint8)
+    extent = (conf > 0.22).astype(np.uint8)
+
+    count, labels, _, _ = cv2.connectedComponentsWithStats(extent, connectivity=8)
+    keep = np.zeros(count, bool)
+    keep[np.unique(labels[seed > 0])] = True
+    keep[0] = False
+    mask = keep[labels].astype(np.uint8)
+
+    r = max(3, int(face_d * 0.010)) | 1
+    mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, np.ones((r, r), np.uint8))
+    mask = _fill_holes(mask)
+
+    # A mark fades at its rim. Covering only the core leaves a visible halo, so
+    # the repair region is grown slightly past what was actually detected.
+    g = max(2, int(face_d * 0.006)) | 1
+    mask = cv2.dilate(mask, np.ones((g, g), np.uint8))
+
+    # Size gate — measured on the CORE, not on the grown region.
+    #
+    # The gate exists to reject broad skin character the model failed to absorb.
+    # Applying it to the grown extent instead punishes hysteresis for doing its
+    # job: a real mark assembled into one lesion plus its halo is legitimately
+    # larger than the fragments the old threshold produced, and gating on that
+    # deleted the very scratch this tool exists to remove. What makes something
+    # a blemish is a COMPACT CONFIDENT CORE; how far its halo fades is not
+    # evidence either way.
+    # ...and measured as AREA and THICKNESS, never as bounding-box side.
+    #
+    # A bounding box punishes a mark for being LONG. A scratch is long and thin;
+    # blush is broad. Gating on the box rejected this photo's scratch at 38x50
+    # while its core was only 396px of actual pixels. This is the same error the
+    # anti-hair shape gate already made once — elongation is not evidence of
+    # innocence. Thickness is: the largest circle that fits inside the mark.
+    max_side = max(8, int(face_d * 0.16))
+    max_area = max_side * max_side * 0.5
+    max_radius = max_side * 0.35
+    count, labels, stats, _ = cv2.connectedComponentsWithStats(mask, connectivity=8)
+    for i in range(1, count):
+        component = labels == i
+        core = (component & (seed > 0)).astype(np.uint8)
+        if not core.any():
+            mask[component] = 0
+            continue
+        radius = float(cv2.distanceTransform(core, cv2.DIST_L2, 3).max())
+        if core.sum() > max_area or radius > max_radius:
+            mask[component] = 0
+    return mask
 
 
 def apply(rgb, params: dict):
@@ -110,13 +202,41 @@ def apply(rgb, params: dict):
         return rgb, {"spotsRemoved": 0, "correctedPx": 0}
 
     # --- healing -----------------------------------------------------------
-    # low is reassembled untouched -> natural colour cannot be neutralised.
-    # mid is where the blemish lives -> suppressed by confidence.
-    # high is texture -> kept almost entirely, so there is no flat patch.
-    c = conf[..., None]
-    healed_lab = model.low + model.mid * (1.0 - c) + model.high * (1.0 - c * 0.30)
-    healed_lab = np.clip(healed_lab, 0, 255).astype(np.uint8)
-    healed = cv2.cvtColor(healed_lab, cv2.COLOR_LAB2RGB)
+    if str(params.get("mode", "reconstruct")) == "reconstruct":
+        # Attenuating `mid` only ever DIMS a mark — its structure survives, which
+        # is why every earlier attempt left a ghost. Reconstruction rebuilds what
+        # should be under it instead.
+        #
+        # This gives up the structural blush guarantee that frequency blending
+        # had (low was untouched by construction). The size gate above is what
+        # replaces it: we only ever reconstruct marks small enough that the ring
+        # feeding the diffusion is the same patch of skin — so local blush is
+        # reproduced, not averaged away. test_blush.py holds this honest.
+        repair = decide(conf, face_c)
+        if not repair.any():
+            return rgb, {"spotsRemoved": 0, "correctedPx": 0}
+        healed = healing.inpaint_texture(crop, repair, (region > 0.35).astype(np.uint8))
+        # Reconstruction is all-or-nothing: it replaces what is under the mark.
+        # Cross-fading it with the original at the confidence value would leave a
+        # proportional ghost of the very thing it rebuilt — which is exactly what
+        # a partial blend did here. Apply it fully inside the mask and let a
+        # narrow feather hide the seam instead.
+        fr = max(3, int(face_c * 0.004)) | 1
+        blend = cv2.GaussianBlur(repair.astype(np.float32), (fr, fr), 0)
+        blend = np.clip(blend * 1.25, 0.0, 1.0)[..., None]
+        out_crop = crop.astype(np.float32) * (1 - blend) + healed.astype(np.float32) * blend
+        out = rgb.copy()
+        out[y0:y1, x0:x1] = np.clip(out_crop, 0, 255).astype(np.uint8)
+        n, _, stats, _ = cv2.connectedComponentsWithStats(repair, connectivity=8)
+        return out, {"spotsRemoved": max(0, n - 1), "correctedPx": int(area)}
+    else:
+        # low is reassembled untouched -> natural colour cannot be neutralised.
+        # mid is where the blemish lives -> suppressed by confidence.
+        # high is texture -> kept almost entirely, so there is no flat patch.
+        c = conf[..., None]
+        healed_lab = model.low + model.mid * (1.0 - c) + model.high * (1.0 - c * 0.30)
+        healed_lab = np.clip(healed_lab, 0, 255).astype(np.uint8)
+        healed = cv2.cvtColor(healed_lab, cv2.COLOR_LAB2RGB)
 
     blend = np.clip(conf, 0.0, 1.0)[..., None]
     out_crop = (crop.astype(np.float32) * (1 - blend) + healed.astype(np.float32) * blend)

@@ -77,9 +77,28 @@ class SkinModel:
         self.novelty = novelty
 
 
-def build(rgb: np.ndarray, skin_region: np.ndarray, face_d: float) -> SkinModel:
-    """skin_region: float 0..1 mask of usable skin (no features, no hair)."""
+def build(
+    rgb: np.ndarray,
+    skin_region: np.ndarray,
+    face_d: float,
+    support: np.ndarray = None,
+) -> SkinModel:
+    """skin_region: float 0..1 mask of skin to JUDGE (no features, no hair).
+    support:     float 0..1 mask of skin to SAMPLE from; defaults to the same.
+
+    These are not the same question, and conflating them biased the detector.
+    A crease, the contour band and the erosion margin are places we must not
+    HEAL — but they are still perfectly good EXAMPLES of what this person's skin
+    looks like. Excluding them from the sample leaves the smooth field estimated
+    from a one-sided neighbourhood wherever the judged region ends, and a
+    lopsided field reads as deviation. The result was a detector that spent its
+    confidence on feature rims: measured on the test face, confident cores sat a
+    median 4.4px from a region edge against 12px for typical skin, so real marks
+    in open cheek never competed.
+    """
     lab = cv2.cvtColor(rgb, cv2.COLOR_RGB2LAB).astype(np.float32)
+    if support is None:
+        support = skin_region
 
     # LOW: the skin's own colour character. Wide enough that a blemish cannot
     # bend it, narrow enough to follow real blush.
@@ -87,8 +106,8 @@ def build(rgb: np.ndarray, skin_region: np.ndarray, face_d: float) -> SkinModel:
     # HIGH cut: just above pore/noise scale.
     r_high = max(1, int(face_d * 0.006))
 
-    low = normalized_smooth(lab, skin_region, r_low)
-    fine = normalized_smooth(lab, skin_region, r_high)
+    low = normalized_smooth(lab, support, r_low)
+    fine = normalized_smooth(lab, support, r_high)
 
     mid = fine - low  # band-pass — this is the only band we judge
     high = lab - fine  # texture; kept so healing never looks like a plaster
