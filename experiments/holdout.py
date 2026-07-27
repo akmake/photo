@@ -41,6 +41,14 @@ DATASETS = [
     # like `33`, since no other clean graded pair exists for `22` to hold out.
     ("22", DOWNLOADS / "22", DOWNLOADS / "22", "321A5208 (1)", "321A5208"),
     ("jm", DOWNLOADS / "jm__yg0J2rjsE-dhAL", DOWNLOADS / "jm_graded", None, None),
+    # Girl in a poppy field, well-aligned (inlierRatio 0.865 per the plan doc's
+    # problem 3): retoucher crushed/desaturated the field but WARMED AND
+    # LIFTED the subject (+22.3 L) -- opposite directions on the same photo.
+    # Teach-only (single pair, no siblings), same as `33`/`22`. This is the
+    # set that should show whether SUBJECT_BASE_ENABLED actually fixes a
+    # directional failure (engine measured -14.9 L on the subject, i.e.
+    # backwards, not just under-corrected) rather than a mere precision gap.
+    ("poppy", DOWNLOADS, DOWNLOADS, "IMG_2034ב", "IMG_2034 (1) copy"),
 ]
 MAX_HOLDOUT = 10
 EVAL_MAX = 900
@@ -66,6 +74,74 @@ CONFIGS = {
         "SKIN_MODEL_ENABLED": True,
         "STRENGTH_TRUST_SCALE": 6000.0,
         "MATERIAL_MODEL_ENABLED": True,
+    },
+    # LOCAL_SLOPE_ENABLED: each anchor's delta becomes deltas[i] + slope[i] @
+    # (colour offset from its own centre) instead of one constant vector --
+    # still LUT-compatible (colour-only), see LOCAL_SLOPE_ENABLED in
+    # pixel_color.py. Targets the "43% of the flower gap closed" ceiling from
+    # docs/opo.md section 13, which is a capacity limit (24 fixed anchors),
+    # not an alignment or identity problem -- should show up on ALL sets,
+    # including holdout, not just the set with a saturated-colour complaint.
+    "uncapped+skin+strength+material+slope": {
+        "MAX_ANCHOR_DELTA": 110.0,
+        "LEARN_ONLY_MATCHED": False,
+        "SKIN_MODEL_ENABLED": True,
+        "STRENGTH_TRUST_SCALE": 6000.0,
+        "MATERIAL_MODEL_ENABLED": True,
+        "LOCAL_SLOPE_ENABLED": True,
+    },
+    # Same as +slope, but requiring far more of an anchor's OWN evidence
+    # before trusting a 9-parameter (3x3) regression on it at all -- tests
+    # whether the jm-holdout skin regression (-1.8pt) was small-sample noise
+    # in the slope fit itself, isolated from the calibration-inconsistency
+    # bug that was also just fixed (see _calibrate_anchor_strengths).
+    "uncapped+skin+strength+material+slope+minsamples200": {
+        "MAX_ANCHOR_DELTA": 110.0,
+        "LEARN_ONLY_MATCHED": False,
+        "SKIN_MODEL_ENABLED": True,
+        "STRENGTH_TRUST_SCALE": 6000.0,
+        "MATERIAL_MODEL_ENABLED": True,
+        "LOCAL_SLOPE_ENABLED": True,
+        "MIN_SLOPE_SAMPLES": 200,
+    },
+    # Plan-doc problem 3: give the subject its own base (temperature/exposure)
+    # instead of sharing the whole-frame grid search. Built on top of the
+    # current-best chain (not +slope) to isolate this one variable. Watch
+    # the new `subject` column, especially on `poppy` -- that is the pair
+    # with a documented DIRECTIONAL failure (subject moved -14.9 L when the
+    # retoucher moved it +22.3 L), not just a precision gap.
+    "uncapped+skin+strength+material+subjectbase": {
+        "MAX_ANCHOR_DELTA": 110.0,
+        "LEARN_ONLY_MATCHED": False,
+        "SKIN_MODEL_ENABLED": True,
+        "STRENGTH_TRUST_SCALE": 6000.0,
+        "MATERIAL_MODEL_ENABLED": True,
+        "SUBJECT_BASE_ENABLED": True,
+    },
+    # One-at-a-time sweep of constants that were chosen once, by inspection,
+    # and never swept against an alternative (see pixel_color.py's comment
+    # above _FEATURE_L_WEIGHT). Each config changes exactly one value away
+    # from today's production default, on top of the current-best chain, so
+    # any change in score is attributable to that one constant.
+    "uncapped+skin+strength+material+Lweight0.15": {
+        "MAX_ANCHOR_DELTA": 110.0, "LEARN_ONLY_MATCHED": False,
+        "SKIN_MODEL_ENABLED": True, "STRENGTH_TRUST_SCALE": 6000.0,
+        "MATERIAL_MODEL_ENABLED": True, "FEATURE_L_WEIGHT": 0.15,
+    },
+    "uncapped+skin+strength+material+chromaSpan20": {
+        "MAX_ANCHOR_DELTA": 110.0, "LEARN_ONLY_MATCHED": False,
+        "SKIN_MODEL_ENABLED": True, "STRENGTH_TRUST_SCALE": 6000.0,
+        "MATERIAL_MODEL_ENABLED": True, "CHROMA_GATE_SPAN": 20.0,
+    },
+    "uncapped+skin+strength+material+familiarity48": {
+        "MAX_ANCHOR_DELTA": 110.0, "LEARN_ONLY_MATCHED": False,
+        "SKIN_MODEL_ENABLED": True, "STRENGTH_TRUST_SCALE": 6000.0,
+        "MATERIAL_MODEL_ENABLED": True, "FAMILIARITY_RADIUS": 48.0,
+    },
+    "uncapped+skin+strength+material+confSupport4000": {
+        "MAX_ANCHOR_DELTA": 110.0, "LEARN_ONLY_MATCHED": False,
+        "SKIN_MODEL_ENABLED": True, "STRENGTH_TRUST_SCALE": 6000.0,
+        "MATERIAL_MODEL_ENABLED": True, "CONFIDENCE_SUPPORT_SCALE": 4000.0,
     },
 }
 
@@ -215,6 +291,12 @@ class Pair:
         )
         self.vivid = self.clean & (chroma > VIVID_CHROMA)
         self.skin_region = self.clean & (self.skin > 0.5)
+        # Distinct from skin_region: ALL subject pixels (clothes, hair,
+        # background-of-a-person -- whatever masks.py's "subject" covers),
+        # not just skin. Needed to see whether SUBJECT_BASE_ENABLED actually
+        # moves the needle -- "overall" on a wide landscape-with-a-person
+        # shot is background-dominated and would hide a subject-only fix.
+        self.subject_region = self.clean & (self.subject > 0.5)
 
         # Model-independent proxy for "pixels a material anchor could plausibly
         # cover": any class-agnostic region big enough to have qualified during
@@ -240,6 +322,11 @@ class Pair:
             if self.material_region.sum() > 300
             else float("nan")
         )
+        self.subject_ceiling = (
+            closed(self.before_lab, oracle_lab, self.target_lab, self.subject_region)
+            if self.subject_region.sum() > 300
+            else float("nan")
+        )
 
     def score(self, model):
         result = render(self.before, model, self.subject, self.skin)
@@ -259,11 +346,17 @@ class Pair:
             if self.material_region.sum() > 300
             else float("nan")
         )
+        subject = (
+            closed(self.before_lab, result_lab, self.target_lab, self.subject_region)
+            if self.subject_region.sum() > 300
+            else float("nan")
+        )
         return (
             closed(self.before_lab, result_lab, self.target_lab, self.clean),
             vivid,
             skin,
             material,
+            subject,
         )
 
 
@@ -278,6 +371,20 @@ def apply_config(config):
     pixel_color.MATERIAL_MODEL_ENABLED = config.get("MATERIAL_MODEL_ENABLED", False)
     pixel_color.MIN_MATERIAL_REGION_PX = config.get("MIN_MATERIAL_REGION_PX", 600)
     pixel_color.MATERIAL_PROTECTION = config.get("MATERIAL_PROTECTION", 0.35)
+    pixel_color.LOCAL_SLOPE_ENABLED = config.get("LOCAL_SLOPE_ENABLED", False)
+    pixel_color._MIN_SLOPE_SAMPLES = config.get("MIN_SLOPE_SAMPLES", 40)
+    pixel_color._SLOPE_TRUST_SCALE = config.get("SLOPE_TRUST_SCALE", 6000.0)
+    pixel_color.SUBJECT_BASE_ENABLED = config.get("SUBJECT_BASE_ENABLED", False)
+    # The five "never swept" decision constants from pixel_color.py -- see
+    # their docstring there. Defaults here match the values already live in
+    # production, so a config that omits them measures exactly today's
+    # behaviour.
+    pixel_color._FEATURE_L_WEIGHT = config.get("FEATURE_L_WEIGHT", 0.28)
+    pixel_color._CONFIDENCE_SPREAD_SCALE = config.get("CONFIDENCE_SPREAD_SCALE", 28.0)
+    pixel_color._CONFIDENCE_SUPPORT_SCALE = config.get("CONFIDENCE_SUPPORT_SCALE", 2200.0)
+    pixel_color._CHROMA_GATE_FLOOR = config.get("CHROMA_GATE_FLOOR", 5.0)
+    pixel_color._CHROMA_GATE_SPAN = config.get("CHROMA_GATE_SPAN", 13.0)
+    pixel_color._FAMILIARITY_RADIUS = config.get("FAMILIARITY_RADIUS", 34.0)
     pixel_color._CUBE_CACHE.clear()
 
 
@@ -316,35 +423,45 @@ def main():
         material_ceil = np.nanmean(
             [teach_pair.material_ceiling] + [p.material_ceiling for p in holdout_pairs]
         )
+        subject_ceil = np.nanmean(
+            [teach_pair.subject_ceiling] + [p.subject_ceiling for p in holdout_pairs]
+        )
         print(f"    oracle ceiling: teach {teach_pair.ceiling:.1%}" + (
             f", holdout {np.nanmean([p.ceiling for p in holdout_pairs]):.1%}"
             if holdout_pairs else "") + (
             f", skin {skin_ceil:.1%}" if not np.isnan(skin_ceil) else ", skin n/a") + (
-            f", material {material_ceil:.1%}" if not np.isnan(material_ceil) else ", material n/a"))
-        print(f"    {'config':30} {'teach':>7} {'vivid':>7} {'skin':>7} {'material':>8} | "
-              f"{'HOLDOUT':>8} {'vivid':>7} {'skin':>7} {'material':>8} {'of oracle':>10}")
+            f", material {material_ceil:.1%}" if not np.isnan(material_ceil) else ", material n/a") + (
+            f", subject {subject_ceil:.1%}" if not np.isnan(subject_ceil) else ", subject n/a"))
+        print(f"    {'config':46} {'teach':>7} {'vivid':>7} {'skin':>7} {'material':>8} {'subject':>8} | "
+              f"{'HOLDOUT':>8} {'vivid':>7} {'skin':>7} {'material':>8} {'subject':>8} {'of oracle':>10}")
 
         for name, config in CONFIGS.items():
             apply_config(config)
             before = teach_pair.before
             model, report, _ = pixel_color.fit(before, teach_pair.target)
             model = pixel_color.deserialize(model)
-            t_all, t_vivid, t_skin, t_material = teach_pair.score(model)
+            t_all, t_vivid, t_skin, t_material, t_subject = teach_pair.score(model)
             skin_flag = "skin*" if report.get("skinModel") else ""
             material_flag = "material*" if report.get("materialModel") else ""
+            subject_flag = "subjectBase*" if report.get("subjectBaseModel") else ""
             if holdout_pairs:
                 scores = [p.score(model) for p in holdout_pairs]
                 h_all = float(np.nanmean([s[0] for s in scores]))
                 h_vivid = float(np.nanmean([s[1] for s in scores]))
                 h_skin = float(np.nanmean([s[2] for s in scores]))
                 h_material = float(np.nanmean([s[3] for s in scores]))
+                h_subject = float(np.nanmean([s[4] for s in scores]))
                 ratio = h_all / max(np.nanmean([p.ceiling for p in holdout_pairs]), 1e-6)
-                tail = f"| {h_all:8.1%} {h_vivid:7.1%} {h_skin:7.1%} {h_material:8.1%} {ratio:10.1%}"
+                tail = (
+                    f"| {h_all:8.1%} {h_vivid:7.1%} {h_skin:7.1%} {h_material:8.1%} "
+                    f"{h_subject:8.1%} {ratio:10.1%}"
+                )
             else:
                 tail = "|      n/a"
-            print(f"    {name:30} {t_all:7.1%} {t_vivid:7.1%} {t_skin:7.1%} {t_material:8.1%} {tail}"
+            print(f"    {name:46} {t_all:7.1%} {t_vivid:7.1%} {t_skin:7.1%} {t_material:8.1%} "
+                  f"{t_subject:8.1%} {tail}"
                   f"   (strength {report['selectedStrength']}, sigma {report['selectedSigma']})"
-                  f" {skin_flag} {material_flag}")
+                  f" {skin_flag} {material_flag} {subject_flag}")
 
     pixel_color._fit_anchors = original
 

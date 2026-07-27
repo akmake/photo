@@ -33,6 +33,49 @@ WORK_MAX = 900
 BASE_MAX = 480
 CLUSTERS = 24
 MAX_SAMPLES = 150_000
+# The following five constants were each chosen once, by inspection, and
+# never swept against an alternative the way MAX_ANCHOR_DELTA and
+# _STRENGTH_TRUST_SCALE were (see the holdout sweeps documented next to
+# those two). They gate or shape every single correction the model makes,
+# so a wrong value here is not cosmetic -- but nobody has actually measured
+# whether these specific numbers are better than a neighbouring value.
+# Promoted to module constants (were inline literals) so experiments/
+# holdout.py can patch and sweep them the same way as every validated one.
+#
+# Relative weight of lightness vs. chroma in the feature space _features()
+# builds -- used for BOTH the k-means clustering in _fit_anchors and the
+# Gaussian-kernel distance in _palette_delta.
+_FEATURE_L_WEIGHT = 0.28
+# Confidence formula in _fit_anchors/_fit_material_anchors: how many Lab
+# units of within-cluster spread it takes to halve confidence, and how many
+# member pixels it takes to stop discounting confidence for low support.
+_CONFIDENCE_SPREAD_SCALE = 28.0
+_CONFIDENCE_SUPPORT_SCALE = 2200.0
+# chroma_gate in _palette_delta/_material_pixel_delta: pixels below this
+# much chroma get zero correction; the gate ramps to full strength this many
+# units later. Protects near-neutral pixels from arbitrary hue rotation.
+_CHROMA_GATE_FLOOR = 5.0
+_CHROMA_GATE_SPAN = 13.0
+# familiarity in _palette_delta: a pixel this far (in feature-space units)
+# from every anchor gets zero correction -- the model refuses to extrapolate
+# to colours the teach pair never showed it.
+_FAMILIARITY_RADIUS = 34.0
+
+# `_fit_base` is one global temperature/exposure grid search shared by the
+# whole frame -- when background and subject need to move in OPPOSITE
+# directions (a poppy field crushed dark+desaturated while the child in it
+# is warmed and lifted, see the plan doc's problem 3), the single global
+# search finds whatever the majority of the frame wants, and the subject
+# gets that same wrong answer even through the "protected" safety path,
+# because "protected" mode still tones with the one shared `base`. Measured
+# on a real pair: retoucher lifted the subject +22.3 L, the shared-base
+# engine output moved it -14.9 L -- not just less-good, backwards. Gated
+# off by default; when enabled, `fit()` runs the exact same `_fit_base`
+# grid search a second time, restricted to the subject mask, and
+# `_apply_model_samples`'s "protected" mode uses that instead of the shared
+# base -- reusing existing code with a different mask, no new model.
+SUBJECT_BASE_ENABLED = False
+_MIN_SUBJECT_BASE_PX = 400
 # A hue rotation like magenta->rust needs ~95 in Lab. At 46 the model could not
 # express it and cranked global strength to the rail instead. See
 # experiments/holdout.py: on unseen pairs this is +8pt overall, +38pt on
@@ -90,6 +133,37 @@ MATERIAL_PROTECTION = 0.35
 # match. Texture only breaks near-ties, so this gate is colour-first.
 _MATERIAL_MATCH_MAX_DISTANCE = 14.0
 _MATERIAL_TEXTURE_WEIGHT = 0.15
+# Each anchor from _fit_anchors carries one constant delta (the cluster's
+# median target-source shift) -- CLUSTERS caps the whole model at ~24 such
+# constants per photo, regardless of how smoothly _palette_delta blends
+# between them. That is a real, separate ceiling from anything about
+# alignment or element identity: on `33`'s own flower pixels (chroma>55),
+# only 43% of the colour gap closed because one cluster has to speak for a
+# whole range of in-cluster shades with a single number (docs/opo.md
+# section 13). LOCAL_SLOPE_ENABLED lets an anchor's delta vary LINEARLY with
+# colour around its own centre -- still a pure function of the pixel's own
+# colour, so it stays compatible with the compiled 33^3 LUT the same way the
+# constant delta is (see _compile_processors: it evaluates the model on a
+# synthetic colour cube with no spatial structure at all, which is exactly
+# why a *spatial* feature could never be compiled this way and would have to
+# run per-photo like material anchors already do). Off by default; validate
+# via experiments/holdout.py the same way every prior change here was.
+LOCAL_SLOPE_ENABLED = False
+# An anchor needs this many of its own training pixels before a per-anchor
+# slope is fit at all -- a handful of points cannot support a 3x3 regression
+# without just fitting noise.
+_MIN_SLOPE_SAMPLES = 40
+# Same empirical-Bayes shape as _STRENGTH_TRUST_SCALE: trust = support /
+# (support + K). A cluster with little evidence keeps slope near zero (i.e.
+# today's constant-delta behaviour); one with lots of real evidence (a
+# flower filling a fifth of the frame) earns a slope closer to its own fit.
+_SLOPE_TRUST_SCALE = 6000.0
+# Offsets from an anchor's own centre are clipped to this radius (same units
+# as _features()) before the slope is applied, so a stray training pixel far
+# from its cluster centre cannot make the linear term extrapolate to an
+# absurd correction. The existing MAX_ANCHOR_DELTA cap in _palette_delta is
+# still the final backstop regardless.
+_SLOPE_TRUST_RADIUS = 40.0
 
 _CUBE_CACHE = {}
 
@@ -117,7 +191,7 @@ def _look_lab(rgb):
 def _features(lab):
     return np.stack(
         (
-            (lab[..., 0] - 128.0) * 0.28,
+            (lab[..., 0] - 128.0) * _FEATURE_L_WEIGHT,
             lab[..., 1] - 128.0,
             lab[..., 2] - 128.0,
         ),
@@ -190,7 +264,7 @@ def _correspondence(before, after):
     return ~mismatch
 
 
-def _fit_base(before, after, matched=None):
+def _fit_base(before, after, matched=None, restrict=None):
     before_small = _resize(before, BASE_MAX)
     after_small = _resize(after, BASE_MAX)
     target = _look_lab(after_small)
@@ -208,6 +282,18 @@ def _fit_base(before, after, matched=None):
         ).astype(bool)
         if resized.sum() > valid.sum() * 0.15:
             valid &= resized
+    if restrict is not None:
+        # Unlike `matched` above, a deliberate restriction (e.g. to just the
+        # subject) is not skipped for covering "too little" of the frame --
+        # a person filling 5% of a wide shot is the normal case this exists
+        # for, not a data-loss risk to guard against. Only refuse if there is
+        # too little absolute evidence to fit two parameters at all.
+        resized_restrict = cv2.resize(
+            restrict.astype(np.uint8), (width, height), interpolation=cv2.INTER_NEAREST
+        ).astype(bool)
+        restricted = valid & resized_restrict
+        if restricted.sum() >= _MIN_SUBJECT_BASE_PX:
+            valid = restricted
 
     def score(params):
         delta = np.sqrt(((_look_lab(_tone(before_small, params)) - target) ** 2).sum(2))
@@ -307,17 +393,32 @@ def _fit_anchors(source_lab, target_lab, valid):
     deltas = []
     confidences = []
     supports = []
+    slopes = []
     for index in range(cluster_count):
         selected = labels == index
         values = delta[train_positions][selected]
         median = np.median(values, axis=0)
         spread = float(np.median(np.linalg.norm(values - median, axis=1)))
         support = int(selected.sum())
-        confidence = float(np.clip(1.0 - spread / 28.0, 0.08, 1.0))
-        confidence *= float(np.clip(support / 2200.0, 0.2, 1.0))
+        confidence = float(np.clip(1.0 - spread / _CONFIDENCE_SPREAD_SCALE, 0.08, 1.0))
+        confidence *= float(np.clip(support / _CONFIDENCE_SUPPORT_SCALE, 0.2, 1.0))
         deltas.append(median)
         confidences.append(confidence)
         supports.append(support)
+        if LOCAL_SLOPE_ENABLED and support >= _MIN_SLOPE_SAMPLES:
+            offset = np.clip(
+                train_features[selected] - centers[index],
+                -_SLOPE_TRUST_RADIUS,
+                _SLOPE_TRUST_RADIUS,
+            )
+            residual = values - median
+            fit_slope, *_ = np.linalg.lstsq(
+                offset.astype(np.float64), residual.astype(np.float64), rcond=None,
+            )
+            trust = support / (support + _SLOPE_TRUST_SCALE)
+            slopes.append((fit_slope * trust).astype(np.float32))
+        else:
+            slopes.append(np.zeros((3, 3), np.float32))
 
     model = {
         "anchors": centers.astype(np.float32),
@@ -328,26 +429,39 @@ def _fit_anchors(source_lab, target_lab, valid):
         "confidences": np.asarray(confidences, np.float32),
         "supports": np.asarray(supports, np.int32),
     }
+    if LOCAL_SLOPE_ENABLED:
+        model["slopes"] = np.asarray(slopes, np.float32)
     return model, validation_positions, len(positions)
 
 
 def _palette_delta(lab_values, model, strengths, sigma):
     values = _features(lab_values.reshape(-1, 1, 3)).reshape(-1, 3)
     anchors = model["anchors"]
-    distance2 = ((values[:, None, :] - anchors[None, :, :]) ** 2).sum(axis=2)
+    offset = values[:, None, :] - anchors[None, :, :]
+    distance2 = (offset ** 2).sum(axis=2)
     nearest = np.sqrt(distance2.min(axis=1))
     weights = np.exp(-distance2 / (2.0 * sigma * sigma))
     weights *= model["confidences"][None, :]
     weight_sum = np.maximum(weights.sum(1, keepdims=True), 1e-6)
-    delta = weights @ model["deltas"] / weight_sum
+    slopes = model.get("slopes")
+    if slopes is not None and LOCAL_SLOPE_ENABLED:
+        # Each anchor's delta becomes deltas[i] + slopes[i] @ (colour offset
+        # from that anchor's own centre), still purely a function of the
+        # pixel's own colour -- see LOCAL_SLOPE_ENABLED for why that matters.
+        clipped_offset = np.clip(offset, -_SLOPE_TRUST_RADIUS, _SLOPE_TRUST_RADIUS)
+        linear = np.einsum("pnj,njk->pnk", clipped_offset, slopes)
+        local_deltas = model["deltas"][None, :, :] + linear
+        delta = (weights[:, :, None] * local_deltas).sum(1) / weight_sum
+    else:
+        delta = weights @ model["deltas"] / weight_sum
     # A pixel's effective strength is blended from nearby anchors the same way
     # the delta itself is, so two anchors with different calibrated strengths
     # (see _calibrate_anchor_strengths) meet at a smooth transition, not a seam.
     strength_field = weights @ np.asarray(strengths, np.float32).reshape(-1, 1) / weight_sum
 
     chroma = np.hypot(lab_values[:, 1] - 128.0, lab_values[:, 2] - 128.0)
-    chroma_gate = np.clip((chroma - 5.0) / 13.0, 0.0, 1.0)
-    familiarity = np.clip(1.0 - nearest / 34.0, 0.0, 1.0)
+    chroma_gate = np.clip((chroma - _CHROMA_GATE_FLOOR) / _CHROMA_GATE_SPAN, 0.0, 1.0)
+    familiarity = np.clip(1.0 - nearest / _FAMILIARITY_RADIUS, 0.0, 1.0)
     result = delta * (chroma_gate * familiarity)[:, None] * strength_field
     # MAX_ANCHOR_DELTA already bounds each LEARNED anchor delta to the most
     # extreme shift a real regrade should need. `strength` multiplies AFTER
@@ -428,6 +542,15 @@ def _calibrate_anchor_strengths(source_values, target_values, nearest, model, si
             "deltas": model["deltas"][index : index + 1],
             "confidences": model["confidences"][index : index + 1],
         }
+        # If this anchor also carries a local-slope term, the strength found
+        # here must be calibrated against the SAME delta(colour) function
+        # apply-time actually uses -- otherwise strength is tuned for a
+        # slope-less anchor while a non-zero slope gets multiplied by it
+        # anyway, exactly the "two mechanisms disagreeing about the model"
+        # bug class already caught twice in this file (skin blend, material
+        # replace-vs-residual).
+        if "slopes" in model:
+            single["slopes"] = model["slopes"][index : index + 1]
         local_strength = _best_uniform_strength(
             cluster_source, cluster_target, single, np.ones(1, np.float32), sigma,
             cluster_chroma95 + 5.0,
@@ -504,7 +627,7 @@ def _material_pixel_delta(lab_values, delta, strength):
     section 14 of docs/opo.md) so both are kept.
     """
     chroma = np.hypot(lab_values[:, 1] - 128.0, lab_values[:, 2] - 128.0)
-    chroma_gate = np.clip((chroma - 5.0) / 13.0, 0.0, 1.0)
+    chroma_gate = np.clip((chroma - _CHROMA_GATE_FLOOR) / _CHROMA_GATE_SPAN, 0.0, 1.0)
     result = delta[None, :] * strength * chroma_gate[:, None]
     return _cap_vectors(result, MAX_ANCHOR_DELTA)
 
@@ -555,8 +678,8 @@ def _fit_material_anchors(before, general_lab, target_lab, valid, general_streng
         values = delta_map[member]
         median = np.median(values, axis=0)
         spread = float(np.median(np.linalg.norm(values - median, axis=1)))
-        confidence = float(np.clip(1.0 - spread / 28.0, 0.08, 1.0))
-        confidence *= float(np.clip(support / 2200.0, 0.2, 1.0))
+        confidence = float(np.clip(1.0 - spread / _CONFIDENCE_SPREAD_SCALE, 0.08, 1.0))
+        confidence *= float(np.clip(support / _CONFIDENCE_SUPPORT_SCALE, 0.2, 1.0))
         capped_delta = _cap_vectors(median.reshape(1, 3), MAX_ANCHOR_DELTA)[0]
 
         source_values = general_lab[member]
@@ -709,7 +832,15 @@ def _apply_model_samples(rgb_values, model, mode="full"):
     'skin' (the separate anchor set learned from face/body skin pixels, if any)."""
     shape = rgb_values.shape
     rgb = rgb_values.reshape(-1, 1, 3).astype(np.uint8)
-    corrected = _tone(rgb, model["base"])
+    # "protected" exists so the subject can fall back to something safe when
+    # the general anchors are not trusted there -- but until subjectBase, it
+    # fell back to the SAME shared base as "full", so a scene where subject
+    # and background need opposite exposure/temperature (see
+    # SUBJECT_BASE_ENABLED) got the wrong answer even on the "safe" path.
+    base_params = (
+        model.get("subjectBase", model["base"]) if mode == "protected" else model["base"]
+    )
+    corrected = _tone(rgb, base_params)
     lab = _lab(corrected).reshape(-1, 3)
     if mode == "full":
         strengths = _resolved_strengths(model, len(model["anchors"]), "strengths", "strength")
@@ -720,6 +851,8 @@ def _apply_model_samples(rgb_values, model, mode="full"):
             "deltas": model["skinDeltas"],
             "confidences": model["skinConfidences"],
         }
+        if "skinSlopes" in model:
+            skin_model["slopes"] = model["skinSlopes"]
         strengths = _resolved_strengths(
             model, len(model["skinAnchors"]), "skinStrengths", "skinStrength",
         )
@@ -749,7 +882,7 @@ def _apply_model_samples(rgb_values, model, mode="full"):
 # so older engine code and old models both keep working unchanged).
 _OPTIONAL_ARRAY_KEYS = (
     "skinAnchors", "skinDeltas", "skinConfidences", "skinSupports",
-    "strengths", "skinStrengths",
+    "strengths", "skinStrengths", "slopes", "skinSlopes",
     "materialAnchors", "materialDeltas", "materialConfidences",
     "materialSupports", "materialTextures", "materialStrengths",
 )
@@ -809,6 +942,10 @@ def fit(before_rgb, after_rgb):
     subject = _subject_mask(before)
     chroma = np.hypot(source_lab[..., 1] - 128.0, source_lab[..., 2] - 128.0)
 
+    subject_base = None
+    if SUBJECT_BASE_ENABLED and subject.max() > 0.5:
+        subject_base, _ = _fit_base(before, after, matched, restrict=subject > 0.5)
+
     height, width = before.shape[:2]
     rim = max(4, round(min(height, width) * 0.03))
     valid = np.ones((height, width), bool)
@@ -859,6 +996,8 @@ def fit(before_rgb, after_rgb):
         "sigma": selection["sigma"],
         "subjectProtection": SUBJECT_PROTECTION,
     }
+    if subject_base is not None:
+        model["subjectBase"] = subject_base
 
     skin_sample_count = int(valid_skin.sum())
     if skin_sample_count >= MIN_SKIN_SAMPLES:
@@ -877,6 +1016,8 @@ def fit(before_rgb, after_rgb):
         model["skinDeltas"] = skin_anchor_model["deltas"]
         model["skinConfidences"] = skin_anchor_model["confidences"]
         model["skinSupports"] = skin_anchor_model["supports"]
+        if "slopes" in skin_anchor_model:
+            model["skinSlopes"] = skin_anchor_model["slopes"]
         model["skinStrength"] = skin_selection["strength"]
         model["skinStrengths"] = skin_selection["strengths"]
         model["skinSigma"] = skin_selection["sigma"]
@@ -981,6 +1122,7 @@ def fit(before_rgb, after_rgb):
         "selectedSigma": model["sigma"],
         "selectedLumaStrength": model["lumaStrength"],
         "lumaTrials": luma_trials,
+        "subjectBaseModel": subject_base is not None,
         "skinModel": has_skin_model,
         "skinSamples": skin_sample_count,
         "meanSkinAnchorConfidence": (

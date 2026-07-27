@@ -108,6 +108,71 @@ class PixelColorTests(unittest.TestCase):
         )
         np.testing.assert_array_equal(baseline, with_material_at_zero)
 
+    def test_local_slope_disabled_is_a_noop(self):
+        """LOCAL_SLOPE_ENABLED == False (the default) must reproduce
+        constant-per-anchor delta blending bit-for-bit, even when a model
+        happens to carry a "slopes" array -- e.g. a model fit while the flag
+        was on, later applied while it is off. Slope only ever ADDS a
+        colour-conditioned adjustment on top of the existing constant delta,
+        never replaces the blend mechanism itself.
+        """
+        rng = np.random.default_rng(11)
+        lab_values = rng.uniform(20, 235, size=(50, 3)).astype(np.float32)
+        model = {
+            "anchors": rng.uniform(-60, 60, size=(4, 3)).astype(np.float32),
+            "deltas": rng.uniform(-20, 20, size=(4, 3)).astype(np.float32),
+            "confidences": rng.uniform(0.2, 1.0, size=4).astype(np.float32),
+        }
+        strengths = np.full(4, 1.2, np.float32)
+        baseline = pixel_color._palette_delta(lab_values, model, strengths, 8.0)
+
+        model_with_slopes = dict(model)
+        model_with_slopes["slopes"] = rng.uniform(-1, 1, size=(4, 3, 3)).astype(np.float32)
+        pixel_color.LOCAL_SLOPE_ENABLED = False
+        disabled = pixel_color._palette_delta(lab_values, model_with_slopes, strengths, 8.0)
+        np.testing.assert_array_equal(baseline, disabled)
+
+        pixel_color.LOCAL_SLOPE_ENABLED = True
+        try:
+            enabled = pixel_color._palette_delta(lab_values, model_with_slopes, strengths, 8.0)
+            self.assertFalse(np.array_equal(baseline, enabled))
+        finally:
+            pixel_color.LOCAL_SLOPE_ENABLED = False
+
+    def test_protected_mode_without_subject_base_uses_shared_base(self):
+        """A model with no "subjectBase" key (every model fit before
+        SUBJECT_BASE_ENABLED existed, and every model fit with it off) must
+        keep using the shared `base` for the "protected" path -- exactly
+        today's behaviour. Only a model that actually carries a fitted
+        subjectBase should diverge.
+        """
+        rng = np.random.default_rng(13)
+        grid = rng.integers(0, 255, size=(6, 6, 3), dtype=np.uint8)
+        base_model = {
+            "base": {"temperature": 15.0, "exposure": -6.0},
+            "anchors": np.zeros((1, 3), np.float32),
+            "deltas": np.zeros((1, 3), np.float32),
+            "confidences": np.ones(1, np.float32),
+            "strength": 1.0,
+            "sigma": 8.0,
+            "lumaCurve": np.arange(256, dtype=np.float32),
+            "lumaStrength": 0.0,
+        }
+        full_path = pixel_color._apply_model_samples(grid, base_model, mode="full")
+        protected_no_subject_base = pixel_color._apply_model_samples(
+            grid, base_model, mode="protected",
+        )
+        np.testing.assert_array_equal(full_path, protected_no_subject_base)
+
+        with_subject_base = dict(base_model)
+        with_subject_base["subjectBase"] = {"temperature": -40.0, "exposure": 20.0}
+        protected_with_subject_base = pixel_color._apply_model_samples(
+            grid, with_subject_base, mode="protected",
+        )
+        self.assertFalse(
+            np.array_equal(protected_no_subject_base, protected_with_subject_base)
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
