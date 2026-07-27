@@ -29,6 +29,13 @@ MODELS = {
         "https://www.modelscope.cn/api/v1/models/damo/"
         "cv_unet_skin_retouching_torch/repo?Revision=master&FilePath=pytorch_model.pt"
     ),
+    # class-agnostic region segmentation for pixel_color's material anchors
+    # (ChaoningZhang/MobileSAM, Apache 2.0 -- verified against the repo's own
+    # LICENSE file, not assumed from memory, per the project's own rule).
+    "mobile_sam.pt": (
+        "https://raw.githubusercontent.com/ChaoningZhang/MobileSAM/master/"
+        "weights/mobile_sam.pt"
+    ),
 }
 
 if __name__ == "__main__":

@@ -24,7 +24,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "engine"))
 sys.path.insert(0, str(ROOT))
 
-from engine import common, compare, pixel_color  # noqa: E402
+from engine import common, compare, pixel_color, regions  # noqa: E402
 
 
 DOWNLOADS = Path.home() / "Downloads"
@@ -59,6 +59,13 @@ CONFIGS = {
         "LEARN_ONLY_MATCHED": False,
         "SKIN_MODEL_ENABLED": True,
         "STRENGTH_TRUST_SCALE": 6000.0,
+    },
+    "uncapped+skin+strength+material": {
+        "MAX_ANCHOR_DELTA": 110.0,
+        "LEARN_ONLY_MATCHED": False,
+        "SKIN_MODEL_ENABLED": True,
+        "STRENGTH_TRUST_SCALE": 6000.0,
+        "MATERIAL_MODEL_ENABLED": True,
     },
 }
 
@@ -158,18 +165,29 @@ def render(rgb, model, subject, skin):
     """pixel_color.apply()'s exact blend, with masks supplied (config-independent)."""
     compiled = pixel_color._compile_processors(model)
     has_skin = len(compiled) > 2
+    has_material = "materialAnchors" in model
     full = pixel_color._apply_compiled(rgb, compiled[0])
     protection = float(model.get("subjectProtection", pixel_color.SUBJECT_PROTECTION))
-    if protection <= 0 and not has_skin:
+    material_protection = (
+        float(model.get("materialProtection", pixel_color.MATERIAL_PROTECTION))
+        if has_material else 0.0
+    )
+    if protection <= 0 and not has_skin and material_protection <= 0:
         return full
     protected = pixel_color._apply_compiled(rgb, compiled[1])
     skin_out = pixel_color._apply_compiled(rgb, compiled[2]) if has_skin else None
     skin_protection = (
         float(model.get("skinProtection", pixel_color.SKIN_PROTECTION)) if has_skin else 0.0
     )
+    material_out, material_confidence = (
+        pixel_color._apply_material(full, rgb, model, subject)
+        if has_material and material_protection > 0
+        else (None, None)
+    )
     return pixel_color._blend_protected(
         full, protected, subject, protection,
         skin if has_skin else None, skin_out, skin_protection,
+        material_out, material_confidence, material_protection,
     )
 
 
@@ -197,11 +215,29 @@ class Pair:
         )
         self.vivid = self.clean & (chroma > VIVID_CHROMA)
         self.skin_region = self.clean & (self.skin > 0.5)
+
+        # Model-independent proxy for "pixels a material anchor could plausibly
+        # cover": any class-agnostic region big enough to have qualified during
+        # fit (MIN_MATERIAL_REGION_PX), outside skin. Doesn't require a specific
+        # fitted model, so it's comparable the same way `vivid`/`skin_region` are
+        # -- defined once from the photo, not from any one config's anchors.
+        labels, region_stats = regions.get_regions(self.before)
+        material_mask = np.zeros(self.before.shape[:2], bool)
+        for stat in region_stats:
+            if stat["area"] >= pixel_color.MIN_MATERIAL_REGION_PX:
+                material_mask |= labels == stat["id"]
+        self.material_region = self.clean & material_mask & (self.skin < 0.5)
+
         oracle_lab = pixel_color._lab(oracle(self.before, self.target, self.clean))
         self.ceiling = closed(self.before_lab, oracle_lab, self.target_lab, self.clean)
         self.skin_ceiling = (
             closed(self.before_lab, oracle_lab, self.target_lab, self.skin_region)
             if self.skin_region.sum() > 300
+            else float("nan")
+        )
+        self.material_ceiling = (
+            closed(self.before_lab, oracle_lab, self.target_lab, self.material_region)
+            if self.material_region.sum() > 300
             else float("nan")
         )
 
@@ -218,7 +254,17 @@ class Pair:
             if self.skin_region.sum() > 300
             else float("nan")
         )
-        return closed(self.before_lab, result_lab, self.target_lab, self.clean), vivid, skin
+        material = (
+            closed(self.before_lab, result_lab, self.target_lab, self.material_region)
+            if self.material_region.sum() > 300
+            else float("nan")
+        )
+        return (
+            closed(self.before_lab, result_lab, self.target_lab, self.clean),
+            vivid,
+            skin,
+            material,
+        )
 
 
 def apply_config(config):
@@ -229,6 +275,9 @@ def apply_config(config):
     pixel_color.MIN_SKIN_SAMPLES = config.get("MIN_SKIN_SAMPLES", 1500)
     pixel_color.SKIN_PROTECTION = config.get("SKIN_PROTECTION", 0.35)
     pixel_color._STRENGTH_TRUST_SCALE = config.get("STRENGTH_TRUST_SCALE", 1e12)
+    pixel_color.MATERIAL_MODEL_ENABLED = config.get("MATERIAL_MODEL_ENABLED", False)
+    pixel_color.MIN_MATERIAL_REGION_PX = config.get("MIN_MATERIAL_REGION_PX", 600)
+    pixel_color.MATERIAL_PROTECTION = config.get("MATERIAL_PROTECTION", 0.35)
     pixel_color._CUBE_CACHE.clear()
 
 
@@ -264,31 +313,38 @@ def main():
               f"holdout {[p.name for p in holdout_pairs] or 'none (single graded frame)'} "
               f"({time.time()-started:.0f}s to prepare) ===")
         skin_ceil = np.nanmean([teach_pair.skin_ceiling] + [p.skin_ceiling for p in holdout_pairs])
+        material_ceil = np.nanmean(
+            [teach_pair.material_ceiling] + [p.material_ceiling for p in holdout_pairs]
+        )
         print(f"    oracle ceiling: teach {teach_pair.ceiling:.1%}" + (
             f", holdout {np.nanmean([p.ceiling for p in holdout_pairs]):.1%}"
             if holdout_pairs else "") + (
-            f", skin {skin_ceil:.1%}" if not np.isnan(skin_ceil) else ", skin n/a"))
-        print(f"    {'config':16} {'teach':>7} {'vivid':>7} {'skin':>7} | "
-              f"{'HOLDOUT':>8} {'vivid':>7} {'skin':>7} {'of oracle':>10}")
+            f", skin {skin_ceil:.1%}" if not np.isnan(skin_ceil) else ", skin n/a") + (
+            f", material {material_ceil:.1%}" if not np.isnan(material_ceil) else ", material n/a"))
+        print(f"    {'config':30} {'teach':>7} {'vivid':>7} {'skin':>7} {'material':>8} | "
+              f"{'HOLDOUT':>8} {'vivid':>7} {'skin':>7} {'material':>8} {'of oracle':>10}")
 
         for name, config in CONFIGS.items():
             apply_config(config)
             before = teach_pair.before
             model, report, _ = pixel_color.fit(before, teach_pair.target)
             model = pixel_color.deserialize(model)
-            t_all, t_vivid, t_skin = teach_pair.score(model)
+            t_all, t_vivid, t_skin, t_material = teach_pair.score(model)
             skin_flag = "skin*" if report.get("skinModel") else ""
+            material_flag = "material*" if report.get("materialModel") else ""
             if holdout_pairs:
                 scores = [p.score(model) for p in holdout_pairs]
                 h_all = float(np.nanmean([s[0] for s in scores]))
                 h_vivid = float(np.nanmean([s[1] for s in scores]))
                 h_skin = float(np.nanmean([s[2] for s in scores]))
+                h_material = float(np.nanmean([s[3] for s in scores]))
                 ratio = h_all / max(np.nanmean([p.ceiling for p in holdout_pairs]), 1e-6)
-                tail = f"| {h_all:8.1%} {h_vivid:7.1%} {h_skin:7.1%} {ratio:10.1%}"
+                tail = f"| {h_all:8.1%} {h_vivid:7.1%} {h_skin:7.1%} {h_material:8.1%} {ratio:10.1%}"
             else:
                 tail = "|      n/a"
-            print(f"    {name:16} {t_all:7.1%} {t_vivid:7.1%} {t_skin:7.1%} {tail}"
-                  f"   (strength {report['selectedStrength']}, sigma {report['selectedSigma']}) {skin_flag}")
+            print(f"    {name:30} {t_all:7.1%} {t_vivid:7.1%} {t_skin:7.1%} {t_material:8.1%} {tail}"
+                  f"   (strength {report['selectedStrength']}, sigma {report['selectedSigma']})"
+                  f" {skin_flag} {material_flag}")
 
     pixel_color._fit_anchors = original
 

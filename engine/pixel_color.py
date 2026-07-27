@@ -26,6 +26,7 @@ import common
 import compare
 import globals_py
 import masks as masks_mod
+import regions as regions_mod
 
 
 WORK_MAX = 900
@@ -67,6 +68,28 @@ MIN_SKIN_SAMPLES = 1500
 # in this exact pair, not a guess. Still nonzero because per-pair skin sample
 # counts are small relative to the background fit. Tune via holdout.py.
 SKIN_PROTECTION = 0.35
+# `_fit_anchors` groups pixels by colour alone, so two unrelated materials
+# that coincide in Lab space (flowers vs. a similarly-toned wall, say) merge
+# into one anchor with a delta that fits neither -- and because the learned
+# model compiles to a colour-only LUT, no amount of within-teach-photo
+# reclustering can fix this on a NEW photo (see docs/opo.md sections 8/10).
+# Segmenting every applied photo with a class-agnostic model (regions.py,
+# backed by MobileSAM) and matching its regions to fit-time material anchors
+# by colour+texture gives materials the same cross-photo, runtime location
+# awareness the skin model already has.
+MATERIAL_MODEL_ENABLED = True
+# A region smaller than this many *valid* (non-subject, non-rim, non-neutral)
+# pixels in the teach pair is too little evidence to trust as its own anchor.
+MIN_MATERIAL_REGION_PX = 600
+# Lower than SUBJECT_PROTECTION/SKIN_PROTECTION for the same reason skin's is:
+# each material anchor is learned from a single region in a single photo, not
+# thousands of samples -- start conservative, tune via holdout.py.
+MATERIAL_PROTECTION = 0.35
+# How far (in the same weighted Lab feature space _features() produces) a new
+# photo's region can sit from a material anchor's colour and still count as a
+# match. Texture only breaks near-ties, so this gate is colour-first.
+_MATERIAL_MATCH_MAX_DISTANCE = 14.0
+_MATERIAL_TEXTURE_WEIGHT = 0.15
 
 _CUBE_CACHE = {}
 
@@ -469,6 +492,187 @@ def _choose_palette(source_lab, target_lab, positions, model):
     }
 
 
+def _material_pixel_delta(lab_values, delta, strength):
+    """A material anchor's delta, applied uniformly to pixels already KNOWN
+    (via real segmentation, not colour-nearest) to belong to it.
+
+    Unlike _palette_delta there is no "familiarity"/nearest-anchor blending
+    to do -- segment membership already answered that question. The chroma
+    gate and MAX_ANCHOR_DELTA cap are still real safety nets (protect
+    near-neutral pixels inside the segment; stop `strength` from pushing the
+    applied shift past what a real regrade should need, same bug class as
+    section 14 of docs/opo.md) so both are kept.
+    """
+    chroma = np.hypot(lab_values[:, 1] - 128.0, lab_values[:, 2] - 128.0)
+    chroma_gate = np.clip((chroma - 5.0) / 13.0, 0.0, 1.0)
+    result = delta[None, :] * strength * chroma_gate[:, None]
+    return _cap_vectors(result, MAX_ANCHOR_DELTA)
+
+
+def _best_material_strength(source_values, target_values, delta, safe_ceiling):
+    """Grid-search the scalar strength for one material anchor's own known
+    member pixels. No colour-nearest search needed (see _material_pixel_delta)."""
+    best = (float("inf"), _STRENGTH_GRID[0])
+    for strength in _STRENGTH_GRID:
+        applied = _material_pixel_delta(source_values, delta, strength)
+        output = np.clip(source_values + applied, 0, 255)
+        error = float(np.linalg.norm(output - target_values, axis=1).mean())
+        chroma95 = float(
+            np.percentile(np.hypot(output[:, 1] - 128.0, output[:, 2] - 128.0), 95)
+        )
+        if chroma95 <= safe_ceiling and error < best[0]:
+            best = (error, strength)
+    return best[1]
+
+
+def _fit_material_anchors(before, general_lab, target_lab, valid, general_strength):
+    """One anchor per class-agnostic region from regions.get_regions(before),
+    instead of per colour cluster -- see MATERIAL_MODEL_ENABLED's comment for
+    why this is the only thing that can give materials cross-photo awareness.
+
+    `general_lab` is what the already-fitted general (+skin) model produces
+    for this exact teach photo (palette_lab in fit()) -- deltas are learned
+    as the RESIDUAL against that, not against the raw base-corrected source,
+    so a material anchor only has to express what the general per-colour
+    model still gets wrong, not redo work it already does well.
+
+    Returns None when nothing in the teach pair had enough real evidence.
+    """
+    regions_mod.set_source(before)
+    try:
+        labels, region_stats = regions_mod.get_regions(before)
+    finally:
+        regions_mod.clear_source()
+
+    delta_map = target_lab - general_lab
+    anchors, deltas, confidences, supports, textures, strengths = [], [], [], [], [], []
+    for stat in region_stats:
+        member = (labels == stat["id"]) & valid
+        support = int(member.sum())
+        if support < MIN_MATERIAL_REGION_PX:
+            continue
+
+        values = delta_map[member]
+        median = np.median(values, axis=0)
+        spread = float(np.median(np.linalg.norm(values - median, axis=1)))
+        confidence = float(np.clip(1.0 - spread / 28.0, 0.08, 1.0))
+        confidence *= float(np.clip(support / 2200.0, 0.2, 1.0))
+        capped_delta = _cap_vectors(median.reshape(1, 3), MAX_ANCHOR_DELTA)[0]
+
+        source_values = general_lab[member]
+        target_values = target_lab[member]
+        target_chroma95 = float(
+            np.percentile(
+                np.hypot(target_values[:, 1] - 128.0, target_values[:, 2] - 128.0), 95,
+            )
+        )
+        local_strength = _best_material_strength(
+            source_values, target_values, capped_delta, target_chroma95 + 5.0,
+        )
+        # Same empirical-Bayes shrink as the general model's per-anchor
+        # strength (_STRENGTH_TRUST_SCALE): thin evidence stays close to the
+        # already-safety-vetted whole-image strength, a well-evidenced
+        # region (the flower filling a chunk of the frame) gets to express
+        # its own correction.
+        trust = support / (support + _STRENGTH_TRUST_SCALE)
+        strength = trust * local_strength + (1.0 - trust) * general_strength
+
+        anchors.append(
+            _features(np.asarray(stat["meanLab"], np.float32).reshape(1, 1, 3)).reshape(3)
+        )
+        deltas.append(capped_delta)
+        confidences.append(confidence)
+        supports.append(support)
+        textures.append(stat["texture"])
+        strengths.append(strength)
+
+    if not anchors:
+        return None
+
+    strengths = np.asarray(strengths, np.float32)
+    return {
+        "materialAnchors": np.asarray(anchors, np.float32),
+        "materialDeltas": np.asarray(deltas, np.float32),
+        "materialConfidences": np.asarray(confidences, np.float32),
+        "materialSupports": np.asarray(supports, np.int32),
+        "materialTextures": np.asarray(textures, np.float32),
+        "materialStrengths": strengths,
+        "materialStrength": float(strengths.mean()),
+        "materialProtection": MATERIAL_PROTECTION,
+    }
+
+
+def _apply_material(full, rgb, model, subject):
+    """Segment the actual TARGET photo (not the teach pair) and match its
+    own regions against the model's material anchors by colour+texture --
+    not via the colour-only LUT, since a material anchor's identity is not a
+    function of colour alone (docs/opo.md sections 8/10). Unmatched regions
+    (or none found) get material_confidence 0, the same fallback-to-existing-
+    result pattern every other tier of this engine already follows.
+
+    `full` is the already-computed general(+skin-blended) render -- base
+    tone, general per-colour anchors and the luma curve all already applied.
+    Material anchors were fit as a RESIDUAL against that same quantity (see
+    _fit_material_anchors), so this ADDS on top of it instead of rebuilding
+    from raw `rgb`, the same "never replace the existing safety net, only
+    refine it" rule the skin blend follows. An earlier version rebuilt from
+    base-tone alone and threw away the general model's own correction --
+    regressed every holdout set, because materials (unlike skin) are NOT
+    excluded from the general anchor fit and that correction was often
+    already good.
+
+    Returns (material_rgb, material_confidence), both full-frame, for
+    _blend_protected to layer on top of the full/skin/protected result
+    exactly like the skin cube does.
+    """
+    regions_mod.set_source(rgb)
+    try:
+        labels, region_stats = regions_mod.get_regions(rgb)
+    finally:
+        regions_mod.clear_source()
+
+    height, width = rgb.shape[:2]
+    confidence = np.zeros((height, width), np.float32)
+    if not region_stats:
+        return full, confidence
+
+    anchors = model["materialAnchors"]
+    deltas = model["materialDeltas"]
+    textures = model["materialTextures"]
+    strengths = _resolved_strengths(
+        model, len(anchors), "materialStrengths", "materialStrength"
+    )
+
+    lab = _lab(full)
+    material_lab = lab.copy()
+    not_subject = subject < 0.25
+    feather = max(3, round(min(height, width) * 0.004))
+
+    for stat in region_stats:
+        member = (labels == stat["id"]) & not_subject
+        if not member.any():
+            continue
+        mean_feature = _features(
+            np.asarray(stat["meanLab"], np.float32).reshape(1, 1, 3)
+        ).reshape(3)
+        colour_dist = np.linalg.norm(anchors - mean_feature[None, :], axis=1)
+        texture_dist = np.abs(textures - stat["texture"]) * _MATERIAL_TEXTURE_WEIGHT
+        index = int(np.argmin(colour_dist + texture_dist))
+        if colour_dist[index] > _MATERIAL_MATCH_MAX_DISTANCE:
+            continue
+
+        segment_lab = lab[member]
+        applied = _material_pixel_delta(segment_lab, deltas[index], strengths[index])
+        material_lab[member] = np.clip(segment_lab + applied, 0, 255)
+        soft = cv2.GaussianBlur(member.astype(np.float32), (0, 0), feather)
+        confidence = np.maximum(confidence, soft)
+
+    material_rgb = cv2.cvtColor(
+        np.clip(material_lab, 0, 255).astype(np.uint8), cv2.COLOR_LAB2RGB
+    )
+    return material_rgb, confidence
+
+
 def _fit_luma_curve(source_lab, target_lab, valid):
     source_l = source_lab[..., 0].astype(np.uint8)
     target_l = target_lab[..., 0]
@@ -546,6 +750,8 @@ def _apply_model_samples(rgb_values, model, mode="full"):
 _OPTIONAL_ARRAY_KEYS = (
     "skinAnchors", "skinDeltas", "skinConfidences", "skinSupports",
     "strengths", "skinStrengths",
+    "materialAnchors", "materialDeltas", "materialConfidences",
+    "materialSupports", "materialTextures", "materialStrengths",
 )
 
 
@@ -576,11 +782,16 @@ def deserialize(model):
     output["confidences"] = np.asarray(output["confidences"], np.float32)
     output["supports"] = np.asarray(output["supports"], np.int32)
     output["lumaCurve"] = np.asarray(output["lumaCurve"], np.float32)
-    for key in ("skinAnchors", "skinDeltas", "skinConfidences", "strengths", "skinStrengths"):
+    for key in (
+        "skinAnchors", "skinDeltas", "skinConfidences", "strengths", "skinStrengths",
+        "materialAnchors", "materialDeltas", "materialConfidences", "materialTextures",
+        "materialStrengths",
+    ):
         if key in output:
             output[key] = np.asarray(output[key], np.float32)
-    if "skinSupports" in output:
-        output["skinSupports"] = np.asarray(output["skinSupports"], np.int32)
+    for key in ("skinSupports", "materialSupports"):
+        if key in output:
+            output[key] = np.asarray(output[key], np.int32)
     return output
 
 
@@ -677,6 +888,23 @@ def fit(before_rgb, after_rgb):
         "lumaStrength": 0.0,
     })
     palette_lab = _lab(palette_rgb)
+
+    if MATERIAL_MODEL_ENABLED:
+        # A material anchor's delta is fit as a RESIDUAL against what the
+        # general per-colour model (palette_lab) already produces here, not
+        # against the raw base-corrected source. Materials are NOT excluded
+        # from the general anchor fit the way skin is, so `full` already
+        # carries a real, often-good per-colour correction in these regions
+        # (see holdout numbers before this fix: vivid was already 80%+) --
+        # fitting against raw source and later REPLACING that correction at
+        # apply time regressed every dataset, the same "replace instead of
+        # add on top of the safety net" bug class the skin blend once had.
+        material_fields = _fit_material_anchors(
+            before, palette_lab, target_lab, valid, selection["strength"],
+        )
+        if material_fields is not None:
+            model.update(material_fields)
+
     luma_curve = _fit_luma_curve(palette_lab, target_lab, valid)
     model["lumaCurve"] = luma_curve
 
@@ -691,6 +919,7 @@ def fit(before_rgb, after_rgb):
         return float(delta.mean())
 
     has_skin_model = "skinAnchors" in model
+    has_material_model = "materialAnchors" in model
 
     luma_trials = []
     best_luma = None
@@ -704,6 +933,11 @@ def fit(before_rgb, after_rgb):
             if has_skin_model
             else None
         )
+        material_img, material_conf = (
+            _apply_material(full_img, before, trial_model, subject)
+            if has_material_model
+            else (None, None)
+        )
         output = _blend_protected(
             full_img,
             protected_img,
@@ -712,6 +946,9 @@ def fit(before_rgb, after_rgb):
             skin if has_skin_model else None,
             skin_img,
             SKIN_PROTECTION,
+            material_img,
+            material_conf,
+            MATERIAL_PROTECTION,
         )
         error = weighted_error(output)
         luma_trials.append({"strength": strength, "error": round(error, 4)})
@@ -748,6 +985,15 @@ def fit(before_rgb, after_rgb):
         "skinSamples": skin_sample_count,
         "meanSkinAnchorConfidence": (
             round(float(model["skinConfidences"].mean()), 4) if has_skin_model else None
+        ),
+        "materialModel": has_material_model,
+        "materialAnchorCount": (
+            int(len(model["materialAnchors"])) if has_material_model else 0
+        ),
+        "meanMaterialAnchorConfidence": (
+            round(float(model["materialConfidences"].mean()), 4)
+            if has_material_model
+            else None
         ),
         "safe": bool(
             selection["error"] < selection["baseline"]
@@ -858,7 +1104,11 @@ def _apply_compiled(rgb, compiled, tile_rows=512):
     return output
 
 
-def _blend_protected(full, protected, subject, protection, skin=None, skin_out=None, skin_protection=0.0):
+def _blend_protected(
+    full, protected, subject, protection,
+    skin=None, skin_out=None, skin_protection=0.0,
+    material=None, material_confidence=None, material_protection=0.0,
+):
     """The one blend the engine uses everywhere: background stays 'full'.
 
     First reproduce today's plain subject/background blend (full -> protected
@@ -867,8 +1117,14 @@ def _blend_protected(full, protected, subject, protection, skin=None, skin_out=N
     At skin_protection == 0 this must come out bit-identical to the two-way
     blend, since skin is still `subject`: the skin cube only ever ADDS
     correction on top of the existing safety net, it never removes it.
+
+    Material works the same way, layered on top of whatever came before it:
+    `material_confidence` is 0 wherever regions.py found nothing or nothing
+    matched a fit-time material anchor closely enough, so at
+    material_protection == 0 (or an all-zero confidence map) this is a no-op,
+    same guarantee as skin_protection == 0.
     """
-    if protection <= 0 and skin_out is None:
+    if protection <= 0 and skin_out is None and material is None:
         return full
 
     output = full.astype(np.float32)
@@ -880,6 +1136,12 @@ def _blend_protected(full, protected, subject, protection, skin=None, skin_out=N
         skin_amount = np.clip(skin * skin_protection, 0.0, 1.0)[..., None]
         output = output * (1.0 - skin_amount) + skin_out.astype(np.float32) * skin_amount
 
+    if material is not None:
+        material_amount = np.clip(
+            material_confidence * material_protection, 0.0, 1.0
+        )[..., None]
+        output = output * (1.0 - material_amount) + material.astype(np.float32) * material_amount
+
     return np.clip(output, 0, 255).astype(np.uint8)
 
 
@@ -888,24 +1150,37 @@ def apply(rgb, model):
     model = deserialize(model)
     compiled = _compile_processors(model)
     has_skin = len(compiled) > 2
+    has_material = "materialAnchors" in model
     full = _apply_compiled(rgb, compiled[0])
     protection = float(model.get("subjectProtection", SUBJECT_PROTECTION))
     skin_protection = float(model.get("skinProtection", SKIN_PROTECTION)) if has_skin else 0.0
+    material_protection = (
+        float(model.get("materialProtection", MATERIAL_PROTECTION)) if has_material else 0.0
+    )
 
-    if protection <= 0 and not has_skin:
+    if protection <= 0 and not has_skin and material_protection <= 0:
         output = full
     else:
         subject = _fast_subject_mask(rgb)
         protected = _apply_compiled(rgb, compiled[1])
         skin = _fast_skin_mask(rgb) if has_skin else None
         skin_out = _apply_compiled(rgb, compiled[2]) if has_skin else None
-        output = _blend_protected(full, protected, subject, protection, skin, skin_out, skin_protection)
+        if has_material and material_protection > 0:
+            material_out, material_confidence = _apply_material(full, rgb, model, subject)
+        else:
+            material_out, material_confidence = None, None
+        output = _blend_protected(
+            full, protected, subject, protection,
+            skin, skin_out, skin_protection,
+            material_out, material_confidence, material_protection,
+        )
 
     return output, {
         "ms": int((time.time() - started) * 1000),
         "cubeSize": CUBE_SIZE,
         "subjectProtection": protection,
         "skinProtection": skin_protection,
+        "materialProtection": material_protection,
     }
 
 

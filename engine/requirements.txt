@@ -4,3 +4,5 @@ mediapipe
 rawpy
 onnxruntime
 torch
+timm
+mobile_sam @ git+https://github.com/ChaoningZhang/MobileSAM.git
