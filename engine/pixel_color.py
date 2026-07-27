@@ -32,10 +32,41 @@ WORK_MAX = 900
 BASE_MAX = 480
 CLUSTERS = 24
 MAX_SAMPLES = 150_000
-MAX_ANCHOR_DELTA = 46.0
+# A hue rotation like magenta->rust needs ~95 in Lab. At 46 the model could not
+# express it and cranked global strength to the rail instead. See
+# experiments/holdout.py: on unseen pairs this is +8pt overall, +38pt on
+# saturated colour, and neutral on sets that never hit the cap.
+MAX_ANCHOR_DELTA = 110.0
 CUBE_SIZE = 33
 SUBJECT_PROTECTION = 0.92
 RNG_SEED = 5208
+# Retouchers remove people and objects. Those pixels still carry the graded
+# palette, but they are not a before/after *pair* -- a removed blue shirt sitting
+# under brown foliage would teach "blue becomes brown" and poison every blue in
+# the shoot. Paired learning needs correspondence; palette statistics do not.
+#
+# OFF: measured and rejected. The premise holds -- on set `33`, the one with a
+# person removed, this lifted saturated colour 77.3% -> 82.1%. But _correspondence
+# is far too eager: it kept only 59% of that frame when the real damage is ~20%,
+# and the lost training data cost -2.4pt on `22` and -1.1pt on `jm` holdout, where
+# nothing was removed at all. Re-enable only behind a much more conservative
+# detector, and only after experiments/holdout.py is green on all three sets.
+LEARN_ONLY_MATCHED = False
+# `_fit_anchors` excludes the whole subject from the general palette (see
+# below), so the "full" cube carries zero real evidence about how skin was
+# graded -- skin gets the safe base-only fallback whether or not the retoucher
+# touched it at all. When there are enough real skin pixels in the pair, fit a
+# second, skin-only anchor set from them and blend it in at SKIN_PROTECTION
+# instead of the base-only fallback. Toggle for experiments/holdout.py A/B runs.
+SKIN_MODEL_ENABLED = True
+# Skin pixels are typically a small fraction of a frame, so this needs far
+# fewer samples to trust than the background fit -- but too few and a couple
+# of stray face-skin misclassifications become a whole "anchor".
+MIN_SKIN_SAMPLES = 1500
+# Lower than SUBJECT_PROTECTION: the skin cube is learned from the skin itself
+# in this exact pair, not a guess. Still nonzero because per-pair skin sample
+# counts are small relative to the background fit. Tune via holdout.py.
+SKIN_PROTECTION = 0.35
 
 _CUBE_CACHE = {}
 
@@ -87,12 +118,56 @@ def _fast_subject_mask(rgb):
     return common.upscale_to(mask, rgb.shape).astype(np.float32)
 
 
+def _skin_mask(rgb):
+    masks_mod.set_source(rgb)
+    try:
+        face = masks_mod.get_mask(rgb, "face-skin")
+        body = masks_mod.get_mask(rgb, "body-skin")
+        return np.maximum(face, body).astype(np.float32)
+    except Exception:
+        return np.zeros(rgb.shape[:2], np.float32)
+    finally:
+        masks_mod.clear_source()
+
+
+def _fast_skin_mask(rgb):
+    small = common.downscale(rgb, 1200)
+    mask = _skin_mask(small)
+    return common.upscale_to(mask, rgb.shape).astype(np.float32)
+
+
 def _tone(rgb, params):
     output, _ = globals_py.tone_color(rgb, params)
     return output
 
 
-def _fit_base(before, after):
+def _correspondence(before, after):
+    """True where both frames still show the same thing.
+
+    Compares local gradient structure, which survives any colour grade but not
+    a removed subject or a border smeared by warping a crop back into place.
+    """
+
+    def edges(rgb):
+        gray = cv2.cvtColor(rgb, cv2.COLOR_RGB2GRAY).astype(np.float32)
+        return np.hypot(
+            cv2.Sobel(gray, cv2.CV_32F, 1, 0, 3),
+            cv2.Sobel(gray, cv2.CV_32F, 0, 1, 3),
+        )
+
+    left, right = edges(before), edges(after)
+    window = (31, 31)
+    mean_left, mean_right = cv2.blur(left, window), cv2.blur(right, window)
+    std_left = np.sqrt(np.maximum(cv2.blur(left * left, window) - mean_left ** 2, 1e-6))
+    std_right = np.sqrt(np.maximum(cv2.blur(right * right, window) - mean_right ** 2, 1e-6))
+    correlation = (cv2.blur(left * right, window) - mean_left * mean_right) / (
+        std_left * std_right
+    )
+    mismatch = cv2.blur((correlation < 0.25).astype(np.float32), (41, 41)) > 0.20
+    return ~mismatch
+
+
+def _fit_base(before, after, matched=None):
     before_small = _resize(before, BASE_MAX)
     after_small = _resize(after, BASE_MAX)
     target = _look_lab(after_small)
@@ -104,6 +179,12 @@ def _fit_base(before, after):
     valid[-rim:] = False
     valid[:, :rim] = False
     valid[:, -rim:] = False
+    if matched is not None:
+        resized = cv2.resize(
+            matched.astype(np.uint8), (width, height), interpolation=cv2.INTER_NEAREST
+        ).astype(bool)
+        if resized.sum() > valid.sum() * 0.15:
+            valid &= resized
 
     def score(params):
         delta = np.sqrt(((_look_lab(_tone(before_small, params)) - target) ** 2).sum(2))
@@ -309,17 +390,31 @@ def _fit_luma_curve(source_lab, target_lab, valid):
     return np.clip(identity + np.clip(curve - identity, -38.0, 38.0), 0, 255)
 
 
-def _apply_model_samples(rgb_values, model, full=True):
+def _apply_model_samples(rgb_values, model, mode="full"):
+    """mode: 'full' (background+general anchors), 'protected' (base only), or
+    'skin' (the separate anchor set learned from face/body skin pixels, if any)."""
     shape = rgb_values.shape
     rgb = rgb_values.reshape(-1, 1, 3).astype(np.uint8)
     corrected = _tone(rgb, model["base"])
     lab = _lab(corrected).reshape(-1, 3)
-    if full:
+    if mode == "full":
         lab += _palette_delta(
             lab,
             model,
             model["strength"],
             model["sigma"],
+        )
+    elif mode == "skin":
+        skin_model = {
+            "anchors": model["skinAnchors"],
+            "deltas": model["skinDeltas"],
+            "confidences": model["skinConfidences"],
+        }
+        lab += _palette_delta(
+            lab,
+            skin_model,
+            model["skinStrength"],
+            model["skinSigma"],
         )
     lab = np.clip(lab, 0, 255)
     source_l = lab[:, 0].astype(np.uint8)
@@ -337,10 +432,18 @@ def _apply_model_samples(rgb_values, model, full=True):
     return output
 
 
+# Present only when fit() found enough real skin pixels to trust a second,
+# skin-only anchor set (see SKIN_MODEL_ENABLED). Absent on every older model.
+_SKIN_ARRAY_KEYS = ("skinAnchors", "skinDeltas", "skinConfidences", "skinSupports")
+
+
 def _model_arrays(model):
     result = dict(model)
     for key in ("anchors", "deltas", "confidences", "supports", "lumaCurve"):
         result[key] = np.asarray(result[key])
+    for key in _SKIN_ARRAY_KEYS:
+        if key in result:
+            result[key] = np.asarray(result[key])
     return result
 
 
@@ -348,6 +451,9 @@ def serialize(model):
     output = dict(model)
     for key in ("anchors", "deltas", "confidences", "supports", "lumaCurve"):
         output[key] = np.asarray(output[key]).tolist()
+    for key in _SKIN_ARRAY_KEYS:
+        if key in output:
+            output[key] = np.asarray(output[key]).tolist()
     return output
 
 
@@ -358,6 +464,11 @@ def deserialize(model):
     output["confidences"] = np.asarray(output["confidences"], np.float32)
     output["supports"] = np.asarray(output["supports"], np.int32)
     output["lumaCurve"] = np.asarray(output["lumaCurve"], np.float32)
+    for key in ("skinAnchors", "skinDeltas", "skinConfidences"):
+        if key in output:
+            output[key] = np.asarray(output[key], np.float32)
+    if "skinSupports" in output:
+        output["skinSupports"] = np.asarray(output["skinSupports"], np.int32)
     return output
 
 
@@ -367,7 +478,8 @@ def fit(before_rgb, after_rgb):
     after = _resize(after_rgb, WORK_MAX)
     after, geometry = compare.align(before, after)
 
-    base, base_error = _fit_base(before, after)
+    matched = _correspondence(before, after) if LEARN_ONLY_MATCHED else None
+    base, base_error = _fit_base(before, after, matched)
     corrected = _tone(before, base)
     source_lab = _lab(corrected)
     target_lab = _lab(after)
@@ -383,6 +495,26 @@ def fit(before_rgb, after_rgb):
     valid[:, -rim:] = False
     valid &= subject < 0.25
     valid &= chroma > 5.0
+    if matched is not None and (valid & matched).sum() > valid.sum() * 0.15:
+        valid &= matched
+
+    # Skin is only worth its own fit when there is a subject at all -- this
+    # also keeps callers/tests that stub out _subject_mask (no person in the
+    # pair) from paying for a second segmentation model for nothing.
+    skin = (
+        _skin_mask(before)
+        if SKIN_MODEL_ENABLED and subject.max() > 0.5
+        else np.zeros((height, width), np.float32)
+    )
+    valid_skin = np.ones((height, width), bool)
+    valid_skin[:rim] = False
+    valid_skin[-rim:] = False
+    valid_skin[:, :rim] = False
+    valid_skin[:, -rim:] = False
+    valid_skin &= skin > 0.5
+    valid_skin &= chroma > 5.0
+    if matched is not None and (valid_skin & matched).sum() > valid_skin.sum() * 0.15:
+        valid_skin &= matched
 
     anchor_model, validation_positions, sample_count = _fit_anchors(
         source_lab,
@@ -404,6 +536,27 @@ def fit(before_rgb, after_rgb):
         "subjectProtection": SUBJECT_PROTECTION,
     }
 
+    skin_sample_count = int(valid_skin.sum())
+    if skin_sample_count >= MIN_SKIN_SAMPLES:
+        skin_anchor_model, skin_validation_positions, _ = _fit_anchors(
+            source_lab,
+            target_lab,
+            valid_skin,
+        )
+        skin_selection = _choose_palette(
+            source_lab,
+            target_lab,
+            skin_validation_positions,
+            skin_anchor_model,
+        )
+        model["skinAnchors"] = skin_anchor_model["anchors"]
+        model["skinDeltas"] = skin_anchor_model["deltas"]
+        model["skinConfidences"] = skin_anchor_model["confidences"]
+        model["skinSupports"] = skin_anchor_model["supports"]
+        model["skinStrength"] = skin_selection["strength"]
+        model["skinSigma"] = skin_selection["sigma"]
+        model["skinProtection"] = SKIN_PROTECTION
+
     palette_rgb = _apply_model_samples(before, {
         **model,
         "lumaCurve": np.arange(256, dtype=np.float32),
@@ -423,19 +576,29 @@ def fit(before_rgb, after_rgb):
             return float(0.5 * delta[subject_sel].mean() + 0.5 * delta[~subject_sel].mean())
         return float(delta.mean())
 
+    has_skin_model = "skinAnchors" in model
+
     luma_trials = []
     best_luma = None
     for strength in (0.35, 0.55, 0.75, 1.0, 1.2):
         trial_model = {**model, "lumaStrength": strength}
-        output = _apply_model_samples(before, trial_model)
-        # Preview/reference scoring uses the same subject protection as apply().
-        protected = _apply_model_samples(before, trial_model, full=False)
-        output = np.clip(
-            output.astype(np.float32) * (1.0 - subject[..., None] * SUBJECT_PROTECTION)
-            + protected.astype(np.float32) * subject[..., None] * SUBJECT_PROTECTION,
-            0,
-            255,
-        ).astype(np.uint8)
+        # Preview/reference scoring uses the exact same blend as apply().
+        full_img = _apply_model_samples(before, trial_model, mode="full")
+        protected_img = _apply_model_samples(before, trial_model, mode="protected")
+        skin_img = (
+            _apply_model_samples(before, trial_model, mode="skin")
+            if has_skin_model
+            else None
+        )
+        output = _blend_protected(
+            full_img,
+            protected_img,
+            subject,
+            SUBJECT_PROTECTION,
+            skin if has_skin_model else None,
+            skin_img,
+            SKIN_PROTECTION,
+        )
         error = weighted_error(output)
         luma_trials.append({"strength": strength, "error": round(error, 4)})
         if best_luma is None or error < best_luma[0]:
@@ -465,6 +628,11 @@ def fit(before_rgb, after_rgb):
         "selectedSigma": model["sigma"],
         "selectedLumaStrength": model["lumaStrength"],
         "lumaTrials": luma_trials,
+        "skinModel": has_skin_model,
+        "skinSamples": skin_sample_count,
+        "meanSkinAnchorConfidence": (
+            round(float(model["skinConfidences"].mean()), 4) if has_skin_model else None
+        ),
         "safe": bool(
             selection["error"] < selection["baseline"]
             and best_luma[0] < baseline_error
@@ -514,13 +682,17 @@ def _compile_processors(model, size=CUBE_SIZE):
     levels = np.linspace(0, 255, size, dtype=np.float32)
     red, green, blue = np.meshgrid(levels, levels, levels, indexing="ij")
     grid = np.stack((red, green, blue), axis=-1).astype(np.uint8)
-    full = _apply_model_samples(grid, model, full=True)
-    protected = _apply_model_samples(grid, model, full=False)
-    _CUBE_CACHE.clear()
-    compiled = (
+    full = _apply_model_samples(grid, model, mode="full")
+    protected = _apply_model_samples(grid, model, mode="protected")
+    compiled = [
         (_processor_from_cube(full), full),
         (_processor_from_cube(protected), protected),
-    )
+    ]
+    if "skinAnchors" in model:
+        skin = _apply_model_samples(grid, model, mode="skin")
+        compiled.append((_processor_from_cube(skin), skin))
+    compiled = tuple(compiled)
+    _CUBE_CACHE.clear()
     _CUBE_CACHE[key] = compiled
     return compiled
 
@@ -570,28 +742,57 @@ def _apply_compiled(rgb, compiled, tile_rows=512):
     return output
 
 
+def _blend_protected(full, protected, subject, protection, skin=None, skin_out=None, skin_protection=0.0):
+    """The one blend the engine uses everywhere: background stays 'full'.
+
+    Where a separate skin cube was learned (skin/skin_out not None), skin
+    pixels blend toward IT at skin_protection instead of toward the generic
+    base-only 'protected' cube -- the skin cube carries real evidence about
+    how this pair's skin was graded, so it needs less hiding. Whatever of the
+    subject mask skin doesn't already cover (hair, clothes, ...) still falls
+    back to 'protected' at the usual protection amount.
+    """
+    if protection <= 0 and skin_out is None:
+        return full
+
+    output = full.astype(np.float32)
+    remaining = np.ones(subject.shape, np.float32)
+
+    if skin_out is not None:
+        skin_amount = np.clip(skin * skin_protection, 0.0, 1.0)[..., None]
+        output = output * (1.0 - skin_amount) + skin_out.astype(np.float32) * skin_amount
+        remaining = np.clip(1.0 - skin, 0.0, 1.0)
+
+    if protection > 0:
+        subject_amount = np.clip(subject * remaining * protection, 0.0, 1.0)[..., None]
+        output = output * (1.0 - subject_amount) + protected.astype(np.float32) * subject_amount
+
+    return np.clip(output, 0, 255).astype(np.uint8)
+
+
 def apply(rgb, model):
     started = time.time()
     model = deserialize(model)
-    full_compiled, protected_compiled = _compile_processors(model)
-    full = _apply_compiled(rgb, full_compiled)
+    compiled = _compile_processors(model)
+    has_skin = len(compiled) > 2
+    full = _apply_compiled(rgb, compiled[0])
     protection = float(model.get("subjectProtection", SUBJECT_PROTECTION))
-    if protection > 0:
-        subject = _fast_subject_mask(rgb)
-        protected = _apply_compiled(rgb, protected_compiled)
-        amount = np.clip(subject * protection, 0.0, 1.0)[..., None]
-        output = np.clip(
-            full.astype(np.float32) * (1.0 - amount)
-            + protected.astype(np.float32) * amount,
-            0,
-            255,
-        ).astype(np.uint8)
-    else:
+    skin_protection = float(model.get("skinProtection", SKIN_PROTECTION)) if has_skin else 0.0
+
+    if protection <= 0 and not has_skin:
         output = full
+    else:
+        subject = _fast_subject_mask(rgb)
+        protected = _apply_compiled(rgb, compiled[1])
+        skin = _fast_skin_mask(rgb) if has_skin else None
+        skin_out = _apply_compiled(rgb, compiled[2]) if has_skin else None
+        output = _blend_protected(full, protected, subject, protection, skin, skin_out, skin_protection)
+
     return output, {
         "ms": int((time.time() - started) * 1000),
         "cubeSize": CUBE_SIZE,
         "subjectProtection": protection,
+        "skinProtection": skin_protection,
     }
 
 

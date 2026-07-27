@@ -101,6 +101,16 @@ export interface LearnedColorModel {
   subjectProtection: number;
   lumaCurve: number[];
   lumaStrength: number;
+  // Present only when the pair had enough real face/body-skin pixels to
+  // trust a second anchor set learned from the skin itself (see
+  // engine/pixel_color.py SKIN_MODEL_ENABLED). Absent on older models.
+  skinAnchors?: number[][];
+  skinDeltas?: number[][];
+  skinConfidences?: number[];
+  skinSupports?: number[];
+  skinStrength?: number;
+  skinSigma?: number;
+  skinProtection?: number;
 }
 
 export interface LearnColorResponse {
@@ -120,6 +130,9 @@ export interface LearnColorResponse {
     selectedStrength: number;
     selectedSigma: number;
     selectedLumaStrength: number;
+    skinModel: boolean;
+    skinSamples: number;
+    meanSkinAnchorConfidence: number | null;
     safe: boolean;
     base: Record<string, number>;
   };
