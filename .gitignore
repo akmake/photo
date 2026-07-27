@@ -8,7 +8,7 @@ dist/
 build/
 client/dist/
 server/dist/
-
+test-results/
 # Logs
 *.log
 npm-debug.log*

@@ -265,6 +265,12 @@ def _fit_anchors(source_lab, target_lab, valid):
         80,
         0.05,
     )
+    # Unseeded, cv2.kmeans draws on OpenCV's global RNG, whose state (and thus
+    # the resulting clusters) depends on how many other kmeans calls already
+    # ran in this process -- fitting the same pair twice in one run of
+    # experiments/holdout.py could silently pick different anchors. Reset it
+    # so a fit only ever depends on its own inputs.
+    cv2.setRNGSeed(RNG_SEED)
     _, labels, centers = cv2.kmeans(
         train_features,
         cluster_count,
@@ -302,19 +308,110 @@ def _fit_anchors(source_lab, target_lab, valid):
     return model, validation_positions, len(positions)
 
 
-def _palette_delta(lab_values, model, strength, sigma):
+def _palette_delta(lab_values, model, strengths, sigma):
     values = _features(lab_values.reshape(-1, 1, 3)).reshape(-1, 3)
     anchors = model["anchors"]
     distance2 = ((values[:, None, :] - anchors[None, :, :]) ** 2).sum(axis=2)
     nearest = np.sqrt(distance2.min(axis=1))
     weights = np.exp(-distance2 / (2.0 * sigma * sigma))
     weights *= model["confidences"][None, :]
-    delta = weights @ model["deltas"] / np.maximum(weights.sum(1, keepdims=True), 1e-6)
+    weight_sum = np.maximum(weights.sum(1, keepdims=True), 1e-6)
+    delta = weights @ model["deltas"] / weight_sum
+    # A pixel's effective strength is blended from nearby anchors the same way
+    # the delta itself is, so two anchors with different calibrated strengths
+    # (see _calibrate_anchor_strengths) meet at a smooth transition, not a seam.
+    strength_field = weights @ np.asarray(strengths, np.float32).reshape(-1, 1) / weight_sum
 
     chroma = np.hypot(lab_values[:, 1] - 128.0, lab_values[:, 2] - 128.0)
     chroma_gate = np.clip((chroma - 5.0) / 13.0, 0.0, 1.0)
     familiarity = np.clip(1.0 - nearest / 34.0, 0.0, 1.0)
-    return delta * (chroma_gate * familiarity * float(strength))[:, None]
+    result = delta * (chroma_gate * familiarity)[:, None] * strength_field
+    # MAX_ANCHOR_DELTA already bounds each LEARNED anchor delta to the most
+    # extreme shift a real regrade should need. `strength` multiplies AFTER
+    # that cap and the safety search below only ever checks chroma (a/b) --
+    # nothing stopped a pixel whose blended delta leans on lightness from
+    # being pushed past the cap by strength alone. Re-applying the same bound
+    # to what's actually applied, not just what was learned, closes that gap
+    # regardless of how strength was chosen (global or per-anchor).
+    return _cap_vectors(result, MAX_ANCHOR_DELTA)
+
+
+_STRENGTH_GRID = (0.65, 0.9, 1.2, 1.5, 1.8, 2.15, 2.5)
+# A 95th-percentile read from fewer points than this is too noisy to use as a
+# per-anchor safety ceiling at all -- below it, an anchor is pure global.
+_MIN_ANCHOR_VALIDATION = 20
+# Empirical-Bayes-style shrinkage: trust = count / (count + STRENGTH_TRUST_SCALE).
+# An anchor needs about this many of its OWN validation pixels before its local
+# read gets equal say with the whole-image strength. Within-photo validation is
+# a sample of one shoot's one teach photo, not the whole shoot -- a cluster that
+# looks great on its own few hundred pixels can still be a photo-specific fluke
+# that a strict CONFIDENCE-only shrink (spread/support from TRAINING data) let
+# through too easily and cost holdout accuracy on unseen photos.
+#
+# Validated on experiments/holdout.py across 4000-15000 (a stable plateau, not
+# a lucky point): +3.4 to +3.7pt saturated-colour on `33`'s own teach pair,
+# essentially bit-identical overall/vivid/skin on `22` and `jm` holdout (9 and
+# 10 unseen pairs) versus no per-anchor calibration at all. Patchable there as
+# pixel_color._STRENGTH_TRUST_SCALE.
+_STRENGTH_TRUST_SCALE = 6000.0
+
+
+def _best_uniform_strength(source, target, model, strengths_template, sigma, safe_ceiling):
+    """The single strength (broadcast to every entry of strengths_template)
+    that minimises error on these pixels without exceeding safe_ceiling.
+    Used both for the whole-image reference and, with a 1-anchor model and
+    template, for one cluster's own local read."""
+    best = (float("inf"), float(strengths_template[0]))
+    for strength in _STRENGTH_GRID:
+        strengths = np.full_like(strengths_template, strength)
+        output = np.clip(source + _palette_delta(source, model, strengths, sigma), 0, 255)
+        error = float(np.linalg.norm(output - target, axis=1).mean())
+        chroma95 = float(np.percentile(np.hypot(output[:, 1] - 128.0, output[:, 2] - 128.0), 95))
+        if chroma95 <= safe_ceiling and error < best[0]:
+            best = (error, strength)
+    return best[1]
+
+
+def _calibrate_anchor_strengths(source_values, target_values, nearest, model, sigma, global_chroma95):
+    """One strength per anchor instead of one for the whole photo.
+
+    A single shared knob has to average over every colour in the frame, so
+    it's set by whatever's most common -- a small but important region (say,
+    the one saturated colour the retoucher nearly desaturated) gets stopped
+    halfway there to avoid overcorrecting the rest of the image. Each anchor
+    is instead validated against only the pixels closest to IT, capped by
+    what THAT region's own target actually looks like, and shrunk toward the
+    whole-image strength in proportion to how much of its own validation
+    evidence it actually has (see _STRENGTH_TRUST_SCALE).
+    """
+    anchors = model["anchors"]
+    n = len(anchors)
+    global_strength = _best_uniform_strength(
+        source_values, target_values, model, np.ones(n, np.float32), sigma, global_chroma95 + 5.0,
+    )
+    strengths = np.full(n, global_strength, np.float32)
+    for index in range(n):
+        cluster = nearest == index
+        count = int(cluster.sum())
+        if count < _MIN_ANCHOR_VALIDATION:
+            continue
+        cluster_source = source_values[cluster]
+        cluster_target = target_values[cluster]
+        cluster_chroma95 = float(
+            np.percentile(np.hypot(cluster_target[:, 1] - 128.0, cluster_target[:, 2] - 128.0), 95)
+        )
+        single = {
+            "anchors": anchors[index : index + 1],
+            "deltas": model["deltas"][index : index + 1],
+            "confidences": model["confidences"][index : index + 1],
+        }
+        local_strength = _best_uniform_strength(
+            cluster_source, cluster_target, single, np.ones(1, np.float32), sigma,
+            cluster_chroma95 + 5.0,
+        )
+        trust = count / (count + _STRENGTH_TRUST_SCALE)
+        strengths[index] = trust * local_strength + (1.0 - trust) * global_strength
+    return strengths
 
 
 def _choose_palette(source_lab, target_lab, positions, model):
@@ -328,44 +425,45 @@ def _choose_palette(source_lab, target_lab, positions, model):
         )
     )
 
-    trials = []
-    best = None
-    for sigma in (6.0, 8.0, 11.0, 15.0, 19.0):
-        for strength in (0.65, 0.9, 1.2, 1.5, 1.8, 2.15, 2.5):
-            output = source_values + _palette_delta(
-                source_values,
-                model,
-                strength,
-                sigma,
-            )
-            output = np.clip(output, 0, 255)
-            error = float(np.linalg.norm(output - target_values, axis=1).mean())
-            chroma95 = float(
-                np.percentile(
-                    np.hypot(output[:, 1] - 128.0, output[:, 2] - 128.0),
-                    95,
-                )
-            )
-            safe = chroma95 <= target_chroma95 + 5.0
-            trials.append(
-                {
-                    "sigma": sigma,
-                    "strength": strength,
-                    "error": round(error, 4),
-                    "chroma95": round(chroma95, 3),
-                    "safe": bool(safe),
-                }
-            )
-            if safe and (best is None or error < best[0]):
-                best = (error, strength, sigma)
+    features = _features(source_values.reshape(-1, 1, 3)).reshape(-1, 3)
+    distance2 = ((features[:, None, :] - model["anchors"][None, :, :]) ** 2).sum(axis=2)
+    nearest = distance2.argmin(axis=1)
 
-    if best is None:
-        chosen = min(trials, key=lambda trial: (trial["chroma95"], trial["error"]))
-        best = (chosen["error"], chosen["strength"], chosen["sigma"])
+    trials = []
+    candidates = []
+    for sigma in (6.0, 8.0, 11.0, 15.0, 19.0):
+        strengths = _calibrate_anchor_strengths(
+            source_values, target_values, nearest, model, sigma, target_chroma95,
+        )
+        output = np.clip(
+            source_values + _palette_delta(source_values, model, strengths, sigma), 0, 255,
+        )
+        error = float(np.linalg.norm(output - target_values, axis=1).mean())
+        chroma95 = float(
+            np.percentile(np.hypot(output[:, 1] - 128.0, output[:, 2] - 128.0), 95)
+        )
+        safe = chroma95 <= target_chroma95 + 5.0
+        trials.append(
+            {
+                "sigma": sigma,
+                "meanStrength": round(float(strengths.mean()), 3),
+                "error": round(error, 4),
+                "chroma95": round(chroma95, 3),
+                "safe": bool(safe),
+            }
+        )
+        candidates.append((safe, error, sigma, strengths, chroma95))
+
+    safe_candidates = [c for c in candidates if c[0]]
+    pool = safe_candidates if safe_candidates else candidates
+    key = (lambda c: c[1]) if safe_candidates else (lambda c: (c[4], c[1]))
+    _, error, sigma, strengths, _ = min(pool, key=key)
+
     return {
-        "error": float(best[0]),
-        "strength": float(best[1]),
-        "sigma": float(best[2]),
+        "error": float(error),
+        "strength": float(strengths.mean()),
+        "strengths": strengths,
+        "sigma": float(sigma),
         "baseline": baseline,
         "trials": trials,
     }
@@ -390,6 +488,18 @@ def _fit_luma_curve(source_lab, target_lab, valid):
     return np.clip(identity + np.clip(curve - identity, -38.0, 38.0), 0, 255)
 
 
+def _resolved_strengths(model, count, strengths_key, scalar_key):
+    """Per-anchor strengths if the model has them, else the old scalar broadcast.
+
+    Older serialized models only ever carried one shared `strength`/`skinStrength`
+    float -- they still load and render identically to how they always did.
+    """
+    strengths = model.get(strengths_key)
+    if strengths is not None:
+        return np.asarray(strengths, np.float32)
+    return np.full(count, float(model[scalar_key]), np.float32)
+
+
 def _apply_model_samples(rgb_values, model, mode="full"):
     """mode: 'full' (background+general anchors), 'protected' (base only), or
     'skin' (the separate anchor set learned from face/body skin pixels, if any)."""
@@ -398,24 +508,18 @@ def _apply_model_samples(rgb_values, model, mode="full"):
     corrected = _tone(rgb, model["base"])
     lab = _lab(corrected).reshape(-1, 3)
     if mode == "full":
-        lab += _palette_delta(
-            lab,
-            model,
-            model["strength"],
-            model["sigma"],
-        )
+        strengths = _resolved_strengths(model, len(model["anchors"]), "strengths", "strength")
+        lab += _palette_delta(lab, model, strengths, model["sigma"])
     elif mode == "skin":
         skin_model = {
             "anchors": model["skinAnchors"],
             "deltas": model["skinDeltas"],
             "confidences": model["skinConfidences"],
         }
-        lab += _palette_delta(
-            lab,
-            skin_model,
-            model["skinStrength"],
-            model["skinSigma"],
+        strengths = _resolved_strengths(
+            model, len(model["skinAnchors"]), "skinStrengths", "skinStrength",
         )
+        lab += _palette_delta(lab, skin_model, strengths, model["skinSigma"])
     lab = np.clip(lab, 0, 255)
     source_l = lab[:, 0].astype(np.uint8)
     curve = model["lumaCurve"]
@@ -434,14 +538,22 @@ def _apply_model_samples(rgb_values, model, mode="full"):
 
 # Present only when fit() found enough real skin pixels to trust a second,
 # skin-only anchor set (see SKIN_MODEL_ENABLED). Absent on every older model.
-_SKIN_ARRAY_KEYS = ("skinAnchors", "skinDeltas", "skinConfidences", "skinSupports")
+# Present only on models fit by a newer engine version than what produced
+# them -- skin fields need enough real skin pixels (SKIN_MODEL_ENABLED), and
+# `strengths`/`skinStrengths` are the per-anchor calibration that superseded a
+# single scalar `strength`/`skinStrength` (still written, now as their mean,
+# so older engine code and old models both keep working unchanged).
+_OPTIONAL_ARRAY_KEYS = (
+    "skinAnchors", "skinDeltas", "skinConfidences", "skinSupports",
+    "strengths", "skinStrengths",
+)
 
 
 def _model_arrays(model):
     result = dict(model)
     for key in ("anchors", "deltas", "confidences", "supports", "lumaCurve"):
         result[key] = np.asarray(result[key])
-    for key in _SKIN_ARRAY_KEYS:
+    for key in _OPTIONAL_ARRAY_KEYS:
         if key in result:
             result[key] = np.asarray(result[key])
     return result
@@ -451,7 +563,7 @@ def serialize(model):
     output = dict(model)
     for key in ("anchors", "deltas", "confidences", "supports", "lumaCurve"):
         output[key] = np.asarray(output[key]).tolist()
-    for key in _SKIN_ARRAY_KEYS:
+    for key in _OPTIONAL_ARRAY_KEYS:
         if key in output:
             output[key] = np.asarray(output[key]).tolist()
     return output
@@ -464,7 +576,7 @@ def deserialize(model):
     output["confidences"] = np.asarray(output["confidences"], np.float32)
     output["supports"] = np.asarray(output["supports"], np.int32)
     output["lumaCurve"] = np.asarray(output["lumaCurve"], np.float32)
-    for key in ("skinAnchors", "skinDeltas", "skinConfidences"):
+    for key in ("skinAnchors", "skinDeltas", "skinConfidences", "strengths", "skinStrengths"):
         if key in output:
             output[key] = np.asarray(output[key], np.float32)
     if "skinSupports" in output:
@@ -532,6 +644,7 @@ def fit(before_rgb, after_rgb):
         "base": base,
         **anchor_model,
         "strength": selection["strength"],
+        "strengths": selection["strengths"],
         "sigma": selection["sigma"],
         "subjectProtection": SUBJECT_PROTECTION,
     }
@@ -554,6 +667,7 @@ def fit(before_rgb, after_rgb):
         model["skinConfidences"] = skin_anchor_model["confidences"]
         model["skinSupports"] = skin_anchor_model["supports"]
         model["skinStrength"] = skin_selection["strength"]
+        model["skinStrengths"] = skin_selection["strengths"]
         model["skinSigma"] = skin_selection["sigma"]
         model["skinProtection"] = SKIN_PROTECTION
 
@@ -625,6 +739,8 @@ def fit(before_rgb, after_rgb):
         "lookError": round(best_luma[0], 4),
         "gapClosed": round(max(0.0, 1.0 - best_luma[0] / max(baseline_error, 1e-6)), 4),
         "selectedStrength": model["strength"],
+        "minStrength": round(float(model["strengths"].min()), 3),
+        "maxStrength": round(float(model["strengths"].max()), 3),
         "selectedSigma": model["sigma"],
         "selectedLumaStrength": model["lumaStrength"],
         "lumaTrials": luma_trials,

@@ -30,7 +30,16 @@ from engine import common, compare, pixel_color  # noqa: E402
 DOWNLOADS = Path.home() / "Downloads"
 DATASETS = [
     ("33", DOWNLOADS / "33", DOWNLOADS / "33", "321A5078", "321A5078 (2)"),
-    ("22", DOWNLOADS / "22", DOWNLOADS / "22_graded", None, None),
+    # `22_graded` is corrupted -- every file in it has posterisation/black-blotch
+    # artifacts (verified against the untouched raw in `22`, which is clean),
+    # almost certainly from a broken upscaler/style-transfer pass, not a human
+    # retouch. The model was dutifully learning to reproduce that corruption,
+    # which is what pushed strength to the rail and produced real, separate
+    # visible bugs (see MAX_ANCHOR_DELTA / _palette_delta safety-cap history).
+    # `321A5208 (1).JPG` / `321A5208.JPG` inside the RAW `22` folder is a real,
+    # clean before/after pair (someone graded it by hand, in place) -- teach-only
+    # like `33`, since no other clean graded pair exists for `22` to hold out.
+    ("22", DOWNLOADS / "22", DOWNLOADS / "22", "321A5208 (1)", "321A5208"),
     ("jm", DOWNLOADS / "jm__yg0J2rjsE-dhAL", DOWNLOADS / "jm_graded", None, None),
 ]
 MAX_HOLDOUT = 10
@@ -44,6 +53,12 @@ CONFIGS = {
         "MAX_ANCHOR_DELTA": 110.0,
         "LEARN_ONLY_MATCHED": False,
         "SKIN_MODEL_ENABLED": True,
+    },
+    "uncapped+skin+strength": {
+        "MAX_ANCHOR_DELTA": 110.0,
+        "LEARN_ONLY_MATCHED": False,
+        "SKIN_MODEL_ENABLED": True,
+        "STRENGTH_TRUST_SCALE": 6000.0,
     },
 }
 
@@ -213,6 +228,7 @@ def apply_config(config):
     pixel_color.SKIN_MODEL_ENABLED = config.get("SKIN_MODEL_ENABLED", False)
     pixel_color.MIN_SKIN_SAMPLES = config.get("MIN_SKIN_SAMPLES", 1500)
     pixel_color.SKIN_PROTECTION = config.get("SKIN_PROTECTION", 0.35)
+    pixel_color._STRENGTH_TRUST_SCALE = config.get("STRENGTH_TRUST_SCALE", 1e12)
     pixel_color._CUBE_CACHE.clear()
 
 

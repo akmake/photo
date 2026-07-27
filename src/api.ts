@@ -97,6 +97,13 @@ export interface LearnedColorModel {
   confidences: number[];
   supports: number[];
   strength: number;
+  // Per-anchor strength, one entry per row of `anchors` -- each learned
+  // colour is calibrated against only the pixels closest to it, instead of
+  // every anchor sharing one photo-wide knob. `strength` above is kept as
+  // their mean, for older engine code/UI that only knows the scalar.
+  // Absent on models fit before this existed; the engine broadcasts
+  // `strength` uniformly in that case.
+  strengths?: number[];
   sigma: number;
   subjectProtection: number;
   lumaCurve: number[];
@@ -109,6 +116,7 @@ export interface LearnedColorModel {
   skinConfidences?: number[];
   skinSupports?: number[];
   skinStrength?: number;
+  skinStrengths?: number[];
   skinSigma?: number;
   skinProtection?: number;
 }
@@ -128,6 +136,8 @@ export interface LearnColorResponse {
     lookError: number;
     gapClosed: number;
     selectedStrength: number;
+    minStrength: number;
+    maxStrength: number;
     selectedSigma: number;
     selectedLumaStrength: number;
     skinModel: boolean;
