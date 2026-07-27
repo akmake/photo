@@ -25,6 +25,7 @@ import compare
 import grade_zones
 import hsl
 import recipe_fit
+import pixel_color
 
 PORT = 8756
 
@@ -170,6 +171,15 @@ class Handler(BaseHTTPRequestHandler):
         if self.path == "/fit-recipe":
             self._fit_recipe()
             return
+        if self.path == "/learn-color":
+            self._learn_color()
+            return
+        if self.path == "/apply-color":
+            self._apply_color()
+            return
+        if self.path == "/export-color":
+            self._export_color()
+            return
         if self.path == "/export":
             self._export()
             return
@@ -258,6 +268,86 @@ class Handler(BaseHTTPRequestHandler):
         except Exception as e:  # noqa: BLE001
             self._json(500, {"error": str(e)})
 
+    def _learn_color(self):
+        """Learn a transferable paired-pixel colour model.
+
+        { before, after } -> compact model + validation report + preview.
+        """
+        try:
+            body = self._body()
+            before = common.to_np(common.b64_to_image(body["before"]))
+            after = common.to_np(common.b64_to_image(body["after"]))
+            model, report, preview = on_worker(pixel_color.fit, before, after)
+            self._json(
+                200,
+                {
+                    "model": model,
+                    "report": report,
+                    "preview": "data:image/jpeg;base64,"
+                    + common.image_to_jpeg_b64(common.to_pil(preview), 94),
+                },
+            )
+        except Exception as e:  # noqa: BLE001
+            self._json(500, {"error": str(e)})
+
+    def _apply_color(self):
+        """Apply a learned colour model. { image|path, model, deliver }"""
+        try:
+            body = self._body()
+            if body.get("path"):
+                image = common.load_image(body["path"])
+            else:
+                image = common.b64_to_image(body["image"])
+            output, meta = on_worker(
+                pixel_color.apply,
+                common.to_np(image),
+                body["model"],
+            )
+            output_image = common.to_pil(output)
+            if body.get("deliver"):
+                payload = "data:image/jpeg;base64," + common.image_to_jpeg_b64(
+                    output_image,
+                    render.DEFAULT_QUALITY,
+                    subsampling=0,
+                )
+            else:
+                payload = "data:image/jpeg;base64," + common.image_to_jpeg_b64(
+                    output_image
+                )
+            self._json(200, {"image": payload, "meta": meta})
+        except Exception as e:  # noqa: BLE001
+            self._json(500, {"error": str(e)})
+
+    def _export_color(self):
+        """Apply one learned colour model to files on disk."""
+        try:
+            body = self._body()
+            files = body.get("files", [])
+            model = body["model"]
+            destination = body["dest"]
+            fmt = body.get("format", "jpeg")
+            quality = int(body.get("quality", render.DEFAULT_QUALITY))
+            written, errors = [], []
+            for path in files:
+                try:
+                    output_path, _ = on_worker(
+                        pixel_color.export,
+                        path,
+                        model,
+                        destination,
+                        fmt,
+                        quality,
+                    )
+                    written.append(output_path)
+                except Exception as e:  # noqa: BLE001
+                    errors.append({"file": path, "error": str(e)})
+            self._json(
+                200,
+                {"written": written, "errors": errors, "count": len(written)},
+            )
+        except Exception as e:  # noqa: BLE001
+            self._json(500, {"error": str(e)})
+
     def _export(self):
         """Render files from disk and save them. { files:[paths], recipe|perFile,
         dest, format, quality }"""
@@ -321,6 +411,32 @@ class Handler(BaseHTTPRequestHandler):
         pass  # keep the console quiet
 
 
+class Server(ThreadingHTTPServer):
+    # Windows lets a second process bind a port that is already listening, and
+    # then routes requests to whichever socket it feels like. That is not a
+    # theoretical problem: it cost this project two debugging sessions, once
+    # answering with two-day-old code and once running a fit against a stale
+    # build. Refuse to start instead of starting wrong.
+    allow_reuse_address = False
+
+    if hasattr(__import__("socket"), "SO_EXCLUSIVEADDRUSE"):
+        import socket as _s
+
+        def server_bind(self):
+            self.socket.setsockopt(self._s.SOL_SOCKET, self._s.SO_EXCLUSIVEADDRUSE, 1)
+            super().server_bind()
+
+
 if __name__ == "__main__":
+    import sys
+
+    try:
+        srv = Server(("127.0.0.1", PORT), Handler)
+    except OSError as e:
+        sys.exit(
+            f"port {PORT} is already in use — another engine is running.\n"
+            f"Stop it first; two engines on one port serve requests at random.\n"
+            f"({e})"
+        )
     print(f"engine listening on http://127.0.0.1:{PORT}")
-    ThreadingHTTPServer(("127.0.0.1", PORT), Handler).serve_forever()
+    srv.serve_forever()

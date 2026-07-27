@@ -7,8 +7,8 @@
  */
 
 import { useCallback, useRef, useState } from 'react';
-import { compareImages } from '../api';
-import type { CompareResponse, CompareRegion } from '../api';
+import { compareImages, learnColorModel } from '../api';
+import type { CompareResponse, CompareRegion, LearnColorResponse } from '../api';
 
 const KIND_LABEL: Record<string, string> = {
   added: 'נוסף',
@@ -54,9 +54,11 @@ export default function Compare() {
   const [before, setBefore] = useState<{ name: string; url: string } | null>(null);
   const [after, setAfter] = useState<{ name: string; url: string } | null>(null);
   const [res, setRes] = useState<CompareResponse | null>(null);
+  const [colour, setColour] = useState<LearnColorResponse | null>(null);
   const [busy, setBusy] = useState(false);
+  const [colourBusy, setColourBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [view, setView] = useState<'overlay' | 'before' | 'after'>('overlay');
+  const [view, setView] = useState<'overlay' | 'before' | 'after' | 'learned'>('overlay');
   const [showWeak, setShowWeak] = useState(false);
   const [ms, setMs] = useState(0);
   const [hover, setHover] = useState<number | null>(null);
@@ -69,6 +71,7 @@ export default function Compare() {
       if (which === 'before') setBefore(entry);
       else setAfter(entry);
       setRes(null);
+      setColour(null);
       setError(null);
     },
     [],
@@ -90,13 +93,37 @@ export default function Compare() {
     }
   }, [before, after]);
 
+  const learnColour = useCallback(async () => {
+    if (!before || !after) return;
+    setColourBusy(true);
+    setError(null);
+    const t0 = performance.now();
+    try {
+      const learned = await learnColorModel(before.url, after.url);
+      setColour(learned);
+      setView('learned');
+      setMs(Math.round(performance.now() - t0));
+    } catch (e) {
+      setError((e as Error).message);
+      setColour(null);
+    } finally {
+      setColourBusy(false);
+    }
+  }, [before, after]);
+
   const report = res?.report;
   const all: CompareRegion[] = report?.regions ?? [];
   const shown = showWeak ? all : all.filter((r) => r.strong);
   const grade = report ? gradeLines(report.global) : [];
 
   const src =
-    view === 'before' ? before?.url : view === 'after' ? after?.url : res?.overlay ?? after?.url;
+    view === 'before'
+      ? before?.url
+      : view === 'after'
+        ? after?.url
+        : view === 'learned'
+          ? colour?.preview ?? before?.url
+          : res?.overlay ?? after?.url;
 
   return (
     <div className="cmp">
@@ -126,8 +153,32 @@ export default function Compare() {
           disabled={!before || !after || busy}>
           {busy ? 'מנתח…' : 'נתח את ההבדלים'}
         </button>
+        <button className="btn btn-wide" onClick={learnColour}
+          disabled={!before || !after || colourBusy}>
+          {colourBusy ? 'לומד חוקי צבע…' : 'למד צבע והצג תוצאה'}
+        </button>
 
         {error && <div className="lab-error">✗ {error}</div>}
+
+        {colour && (
+          <section className="cmp-block cmp-colour-result">
+            <div className="spread">
+              <h3>מודל צבע נלמד</h3>
+              <span className={`cmp-model-state ${colour.report.safe ? 'safe' : 'unsafe'}`}>
+                {colour.report.safe ? 'עבר בדיקה' : 'לא בטוח'}
+              </span>
+            </div>
+            <div className="cmp-model-score">
+              {Math.round(colour.report.gapClosed * 100)}%
+              <span>מהפער נסגר</span>
+            </div>
+            <div className="cmp-note">
+              {colour.report.samples.toLocaleString()} דגימות ·{' '}
+              {colour.report.validationSamples.toLocaleString()} לבדיקה בלבד ·{' '}
+              {colour.report.clusters} חוקי צבע · {colour.report.fitSeconds.toFixed(1)} שניות
+            </div>
+          </section>
+        )}
 
         {report && (
           <>
@@ -207,14 +258,21 @@ export default function Compare() {
         ) : (
           <div className="cmp-placeholder">בחר תמונת לפני ותמונת אחרי</div>
         )}
-        {res && (
+        {(res || colour) && (
           <div className="cmp-viewbar">
-            <button className={view === 'overlay' ? 'on' : ''} onClick={() => setView('overlay')}>
-              מסומן
-            </button>
+            {res && (
+              <button className={view === 'overlay' ? 'on' : ''} onClick={() => setView('overlay')}>
+                מסומן
+              </button>
+            )}
             <button className={view === 'before' ? 'on' : ''} onClick={() => setView('before')}>
               לפני
             </button>
+            {colour && (
+              <button className={view === 'learned' ? 'on' : ''} onClick={() => setView('learned')}>
+                נלמד
+              </button>
+            )}
             <button className={view === 'after' ? 'on' : ''} onClick={() => setView('after')}>
               אחרי
             </button>

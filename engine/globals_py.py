@@ -223,11 +223,24 @@ def _light_point(rgb, params):
     return np.clip(255 - (255 - rgb) * (255 - light) / 255.0, 0, 255)
 
 
+# A radius in absolute pixels means something different on a 640px preview than
+# on a 4160px master, so a recipe learned at one size does not transfer to the
+# other — measured, after a fitted glow/oil-paint pair behaved nothing like the
+# fit predicted at full resolution. Radii are therefore fractions of the frame,
+# anchored so that at 1600px they equal the old pixel values exactly and every
+# recipe written before this change still means what it meant.
+REF_DIM = 1600.0
+
+
+def _radius_px(rgb, frac_at_ref, minimum=1):
+    return max(minimum, int(round(max(rgb.shape[:2]) * frac_at_ref / REF_DIM)))
+
+
 def _glow(rgb, params):
     amount = _p(params, "amount")
     if not amount:
         return rgb
-    r = max(2, int(4 + _p(params, "radius", 40) * 50)) | 1
+    r = _radius_px(rgb, 4 + _p(params, "radius", 40) * 50, 2) | 1
     L = (_luma(rgb) / 255.0)[..., None]
     bright = rgb * _smoothstep(0.55, 1.0, L)
     blur = cv2.GaussianBlur(bright, (r, r), 0)
@@ -239,7 +252,9 @@ def _oil_paint(rgb, params):
     amount = _p(params, "amount")
     if not amount:
         return rgb
-    r = max(1, int(1 + _p(params, "radius", 30) * 9))
+    # capped: oilPainting is roughly O(r^2) per pixel, and an uncapped
+    # frame-relative radius on a 26MP master runs for minutes
+    r = min(10, _radius_px(rgb, 1 + _p(params, "radius", 30) * 9))
     src = np.clip(rgb, 0, 255).astype(np.uint8)
     if hasattr(cv2, "xphoto") and hasattr(cv2.xphoto, "oilPainting"):
         painted = cv2.xphoto.oilPainting(src, r, 1, cv2.COLOR_BGR2Lab).astype(np.float32)
@@ -253,7 +268,7 @@ def _sharpen(rgb, params):
     amount = _p(params, "amount")
     if not amount:
         return rgb
-    r = max(1, int(1 + _p(params, "radius", 20) * 4)) | 1
+    r = _radius_px(rgb, 1 + _p(params, "radius", 20) * 4) | 1
     blur = cv2.GaussianBlur(rgb, (r, r), 0)
     delta = np.clip((_luma(rgb) - _luma(blur)) * amount * 1.5, -40, 40)
     return np.clip(rgb + delta[..., None], 0, 255)

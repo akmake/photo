@@ -11,6 +11,7 @@ which matters for two reasons:
 import os
 import time
 
+import cv2
 import numpy as np
 
 import common
@@ -54,8 +55,50 @@ TOOLS = {
 }
 
 
+# Tools defined RELATIVE TO THE FRAME cannot be masked to a region. A vignette
+# is a radial gradient centred on the picture; multiplying it by a person-shaped
+# mask produces arcs and blotches across the background, which is exactly what
+# happened when the fitter was free to put `vignette` in a subject slot. The
+# same holds for a placed light and for glow, which spreads across the frame.
+FRAME_ONLY = {"dimension", "light-point", "glow", "vignette"}
+
+
+def _region_mask(rgb, spec):
+    """Build the 0..1 map a masked tool is blended through.
+
+    spec: {region, invert, feather, strength}. `region` is any kind masks.py
+    knows — subject, hair, face-skin, body-skin, face-features — plus
+    `background`, which is simply the subject inverted.
+    """
+    region = spec.get("region", "subject")
+    invert = bool(spec.get("invert", False))
+    if region == "background":
+        region, invert = "subject", not invert
+
+    m = masks.get_mask(rgb, region).astype(np.float32)
+    if invert:
+        m = 1.0 - m
+
+    feather = float(spec.get("feather", 0) or 0)
+    if feather > 0:
+        # relative to the frame, so a recipe behaves the same at any resolution
+        sigma = max(0.5, feather / 100.0 * 0.02 * max(rgb.shape[:2]))
+        m = cv2.GaussianBlur(m, (0, 0), sigma)
+
+    strength = float(spec.get("strength", 100) or 100) / 100.0
+    return np.clip(m * strength, 0.0, 1.0)
+
+
 def render(img, recipe_tools):
-    """img: PIL image. recipe_tools: [{toolId, params, enabled}]. -> (PIL, meta)"""
+    """img: PIL image. recipe_tools: [{toolId, params, enabled, mask?}].
+
+    A tool carrying `mask` is applied through it instead of over the whole
+    frame, which is what lets one recipe hold the SAME tool twice with opposite
+    settings — cool and dark on the background, warm and bright on the subject.
+    A single global grade cannot express that, and measuring a real edit showed
+    it is exactly what retouchers do: the fitted temperature pinned at +100
+    trying to satisfy the subject and the field at once.
+    """
     active = [
         t
         for t in recipe_tools
@@ -70,7 +113,18 @@ def render(img, recipe_tools):
         for t in active:
             fn = TOOLS[t["toolId"]][0]
             t0 = time.time()
-            rgb, meta = fn(rgb, t.get("params", {}))
+            spec = t.get("mask")
+            if spec and t["toolId"] in FRAME_ONLY:
+                spec = None  # frame-relative tool: a region mask makes artefacts
+            out, meta = fn(rgb, t.get("params", {}))
+            if spec:
+                m = _region_mask(rgb, spec)[..., None]
+                out = (rgb.astype(np.float32) * (1.0 - m)
+                       + out.astype(np.float32) * m)
+                out = np.clip(out, 0, 255).astype(np.uint8)
+                meta = {**meta, "mask": spec.get("region", "subject"),
+                        "maskCoverage": round(float(m.mean()), 4)}
+            rgb = out
             steps.append(
                 {"tool": t["toolId"], "ms": int((time.time() - t0) * 1000), "meta": meta}
             )

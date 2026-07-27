@@ -5,6 +5,37 @@ import type {
   ParamValues,
 } from './types';
 
+/* The eight hue bands, generated rather than typed out: 24 sliders written by
+ * hand is 24 chances to mistype a param id that the engine then silently
+ * ignores. Centres match engine/hsl.py — they are uneven on purpose, crowded
+ * through red/orange/yellow because skin lives there. */
+const HUE_BANDS: [string, string][] = [
+  ['red', 'אדום'],
+  ['orange', 'כתום'],
+  ['yellow', 'צהוב'],
+  ['green', 'ירוק'],
+  ['aqua', 'טורקיז'],
+  ['blue', 'כחול'],
+  ['purple', 'סגול'],
+  ['magenta', "מג'נטה"],
+];
+
+const HSL_TOOL: ToolDef[] = [
+  {
+    id: 'hsl',
+    label: 'צבע לפי גוון',
+    kind: 'global',
+    category: 'artistic',
+    order: 41,
+    batchPolicy: 'absolute',
+    params: HUE_BANDS.flatMap(([id, he]) => [
+      { id: `${id}Hue`, label: `${he} · גוון`, min: -100, max: 100, step: 1, default: 0 },
+      { id: `${id}Sat`, label: `${he} · רוויה`, min: -100, max: 100, step: 1, default: 0 },
+      { id: `${id}Lum`, label: `${he} · בהירות`, min: -100, max: 100, step: 1, default: 0 },
+    ]),
+  },
+];
+
 // THE registry. Adding a tool (global or AI) = one entry here. Nothing else
 // in the app needs to special-case it — the UI and pipeline are built from this.
 export const TOOLS: ToolDef[] = [
@@ -138,6 +169,30 @@ export const TOOLS: ToolDef[] = [
       { id: 'shadowsWarm', label: 'חום בצללים', min: -100, max: 100, step: 1, default: 0 },
       { id: 'highlightsWarm', label: 'חום בהיילייטים', min: -100, max: 100, step: 1, default: 0 },
       { id: 'fade', label: 'דהייה (מאט)', min: 0, max: 100, step: 1, default: 0 },
+    ],
+  },
+  // Per-hue colour. Eight bands, three independent knobs each, because one
+  // saturation slider can only travel one road: this set exists so a recipe can
+  // crush the green of a field while leaving skin and blonde hair alone.
+  ...HSL_TOOL,
+  {
+    id: 'grade-zones',
+    label: 'גריידינג לפי טונים',
+    kind: 'global',
+    category: 'artistic',
+    order: 42,
+    batchPolicy: 'absolute',
+    params: [
+      { id: 'shadowsHue', label: 'צלליות · גוון', min: 0, max: 360, step: 1, default: 0 },
+      { id: 'shadowsSat', label: 'צלליות · רוויה', min: -100, max: 100, step: 1, default: 0 },
+      { id: 'shadowsLum', label: 'צלליות · בהירות', min: -100, max: 100, step: 1, default: 0 },
+      { id: 'midtonesHue', label: 'אמצעיים · גוון', min: 0, max: 360, step: 1, default: 0 },
+      { id: 'midtonesSat', label: 'אמצעיים · רוויה', min: -100, max: 100, step: 1, default: 0 },
+      { id: 'midtonesLum', label: 'אמצעיים · בהירות', min: -100, max: 100, step: 1, default: 0 },
+      { id: 'highlightsHue', label: 'היילייטים · גוון', min: 0, max: 360, step: 1, default: 0 },
+      { id: 'highlightsSat', label: 'היילייטים · רוויה', min: -100, max: 100, step: 1, default: 0 },
+      { id: 'highlightsLum', label: 'היילייטים · בהירות', min: -100, max: 100, step: 1, default: 0 },
+      { id: 'balance', label: 'איזון בין הטווחים', min: -100, max: 100, step: 1, default: 0 },
     ],
   },
   {

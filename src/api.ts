@@ -89,6 +89,42 @@ export interface CompareResponse {
   };
 }
 
+export interface LearnedColorModel {
+  version: number;
+  base: Record<string, number>;
+  anchors: number[][];
+  deltas: number[][];
+  confidences: number[];
+  supports: number[];
+  strength: number;
+  sigma: number;
+  subjectProtection: number;
+  lumaCurve: number[];
+  lumaStrength: number;
+}
+
+export interface LearnColorResponse {
+  model: LearnedColorModel;
+  preview: string;
+  report: {
+    fitSeconds: number;
+    fitSize: [number, number];
+    samples: number;
+    validationSamples: number;
+    clusters: number;
+    meanAnchorConfidence: number;
+    validationGapClosed: number;
+    lookBaseline: number;
+    lookError: number;
+    gapClosed: number;
+    selectedStrength: number;
+    selectedSigma: number;
+    selectedLumaStrength: number;
+    safe: boolean;
+    base: Record<string, number>;
+  };
+}
+
 /** Read an edit: what changed between two versions of the same frame. */
 export async function compareImages(
   beforeDataUrl: string,
@@ -106,6 +142,53 @@ export async function compareImages(
       if (j?.error) detail = j.error;
     } catch {
       /* keep the status-code message */
+    }
+    throw new Error(detail);
+  }
+  return r.json();
+}
+
+/** Learn a compact, validated colour model from a before/after pair. */
+export async function learnColorModel(
+  beforeDataUrl: string,
+  afterDataUrl: string,
+): Promise<LearnColorResponse> {
+  const r = await fetch(`${ENGINE}/learn-color`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ before: beforeDataUrl, after: afterDataUrl }),
+  });
+  if (!r.ok) {
+    let detail = `engine ${r.status}`;
+    try {
+      const j = await r.json();
+      if (j?.error) detail = j.error;
+    } catch {
+      /* keep status */
+    }
+    throw new Error(detail);
+  }
+  return r.json();
+}
+
+/** Apply a colour model learned by learnColorModel(). */
+export async function applyColorModel(
+  imageDataUrl: string,
+  model: LearnedColorModel,
+  deliver = false,
+): Promise<{ image: string; meta: Record<string, number> }> {
+  const r = await fetch(`${ENGINE}/apply-color`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ image: imageDataUrl, model, deliver }),
+  });
+  if (!r.ok) {
+    let detail = `engine ${r.status}`;
+    try {
+      const j = await r.json();
+      if (j?.error) detail = j.error;
+    } catch {
+      /* keep status */
     }
     throw new Error(detail);
   }

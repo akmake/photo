@@ -1,0 +1,312 @@
+{
+  "recipe": [
+    {
+      "toolId": "tone-color",
+      "params": {
+        "exposure": -22.2,
+        "saturation": 27.0,
+        "contrast": -50.0,
+        "tint": -100.0,
+        "highlights": 80.0,
+        "shadows": -60.0,
+        "whites": 100.0,
+        "blacks": 35.0,
+        "vibrance": -10.0
+      },
+      "enabled": true
+    },
+    {
+      "toolId": "color-grade",
+      "params": {
+        "shadowsWarm": -30.0,
+        "highlightsWarm": -20.0
+      },
+      "enabled": true
+    },
+    {
+      "toolId": "dimension",
+      "params": {
+        "clarity": -25.0
+      },
+      "enabled": true
+    },
+    {
+      "toolId": "hsl",
+      "params": {
+        "greenLum": 63.3,
+        "greenHue": 25.0,
+        "aquaLum": -13.3,
+        "aquaHue": 80.0,
+        "blueSat": -76.7,
+        "blueLum": 13.3,
+        "blueHue": 73.3,
+        "magentaSat": 100.0,
+        "greenSat": 100.0,
+        "aquaSat": 58.3,
+        "purpleLum": -100.0,
+        "magentaHue": -50.0
+      },
+      "enabled": true
+    },
+    {
+      "toolId": "grade-zones",
+      "params": {
+        "shadowsSat": 53.3,
+        "shadowsLum": 100.0,
+        "highlightsSat": 30.0,
+        "balance": -20.0,
+        "shadowsHue": 75.0,
+        "highlightsLum": 6.7
+      },
+      "enabled": true
+    },
+    {
+      "toolId": "tone-color",
+      "params": {
+        "exposure": 20.0,
+        "contrast": -20.0,
+        "temperature": 3.3,
+        "tint": -46.7,
+        "saturation": 36.7,
+        "blacks": -71.7,
+        "whites": 16.7
+      },
+      "enabled": true,
+      "mask": {
+        "region": "background",
+        "feather": 6
+      }
+    },
+    {
+      "toolId": "color-grade",
+      "params": {
+        "shadowsWarm": 36.7,
+        "highlightsWarm": -93.3
+      },
+      "enabled": true,
+      "mask": {
+        "region": "background",
+        "feather": 6
+      }
+    },
+    {
+      "toolId": "dimension",
+      "params": {
+        "clarity": 36.7,
+        "vignette": 18.3
+      },
+      "enabled": true,
+      "mask": {
+        "region": "background",
+        "feather": 6
+      }
+    },
+    {
+      "toolId": "hsl",
+      "params": {
+        "redSat": -76.7,
+        "redLum": 23.3,
+        "redHue": -83.3,
+        "orangeSat": 20.0,
+        "orangeLum": 78.3,
+        "yellowHue": 30.0,
+        "greenLum": -40.0,
+        "greenHue": -100.0,
+        "aquaSat": -76.7,
+        "aquaLum": -6.7,
+        "aquaHue": -100.0,
+        "orangeHue": -25.0,
+        "yellowSat": 16.7,
+        "blueSat": -66.7,
+        "blueLum": 100.0,
+        "blueHue": -100.0,
+        "yellowLum": 6.7,
+        "greenSat": -6.7
+      },
+      "enabled": true,
+      "mask": {
+        "region": "background",
+        "feather": 6
+      }
+    },
+    {
+      "toolId": "grade-zones",
+      "params": {
+        "shadowsSat": 26.7,
+        "shadowsLum": 100.0,
+        "midtonesLum": 23.3,
+        "highlightsSat": 30.0,
+        "highlightsLum": -81.7,
+        "midtonesSat": -10.0,
+        "balance": 10.0,
+        "midtonesHue": 12.0
+      },
+      "enabled": true,
+      "mask": {
+        "region": "background",
+        "feather": 6
+      }
+    }
+  ],
+  "params": {
+    "global": {
+      "tone-color": {
+        "exposure": -22.224882173412546,
+        "saturation": 26.9813375318682,
+        "contrast": -50.0,
+        "tint": -100.0,
+        "highlights": 80.0,
+        "shadows": -60.0,
+        "whites": 100.0,
+        "blacks": 35.0,
+        "vibrance": -10.0
+      },
+      "color-grade": {
+        "shadowsWarm": -30.0,
+        "highlightsWarm": -20.0
+      },
+      "dimension": {
+        "clarity": -25.0
+      },
+      "hsl": {
+        "greenLum": 63.333333333333336,
+        "greenHue": 25.000000000000007,
+        "aquaLum": -13.333333333333334,
+        "aquaHue": 80.0,
+        "blueSat": -76.66666666666666,
+        "blueLum": 13.333333333333334,
+        "blueHue": 73.33333333333334,
+        "magentaSat": 100.0,
+        "greenSat": 100.0,
+        "aquaSat": 58.33333333333333,
+        "purpleLum": -100.0,
+        "magentaHue": -49.99999999999999
+      },
+      "grade-zones": {
+        "shadowsSat": 53.33333333333333,
+        "shadowsLum": 100.0,
+        "highlightsSat": 30.0,
+        "balance": -20.0,
+        "shadowsHue": 75.0,
+        "highlightsLum": 6.666666666666666
+      },
+      "glow": {},
+      "oil-paint": {},
+      "sharpen": {}
+    },
+    "background": {
+      "tone-color": {
+        "exposure": 20.0,
+        "contrast": -20.0,
+        "temperature": 3.333333333333334,
+        "tint": -46.66666666666667,
+        "saturation": 36.666666666666664,
+        "blacks": -71.66666666666667,
+        "shadows": 1.7763568394002505e-15,
+        "whites": 16.666666666666664
+      },
+      "color-grade": {
+        "shadowsWarm": 36.666666666666664,
+        "highlightsWarm": -93.33333333333333,
+        "fade": 0.0
+      },
+      "dimension": {
+        "clarity": 36.666666666666664,
+        "vignette": 18.333333333333332
+      },
+      "hsl": {
+        "redSat": -76.66666666666666,
+        "redLum": 23.333333333333343,
+        "redHue": -83.33333333333333,
+        "orangeSat": 20.0,
+        "orangeLum": 78.33333333333333,
+        "yellowHue": 30.0,
+        "greenLum": -40.0,
+        "greenHue": -100.0,
+        "aquaSat": -76.66666666666666,
+        "aquaLum": -6.6666666666666625,
+        "aquaHue": -100.0,
+        "orangeHue": -25.0,
+        "yellowSat": 16.666666666666664,
+        "blueSat": -66.66666666666666,
+        "blueLum": 100.0,
+        "blueHue": -100.0,
+        "yellowLum": 6.666666666666666,
+        "greenSat": -6.666666666666666
+      },
+      "grade-zones": {
+        "shadowsSat": 26.666666666666664,
+        "shadowsLum": 100.0,
+        "midtonesLum": 23.333333333333336,
+        "highlightsSat": 30.0,
+        "highlightsLum": -81.66666666666667,
+        "midtonesSat": -10.0,
+        "balance": 10.0,
+        "midtonesHue": 12.0
+      },
+      "glow": {},
+      "oil-paint": {},
+      "sharpen": {}
+    },
+    "subject": {
+      "tone-color": {},
+      "color-grade": {},
+      "dimension": {},
+      "hsl": {},
+      "grade-zones": {},
+      "glow": {},
+      "oil-paint": {},
+      "sharpen": {}
+    }
+  },
+  "fit": {
+    "gapClosed": 0.3139,
+    "lookDeltaE": 12.407,
+    "lookBaseline": 18.084,
+    "textureGapClosed": 0.0,
+    "textureError": 1.177,
+    "textureBaseline": 1.142,
+    "combinedScore": 14.291,
+    "gapClosedByStage": {
+      "global": 0.4539,
+      "background": 0.6106,
+      "subject": 0.6106,
+      "texture": 0.6106
+    },
+    "protected": {
+      "face-skin": {
+        "chromaTarget": 0.837,
+        "chromaGot": 0.77,
+        "lumTarget": -18.5,
+        "lumGot": -14.5,
+        "ok": true
+      }
+    },
+    "subjectWeight": 4.29,
+    "rawDeltaE": 18.788,
+    "rawBaseline": 24.909,
+    "geometry": {
+      "beforeSize": [
+        640,
+        426
+      ],
+      "afterSize": [
+        640,
+        426
+      ],
+      "sameSize": true,
+      "method": "affine",
+      "shift": [
+        -8.3,
+        -5.1
+      ],
+      "rotationDeg": -0.046,
+      "scale": 1.0256,
+      "inlierRatio": 0.833
+    },
+    "fitSize": [
+      640,
+      426
+    ]
+  }
+}

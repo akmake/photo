@@ -1,0 +1,65 @@
+{
+  "fitSeconds": 19.05,
+  "fitSize": [
+    900,
+    600
+  ],
+  "geometry": {
+    "beforeSize": [
+      900,
+      600
+    ],
+    "afterSize": [
+      900,
+      600
+    ],
+    "sameSize": true,
+    "method": "affine",
+    "shift": [
+      97.5,
+      71.6
+    ],
+    "rotationDeg": -1.107,
+    "scale": 0.8603,
+    "inlierRatio": 0.988
+  },
+  "base": {
+    "temperature": 90.0,
+    "exposure": 13.75
+  },
+  "baseSearchError": 20.5094,
+  "samples": 48814,
+  "validationSamples": 9838,
+  "clusters": 15,
+  "meanAnchorConfidence": 0.3358,
+  "validationGapClosed": 0.3964,
+  "lookBaseline": 26.3773,
+  "lookError": 15.9782,
+  "gapClosed": 0.3942,
+  "selectedStrength": 1.5,
+  "selectedSigma": 8.0,
+  "selectedLumaStrength": 0.75,
+  "lumaTrials": [
+    {
+      "strength": 0.35,
+      "error": 17.5271
+    },
+    {
+      "strength": 0.55,
+      "error": 16.2734
+    },
+    {
+      "strength": 0.75,
+      "error": 15.9782
+    },
+    {
+      "strength": 1.0,
+      "error": 16.8905
+    },
+    {
+      "strength": 1.2,
+      "error": 18.0349
+    }
+  ],
+  "safe": true
+}

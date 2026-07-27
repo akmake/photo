@@ -1,0 +1,376 @@
+{
+  "baselineLookDeltaE": 23.3429,
+  "temperatureOnly": {
+    "params": {
+      "temperature": -30.0
+    },
+    "lookDeltaE": 23.1073,
+    "gapClosed": 0.0101
+  },
+  "temperatureExposure": {
+    "params": {
+      "temperature": -35.0,
+      "exposure": 2.5
+    },
+    "lookDeltaE": 22.7477,
+    "gapClosed": 0.0255
+  },
+  "temperatureExposureTint": {
+    "params": {
+      "temperature": -25.0,
+      "exposure": 2.5,
+      "tint": -87.5
+    },
+    "lookDeltaE": 22.062,
+    "gapClosed": 0.0549
+  },
+  "temperatureCurve": [
+    {
+      "value": -100.0,
+      "error": 26.2419
+    },
+    {
+      "value": -97.5,
+      "error": 26.0554
+    },
+    {
+      "value": -95.0,
+      "error": 25.859
+    },
+    {
+      "value": -92.5,
+      "error": 25.6676
+    },
+    {
+      "value": -90.0,
+      "error": 25.4825
+    },
+    {
+      "value": -87.5,
+      "error": 25.3049
+    },
+    {
+      "value": -85.0,
+      "error": 25.1254
+    },
+    {
+      "value": -82.5,
+      "error": 24.9457
+    },
+    {
+      "value": -80.0,
+      "error": 24.782
+    },
+    {
+      "value": -77.5,
+      "error": 24.6294
+    },
+    {
+      "value": -75.0,
+      "error": 24.4771
+    },
+    {
+      "value": -72.5,
+      "error": 24.3255
+    },
+    {
+      "value": -70.0,
+      "error": 24.1804
+    },
+    {
+      "value": -67.5,
+      "error": 24.0393
+    },
+    {
+      "value": -65.0,
+      "error": 23.9217
+    },
+    {
+      "value": -62.5,
+      "error": 23.8077
+    },
+    {
+      "value": -60.0,
+      "error": 23.6901
+    },
+    {
+      "value": -57.5,
+      "error": 23.5943
+    },
+    {
+      "value": -55.0,
+      "error": 23.5016
+    },
+    {
+      "value": -52.5,
+      "error": 23.4208
+    },
+    {
+      "value": -50.0,
+      "error": 23.3587
+    },
+    {
+      "value": -47.5,
+      "error": 23.2866
+    },
+    {
+      "value": -45.0,
+      "error": 23.2384
+    },
+    {
+      "value": -42.5,
+      "error": 23.194
+    },
+    {
+      "value": -40.0,
+      "error": 23.1584
+    },
+    {
+      "value": -37.5,
+      "error": 23.1345
+    },
+    {
+      "value": -35.0,
+      "error": 23.1204
+    },
+    {
+      "value": -32.5,
+      "error": 23.1128
+    },
+    {
+      "value": -30.0,
+      "error": 23.1073
+    },
+    {
+      "value": -27.5,
+      "error": 23.1179
+    },
+    {
+      "value": -25.0,
+      "error": 23.1256
+    },
+    {
+      "value": -22.5,
+      "error": 23.1406
+    },
+    {
+      "value": -20.0,
+      "error": 23.1716
+    },
+    {
+      "value": -17.5,
+      "error": 23.1959
+    },
+    {
+      "value": -15.0,
+      "error": 23.2302
+    },
+    {
+      "value": -12.5,
+      "error": 23.2694
+    },
+    {
+      "value": -10.0,
+      "error": 23.34
+    },
+    {
+      "value": -7.5,
+      "error": 23.35
+    },
+    {
+      "value": -5.0,
+      "error": 23.4097
+    },
+    {
+      "value": -2.5,
+      "error": 23.5142
+    },
+    {
+      "value": 0.0,
+      "error": 23.3429
+    },
+    {
+      "value": 2.5,
+      "error": 23.5871
+    },
+    {
+      "value": 5.0,
+      "error": 23.7109
+    },
+    {
+      "value": 7.5,
+      "error": 23.7333
+    },
+    {
+      "value": 10.0,
+      "error": 23.8165
+    },
+    {
+      "value": 12.5,
+      "error": 23.9073
+    },
+    {
+      "value": 15.0,
+      "error": 23.9859
+    },
+    {
+      "value": 17.5,
+      "error": 24.0819
+    },
+    {
+      "value": 20.0,
+      "error": 24.1675
+    },
+    {
+      "value": 22.5,
+      "error": 24.2594
+    },
+    {
+      "value": 25.0,
+      "error": 24.3588
+    },
+    {
+      "value": 27.5,
+      "error": 24.4579
+    },
+    {
+      "value": 30.0,
+      "error": 24.563
+    },
+    {
+      "value": 32.5,
+      "error": 24.6662
+    },
+    {
+      "value": 35.0,
+      "error": 24.7693
+    },
+    {
+      "value": 37.5,
+      "error": 24.8879
+    },
+    {
+      "value": 40.0,
+      "error": 25.0034
+    },
+    {
+      "value": 42.5,
+      "error": 25.1249
+    },
+    {
+      "value": 45.0,
+      "error": 25.2433
+    },
+    {
+      "value": 47.5,
+      "error": 25.3634
+    },
+    {
+      "value": 50.0,
+      "error": 25.4901
+    },
+    {
+      "value": 52.5,
+      "error": 25.6181
+    },
+    {
+      "value": 55.0,
+      "error": 25.7512
+    },
+    {
+      "value": 57.5,
+      "error": 25.8871
+    },
+    {
+      "value": 60.0,
+      "error": 26.0186
+    },
+    {
+      "value": 62.5,
+      "error": 26.1589
+    },
+    {
+      "value": 65.0,
+      "error": 26.2957
+    },
+    {
+      "value": 67.5,
+      "error": 26.439
+    },
+    {
+      "value": 70.0,
+      "error": 26.5751
+    },
+    {
+      "value": 72.5,
+      "error": 26.7301
+    },
+    {
+      "value": 75.0,
+      "error": 26.8807
+    },
+    {
+      "value": 77.5,
+      "error": 27.0347
+    },
+    {
+      "value": 80.0,
+      "error": 27.1862
+    },
+    {
+      "value": 82.5,
+      "error": 27.3443
+    },
+    {
+      "value": 85.0,
+      "error": 27.5075
+    },
+    {
+      "value": 87.5,
+      "error": 27.666
+    },
+    {
+      "value": 90.0,
+      "error": 27.8287
+    },
+    {
+      "value": 92.5,
+      "error": 27.9944
+    },
+    {
+      "value": 95.0,
+      "error": 28.1628
+    },
+    {
+      "value": 97.5,
+      "error": 28.3353
+    },
+    {
+      "value": 100.0,
+      "error": 28.5024
+    }
+  ],
+  "geometry": {
+    "beforeSize": [
+      720,
+      480
+    ],
+    "afterSize": [
+      720,
+      480
+    ],
+    "sameSize": true,
+    "method": "affine",
+    "shift": [
+      -9.6,
+      -6.3
+    ],
+    "rotationDeg": -0.001,
+    "scale": 1.0265,
+    "inlierRatio": 0.88
+  },
+  "workSize": [
+    720,
+    480
+  ]
+}
