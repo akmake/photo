@@ -745,27 +745,24 @@ def _apply_compiled(rgb, compiled, tile_rows=512):
 def _blend_protected(full, protected, subject, protection, skin=None, skin_out=None, skin_protection=0.0):
     """The one blend the engine uses everywhere: background stays 'full'.
 
-    Where a separate skin cube was learned (skin/skin_out not None), skin
-    pixels blend toward IT at skin_protection instead of toward the generic
-    base-only 'protected' cube -- the skin cube carries real evidence about
-    how this pair's skin was graded, so it needs less hiding. Whatever of the
-    subject mask skin doesn't already cover (hair, clothes, ...) still falls
-    back to 'protected' at the usual protection amount.
+    First reproduce today's plain subject/background blend (full -> protected
+    by subject*protection) -- that result is the floor. THEN, where a separate
+    skin cube was learned, pull skin pixels further toward it by skin_protection.
+    At skin_protection == 0 this must come out bit-identical to the two-way
+    blend, since skin is still `subject`: the skin cube only ever ADDS
+    correction on top of the existing safety net, it never removes it.
     """
     if protection <= 0 and skin_out is None:
         return full
 
     output = full.astype(np.float32)
-    remaining = np.ones(subject.shape, np.float32)
+    if protection > 0:
+        subject_amount = np.clip(subject * protection, 0.0, 1.0)[..., None]
+        output = output * (1.0 - subject_amount) + protected.astype(np.float32) * subject_amount
 
     if skin_out is not None:
         skin_amount = np.clip(skin * skin_protection, 0.0, 1.0)[..., None]
         output = output * (1.0 - skin_amount) + skin_out.astype(np.float32) * skin_amount
-        remaining = np.clip(1.0 - skin, 0.0, 1.0)
-
-    if protection > 0:
-        subject_amount = np.clip(subject * remaining * protection, 0.0, 1.0)[..., None]
-        output = output * (1.0 - subject_amount) + protected.astype(np.float32) * subject_amount
 
     return np.clip(output, 0, 255).astype(np.uint8)
 
