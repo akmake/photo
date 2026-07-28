@@ -117,6 +117,7 @@ export interface ReviewVersion {
   createdAt: string;
   status: 'sent' | 'changes-requested' | 'approved';
   spreads: AlbumSpread[];
+  cover?: AlbumCover;
   comments: ReviewComment[];
   approvedAt?: string;
 }

@@ -19,6 +19,13 @@ const DEFAULT_COVER: AlbumCover = {
   spineText: '',
 };
 
+const DEFAULT_CROP = {
+  fit: 'cover' as const,
+  positionX: 50,
+  positionY: 50,
+  zoom: 100,
+};
+
 export default function CoverEditor({
   project, photos, profile, onUpdateProject, onUpdateProfile, onClose,
 }: Props) {
@@ -29,6 +36,9 @@ export default function CoverEditor({
   const pagePercent = (100 - spinePercent) / 2;
   const frontPhoto = photos.find((photo) => photo.id === cover.frontPhotoId);
   const backPhoto = photos.find((photo) => photo.id === cover.backPhotoId);
+  const activeSettings = (
+    target === 'front' ? cover.frontSettings : cover.backSettings
+  ) ?? DEFAULT_CROP;
   const shownPhotos = useMemo(() => photos.slice(0, 120), [photos]);
 
   function updateCover(patch: Partial<AlbumCover>) {
@@ -36,7 +46,14 @@ export default function CoverEditor({
   }
 
   function assignPhoto(photoId: string, zone = target) {
-    updateCover(zone === 'front' ? { frontPhotoId: photoId } : { backPhotoId: photoId });
+    updateCover(zone === 'front'
+      ? { frontPhotoId: photoId, frontSettings: cover.frontSettings ?? DEFAULT_CROP }
+      : { backPhotoId: photoId, backSettings: cover.backSettings ?? DEFAULT_CROP });
+  }
+
+  function updateCrop(patch: Partial<typeof DEFAULT_CROP>) {
+    const next = { ...activeSettings, ...patch, fit: 'cover' as const };
+    updateCover(target === 'front' ? { frontSettings: next } : { backSettings: next });
   }
 
   function dropPhoto(event: React.DragEvent, zone: 'front' | 'back') {
@@ -104,6 +121,40 @@ export default function CoverEditor({
             <button className={target === 'front' ? 'on' : ''} onClick={() => setTarget('front')}>בחירת תמונה לחזית</button>
             <button className={target === 'back' ? 'on' : ''} onClick={() => setTarget('back')}>בחירת תמונה לגב</button>
           </div>
+          <div className="cover-crop-controls">
+            <strong>חיתוך {target === 'front' ? 'החזית' : 'הגב'}</strong>
+            <label>
+              <span>זום · {activeSettings.zoom ?? 100}%</span>
+              <input
+                type="range"
+                min="100"
+                max="250"
+                value={activeSettings.zoom ?? 100}
+                onChange={(event) => updateCrop({ zoom: Number(event.target.value) })}
+              />
+            </label>
+            <label>
+              <span>מיקום אופקי</span>
+              <input
+                type="range"
+                min="0"
+                max="100"
+                value={activeSettings.positionX}
+                onChange={(event) => updateCrop({ positionX: Number(event.target.value) })}
+              />
+            </label>
+            <label>
+              <span>מיקום אנכי</span>
+              <input
+                type="range"
+                min="0"
+                max="100"
+                value={activeSettings.positionY}
+                onChange={(event) => updateCrop({ positionY: Number(event.target.value) })}
+              />
+            </label>
+            <button onClick={() => updateCrop(DEFAULT_CROP)}>איפוס חיתוך</button>
+          </div>
         </aside>
 
         <main className="cover-canvas-area">
@@ -125,7 +176,11 @@ export default function CoverEditor({
                 <img
                   src={backPhoto.url}
                   alt=""
-                  style={{ objectPosition: `${(backPhoto.focalPoint?.x ?? 0.5) * 100}% ${(backPhoto.focalPoint?.y ?? 0.5) * 100}%` }}
+                  style={{
+                    objectPosition: `${cover.backSettings?.positionX ?? (backPhoto.focalPoint?.x ?? 0.5) * 100}% ${cover.backSettings?.positionY ?? (backPhoto.focalPoint?.y ?? 0.5) * 100}%`,
+                    transform: `scale(${(cover.backSettings?.zoom ?? 100) / 100})`,
+                    transformOrigin: `${cover.backSettings?.positionX ?? 50}% ${cover.backSettings?.positionY ?? 50}%`,
+                  }}
                 />
               ) : <span>גררי תמונה לגב הכריכה</span>}
             </button>
@@ -146,7 +201,11 @@ export default function CoverEditor({
                 <img
                   src={frontPhoto.url}
                   alt=""
-                  style={{ objectPosition: `${(frontPhoto.focalPoint?.x ?? 0.5) * 100}% ${(frontPhoto.focalPoint?.y ?? 0.5) * 100}%` }}
+                  style={{
+                    objectPosition: `${cover.frontSettings?.positionX ?? (frontPhoto.focalPoint?.x ?? 0.5) * 100}% ${cover.frontSettings?.positionY ?? (frontPhoto.focalPoint?.y ?? 0.5) * 100}%`,
+                    transform: `scale(${(cover.frontSettings?.zoom ?? 100) / 100})`,
+                    transformOrigin: `${cover.frontSettings?.positionX ?? 50}% ${cover.frontSettings?.positionY ?? 50}%`,
+                  }}
                 />
               ) : <span>גררי תמונה לחזית הכריכה</span>}
               <div className="cover-title">

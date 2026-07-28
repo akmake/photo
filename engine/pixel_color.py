@@ -115,6 +115,19 @@ _SUBJECT_BASE_MIN_VALIDATION_PX = 200
 # gain (skin 53.4% -> 46.7%) but stayed clearly net-positive (baseline
 # 41.7%). 15 is the validated default; not yet tested above 15.
 _SUBJECT_BASE_VALIDATION_SCALE = 15.0
+
+# Same threshold compare.align already uses internally to decide whether an
+# estimated warp is trustworthy enough to apply (see compare.py's `inliers >
+# 0.3`). `report["safe"]` did NOT check this at all -- measured live on a
+# genuinely misaligned pair (two different poses from one shoot,
+# inlierRatio=0.215, gapClosed=17.2%): `safe` still came back True, because
+# every other condition it checks (error-vs-baseline, luma error, anchor
+# confidence) can look fine even when the underlying correspondence the
+# whole fit was built on is wrong. `compare.align` can also return NO
+# inlierRatio at all (too few ORB features/matches, or RANSAC found no
+# model) -- treated as 0.0 here, i.e. also unsafe, since that is a worse
+# failure than a merely low ratio, not a better one.
+_SAFE_MIN_INLIER_RATIO = 0.3
 # A hue rotation like magenta->rust needs ~95 in Lab. At 46 the model could not
 # express it and cranked global strength to the rail instead. See
 # experiments/holdout.py: on unseen pairs this is +8pt overall, +38pt on
@@ -1270,6 +1283,7 @@ def fit(before_rgb, after_rgb):
             selection["error"] < selection["baseline"]
             and best_luma[0] < baseline_error
             and model["confidences"].mean() >= 0.12
+            and geometry.get("inlierRatio", 0.0) >= _SAFE_MIN_INLIER_RATIO
         ),
     }
     return serialize(model), report, preview

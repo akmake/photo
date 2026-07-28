@@ -38,8 +38,10 @@ export default function ReviewWorkspace({
   const [author, setAuthor] = useState('לקוחה');
   const [commentText, setCommentText] = useState('');
 
-  const spread = version?.spreads.find((item) => item.id === spreadId)
-    ?? version?.spreads[0];
+  const isCover = spreadId === 'cover';
+  const spread = isCover
+    ? undefined
+    : version?.spreads.find((item) => item.id === spreadId) ?? version?.spreads[0];
   const layout = useMemo(() => {
     if (!spread) return EMPTY_GENERATED_LAYOUT;
     const candidates = buildAlbumLayoutCandidates(
@@ -57,9 +59,10 @@ export default function ReviewWorkspace({
     } : generated;
   }, [photos, profile.closedHeightMm, profile.closedWidthMm, spread]);
 
-  if (!version || !spread) return null;
+  if (!version || (!isCover && !spread)) return null;
 
-  const spreadComments = version.comments.filter((comment) => comment.spreadId === spread.id);
+  const activeTargetId = isCover ? 'cover' : spread!.id;
+  const spreadComments = version.comments.filter((comment) => comment.spreadId === activeTargetId);
   const openComments = version.comments.filter((comment) => !comment.resolved);
 
   function updateVersion(patch: Partial<ReviewVersion>) {
@@ -76,7 +79,7 @@ export default function ReviewWorkspace({
     if (!text) return;
     const comment: ReviewComment = {
       id: `comment-${Date.now()}`,
-      spreadId: spread.id,
+      spreadId: activeTargetId,
       author: author.trim() || 'לקוחה',
       text,
       createdAt: new Date().toISOString(),
@@ -134,6 +137,19 @@ export default function ReviewWorkspace({
 
       <div className="review-body">
         <nav className="review-spread-list" aria-label="כפולות לבדיקה">
+          <button
+            className={isCover ? 'on' : ''}
+            onClick={() => setSpreadId('cover')}
+          >
+            <span>כריכה ושדרה</span>
+            {version.comments.filter(
+              (comment) => comment.spreadId === 'cover' && !comment.resolved,
+            ).length > 0 && (
+              <b>{version.comments.filter(
+                (comment) => comment.spreadId === 'cover' && !comment.resolved,
+              ).length}</b>
+            )}
+          </button>
           {version.spreads.map((item) => {
             const count = version.comments.filter(
               (comment) => comment.spreadId === item.id && !comment.resolved,
@@ -141,7 +157,7 @@ export default function ReviewWorkspace({
             return (
               <button
                 key={item.id}
-                className={item.id === spread.id ? 'on' : ''}
+                className={!isCover && item.id === spread!.id ? 'on' : ''}
                 onClick={() => setSpreadId(item.id)}
               >
                 <span>עמודים {item.pageStart}–{item.pageStart + 1}</span>
@@ -152,57 +168,111 @@ export default function ReviewWorkspace({
         </nav>
 
         <main className="review-canvas">
-          <div
-            className="review-spread"
-            style={{
-              background: spread.background,
-              aspectRatio: `${profile.spreadWidthMm} / ${profile.spreadHeightMm}`,
-            }}
-          >
-            <div className="review-gutter" />
-            {layout.slots.map((slot, index) => {
-              const photo = photos.find((item) => item.id === layout.photoIds[index]);
-              if (!photo) return null;
-              const settings = spread.frameSettings?.[slot.id] ?? DEFAULT_SETTINGS;
-              const crop = assessCrop(
-                photo,
-                slot,
-                settings,
-                profile.spreadWidthMm / profile.spreadHeightMm,
-              );
-              return (
-                <div
-                  key={slot.id}
-                  className="review-frame"
-                  style={{
-                    left: `${slot.x * 100}%`,
-                    top: `${slot.y * 100}%`,
-                    width: `${slot.width * 100}%`,
-                    height: `${slot.height * 100}%`,
-                  }}
-                >
-                  <img
-                    src={photo.url}
-                    alt=""
-                    loading="lazy"
-                    decoding="async"
+          {isCover ? (
+            <div
+              className="review-cover"
+              style={{
+                background: version.cover?.background ?? '#eee6db',
+                aspectRatio: `${profile.coverSpec.totalWidthMm} / ${profile.coverSpec.totalHeightMm}`,
+              }}
+            >
+              {(() => {
+                const spine = profile.coverSpec.spineWidthMm / profile.coverSpec.totalWidthMm * 100;
+                const page = (100 - spine) / 2;
+                const back = photos.find((photo) => photo.id === version.cover?.backPhotoId);
+                const front = photos.find((photo) => photo.id === version.cover?.frontPhotoId);
+                return (
+                  <>
+                    {back && (
+                      <div className="review-cover-photo back" style={{ width: `${page}%` }}>
+                        <img
+                          src={back.url}
+                          alt=""
+                          style={{
+                            objectPosition: `${version.cover?.backSettings?.positionX ?? (back.focalPoint?.x ?? 0.5) * 100}% ${version.cover?.backSettings?.positionY ?? (back.focalPoint?.y ?? 0.5) * 100}%`,
+                            transform: `scale(${(version.cover?.backSettings?.zoom ?? 100) / 100})`,
+                            transformOrigin: `${version.cover?.backSettings?.positionX ?? 50}% ${version.cover?.backSettings?.positionY ?? 50}%`,
+                          }}
+                        />
+                      </div>
+                    )}
+                    <div className="spine" style={{ left: `${page}%`, width: `${spine}%` }}>
+                      <span>{version.cover?.spineText}</span>
+                    </div>
+                    {front && (
+                      <div className="review-cover-photo front" style={{ width: `${page}%` }}>
+                        <img
+                          src={front.url}
+                          alt=""
+                          style={{
+                            objectPosition: `${version.cover?.frontSettings?.positionX ?? (front.focalPoint?.x ?? 0.5) * 100}% ${version.cover?.frontSettings?.positionY ?? (front.focalPoint?.y ?? 0.5) * 100}%`,
+                            transform: `scale(${(version.cover?.frontSettings?.zoom ?? 100) / 100})`,
+                            transformOrigin: `${version.cover?.frontSettings?.positionX ?? 50}% ${version.cover?.frontSettings?.positionY ?? 50}%`,
+                          }}
+                        />
+                      </div>
+                    )}
+                    <div className="review-cover-title" style={{ right: 0, width: `${page}%` }}>
+                      <strong>{version.cover?.title}</strong>
+                      <small>{version.cover?.subtitle}</small>
+                    </div>
+                  </>
+                );
+              })()}
+            </div>
+          ) : (
+            <div
+              className="review-spread"
+              style={{
+                background: spread!.background,
+                aspectRatio: `${profile.spreadWidthMm} / ${profile.spreadHeightMm}`,
+              }}
+            >
+              <div className="review-gutter" />
+              {layout.slots.map((slot, index) => {
+                const photo = photos.find((item) => item.id === layout.photoIds[index]);
+                if (!photo) return null;
+                const settings = spread!.frameSettings?.[slot.id] ?? DEFAULT_SETTINGS;
+                const crop = assessCrop(
+                  photo,
+                  slot,
+                  settings,
+                  profile.spreadWidthMm / profile.spreadHeightMm,
+                );
+                return (
+                  <div
+                    key={slot.id}
+                    className="review-frame"
                     style={{
-                      objectFit: crop.fit,
-                      objectPosition: `${crop.positionX}% ${crop.positionY}%`,
-                      transform: `scale(${crop.fit === 'contain' ? 1 : (settings.zoom ?? 100) / 100})`,
-                      transformOrigin: `${crop.positionX}% ${crop.positionY}%`,
+                      left: `${slot.x * 100}%`,
+                      top: `${slot.y * 100}%`,
+                      width: `${slot.width * 100}%`,
+                      height: `${slot.height * 100}%`,
                     }}
-                  />
-                </div>
-              );
-            })}
-          </div>
-          <span>עמודים {spread.pageStart}–{spread.pageStart + 1} · גרסה קפואה</span>
+                  >
+                    <img
+                      src={photo.url}
+                      alt=""
+                      loading="lazy"
+                      decoding="async"
+                      style={{
+                        objectFit: crop.fit,
+                        objectPosition: `${crop.positionX}% ${crop.positionY}%`,
+                        transform: `scale(${crop.fit === 'contain' ? 1 : (settings.zoom ?? 100) / 100})`,
+                        transformOrigin: `${crop.positionX}% ${crop.positionY}%`,
+                      }}
+                    />
+                  </div>
+                );
+              })}
+            </div>
+          )}
+          <span>{isCover ? 'כריכה ושדרה' : `עמודים ${spread!.pageStart}–${spread!.pageStart + 1}`} · גרסה קפואה</span>
         </main>
 
         <aside className="review-comments">
           <div className="review-comments-head">
-            <strong>הערות לכפולה</strong>
+            <strong>{isCover ? 'הערות לכריכה' : 'הערות לכפולה'}</strong>
             <span>{spreadComments.filter((comment) => !comment.resolved).length} פתוחות</span>
           </div>
           <div className="review-comment-list">

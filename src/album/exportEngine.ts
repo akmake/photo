@@ -1,5 +1,5 @@
 import type {
-  AlbumPhoto, AlbumProject, AlbumSpread, LayoutSlot, PrintProductProfile,
+  AlbumPhoto, AlbumProject, AlbumSpread, LayoutSlot, PhotoFrameSettings, PrintProductProfile,
 } from './model';
 import { assessCrop } from './cropEngine';
 import type { GeneratedAlbumLayout } from './layoutEngine';
@@ -161,6 +161,124 @@ async function renderSpread(
   return { blob: await canvasBlob(canvas), width, height };
 }
 
+function drawCoverImage(
+  context: CanvasRenderingContext2D,
+  bitmap: ImageBitmap,
+  x: number,
+  width: number,
+  height: number,
+  focal = { x: 0.5, y: 0.5 },
+  settings?: PhotoFrameSettings,
+) {
+  const sourceAspect = bitmap.width / bitmap.height;
+  const frameAspect = width / height;
+  let sourceWidth = bitmap.width;
+  let sourceHeight = bitmap.height;
+  if (sourceAspect > frameAspect) sourceWidth = bitmap.height * frameAspect;
+  else sourceHeight = bitmap.width / frameAspect;
+  const zoom = Math.max(1, (settings?.zoom ?? 100) / 100);
+  sourceWidth /= zoom;
+  sourceHeight /= zoom;
+  const focusX = settings ? settings.positionX / 100 : focal.x;
+  const focusY = settings ? settings.positionY / 100 : focal.y;
+  const sourceX = Math.max(0, Math.min(
+    bitmap.width - sourceWidth,
+    focusX * bitmap.width - sourceWidth / 2,
+  ));
+  const sourceY = Math.max(0, Math.min(
+    bitmap.height - sourceHeight,
+    focusY * bitmap.height - sourceHeight / 2,
+  ));
+  context.drawImage(
+    bitmap,
+    sourceX,
+    sourceY,
+    sourceWidth,
+    sourceHeight,
+    x,
+    0,
+    width,
+    height,
+  );
+}
+
+async function renderCover(
+  project: AlbumProject,
+  photosById: Map<string, AlbumPhoto>,
+  profile: PrintProductProfile,
+): Promise<{ blob: Blob; width: number; height: number }> {
+  if (!project.cover) throw new Error('עיצוב הכריכה חסר');
+  const spec = profile.coverSpec;
+  const width = Math.round(spec.totalWidthMm / 25.4 * profile.targetPpi);
+  const height = Math.round(spec.totalHeightMm / 25.4 * profile.targetPpi);
+  const spineWidth = Math.round(spec.spineWidthMm / spec.totalWidthMm * width);
+  const pageWidth = Math.round((width - spineWidth) / 2);
+  const canvas = document.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
+  const context = canvas.getContext('2d', { alpha: false });
+  if (!context) throw new Error('רינדור הכריכה נכשל');
+  context.fillStyle = project.cover.background;
+  context.fillRect(0, 0, width, height);
+
+  const back = photosById.get(project.cover.backPhotoId ?? '');
+  if (back) {
+    const bitmap = await loadBitmap(back.url);
+    try {
+      drawCoverImage(
+        context, bitmap, 0, pageWidth, height, back.focalPoint, project.cover.backSettings,
+      );
+    } finally {
+      bitmap.close();
+    }
+  }
+  const front = photosById.get(project.cover.frontPhotoId ?? '');
+  if (!front) throw new Error('חסרה תמונת חזית לכריכה');
+  const frontBitmap = await loadBitmap(front.url);
+  try {
+    drawCoverImage(
+      context,
+      frontBitmap,
+      pageWidth + spineWidth,
+      pageWidth,
+      height,
+      front.focalPoint,
+      project.cover.frontSettings,
+    );
+  } finally {
+    frontBitmap.close();
+  }
+
+  context.save();
+  context.textAlign = 'center';
+  context.fillStyle = '#ffffff';
+  context.shadowColor = 'rgba(0,0,0,0.45)';
+  context.shadowBlur = Math.max(4, height * 0.008);
+  const titleX = pageWidth + spineWidth + pageWidth / 2;
+  context.font = `600 ${Math.round(height * 0.065)}px Arial`;
+  context.fillText(project.cover.title, titleX, height * 0.72, pageWidth * 0.78);
+  if (project.cover.subtitle) {
+    context.font = `400 ${Math.round(height * 0.028)}px Arial`;
+    context.fillText(project.cover.subtitle, titleX, height * 0.78, pageWidth * 0.78);
+  }
+  context.restore();
+
+  if (project.cover.spineText && spineWidth > 8) {
+    context.save();
+    context.translate(pageWidth + spineWidth / 2, height / 2);
+    context.rotate(-Math.PI / 2);
+    context.textAlign = 'center';
+    context.textBaseline = 'middle';
+    context.fillStyle = '#ffffff';
+    context.shadowColor = 'rgba(0,0,0,0.35)';
+    context.shadowBlur = Math.max(3, height * 0.004);
+    context.font = `500 ${Math.max(12, Math.round(spineWidth * 0.34))}px Arial`;
+    context.fillText(project.cover.spineText, 0, 0, height * 0.82);
+    context.restore();
+  }
+  return { blob: await canvasBlob(canvas), width, height };
+}
+
 function blobToDataUrl(blob: Blob): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -312,6 +430,20 @@ export async function exportAlbumForPrint(
       sha256: await sha256(blob),
     });
   }
+
+  const coverRendered = await renderCover(project, photosById, profile);
+  const coverFinalized = await finalizeAlbumJpeg(
+    await blobToDataUrl(coverRendered.blob),
+    profile.targetPpi,
+  );
+  const coverBlob = await dataUrlToBlob(coverFinalized.image);
+  await writeFile(directory, 'cover.jpg', coverBlob);
+  written.push({
+    name: 'cover.jpg',
+    width: coverFinalized.meta.widthPx,
+    height: coverFinalized.meta.heightPx,
+    sha256: await sha256(coverBlob),
+  });
 
   const manifest = JSON.stringify({
     kind: 'TEZA_ALBUM_PRINT_EXPORT',

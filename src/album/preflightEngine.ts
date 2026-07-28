@@ -34,7 +34,11 @@ export function runAlbumPreflight(
       target: 'profile',
     });
   }
-  if (!approved || JSON.stringify(approved.spreads) !== JSON.stringify(project.spreads)) {
+  if (
+    !approved
+    || JSON.stringify(approved.spreads) !== JSON.stringify(project.spreads)
+    || JSON.stringify(approved.cover ?? null) !== JSON.stringify(project.cover ?? null)
+  ) {
     issues.push({
       id: 'approval-missing',
       severity: 'blocker',
@@ -55,16 +59,75 @@ export function runAlbumPreflight(
       target: 'cover',
     });
   }
+  const coverSpec = profile.coverSpec;
+  if (
+    coverSpec.totalWidthMm <= coverSpec.spineWidthMm
+    || coverSpec.totalHeightMm <= 0
+    || coverSpec.spineWidthMm < 0
+    || coverSpec.bleedMm < 0
+    || coverSpec.safeMarginMm < coverSpec.bleedMm
+  ) {
+    issues.push({
+      id: 'cover-spec-invalid',
+      severity: 'blocker',
+      code: 'COVER_SPEC_INVALID',
+      title: 'מידות הכריכה אינן תקינות',
+      detail: 'יש לבדוק רוחב, גובה, שדרה, גלישה ואזור בטוח מול תבנית בית הדפוס.',
+      target: 'cover',
+    });
+  }
   if (!project.cover?.frontPhotoId) {
     issues.push({
       id: 'cover-front-missing',
       severity: 'blocker',
       code: 'COVER_FRONT_MISSING',
       title: 'חסרה תמונת חזית',
-      detail: 'יש לשבץ תמונה או לבחור עיצוב כריכה ללא תמונה.',
+      detail: 'יש לשבץ תמונה בחזית הכריכה.',
       target: 'cover',
     });
   }
+  const pageWidthMm = (coverSpec.totalWidthMm - coverSpec.spineWidthMm) / 2;
+  const pageAspect = pageWidthMm / Math.max(1, coverSpec.totalHeightMm);
+  ([
+    ['front', project.cover?.frontPhotoId, project.cover?.frontSettings, 'חזית'],
+    ['back', project.cover?.backPhotoId, project.cover?.backSettings, 'גב'],
+  ] as const).forEach(([side, photoId, settings, label]) => {
+    const coverPhoto = photoMap.get(photoId ?? '');
+    if (!coverPhoto || pageWidthMm <= 0) return;
+    const zoom = Math.max(1, (settings?.zoom ?? 100) / 100);
+    const sourceAspect = coverPhoto.widthPx / Math.max(1, coverPhoto.heightPx);
+    const usedWidth = sourceAspect > pageAspect
+      ? coverPhoto.heightPx * pageAspect
+      : coverPhoto.widthPx;
+    const usedHeight = sourceAspect > pageAspect
+      ? coverPhoto.heightPx
+      : coverPhoto.widthPx / pageAspect;
+    const coverPpi = Math.floor(Math.min(
+      usedWidth / zoom / (pageWidthMm / 25.4),
+      usedHeight / zoom / (coverSpec.totalHeightMm / 25.4),
+    ));
+    if (coverPpi < profile.minPpi) {
+      issues.push({
+        id: `cover-${side}-low-ppi`,
+        severity: 'blocker',
+        code: 'COVER_LOW_PPI',
+        title: `תמונת ${label} הכריכה ברזולוציה נמוכה · ${coverPpi} PPI`,
+        detail: `הסף החוסם הוא ${profile.minPpi} PPI.`,
+        photoId: coverPhoto.id,
+        target: 'cover',
+      });
+    } else if (coverPpi < profile.targetPpi) {
+      issues.push({
+        id: `cover-${side}-ppi-warning`,
+        severity: 'warning',
+        code: 'COVER_PPI_BELOW_TARGET',
+        title: `תמונת ${label} הכריכה מתחת ליעד · ${coverPpi} PPI`,
+        detail: `יעד המוצר הוא ${profile.targetPpi} PPI.`,
+        photoId: coverPhoto.id,
+        target: 'cover',
+      });
+    }
+  });
   if (!project.cover?.title.trim()) {
     issues.push({
       id: 'cover-title-missing',

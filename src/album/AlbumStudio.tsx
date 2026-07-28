@@ -303,8 +303,18 @@ export default function AlbumStudio() {
   }
 
   function updatePrintProfile(patch: Partial<typeof profile>) {
+    const invalidatesCover = patch.closedWidthMm !== undefined
+      || patch.closedHeightMm !== undefined
+      || patch.spreadWidthMm !== undefined
+      || patch.spreadHeightMm !== undefined;
     const next = printProfiles.map((item) => (
-      item.id === profile.id ? { ...item, ...patch } : item
+      item.id === profile.id ? {
+        ...item,
+        ...patch,
+        coverSpec: patch.coverSpec ?? (
+          invalidatesCover ? { ...item.coverSpec, verified: false } : item.coverSpec
+        ),
+      } : item
     ));
     setPrintProfiles(next);
     localStorage.setItem('album-print-profiles', JSON.stringify(next));
@@ -426,6 +436,7 @@ export default function AlbumStudio() {
       createdAt: new Date().toISOString(),
       status: 'sent' as const,
       spreads: JSON.parse(JSON.stringify(project.spreads)) as AlbumSpread[],
+      cover: project.cover ? JSON.parse(JSON.stringify(project.cover)) : undefined,
       comments: [],
     };
     commitProject({
@@ -448,6 +459,26 @@ export default function AlbumStudio() {
       setProject({ ...project, activeReviewVersionId: activeId });
     }
     setShowReview(true);
+  }
+
+  function navigateFromPreflight(issue: PreflightIssue) {
+    setShowPreflight(false);
+    if (issue.target === 'spread' && issue.spreadId) {
+      setProject((current) => ({ ...current, activeSpreadId: issue.spreadId! }));
+      setSelectedSlotIndex(null);
+      setNotice(issue.title);
+      return;
+    }
+    if (issue.target === 'cover') {
+      setShowCover(true);
+      return;
+    }
+    if (issue.target === 'profile') {
+      setShowProfileEditor(true);
+      setNotice(issue.detail);
+      return;
+    }
+    if (issue.target === 'review') openReviewWorkspace();
   }
 
   function chooseLayout(nextLayout: GeneratedAlbumLayout) {
@@ -822,6 +853,29 @@ export default function AlbumStudio() {
     );
   }
 
+  if (showCover) {
+    return (
+      <CoverEditor
+        project={project}
+        photos={photos}
+        profile={profile}
+        onUpdateProject={(next) => commitProject(next)}
+        onUpdateProfile={(next) => updatePrintProfile(next)}
+        onClose={() => setShowCover(false)}
+      />
+    );
+  }
+
+  if (showPreflight) {
+    return (
+      <PreflightPanel
+        issues={preflightIssues}
+        onNavigate={navigateFromPreflight}
+        onClose={() => setShowPreflight(false)}
+      />
+    );
+  }
+
   return (
     <div className="album-studio">
       <header className="album-actionbar">
@@ -853,6 +907,9 @@ export default function AlbumStudio() {
             {(project.reviewVersions?.some((item) => item.status === 'changes-requested')) && (
               <span className="review-alert-dot" />
             )}
+          </button>
+          <button className="album-action secondary" onClick={() => setShowCover(true)}>
+            כריכה ושדרה
           </button>
           <button className="album-action primary" onClick={buildFullAlbum}>
             <IcSparkle size={17} />
@@ -1091,11 +1148,9 @@ export default function AlbumStudio() {
                 aria-label="בדיקה לפני ייצוא"
                 title="בדיקה לפני ייצוא"
                 className={preflight.total ? 'has-issues' : ''}
-                onClick={() => setNotice(
-                  `בדיקת דפוס: ${preflight.lowResolution} ברזולוציה נמוכה · ${preflight.riskyCrop} חיתוכים לבדיקה · ${preflight.overlaps} מסגרות חופפות · ${preflight.waitingAnalysis} ללא ניתוח · ${preflight.profileIssues ? 'פרופיל הדפוס חסר או לא נתמך' : 'פרופיל הדפוס תקין'} · ${preflight.approvalIssues ? 'העיצוב הנוכחי לא אושר' : 'הגרסה הנוכחית מאושרת'}`,
-                )}
+                onClick={() => setShowPreflight(true)}
               >
-                <IcDownload size={16} />בדיקת דפוס ({preflight.total})
+                <IcDownload size={16} />בדיקת דפוס ({preflight.blockers}/{preflight.warnings})
               </button>
             </div>
           </div>
