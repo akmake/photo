@@ -193,8 +193,27 @@ function toneColor(img: ImageData, p: ParamValues): ImageData {
 
     if (sat !== 0 || vib !== 0) {
       const L2 = LUM_R * R + LUM_G * G + LUM_B * B;
-      const pixSat = Math.max(R, G, B) - Math.min(R, G, B);
-      const k = 1 + sat + vib * (1 - clamp01(pixSat));
+      const mx = Math.max(R, G, B);
+      const mn = Math.min(R, G, B);
+      const c = mx - mn;
+      let vibPx = vib;
+      if (vib !== 0) {
+        // vibrance protects skin — kept byte-identical to globals_py._tone_color
+        const sc = Math.max(c, 1e-6);
+        let h;
+        if (mx === R) h = ((((G - B) / sc) % 6) + 6) % 6;
+        else if (mx === G) h = (B - R) / sc + 2;
+        else h = (R - G) / sc + 4;
+        h *= 60;
+        const wBand =
+          smoothstep(8, 14, h) * (1 - smoothstep(42, 50, h)) * (1 - smoothstep(0.38, 0.55, c));
+        const hd = Math.min(h, 360 - h);
+        const wRed = (1 - smoothstep(6, 14, hd)) * (1 - smoothstep(0.18, 0.3, c));
+        let w = Math.max(wBand, wRed);
+        w *= clamp01((c - 0.015) / 0.035);
+        vibPx = vib * (1 - 0.8 * w);
+      }
+      const k = 1 + sat + vibPx * (1 - clamp01(c));
       R = L2 + (R - L2) * k;
       G = L2 + (G - L2) * k;
       B = L2 + (B - L2) * k;
@@ -247,6 +266,10 @@ function dimension(img: ImageData, p: ParamValues): ImageData {
     const cx = w / 2;
     const cy = h / 2;
     const maxD = Math.sqrt(cx * cx + cy * cy);
+    // midpoint 50 reproduces the historical 0.35 start; floor at 0.25 keeps
+    // corners from going to black — kept identical to globals_py._dimension
+    const midpoint = (p.midpoint ?? 50) / 100;
+    const start = 0.35 + (midpoint - 0.5) * 0.5;
     for (let y = 0; y < h; y++) {
       for (let x = 0; x < w; x++) {
         const i = (y * w + x) * 4;
@@ -254,7 +277,8 @@ function dimension(img: ImageData, p: ParamValues): ImageData {
         const dy = y - cy;
         const t = Math.sqrt(dx * dx + dy * dy) / maxD;
         // smooth falloff instead of a hard parabola
-        const f = 1 - vignette * smoothstep(0.35, 1.0, t);
+        let f = 1 - vignette * smoothstep(start, 1.0, t);
+        if (f < 0.25) f = 0.25;
         d[i] = clamp255(d[i] * f);
         d[i + 1] = clamp255(d[i + 1] * f);
         d[i + 2] = clamp255(d[i + 2] * f);
@@ -466,11 +490,47 @@ function sharpen(img: ImageData, p: ParamValues): ImageData {
   if (amount === 0) return cloneImage(img);
   const { width: w, height: h } = img;
   const r = Math.max(1, Math.round(1 + ((p.radius ?? 20) / 100) * 4));
+  const masking = (p.masking ?? 0) / 100;
   const blur = boxBlur(img.data, w, h, r);
   const out = cloneImage(img);
   const d = out.data;
   const k = amount * 1.5;
   const limit = 40; // stop haloes on high-contrast edges
+
+  // ACR-style masking: local energy of the same high-pass the sharpen uses —
+  // kept structurally identical to globals_py._sharpen
+  let energy: Uint8ClampedArray | null = null;
+  let eScale = 1;
+  if (masking > 0) {
+    const hp = new Uint8ClampedArray(img.data.length);
+    for (let i = 0; i < d.length; i += 4) {
+      const l0 = LUM_R * d[i] + LUM_G * d[i + 1] + LUM_B * d[i + 2];
+      const l1 = LUM_R * blur[i] + LUM_G * blur[i + 1] + LUM_B * blur[i + 2];
+      const a = Math.abs(l0 - l1);
+      hp[i] = a;
+      hp[i + 1] = a;
+      hp[i + 2] = a;
+      hp[i + 3] = 255;
+    }
+    energy = boxBlur(hp, w, h, r * 2 + 1);
+    // P95 of edge energy — the frame's own "strong edge" reference, so the
+    // threshold transfers across images and resolutions (see globals_py)
+    const hist = new Uint32Array(256);
+    let n = 0;
+    for (let i = 0; i < energy.length; i += 4) {
+      hist[energy[i]]++;
+      n++;
+    }
+    let acc = 0;
+    for (let v = 0; v < 256; v++) {
+      acc += hist[v];
+      if (acc >= n * 0.99) {
+        eScale = Math.max(v, 1e-3);
+        break;
+      }
+    }
+  }
+  const t = masking * masking;
 
   for (let i = 0; i < d.length; i += 4) {
     const l0 = LUM_R * d[i] + LUM_G * d[i + 1] + LUM_B * d[i + 2];
@@ -478,6 +538,7 @@ function sharpen(img: ImageData, p: ParamValues): ImageData {
     let delta = (l0 - l1) * k;
     if (delta > limit) delta = limit;
     else if (delta < -limit) delta = -limit;
+    if (energy) delta *= smoothstep(t * 0.6, t * 1.4 + 1e-6, energy[i] / eScale);
     // add to all channels equally => sharpens detail, never shifts colour
     d[i] = clamp255(d[i] + delta);
     d[i + 1] = clamp255(d[i + 1] + delta);
@@ -486,10 +547,98 @@ function sharpen(img: ImageData, p: ParamValues): ImageData {
   return out;
 }
 
+/* ---------------- curves ---------------- */
+
+// Parametric curves: five fixed-x control points per channel, outputs are the
+// sliders. Monotone cubic (Fritsch-Carlson) — kept identical to
+// globals_py._curve_lut / _curves.
+const CURVE_XS = [0, 64, 128, 192, 255];
+const CURVE_POINTS = ['Blacks', 'Shadows', 'Mids', 'Highlights', 'Whites'];
+
+function curveLut(offsets: number[]): Float32Array {
+  const ys = new Float32Array(5);
+  for (let i = 0; i < 5; i++) {
+    const y = Math.min(255, Math.max(0, CURVE_XS[i] + offsets[i] * 64));
+    ys[i] = i > 0 && y < ys[i - 1] ? ys[i - 1] : y; // never fold back
+  }
+  const h = [64, 64, 64, 63];
+  const d = [0, 0, 0, 0];
+  for (let i = 0; i < 4; i++) d[i] = (ys[i + 1] - ys[i]) / h[i];
+  const m = [d[0], 0, 0, 0, d[3]];
+  for (let i = 1; i < 4; i++) m[i] = d[i - 1] * d[i] <= 0 ? 0 : (d[i - 1] + d[i]) / 2;
+  for (let i = 0; i < 4; i++) {
+    if (d[i] === 0) {
+      m[i] = 0;
+      m[i + 1] = 0;
+    } else {
+      const a = m[i] / d[i];
+      const b = m[i + 1] / d[i];
+      const s = a * a + b * b;
+      if (s > 9) {
+        const t = 3 / Math.sqrt(s);
+        m[i] = t * a * d[i];
+        m[i + 1] = t * b * d[i];
+      }
+    }
+  }
+  const lut = new Float32Array(256);
+  for (let x = 0; x < 256; x++) {
+    let i = 3;
+    if (x < CURVE_XS[1]) i = 0;
+    else if (x < CURVE_XS[2]) i = 1;
+    else if (x < CURVE_XS[3]) i = 2;
+    const t = (x - CURVE_XS[i]) / h[i];
+    const t2 = t * t;
+    const t3 = t2 * t;
+    const v =
+      ys[i] * (2 * t3 - 3 * t2 + 1) +
+      h[i] * m[i] * (t3 - 2 * t2 + t) +
+      ys[i + 1] * (-2 * t3 + 3 * t2) +
+      h[i] * m[i + 1] * (t3 - t2);
+    lut[x] = v < 0 ? 0 : v > 255 ? 255 : v;
+  }
+  return lut;
+}
+
+function curves(img: ImageData, p: ParamValues): ImageData {
+  const offs = (ch: string) => CURVE_POINTS.map((pt) => (p[`${ch}${pt}`] ?? 0) / 100);
+  const luma = offs('luma');
+  const per: (Float32Array | null)[] = ['red', 'green', 'blue'].map((ch) => {
+    const o = offs(ch);
+    return o.some((v) => v !== 0) ? curveLut(o) : null;
+  });
+  const hasLuma = luma.some((v) => v !== 0);
+  if (!hasLuma && per.every((l) => l === null)) return cloneImage(img);
+
+  const lumaLut = hasLuma ? curveLut(luma) : null;
+  const out = cloneImage(img);
+  const d = out.data;
+  for (let i = 0; i < d.length; i += 4) {
+    // channel curves first (colour moves), then the luma curve shapes tone on
+    // the result without shifting that colour — same order as the engine
+    let R = per[0] ? per[0][d[i]] : d[i];
+    let G = per[1] ? per[1][d[i + 1]] : d[i + 1];
+    let B = per[2] ? per[2][d[i + 2]] : d[i + 2];
+    if (lumaLut) {
+      const l = LUM_R * R + LUM_G * G + LUM_B * B;
+      const idx = Math.round(l < 0 ? 0 : l > 255 ? 255 : l);
+      const delta = lumaLut[idx] - idx;
+      R += delta;
+      G += delta;
+      B += delta;
+    }
+    d[i] = clamp255(R);
+    d[i + 1] = clamp255(G);
+    d[i + 2] = clamp255(B);
+  }
+  return out;
+}
+
 /* ---------------- dispatch ---------------- */
 
 const IMPL: Record<string, (img: ImageData, p: ParamValues) => ImageData> = {
   'tone-color': toneColor,
+  curves,
   dimension,
   'color-grade': colorGrade,
   'light-point': lightPoint,

@@ -20,6 +20,23 @@ const HUE_BANDS: [string, string][] = [
   ['magenta', "מג'נטה"],
 ];
 
+/* The four curve channels and five fixed tonal points — generated, like the
+ * hue bands, so a mistyped param id cannot silently detach a slider. Names
+ * match engine/globals_py._CURVE_POINTS. */
+const CURVE_CHANNELS: [string, string][] = [
+  ['luma', 'בהירות'],
+  ['red', 'אדום'],
+  ['green', 'ירוק'],
+  ['blue', 'כחול'],
+];
+const CURVE_POINTS: [string, string][] = [
+  ['Blacks', 'שחורים'],
+  ['Shadows', 'צללים'],
+  ['Mids', 'אמצעים'],
+  ['Highlights', 'היילייטים'],
+  ['Whites', 'לבנים'],
+];
+
 const HSL_TOOL: ToolDef[] = [
   {
     id: 'hsl',
@@ -147,6 +164,28 @@ export const TOOLS: ToolDef[] = [
     ],
   },
   {
+    // Parametric curves (the Lightroom form): five fixed tonal points per
+    // channel, outputs as sliders — a free point-curve cannot live in flat
+    // numeric params, and this expresses the same moves. Engine mirror:
+    // globals_py._curves.
+    id: 'curves',
+    label: 'עקומות',
+    kind: 'global',
+    category: 'tone-color',
+    order: 32,
+    batchPolicy: 'absolute',
+    params: CURVE_CHANNELS.flatMap(([ch, he]) =>
+      CURVE_POINTS.map(([pt, hept]) => ({
+        id: `${ch}${pt}`,
+        label: `${he} · ${hept}`,
+        min: -100,
+        max: 100,
+        step: 1,
+        default: 0,
+      })),
+    ),
+  },
+  {
     id: 'dimension',
     label: 'תלת מימדיות',
     kind: 'global',
@@ -156,6 +195,9 @@ export const TOOLS: ToolDef[] = [
     params: [
       { id: 'clarity', label: 'ניגודיות מקומית', min: -100, max: 100, step: 1, default: 0 },
       { id: 'vignette', label: 'וינייטה', min: 0, max: 100, step: 1, default: 0 },
+      // where the falloff begins: low = darkening reaches toward the centre,
+      // high = only the far corners. 50 = the historical behavior.
+      { id: 'midpoint', label: 'וינייטה · נקודת אמצע', min: 0, max: 100, step: 1, default: 50 },
     ],
   },
   {
@@ -211,14 +253,21 @@ export const TOOLS: ToolDef[] = [
     ],
   },
   {
+    // kind 'ai', not 'global': the people/skin/fabric sliders are driven by the
+    // engine's masks, which have no JS mirror. The frame-wide `amount` is the
+    // old glow, unchanged. Each of the three region sliders is an independent
+    // strength — "skin 50 + fabric 15" is a valid mix, not a mode switch.
     id: 'glow',
     label: 'גלואו',
-    kind: 'global',
+    kind: 'ai',
     category: 'artistic',
     order: 55,
     batchPolicy: 'absolute',
     params: [
-      { id: 'amount', label: 'עוצמה', min: 0, max: 100, step: 1, default: 0 },
+      { id: 'amount', label: 'עוצמה כללית', min: 0, max: 100, step: 1, default: 0 },
+      { id: 'people', label: 'אנשים — כל הדמות', min: 0, max: 100, step: 1, default: 0 },
+      { id: 'skin', label: 'עור בלבד', min: 0, max: 100, step: 1, default: 0 },
+      { id: 'fabric', label: 'בגדים ולבנים', min: 0, max: 100, step: 1, default: 0 },
       { id: 'radius', label: 'רכות', min: 0, max: 100, step: 1, default: 40 },
     ],
   },
@@ -244,6 +293,9 @@ export const TOOLS: ToolDef[] = [
     params: [
       { id: 'amount', label: 'עוצמה', min: 0, max: 100, step: 1, default: 0 },
       { id: 'radius', label: 'רדיוס', min: 0, max: 100, step: 1, default: 20 },
+      // 0 = everything is sharpened (the old behavior, and old recipes keep
+      // it); higher = only real edges, so skin and bokeh stay quiet
+      { id: 'masking', label: 'מיסוך — רק קצוות', min: 0, max: 100, step: 1, default: 0 },
     ],
   },
 ];

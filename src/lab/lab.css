@@ -211,6 +211,19 @@
   background: var(--accent);
 }
 
+/* ---------------------------------------------------------- histogram */
+
+.lab-hist {
+  position: absolute;
+  bottom: 14px;
+  inset-inline-end: 14px;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(6px);
+  padding: 4px;
+  pointer-events: none;
+}
+
 .lab-canvas-bar {
   flex: 0 0 auto;
   display: flex;

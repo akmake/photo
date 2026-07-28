@@ -472,6 +472,9 @@ export default function Lab() {
 
           {busy && <span className="lab-spinner">מעבד…</span>}
           {showOriginal && out && <span className="lab-badge-orig">מקור</span>}
+          {/* histogram follows what the eye sees: result, or original on hold */}
+          <Histogram src={showProcessed ? out! : originalSrc} />
+
           <div className="lab-zoombar">
             <button onClick={() => setZoom((z) => Math.max(1, z / 1.5))}>−</button>
             <span>{pctZoom}%</span>
@@ -658,6 +661,75 @@ export default function Lab() {
       </section>
     </div>
   );
+}
+
+/** Live histogram of whatever is on screen — luminance filled, R/G/B as thin
+ *  lines. Sqrt-scaled: a linear y-axis makes every portrait histogram look
+ *  like one spike at the midtones and nothing else. */
+function Histogram({ src }: { src: string }) {
+  const ref = useRef<HTMLCanvasElement>(null);
+
+  useEffect(() => {
+    if (!src) return;
+    let alive = true;
+    loadImage(src).then((im) => {
+      const canvas = ref.current;
+      if (!alive || !canvas) return;
+      const s = Math.min(1, 480 / Math.max(im.naturalWidth, im.naturalHeight));
+      const c = document.createElement('canvas');
+      c.width = Math.max(1, Math.round(im.naturalWidth * s));
+      c.height = Math.max(1, Math.round(im.naturalHeight * s));
+      const cx = c.getContext('2d', { willReadFrequently: true })!;
+      cx.drawImage(im, 0, 0, c.width, c.height);
+      const px = cx.getImageData(0, 0, c.width, c.height).data;
+
+      const hist = [new Uint32Array(256), new Uint32Array(256), new Uint32Array(256), new Uint32Array(256)];
+      for (let i = 0; i < px.length; i += 4) {
+        hist[0][px[i]]++;
+        hist[1][px[i + 1]]++;
+        hist[2][px[i + 2]]++;
+        hist[3][Math.round(0.2126 * px[i] + 0.7152 * px[i + 1] + 0.0722 * px[i + 2])]++;
+      }
+      let peak = 0;
+      for (const h of hist) for (let v = 0; v < 256; v++) if (h[v] > peak) peak = h[v];
+      if (peak === 0) return;
+
+      const W = canvas.width;
+      const H = canvas.height;
+      const g = canvas.getContext('2d')!;
+      g.clearRect(0, 0, W, H);
+      const y = (n: number) => H - Math.sqrt(n / peak) * (H - 2);
+
+      // luminance: filled
+      g.beginPath();
+      g.moveTo(0, H);
+      for (let v = 0; v < 256; v++) g.lineTo((v / 255) * W, y(hist[3][v]));
+      g.lineTo(W, H);
+      g.closePath();
+      g.fillStyle = 'rgba(255,255,255,0.30)';
+      g.fill();
+
+      // channels: thin lines
+      const colors = ['rgba(255,90,80,0.9)', 'rgba(90,220,110,0.9)', 'rgba(90,150,255,0.9)'];
+      for (let ch = 0; ch < 3; ch++) {
+        g.beginPath();
+        for (let v = 0; v < 256; v++) {
+          const X = (v / 255) * W;
+          const Y = y(hist[ch][v]);
+          if (v === 0) g.moveTo(X, Y);
+          else g.lineTo(X, Y);
+        }
+        g.strokeStyle = colors[ch];
+        g.lineWidth = 1;
+        g.stroke();
+      }
+    });
+    return () => {
+      alive = false;
+    };
+  }, [src]);
+
+  return <canvas ref={ref} className="lab-hist" width={232} height={74} />;
 }
 
 function EngineBadge({ ok }: { ok: boolean | null }) {

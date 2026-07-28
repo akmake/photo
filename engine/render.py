@@ -22,6 +22,7 @@ import background
 import blush
 import cleanup
 import eyes
+import glow
 import hairtone
 import skin
 import globals_py
@@ -42,6 +43,9 @@ TOOLS = {
     "hair-tones": (hairtone.apply, 24),
     "background-blur": (background.apply, 25),
     "tone-color": (globals_py.tone_color, 30),
+    # parametric curves sit between the basic tone panel and the local tools,
+    # exactly where a raw pipeline runs its tone curve
+    "curves": (globals_py.curves, 32),
     "dimension": (globals_py.dimension, 35),
     "color-grade": (globals_py.color_grade, 40),
     # Per-hue control sits BEFORE the zone grade: decide what each colour is,
@@ -49,7 +53,9 @@ TOOLS = {
     "hsl": (hsl.apply, 41),
     "grade-zones": (grade_zones.apply, 42),
     "light-point": (globals_py.light_point, 45),
-    "glow": (globals_py.glow, 55),
+    # frame-wide `amount` is unchanged; the people/skin/fabric sliders are
+    # mask-driven and live engine-side only (see glow.py)
+    "glow": (glow.apply, 55),
     "oil-paint": (globals_py.oil_paint, 58),
     "sharpen": (globals_py.sharpen, 60),
 }

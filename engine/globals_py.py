@@ -137,9 +137,44 @@ def _tone_color(rgb, params):
 
     if sat or vib:
         L2 = _luma(x)[..., None]
-        pix_sat = (x.max(axis=2) - x.min(axis=2))[..., None]
-        k = 1 + sat + vib * (1 - np.clip(pix_sat, 0, 1))
-        x = L2 + (x - L2) * k
+        mx = x.max(axis=2)
+        mn = x.min(axis=2)
+        c = mx - mn
+        vib_px = vib
+        if vib:
+            # Vibrance protects skin, as Adobe's does: a boost that is strongest
+            # on muted pixels lands hardest on faces — the one thing a portrait
+            # must not over-saturate. Skin is identified by two general
+            # properties, not one: hue in the skin band (plateau 14..42 deg —
+            # warm grades pull skin down toward 13, so the ramp starts at 8)
+            # AND moderate chroma — skin never saturates past ~0.35, so the
+            # protection fades back out above it and a red/orange flower keeps
+            # its full boost. A low chroma gate keeps the noise-hue of greys
+            # from speckling. Mirrored byte-for-byte in imageEngine.ts.
+            r, g, b = x[..., 0], x[..., 1], x[..., 2]
+            safe_c = np.maximum(c, 1e-6)
+            h = np.where(
+                mx == r,
+                np.mod((g - b) / safe_c, 6.0),
+                np.where(mx == g, (b - r) / safe_c + 2.0, (r - g) / safe_c + 4.0),
+            ) * 60.0
+            # the low gate hugs true neutrals (c<0.015): muted skin at c~0.06
+            # is exactly what vibrance boosts hardest, so it must be protected
+            # warm-graded skin genuinely reaches c~0.35-0.4, so the band's
+            # ceiling sits above it; hue<10 excludes red flowers regardless
+            w_band = _smoothstep(8.0, 14.0, h) * (1.0 - _smoothstep(42.0, 50.0, h))
+            w_band = w_band * (1.0 - _smoothstep(0.38, 0.55, c))
+            # blush, ruddy cheeks and lips are MUTED reds; red flowers and
+            # fabric are saturated ones — chroma is what separates them
+            hd = np.minimum(h, 360.0 - h)
+            w_red = (1.0 - _smoothstep(6.0, 14.0, hd)) * (
+                1.0 - _smoothstep(0.18, 0.30, c)
+            )
+            w = np.maximum(w_band, w_red)
+            w = w * np.clip((c - 0.015) / 0.035, 0.0, 1.0)
+            vib_px = vib * (1.0 - 0.8 * w)
+        k = 1 + sat + vib_px * (1 - np.clip(c, 0, 1))
+        x = L2 + (x - L2) * k[..., None]
 
     return np.clip(x, 0, 1) * 255.0
 
@@ -171,7 +206,13 @@ def _dimension(rgb, params):
         yy, xx = np.mgrid[0:sh, 0:sw].astype(np.float32)
         cx, cy = sw / 2.0, sh / 2.0
         t = np.sqrt((xx - cx) ** 2 + (yy - cy) ** 2) / np.sqrt(cx * cx + cy * cy)
-        fall = 1 - vignette * _smoothstep(0.35, 1.0, t)
+        # midpoint slides where the falloff begins (ACR-style); 50 reproduces
+        # the historical 0.35 exactly, so old recipes render unchanged
+        midpoint = _p(params, "midpoint", 50)
+        start = 0.35 + (midpoint - 0.5) * 0.5
+        # floor at 0.25: two stops down. A vignette is a look; a black corner
+        # is a hole in the print. Only binds above vignette 75.
+        fall = np.maximum(1 - vignette * _smoothstep(start, 1.0, t), 0.25)
         out = out * common.upscale_to(fall.astype(np.float32), rgb.shape)[..., None]
 
     return np.clip(out, 0, 255)
@@ -270,11 +311,113 @@ def _sharpen(rgb, params):
         return rgb
     r = _radius_px(rgb, 1 + _p(params, "radius", 20) * 4) | 1
     blur = cv2.GaussianBlur(rgb, (r, r), 0)
-    delta = np.clip((_luma(rgb) - _luma(blur)) * amount * 1.5, -40, 40)
+    hp = _luma(rgb) - _luma(blur)
+    delta = np.clip(hp * amount * 1.5, -40, 40)
+
+    # ACR-style masking: restrict sharpening to real edges. The edge measure is
+    # the local energy of the SAME high-pass the sharpen uses, so "edge" and
+    # "what would be sharpened" agree by construction. At 0 this is bypassed
+    # and the output is byte-identical to the unmasked tool. Quadratic response
+    # like Adobe's: the first half of the slider is gentle. Mirrored in
+    # imageEngine.ts.
+    masking = _p(params, "masking")
+    if masking > 0:
+        er = (r * 2 + 1) | 1
+        energy = cv2.GaussianBlur(np.abs(hp), (er, er), 0)
+        # normalised to the frame's own strong edges (P99) — an absolute
+        # threshold means something different on every image and resolution,
+        # which is exactly what breaks recipe transfer. P99 and not P95: on a
+        # bokeh-heavy portrait most of the frame is smooth, so P95 lands at
+        # subject-texture level and skin ranks as "strong edge" (measured).
+        scale = float(np.percentile(energy, 99))
+        if scale > 1e-3:
+            t = masking * masking
+            delta = delta * _smoothstep(t * 0.6, t * 1.4 + 1e-6, energy / scale)
+
     return np.clip(rgb + delta[..., None], 0, 255)
 
 
+# ---------------------------------------------------------------- curves ----
+# Parametric curves, the Lightroom form: five fixed-x control points per
+# channel whose OUTPUTS are the sliders. A free point-curve would need
+# non-numeric params, which the recipe format (and the fitter) cannot carry;
+# five offsets per channel express the same tonal moves and stay flat numbers.
+
+_CURVE_XS = np.array([0.0, 64.0, 128.0, 192.0, 255.0], dtype=np.float32)
+_CURVE_POINTS = ("Blacks", "Shadows", "Mids", "Highlights", "Whites")
+
+
+def _curve_lut(offsets):
+    """offsets: five -1..1 values -> a 256-entry LUT (float32, 0..255).
+
+    Monotone cubic (Fritsch-Carlson) through the five points. The ys are
+    clamped non-decreasing first: a tone curve that folds back solarizes the
+    image, which is never what a slider user meant. Mirrored in imageEngine.ts.
+    """
+    ys = _CURVE_XS + np.asarray(offsets, np.float32) * 64.0
+    ys = np.maximum.accumulate(np.clip(ys, 0.0, 255.0))
+
+    h = np.diff(_CURVE_XS)
+    d = np.diff(ys) / h
+    m = np.empty(5, np.float32)
+    m[0], m[4] = d[0], d[3]
+    for i in range(1, 4):
+        m[i] = 0.0 if d[i - 1] * d[i] <= 0 else (d[i - 1] + d[i]) / 2.0
+    for i in range(4):
+        if d[i] == 0:
+            m[i] = m[i + 1] = 0.0
+        else:
+            a, b = m[i] / d[i], m[i + 1] / d[i]
+            s = a * a + b * b
+            if s > 9.0:
+                t = 3.0 / float(np.sqrt(s))
+                m[i], m[i + 1] = t * a * d[i], t * b * d[i]
+
+    xs_all = np.arange(256, dtype=np.float32)
+    seg = np.clip(np.searchsorted(_CURVE_XS, xs_all, side="right") - 1, 0, 3)
+    lut = np.empty(256, np.float32)
+    for i in range(4):
+        sel = seg == i
+        t = (xs_all[sel] - _CURVE_XS[i]) / h[i]
+        t2, t3 = t * t, t * t * t
+        lut[sel] = (
+            ys[i] * (2 * t3 - 3 * t2 + 1)
+            + h[i] * m[i] * (t3 - 2 * t2 + t)
+            + ys[i + 1] * (-2 * t3 + 3 * t2)
+            + h[i] * m[i + 1] * (t3 - t2)
+        )
+    return np.clip(lut, 0.0, 255.0)
+
+
+def _curves(rgb, params):
+    def offs(ch):
+        return [_p(params, f"{ch}{pt}") for pt in _CURVE_POINTS]
+
+    chans = {ch: offs(ch) for ch in ("luma", "red", "green", "blue")}
+    if not any(any(o) for o in chans.values()):
+        return rgb
+
+    out = rgb.copy()
+    # channel curves first — they are colour moves; the luma curve then shapes
+    # tone on the result without shifting the colour the channels just set
+    for c, ch in enumerate(("red", "green", "blue")):
+        if any(chans[ch]):
+            lut = _curve_lut(chans[ch])
+            idx = np.clip(np.round(out[..., c]), 0, 255).astype(np.int32)
+            out[..., c] = lut[idx]
+
+    if any(chans["luma"]):
+        lut = _curve_lut(chans["luma"])
+        idx = np.clip(np.round(_luma(out)), 0, 255).astype(np.int32)
+        # applied as a per-pixel luminance delta on all channels equally:
+        # tone moves, colour stays (the channel curves own colour)
+        out = out + (lut[idx] - idx.astype(np.float32))[..., None]
+
+    return np.clip(out, 0, 255)
+
+
 tone_color = _wrap(_tone_color)
+curves = _wrap(_curves)
 dimension = _wrap(_dimension)
 color_grade = _wrap(_color_grade)
 light_point = _wrap(_light_point)
