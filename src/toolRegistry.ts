@@ -57,6 +57,21 @@ const HSL_TOOL: ToolDef[] = [
 // in the app needs to special-case it — the UI and pipeline are built from this.
 export const TOOLS: ToolDef[] = [
   {
+    // sensor noise is removed FIRST, before anything sharpens or stretches it.
+    // Windows are fixed-pixel, not frame-relative — noise lives at pixel scale.
+    id: 'noise-reduction',
+    label: 'הפחתת רעש',
+    kind: 'global',
+    category: 'tone-color',
+    order: 5,
+    batchPolicy: 'absolute',
+    params: [
+      { id: 'luminance', label: 'רעש בהירות', min: 0, max: 100, step: 1, default: 0 },
+      { id: 'detail', label: 'שימור פירוט', min: 0, max: 100, step: 1, default: 50 },
+      { id: 'color', label: 'רעש צבע', min: 0, max: 100, step: 1, default: 0 },
+    ],
+  },
+  {
     id: 'face-retouch',
     label: 'ריטוש פנים (AI)',
     kind: 'ai',
@@ -201,12 +216,18 @@ export const TOOLS: ToolDef[] = [
     ],
   },
   {
+    // RETIRED — merged into grade-zones. Its two warm/cool axes were a strictly
+    // poorer version of three zones with a free hue, and they moved colour with
+    // RGB offsets, which drags brightness along. `fade` lives on as the matte in
+    // grade-zones, with identical maths. Kept here only so a style saved before
+    // the merge still resolves and still renders the way it was saved.
     id: 'color-grade',
-    label: 'צבעוניות',
+    label: 'צבעוניות (הוחלף)',
     kind: 'global',
     category: 'artistic',
     order: 40,
     batchPolicy: 'absolute',
+    legacy: true,
     params: [
       { id: 'shadowsWarm', label: 'חום בצללים', min: -100, max: 100, step: 1, default: 0 },
       { id: 'highlightsWarm', label: 'חום בהיילייטים', min: -100, max: 100, step: 1, default: 0 },
@@ -235,6 +256,14 @@ export const TOOLS: ToolDef[] = [
       { id: 'highlightsSat', label: 'היילייטים · רוויה', min: -100, max: 100, step: 1, default: 0 },
       { id: 'highlightsLum', label: 'היילייטים · בהירות', min: -100, max: 100, step: 1, default: 0 },
       { id: 'balance', label: 'איזון בין הטווחים', min: -100, max: 100, step: 1, default: 0 },
+      // The matte, inherited from the retired color-grade. `fade` is that
+      // tool's slider unchanged, so a migrated recipe lands on the same pixels;
+      // the other two are the parts that used to be hardcoded into it — which
+      // colour the range is lifted toward, and whether the lift is flat across
+      // the range (0 = the old behaviour) or stays in the shadows.
+      { id: 'fade', label: 'דהייה (מאט)', min: 0, max: 100, step: 1, default: 0 },
+      { id: 'fadeWarmth', label: 'מאט · חמימות', min: -100, max: 100, step: 1, default: 0 },
+      { id: 'fadeRolloff', label: 'מאט · שמירת לבנים', min: 0, max: 100, step: 1, default: 0 },
     ],
   },
   {
@@ -312,15 +341,48 @@ export function defaultParams(def: ToolDef): ParamValues {
   return p;
 }
 
-// A fresh recipe: every tool present, global tools enabled, AI tools off until used.
+// A fresh recipe: every current tool present, global tools enabled, AI tools
+// off until used. Retired tools are not offered — only inherited.
 export function defaultRecipe(): Recipe {
   return {
-    tools: TOOLS.map<ToolInstance>((def) => ({
+    tools: TOOLS.filter((def) => !def.legacy).map<ToolInstance>((def) => ({
       toolId: def.id,
       params: defaultParams(def),
       enabled: def.kind === 'global',
     })),
   };
+}
+
+/** Reconcile a stored recipe with the registry as it stands today.
+ *
+ * A style is saved to localStorage as a literal snapshot, so every change we
+ * ship reaches it as damage: a slider added since (masking, midpoint, the
+ * curve points, the matte) is a missing key, which makes its input
+ * uncontrolled, and a retired tool id throws straight out of getTool(). So
+ * every path that reads a recipe back from storage runs it through here —
+ * missing tools and params take their defaults, unknown ids are dropped, and a
+ * retired tool is carried only while it is still doing something.
+ */
+export function normalizeRecipe(recipe: Recipe): Recipe {
+  const stored = new Map((recipe?.tools ?? []).map((t) => [t.toolId, t]));
+  const tools: ToolInstance[] = [];
+  for (const def of TOOLS) {
+    const prev = stored.get(def.id);
+    if (!prev && def.legacy) continue;
+    const params = defaultParams(def);
+    for (const spec of def.params) {
+      const v = prev?.params?.[spec.id];
+      if (typeof v === 'number' && Number.isFinite(v)) params[spec.id] = v;
+    }
+    const inst: ToolInstance = {
+      toolId: def.id,
+      params,
+      enabled: prev ? !!prev.enabled : def.kind === 'global',
+    };
+    if (def.legacy && isToolAtDefault(inst)) continue;
+    tools.push(inst);
+  }
+  return { tools };
 }
 
 export function getInstance(recipe: Recipe, toolId: string): ToolInstance {
@@ -353,6 +415,16 @@ export function orderedInstances(recipe: Recipe): ToolInstance[] {
   return [...recipe.tools].sort(
     (a, b) => getTool(a.toolId).order - getTool(b.toolId).order,
   );
+}
+
+/** What the UI offers: the same list, minus a retired tool sitting at rest.
+ *  A retired tool that a recipe still leans on stays on screen — you must be
+ *  able to see it and turn it down; you just cannot pick it up fresh. */
+export function visibleInstances(recipe: Recipe): ToolInstance[] {
+  return orderedInstances(recipe).filter((inst) => {
+    const def = getTool(inst.toolId);
+    return !def.legacy || !isToolAtDefault(inst);
+  });
 }
 
 // Immutable updates

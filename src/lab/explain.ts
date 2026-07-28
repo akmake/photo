@@ -89,11 +89,14 @@ const FACTS: Record<string, (v: MetaValue) => string> = {
   components: (v) => `רכיבים שנמצאו: ${int(v)}`,
   faces: (v) => `פנים שזוהו: ${int(v)}`,
   eyes: (v) => `עיניים שטופלו: ${int(v)}`,
+  zonesUsed: (v) => `טווחי טון שנצבעו: ${int(v)}`,
+  matte: (v) => (num(v) ? `מאט: ${Math.round(num(v) * 100)}%` : 'ללא מאט'),
 
   // flags / values
   blushApplied: (v) => (num(v) ? 'סומק הוחל' : 'סומק לא הוחל'),
   applied: (v) => (num(v) ? 'הופעל' : 'לא הופעל'),
-  symmetryUsed: (v) => (num(v) ? 'נעשה שימוש בסימטריה' : 'ללא סימטריה'),
+  lineVetoed: (v) => `קטעי קו שדולגו (שערה/קמט): ${int(v)}`,
+  shadingVetoed: (v) => `אזורי הצללה שדולגו: ${int(v)}`,
   model: (v) => `מודל: ${v}`,
   strength: (v) => `עוצמה בפועל: ${num(v).toFixed(2)}`,
   warmth: (v) => `חמימות בפועל: ${num(v).toFixed(2)}`,

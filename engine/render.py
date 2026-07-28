@@ -33,6 +33,9 @@ import grade_zones
 # All entries share the (rgb, params) -> (rgb, meta) contract so the frame stays
 # a numpy array for the whole chain — no PNG round-trip between steps.
 TOOLS = {
+    # sensor noise goes first, before any tool sharpens or stretches it —
+    # the same place a raw pipeline runs its denoise
+    "noise-reduction": (globals_py.noise_reduction, 5),
     "face-retouch": (abpn.apply, 8),  # learned model — the primary skin tool
     "skin-cleanup": (cleanup.apply, 10),
     "skin": (skin.apply, 20),
@@ -47,6 +50,8 @@ TOOLS = {
     # exactly where a raw pipeline runs its tone curve
     "curves": (globals_py.curves, 32),
     "dimension": (globals_py.dimension, 35),
+    # RETIRED, merged into grade-zones. Still dispatched so recipes saved before
+    # the merge render exactly as they did; nothing new is fitted into it.
     "color-grade": (globals_py.color_grade, 40),
     # Per-hue control sits BEFORE the zone grade: decide what each colour is,
     # then tint the tonal zones on top of it.

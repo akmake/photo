@@ -8,6 +8,7 @@ import {
   setToolEnabled,
   activeTools,
   orderedInstances,
+  visibleInstances,
 } from '../toolRegistry';
 import { applyGlobalTool } from '../imageEngine';
 import { applyAiTool } from '../api';
@@ -232,7 +233,7 @@ export default function Editor({
 
         {/* Every tool is rendered generically from the registry. */}
         <div className="tools">
-          {orderedInstances(recipe)
+          {visibleInstances(recipe)
             .filter((inst) => !getTool(inst.toolId).experimental)
             .map((inst) => {
             const def = getTool(inst.toolId);

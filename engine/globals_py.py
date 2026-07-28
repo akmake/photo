@@ -337,6 +337,42 @@ def _sharpen(rgb, params):
     return np.clip(rgb + delta[..., None], 0, 255)
 
 
+# ----------------------------------------------------------- noise ----------
+# Unlike every creative radius in this file, the windows here are FIXED, not
+# frame-relative: noise is a sensor phenomenon and lives at pixel scale on any
+# resolution. Luminance noise is edge-aware (bilateral); colour noise is
+# blobby and gets a plain blur on the chroma differences. The chroma pass is
+# luma-neutral by construction: the three channel-diffs (C - L) sum to zero
+# under the luma weights, and blurring is linear, so the blurred diffs still
+# sum to zero. Mirrored structurally in imageEngine.ts.
+
+def _noise(rgb, params):
+    lum_amt = _p(params, "luminance")
+    col_amt = _p(params, "color")
+    detail = _p(params, "detail", 50)
+    if not lum_amt and not col_amt:
+        return rgb
+
+    L = _luma(rgb)
+    out = rgb.copy()
+
+    if lum_amt:
+        smooth = cv2.bilateralFilter(L.astype(np.float32), 7, 30.0, 2.0)
+        # `detail` returns a fraction of the removed micro-variation, so NR
+        # does not have to choose between noise and pores
+        target = smooth + (L - smooth) * detail
+        dl = (target - L) * lum_amt
+        out = out + dl[..., None]
+        L = L + dl
+
+    if col_amt:
+        diffs = out - L[..., None]
+        blurred = cv2.GaussianBlur(diffs, (9, 9), 0)
+        out = L[..., None] + diffs + (blurred - diffs) * col_amt
+
+    return np.clip(out, 0, 255)
+
+
 # ---------------------------------------------------------------- curves ----
 # Parametric curves, the Lightroom form: five fixed-x control points per
 # channel whose OUTPUTS are the sliders. A free point-curve would need
@@ -418,6 +454,7 @@ def _curves(rgb, params):
 
 tone_color = _wrap(_tone_color)
 curves = _wrap(_curves)
+noise_reduction = _wrap(_noise)
 dimension = _wrap(_dimension)
 color_grade = _wrap(_color_grade)
 light_point = _wrap(_light_point)

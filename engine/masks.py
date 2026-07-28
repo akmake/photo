@@ -73,6 +73,8 @@ FACE_RIGHT = 454
 # the nasolabial fold, so a generous protection band here would make the marks
 # we most need to remove permanently unreachable.
 NOSE_ALA = (129, 358)  # outer edge of each nostril wing
+NASION = 168  # bridge top, midway between the eyes
+NOSE_TIP = 1
 MOUTH_CORNERS = (61, 291)
 LOWER_LIP_BOTTOM = 17
 CHIN_CENTER = 199
@@ -313,6 +315,15 @@ def anatomy_parts(rgb: np.ndarray, lm) -> "OrderedDict[str, np.ndarray]":
     m = blank()
     cv2.fillConvexPoly(m, cv2.convexHull(np.array([pt(i) for i in NOSE], np.int32)), 255)
     parts["nose"] = cv2.dilate(m, _kern(fw * 0.010))
+
+    # Nose dorsum and flanks. The shading band along the side of the bridge is
+    # illumination geometry, and every statistical gate that tried to except
+    # it eventually let a "repair" flatten the nose. The bridge's position is
+    # KNOWN from landmarks — protect it as anatomy instead of arguing with it
+    # as statistics.
+    m = blank()
+    cv2.line(m, pt(NASION), pt(NOSE_TIP), 255, max(2, int(fw * 0.14)))
+    parts["nose-bridge"] = m
 
     # Lips: the vermillion border is the highest-contrast edge on a face. It is
     # protected as a THIN band, not by fattening the hull — a fat lip mask is

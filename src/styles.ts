@@ -1,5 +1,5 @@
 import type { Recipe } from './types';
-import { cloneRecipe } from './toolRegistry';
+import { cloneRecipe, normalizeRecipe } from './toolRegistry';
 
 // A named, reusable look. This is the photographer's #1 ask: build the look
 // once ("לוק ים"), then apply it to every future session of that type.
@@ -17,7 +17,10 @@ export function listStyles(): Style[] {
     const raw = localStorage.getItem(KEY);
     if (!raw) return [];
     const parsed = JSON.parse(raw) as Style[];
-    return Array.isArray(parsed) ? parsed : [];
+    if (!Array.isArray(parsed)) return [];
+    // A style saved before a tool changed is reconciled with today's registry
+    // on the way out, so nothing downstream ever sees a missing slider.
+    return parsed.map((s) => ({ ...s, recipe: normalizeRecipe(s.recipe) }));
   } catch {
     return [];
   }

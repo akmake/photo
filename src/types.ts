@@ -24,6 +24,11 @@ export interface ToolDef {
   /** Reachable in the lab, kept out of the gallery editor. A tool being here
    *  means it runs but is not trusted on a client's set yet. */
   experimental?: boolean;
+  /** Superseded by another tool. It is never added to a new recipe and never
+   *  offered in the UI, but recipes saved before it was retired still carry it
+   *  and must keep rendering exactly as they did — so it stays dispatchable,
+   *  and stays visible while a recipe still has it turned up. */
+  legacy?: boolean;
 }
 
 export type ParamValues = Record<string, number>;

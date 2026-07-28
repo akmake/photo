@@ -1,4 +1,5 @@
 import type { ParamValues } from './types';
+import { getTool } from './toolRegistry';
 
 // Fast-preview implementations of the global (non-AI) tools.
 //
@@ -288,7 +289,12 @@ function dimension(img: ImageData, p: ParamValues): ImageData {
   return out;
 }
 
-/* ---------------- color-grade: split toning + matte fade ---------------- */
+/* ---------------- color-grade: RETIRED, kept for old recipes ----------------
+ *
+ * Superseded by grade-zones below, which says everything this said and more.
+ * It is out of the registry's tool list, so nothing new can pick it up — but a
+ * style saved before the merge still carries it, and must still render exactly
+ * as it did the day it was saved. Do not "improve" this function. */
 
 function colorGrade(img: ImageData, p: ParamValues): ImageData {
   const out = cloneImage(img);
@@ -322,6 +328,288 @@ function colorGrade(img: ImageData, p: ParamValues): ImageData {
     d[i] = clamp255(r);
     d[i + 1] = clamp255(g);
     d[i + 2] = clamp255(b);
+  }
+  return out;
+}
+
+/* ---------------- grade-zones: colour per tonal zone + matte ----------------
+ *
+ * The mirror of engine/grade_zones.py, and the reason color-grade above is
+ * retired: two warm/cool axes are a subset of three zones with a free hue.
+ *
+ * Lab stays in floating point, with OpenCV's constants and its 0..255 L / +128
+ * ab convention but none of its byte rounding — in deep shadows a whole Lab
+ * level is worth up to seven sRGB levels, so quantising here would band the
+ * picture exactly where a grade is used most. engine/grade_zones.py does the
+ * same, off the same sRGB tables, which is what keeps the two within a level. */
+
+const LAB_XN = 0.950456;
+const LAB_ZN = 1.088754;
+
+function labF(t: number): number {
+  return t > 0.008856 ? Math.cbrt(t) : 7.787 * t + 16 / 116;
+}
+
+function labFInv(t: number): number {
+  const c = t * t * t;
+  return c > 0.008856 ? c : (t - 16 / 116) / 7.787;
+}
+
+/** sRGB 0..255 -> Lab, L on 0..255 and a/b offset by 128. */
+function rgb2lab(r: number, g: number, b: number, o: Float32Array): void {
+  const R = S2L[r];
+  const G = S2L[g];
+  const B = S2L[b];
+  const x = labF((0.412453 * R + 0.35758 * G + 0.180423 * B) / LAB_XN);
+  const y = labF(0.212671 * R + 0.71516 * G + 0.072169 * B);
+  const z = labF((0.019334 * R + 0.119193 * G + 0.950227 * B) / LAB_ZN);
+  o[0] = (116 * y - 16) * 2.55;
+  o[1] = 500 * (x - y) + 128;
+  o[2] = 200 * (y - z) + 128;
+}
+
+/** Lab (same convention) -> sRGB 0..255, unrounded; the caller clamps. */
+function lab2rgb(L: number, A: number, B: number, o: Float32Array): void {
+  const fy = (L / 2.55 + 16) / 116;
+  const fx = fy + (A - 128) / 500;
+  const fz = fy - (B - 128) / 200;
+  const X = labFInv(fx) * LAB_XN;
+  const Y = labFInv(fy);
+  const Z = labFInv(fz) * LAB_ZN;
+  o[0] = lin2s(3.240479 * X - 1.53715 * Y - 0.498535 * Z) * 255;
+  o[1] = lin2s(-0.969256 * X + 1.875992 * Y + 0.041556 * Z) * 255;
+  o[2] = lin2s(0.055648 * X - 0.204043 * Y + 1.057311 * Z) * 255;
+}
+
+const MATTE_BASE = [62, 60, 66];
+const MATTE_MAX = 0.22;
+const MATTE_WARM = 14;
+const GZ_MAX_AB = 34;
+const GZ_MAX_LUM = 22;
+const GZ_ZONES = ['shadows', 'midtones', 'highlights'] as const;
+
+function gradeZones(img: ImageData, p: ParamValues): ImageData {
+  const out = cloneImage(img);
+  const d = out.data;
+
+  const spec = GZ_ZONES.map((z) => ({
+    rad: (((p[`${z}Hue`] ?? 0) * Math.PI) / 180),
+    sat: (p[`${z}Sat`] ?? 0) / 100,
+    lum: (p[`${z}Lum`] ?? 0) / 100,
+  }));
+  const fade = (p.fade ?? 0) / 100;
+  const zoned = spec.some((s) => Math.abs(s.sat) > 1e-4 || Math.abs(s.lum) > 1e-4);
+  if (!zoned && fade <= 1e-4) return out;
+
+  const lab = new Float32Array(3);
+  const rgb = new Float32Array(3);
+
+  // balance slides the whole split up or down the tone range
+  const bal = Math.max(-1, Math.min(1, (p.balance ?? 0) / 100)) * 0.25;
+  const push = spec.map((s) => ({
+    a: s.sat * GZ_MAX_AB * Math.cos(s.rad),
+    b: s.sat * GZ_MAX_AB * Math.sin(s.rad),
+    l: s.lum * GZ_MAX_LUM,
+    on: Math.abs(s.sat) > 1e-4 || Math.abs(s.lum) > 1e-4,
+  }));
+  const warmth = (p.fadeWarmth ?? 0) / 100;
+  const rolloff = (p.fadeRolloff ?? 0) / 100;
+  const base = [
+    MATTE_BASE[0] + warmth * MATTE_WARM,
+    MATTE_BASE[1],
+    MATTE_BASE[2] - warmth * MATTE_WARM,
+  ];
+
+  // grade and matte in ONE pass: writing the graded pixel back to bytes before
+  // the matte reads it would round twice, and the engine rounds once
+  for (let i = 0; i < d.length; i += 4) {
+    let r = d[i];
+    let g = d[i + 1];
+    let b = d[i + 2];
+
+    if (zoned) {
+      rgb2lab(r, g, b, lab);
+      const ln = lab[0] / 255;
+      const lo = smoothstep(0 + bal, 0.5 + bal, ln);
+      const hi = smoothstep(0.5 + bal, 1 + bal, ln);
+      // lo ramps over the lower half and hi over the upper, so lo >= hi always
+      // and these three add to exactly one — no normalising needed
+      const m = [1 - lo, lo - hi, hi];
+
+      let L = lab[0];
+      let A = lab[1];
+      let Bv = lab[2];
+      for (let z = 0; z < 3; z++) {
+        if (!push[z].on) continue;
+        A += m[z] * push[z].a;
+        Bv += m[z] * push[z].b;
+        L += m[z] * push[z].l;
+      }
+      lab2rgb(L, A, Bv, rgb);
+      r = rgb[0];
+      g = rgb[1];
+      b = rgb[2];
+    }
+
+    if (fade > 1e-4) {
+      let k = fade * MATTE_MAX;
+      if (rolloff > 1e-4) {
+        const ln = (LUM_R * r + LUM_G * g + LUM_B * b) / 255;
+        k *= 1 - rolloff * smoothstep(0, 1, ln);
+      }
+      r = r * (1 - k) + k * base[0];
+      g = g * (1 - k) + k * base[1];
+      b = b * (1 - k) + k * base[2];
+    }
+
+    d[i] = clamp255(r);
+    d[i + 1] = clamp255(g);
+    d[i + 2] = clamp255(b);
+  }
+
+  return out;
+}
+
+/* ---------------- hsl: eight hue bands ----------------
+ *
+ * Mirror of engine/hsl.py. Same overlapping cosine bands, same normalisation,
+ * same grey gate — and OpenCV's float HSV, formula for formula including the
+ * FLT_EPSILON guards, because those guards are what decides the hue of a
+ * near-grey pixel and the engine's answer is the one that ships. */
+
+const HSL_BANDS: [string, number][] = [
+  ['red', 0],
+  ['orange', 30],
+  ['yellow', 60],
+  ['green', 120],
+  ['aqua', 180],
+  ['blue', 225],
+  ['purple', 280],
+  ['magenta', 320],
+];
+const HSL_REACH = 70;
+const HSL_MAX_HUE_ROT = 30;
+const HSL_MAX_LUM = 0.35;
+const HSL_LUT_N = 3600; // 0.1 degree steps
+const FLT_EPSILON = 1.1920929e-7;
+const HSV_SECTOR = [
+  [1, 3, 0],
+  [1, 0, 2],
+  [3, 0, 1],
+  [0, 2, 1],
+  [0, 1, 3],
+  [2, 1, 0],
+];
+
+/** OpenCV's float HSV -> RGB, sector table and all. Writes r,g,b in 0..1. */
+function hsv2rgb(H: number, S: number, V: number, o: Float32Array): void {
+  if (S === 0) {
+    o[0] = V;
+    o[1] = V;
+    o[2] = V;
+    return;
+  }
+  let h = H / 60;
+  if (h < 0) {
+    do h += 6;
+    while (h < 0);
+  } else if (h >= 6) {
+    do h -= 6;
+    while (h >= 6);
+  }
+  let sector = Math.floor(h);
+  h -= sector;
+  if (sector < 0 || sector >= 6) {
+    sector = 0;
+    h = 0;
+  }
+  const tab = [V, V * (1 - S), V * (1 - S * h), V * (1 - S * (1 - h))];
+  const sd = HSV_SECTOR[sector];
+  o[2] = tab[sd[0]];
+  o[1] = tab[sd[1]];
+  o[0] = tab[sd[2]];
+}
+
+function hsl(img: ImageData, p: ParamValues): ImageData {
+  const out = cloneImage(img);
+  const d = out.data;
+  const knobs = HSL_BANDS.map(([name]) => ({
+    h: (p[`${name}Hue`] ?? 0) / 100,
+    s: (p[`${name}Sat`] ?? 0) / 100,
+    l: (p[`${name}Lum`] ?? 0) / 100,
+  }));
+  const live = knobs.map(
+    (k) => Math.abs(k.h) > 1e-4 || Math.abs(k.s) > 1e-4 || Math.abs(k.l) > 1e-4,
+  );
+  if (!live.some(Boolean)) return out;
+
+  // The band weights depend on hue and nothing else, so the whole eight-band
+  // mix collapses into three curves of hue. Sampling them every 0.1 degree and
+  // interpolating turns eight cosines per pixel into one table read; the curves
+  // are smooth, so the interpolation error is far below a single output level.
+  const lutH = new Float32Array(HSL_LUT_N + 1);
+  const lutS = new Float32Array(HSL_LUT_N + 1);
+  const lutL = new Float32Array(HSL_LUT_N + 1);
+  const w = new Float64Array(HSL_BANDS.length);
+  for (let i = 0; i <= HSL_LUT_N; i++) {
+    const hue = (i * 360) / HSL_LUT_N;
+    let sum = 0;
+    for (let b = 0; b < HSL_BANDS.length; b++) {
+      let dist = Math.abs(hue - HSL_BANDS[b][1]);
+      dist = Math.min(dist, 360 - dist); // hue is circular
+      const t = clamp01(dist / HSL_REACH);
+      w[b] = 0.5 * (1 + Math.cos(Math.PI * t));
+      sum += w[b];
+    }
+    sum = Math.max(sum, 1e-6);
+    let hAcc = 0;
+    let sAcc = 0;
+    let lAcc = 0;
+    for (let b = 0; b < HSL_BANDS.length; b++) {
+      if (!live[b]) continue;
+      const wi = w[b] / sum;
+      hAcc += wi * knobs[b].h * HSL_MAX_HUE_ROT;
+      sAcc += wi * knobs[b].s;
+      lAcc += wi * knobs[b].l * HSL_MAX_LUM;
+    }
+    lutH[i] = hAcc;
+    lutS[i] = sAcc;
+    lutL[i] = lAcc;
+  }
+
+  const rgb = new Float32Array(3);
+  for (let i = 0; i < d.length; i += 4) {
+    const r = d[i] / 255;
+    const g = d[i + 1] / 255;
+    const b = d[i + 2] / 255;
+
+    let v = r > g ? r : g;
+    if (b > v) v = b;
+    let vmin = r < g ? r : g;
+    if (b < vmin) vmin = b;
+    const diff = v - vmin;
+    const s = diff / (Math.abs(v) + FLT_EPSILON);
+    const scale = 60 / (diff + FLT_EPSILON);
+    let h = v === r ? (g - b) * scale : v === g ? (b - r) * scale + 120 : (r - g) * scale + 240;
+    if (h < 0) h += 360;
+
+    // a grey pixel has no meaningful hue and must not be recoloured by
+    // whichever band its noise happens to land in
+    const gate = clamp01((s - 0.04) / 0.12);
+    const x = (h / 360) * HSL_LUT_N;
+    const i0 = x | 0;
+    const f = x - i0;
+    const hueRot = gate * (lutH[i0] + (lutH[i0 + 1] - lutH[i0]) * f);
+    const satMul = gate * (lutS[i0] + (lutS[i0 + 1] - lutS[i0]) * f);
+    const lumAdd = gate * (lutL[i0] + (lutL[i0 + 1] - lutL[i0]) * f);
+
+    let H = (h + hueRot) % 360;
+    if (H < 0) H += 360;
+    hsv2rgb(H, clamp01(s * (1 + satMul)), clamp01(v + lumAdd), rgb);
+
+    d[i] = clamp255(rgb[0] * 255);
+    d[i + 1] = clamp255(rgb[1] * 255);
+    d[i + 2] = clamp255(rgb[2] * 255);
   }
   return out;
 }
@@ -547,6 +835,95 @@ function sharpen(img: ImageData, p: ParamValues): ImageData {
   return out;
 }
 
+/* ---------------- noise reduction ---------------- */
+
+// Windows are FIXED, not frame-relative: noise is a sensor phenomenon and
+// lives at pixel scale on any resolution. Structure mirrors globals_py._noise:
+// edge-aware luminance pass (bilateral 7x7), plain blur on chroma diffs
+// (luma-neutral by construction — the diffs sum to zero under the luma
+// weights and blurring is linear).
+function noiseReduction(img: ImageData, p: ParamValues): ImageData {
+  const lumAmt = (p.luminance ?? 0) / 100;
+  const colAmt = (p.color ?? 0) / 100;
+  const detail = (p.detail ?? 50) / 100;
+  if (lumAmt === 0 && colAmt === 0) return cloneImage(img);
+
+  const { width: w, height: h } = img;
+  const src = img.data;
+  const n = w * h;
+  const L = new Float32Array(n);
+  for (let i = 0; i < n; i++) {
+    const j = i * 4;
+    L[i] = LUM_R * src[j] + LUM_G * src[j + 1] + LUM_B * src[j + 2];
+  }
+
+  const out = cloneImage(img);
+  const d = out.data;
+  const Lout = new Float32Array(L);
+
+  if (lumAmt > 0) {
+    // bilateral 7x7 on luminance; range weights via a lookup table
+    const sigmaR = 30;
+    const range = new Float32Array(256);
+    for (let v = 0; v < 256; v++) range[v] = Math.exp(-(v * v) / (2 * sigmaR * sigmaR));
+    const spatial: number[] = [];
+    const offs: number[] = [];
+    const sigmaS = 2;
+    for (let dy = -3; dy <= 3; dy++)
+      for (let dx = -3; dx <= 3; dx++) {
+        spatial.push(Math.exp(-(dx * dx + dy * dy) / (2 * sigmaS * sigmaS)));
+        offs.push(dy * w + dx);
+      }
+    for (let y = 3; y < h - 3; y++) {
+      for (let x = 3; x < w - 3; x++) {
+        const i = y * w + x;
+        const c0 = L[i];
+        let acc = 0;
+        let wsum = 0;
+        for (let k = 0; k < offs.length; k++) {
+          const lv = L[i + offs[k]];
+          const wgt = spatial[k] * range[Math.min(255, Math.abs(lv - c0) | 0)];
+          acc += lv * wgt;
+          wsum += wgt;
+        }
+        const smooth = acc / wsum;
+        const target = smooth + (c0 - smooth) * detail;
+        Lout[i] = c0 + (target - c0) * lumAmt;
+      }
+    }
+    for (let i = 0; i < n; i++) {
+      const j = i * 4;
+      const dl = Lout[i] - L[i];
+      d[j] = clamp255(d[j] + dl);
+      d[j + 1] = clamp255(d[j + 1] + dl);
+      d[j + 2] = clamp255(d[j + 2] + dl);
+    }
+  }
+
+  if (colAmt > 0) {
+    // chroma diffs against (possibly denoised) luma, blurred and blended
+    const diffs = new Uint8ClampedArray(d.length);
+    for (let i = 0; i < n; i++) {
+      const j = i * 4;
+      diffs[j] = clamp255(d[j] - Lout[i] + 128);
+      diffs[j + 1] = clamp255(d[j + 1] - Lout[i] + 128);
+      diffs[j + 2] = clamp255(d[j + 2] - Lout[i] + 128);
+      diffs[j + 3] = 255;
+    }
+    const blurred = boxBlur(diffs, w, h, 4);
+    for (let i = 0; i < n; i++) {
+      const j = i * 4;
+      for (let c = 0; c < 3; c++) {
+        const cd = d[j + c] - Lout[i];
+        const bd = blurred[j + c] - 128;
+        d[j + c] = clamp255(Lout[i] + cd + (bd - cd) * colAmt);
+      }
+    }
+  }
+
+  return out;
+}
+
 /* ---------------- curves ---------------- */
 
 // Parametric curves: five fixed-x control points per channel, outputs are the
@@ -637,10 +1014,13 @@ function curves(img: ImageData, p: ParamValues): ImageData {
 /* ---------------- dispatch ---------------- */
 
 const IMPL: Record<string, (img: ImageData, p: ParamValues) => ImageData> = {
+  'noise-reduction': noiseReduction,
   'tone-color': toneColor,
   curves,
   dimension,
-  'color-grade': colorGrade,
+  'color-grade': colorGrade, // retired; still dispatched for pre-merge styles
+  'grade-zones': gradeZones,
+  hsl,
   'light-point': lightPoint,
   glow,
   'oil-paint': oilPaint,
@@ -654,6 +1034,16 @@ export function applyGlobalTool(
   params: ParamValues,
 ): ImageData {
   const fn = IMPL[toolId];
-  if (!fn) return img; // AI tools are handled by the engine, not here
+  if (!fn) {
+    // AI tools legitimately land here — the engine renders those. A GLOBAL tool
+    // landing here does not: it means the tool is in the registry with no
+    // mirror, so the preview silently ignores every one of its sliders while
+    // the export applies them. hsl and grade-zones both shipped that way. Fail
+    // loudly instead of drawing a picture that is quietly wrong.
+    if (getTool(toolId).kind === 'global') {
+      throw new Error(`global tool "${toolId}" has no JS mirror in imageEngine`);
+    }
+    return img;
+  }
   return fn(img, params);
 }

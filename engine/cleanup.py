@@ -3,18 +3,27 @@
 Detection: novelty against a per-face skin model (see skinmodel.py). We do not
 describe what a flaw looks like; we model the skin and flag what the model
 cannot explain — so a mark that is LIGHTER, darker, redder or yellower is all
-caught by the same measure.
+caught by the same measure. Three gates then separate blemishes from the
+face's own structure: a size gate (a blemish is LOCAL; anything broad is skin
+character), a line-continuation veto (a blemish is ISOLATED; a component that
+is one stretch of a longer line — stray hair, eyeliner, crease — is left
+alone, because healing part of a line cuts it and reads as damage), and a
+local-evidence veto (a blemish has a BOUNDARY; smooth shading can exceed the
+global novelty bar yet has no local structure, and is lighting, not dirt).
 
-Healing: frequency-separated, not inpainting. cv2.inpaint fills a hole by
-propagating from its rim, which leaves a flat, textureless disc — the "plaster"
-look. Instead the image is split into
+Healing (default "reconstruct" mode): diffusion rebuilds tone under the mark,
+a nearby clean donor grafts back pore-scale texture (healing.inpaint_texture),
+and color_harmonization pins the result to healthy skin beyond the halo.
+Symmetry (copying the opposite side of the face) was tried and removed:
+facial lighting is never mirror-symmetric, so mirrored patches landed flat
+and mis-toned while the donor-free path healed cleanly.
 
-    low  = the skin's own colour field  (blush; NEVER modified)
-    mid  = the band blemishes live in   (suppressed where confidence is high)
-    high = pores and texture            (kept, so the repair has real skin)
-
-and reassembled. Because `low` is untouched by construction, this tool cannot
-neutralise natural rosiness — that is a structural guarantee, not a setting.
+The legacy frequency-separation mode (any other `mode` value) only attenuates
+the band blemishes live in — it dims a mark instead of removing it, but its
+`low` layer is untouched by construction, so it can never neutralise natural
+rosiness. Reconstruct mode replaces that structural guarantee with the size
+gate: only marks small enough that the ring feeding the diffusion is the same
+patch of skin are ever rebuilt (test_blush.py holds this honest).
 """
 
 import cv2
@@ -28,9 +37,16 @@ import skinmodel
 
 # A face must be at least this wide (px) for blemish healing to be safe.
 MIN_FACE_PX = 180
-FOREHEAD_CENTER = 10
-CHIN_BOTTOM = 152
-NOSE_TIP = 1
+
+
+def _novelty_bar(strength: float) -> float:
+    """Detection bar in sigmas of the skin model's Mahalanobis distance.
+
+    Chi-like with 3 dof. strength 0 -> 4.5 sigma (only blatant marks),
+    1 -> 1.5 sigma (everything the model cannot explain, including faint
+    residue and dry patches).
+    """
+    return 4.5 - strength * 3.0
 
 
 def _bright_debris_confidence(
@@ -101,86 +117,146 @@ def _bright_debris_confidence(
     return out
 
 
-def _reflection_matrix(rgb: np.ndarray) -> np.ndarray | None:
-    """Reflection across the facial midline, or None when symmetry is unsafe."""
-    faces = masks._face_landmarks(rgb)
-    if len(faces) != 1:
-        return None
-    lm = faces[0]
-    h, w = rgb.shape[:2]
-
-    def point(index: int) -> np.ndarray:
-        return np.array([lm[index].x * w, lm[index].y * h], np.float32)
-
-    left = point(masks.FACE_LEFT)
-    right = point(masks.FACE_RIGHT)
-    nose = point(NOSE_TIP)
-    dl = float(np.linalg.norm(nose - left))
-    dr = float(np.linalg.norm(nose - right))
-    # A strongly turned face is not a mirror image in camera space.  Falling
-    # back is safer than copying a foreshortened cheek onto the visible cheek.
-    if min(dl, dr) / max(dl, dr, 1e-5) < 0.55:
-        return None
-
-    top = point(FOREHEAD_CENTER)
-    bottom = point(CHIN_BOTTOM)
-    direction = bottom - top
-    length = float(np.linalg.norm(direction))
-    if length < 20:
-        return None
-    direction /= length
-
-    # Reflection around a line through `top` with unit direction d:
-    # R = 2dd^T - I, translation keeps the line fixed.
-    reflect = 2.0 * np.outer(direction, direction) - np.eye(2, dtype=np.float32)
-    translate = top - reflect @ top
-    return np.column_stack([reflect, translate]).astype(np.float32)
-
-
-def _heal_with_symmetry(
+def _structure_gate(
     crop: np.ndarray,
     repair: np.ndarray,
-    conf: np.ndarray,
-    region: np.ndarray,
     face_d: float,
-) -> tuple[np.ndarray, int]:
-    """Use clean opposite-side skin first, with the current healer as fallback."""
-    matrix = _reflection_matrix(crop)
-    allowed = (region > 0.35).astype(np.uint8)
-    if matrix is None:
-        return healing.inpaint_texture(crop, repair, allowed), 0
+    novelty: np.ndarray,
+    novelty_bar: float,
+    region: np.ndarray,
+) -> tuple[np.ndarray, int, int]:
+    """A blemish is ISOLATED. Drop components that are pieces of something.
 
-    h, w = crop.shape[:2]
-    mirrored = cv2.warpAffine(
-        crop,
-        matrix,
-        (w, h),
-        flags=cv2.INTER_LINEAR,
-        borderMode=cv2.BORDER_REFLECT_101,
-    )
+    Both vetoes test the same principle in different spaces:
 
-    # Creases are valid donors; actual features, hair and non-skin are not.
-    donor_skin = masks.get_mask(crop, "face-skin")
-    donor_features = masks.get_mask(crop, "face-features")
-    donor_hair = masks.get_mask(crop, "hair")
-    donor_ok = (
-        (donor_skin > 0.35) & (donor_features < 0.15) & (donor_hair < 0.15)
-    ).astype(np.uint8)
-    donor_valid = cv2.warpAffine(
-        donor_ok, matrix, (w, h), flags=cv2.INTER_NEAREST, borderValue=0
-    )
+    1. Line continuation (structure space). A stray hair, an eyeliner tail
+       and a facial crease are all lines, and the detector usually flags only
+       their thickest stretch. Healing a stretch of a line cuts it: both
+       loose ends stay visible (a hair "broken" mid-air, a liner tip smeared
+       off). Black/top-hat ridges over L, a and b trace such structures; if
+       the one running through a component continues past its reach, the
+       component is a piece of something larger — leave it alone.
 
-    # Be stricter for donors than for repairs.  Even a weakly suspicious patch
-    # on the opposite side is rejected instead of being copied.
-    suspect = (conf > 0.12).astype(np.uint8)
-    halo = max(3, int(face_d * 0.008)) | 1
-    suspect = cv2.dilate(suspect, np.ones((halo, halo), np.uint8))
-    donor_suspect = cv2.warpAffine(
-        suspect, matrix, (w, h), flags=cv2.INTER_NEAREST, borderValue=1
-    )
-    return healing.symmetric_reconstruct(
-        crop, repair, mirrored, donor_valid, donor_suspect, allowed
-    )
+    2. Novelty continuation (anomaly space). Soft shading, strong blush and
+       other skin character can exceed the model's bar with no boundary
+       anywhere — the anomaly just goes on past the healed area, and healing
+       its statistical peak leaves a waxy patch in the middle of a gradient.
+       A real mark ENDS: the ring just outside its mask is skin the model
+       explains. Scale-free, unlike any fixed detection kernel — this is what
+       finally caught both a wide soft smudge (ring clean -> heal) and a nose
+       flank (ring still novel -> veto) with one rule.
+
+    Symmetry healing was removed on the same evidence pass: facial lighting is
+    never mirror-symmetric, so opposite-side patches landed flat and mis-toned
+    (and, near the eye, copied the other eye's lashes). Diffusion + texture
+    grafting needed no such donor and produced clean repairs everywhere.
+
+    Returns (mask, line_vetoed, shading_vetoed).
+    """
+    if not repair.any():
+        return repair, 0, 0
+
+    lab = cv2.cvtColor(crop, cv2.COLOR_RGB2LAB)
+    k = max(5, int(face_d * 0.02)) | 1
+    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (k, k))
+    seed = np.zeros(repair.shape, bool)
+    extent = np.zeros(repair.shape, bool)
+    # Chroma deviations are numerically smaller than luminance ones, so the
+    # floor drops for a/b — a faint red-pencil line must still register.
+    for channel, floor in ((0, 6.0), (1, 4.0), (2, 4.0)):
+        plane = lab[..., channel]
+        for op in (cv2.MORPH_BLACKHAT, cv2.MORPH_TOPHAT):
+            resp = cv2.morphologyEx(plane, op, kernel).astype(np.float32)
+            med = float(np.median(resp))
+            sigma = 1.4826 * float(np.median(np.abs(resp - med)))
+            # Hysteresis, same as decide(): the high bar says "this is real
+            # structure", the low bar follows how far it runs. A crease or
+            # hair softens along its length; a single threshold would break
+            # it there and hide the continuation.
+            seed |= resp > max(floor, med + 6.0 * sigma)
+            extent |= resp > max(floor * 0.5, med + 3.0 * sigma)
+    # Bridge pixel-scale gaps so one hair stays one structure even where its
+    # contrast dips below threshold for a moment.
+    seed = cv2.dilate(seed.astype(np.uint8), np.ones((3, 3), np.uint8))
+    extent = cv2.dilate(extent.astype(np.uint8), np.ones((3, 3), np.uint8))
+    extent = np.maximum(extent, seed)
+
+    r_count, r_labels = cv2.connectedComponents(extent, connectivity=8)
+    totals = np.bincount(r_labels.ravel(), minlength=max(2, r_count))
+
+    # The novelty a ring must stay under to count as "the mark ended here":
+    # halfway from the region's own baseline to the detection bar. Clean skin
+    # sits at the baseline; a continuing gradient sits near the bar.
+    usable = region > 0.35
+    baseline = float(np.median(novelty[usable])) if usable.any() else 0.0
+    margin = max(0.5, novelty_bar - baseline)
+    ring_bar = baseline + 0.5 * margin
+    grow_bar = baseline + 0.25 * margin
+    ring_w = max(3, int(face_d * 0.015))
+
+    def ring_novelty(component: np.ndarray) -> float | None:
+        inner = cv2.dilate(component, np.ones((3, 3), np.uint8)) > 0
+        outer = (
+            cv2.dilate(component, np.ones((ring_w, ring_w), np.uint8), iterations=2) > 0
+        )
+        ring = outer & ~inner & usable
+        if ring.sum() < 16:
+            return None
+        # Median, not mean: a second real blemish nearby elevates part of the
+        # ring; a continuing gradient elevates all of it.
+        return float(np.median(novelty[ring]))
+
+    out = repair.copy()
+    line_vetoed = 0
+    shading_vetoed = 0
+    grow = np.ones((7, 7), np.uint8)
+    step = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
+    n, labels, _, _ = cv2.connectedComponentsWithStats(repair, connectivity=8)
+    for i in range(1, n):
+        component = (labels == i).astype(np.uint8)
+
+        rn = ring_novelty(component)
+        if rn is not None and rn > ring_bar:
+            out[component > 0] = 0
+            shading_vetoed += 1
+            continue
+
+        reach = cv2.dilate(component, grow) > 0
+        inside = np.bincount(r_labels[reach], minlength=r_count)
+        # Only structures that actually RUN THROUGH the component can veto it.
+        # A neighbouring crease that merely brushes the reach ring must not
+        # condemn an isolated mark sitting next to it.
+        engaged = max(6, int(0.05 * component.sum()))
+        line_hit = False
+        for rid in np.nonzero(inside[1:])[0] + 1:
+            if inside[rid] < engaged:
+                continue
+            outside = int(totals[rid] - inside[rid])
+            if outside > max(8, int(0.6 * inside[rid])):
+                out[component > 0] = 0
+                line_vetoed += 1
+                line_hit = True
+                break
+        if line_hit:
+            continue
+
+        # Heal to where the anomaly ends. A soft mark (smudge, faded bruise)
+        # holds most of its area in a skirt below the detector's extent bar;
+        # covering only the confident core heals the mark into a paler copy
+        # of itself. The kept component grows while the ring outside it is
+        # still novel — the same isolation measure that vetoes, now steering
+        # the boundary — capped so a mistake cannot swallow a cheek.
+        for _ in range(max(3, int(face_d * 0.02))):
+            rn = ring_novelty(component)
+            if rn is None or rn <= grow_bar:
+                break
+            grown = cv2.dilate(component, step)
+            grown[~usable] = 0
+            if int(grown.sum()) == int(component.sum()):
+                break
+            component = grown
+        out = np.maximum(out, component)
+    return out, line_vetoed, shading_vetoed
 
 
 def process(image_b64: str, params: dict):
@@ -228,14 +304,36 @@ def confidence(rgb, params: dict):
 
     model = skinmodel.build(rgb, region, face_d, support=support)
 
-    # Mahalanobis distance is chi-like with 3 dof, so the bar is set in sigmas.
-    # strength 0 -> 4.5 sigma (only blatant marks), 1 -> 1.5 sigma (everything
-    # the skin model cannot explain, including faint residue and dry patches).
-    lo = 4.5 - strength * 3.0
+    lo = _novelty_bar(strength)
     hi = lo + 1.6
-    conf = np.clip((model.novelty - lo) / (hi - lo), 0.0, 1.0)
-    conf = conf * conf * (3 - 2 * conf)  # smoothstep: no hard edges
-    conf *= region
+
+    def score(m: skinmodel.SkinModel) -> np.ndarray:
+        c = np.clip((m.novelty - lo) / (hi - lo), 0.0, 1.0)
+        c = c * c * (3 - 2 * c)  # smoothstep: no hard edges
+        return c * region
+
+    conf = score(model)
+
+    # Second pass: the smooth field was estimated WITH the marks still in the
+    # image, so a broad soft mark bends the field toward itself — it partially
+    # explains its own skirt, which then scores just under the bar and
+    # survives healing as a paler copy of the mark. Re-estimate the model with
+    # the suspicious pixels excluded from the sample, and score again — but
+    # only NEAR first-pass suspicion. Re-scoring the whole face with the
+    # sharper model surfaces a crop of brand-new borderline detections
+    # (measured: components merged across marks and line-veto counts doubled);
+    # refinement's job is completing marks already found, not finding more.
+    # Blush is unaffected either way: it never crosses the bar, so it keeps
+    # feeding the field.
+    suspect = (conf > 0.25).astype(np.uint8)
+    if suspect.any():
+        sr = max(3, int(face_d * 0.02)) | 1
+        suspect = cv2.dilate(suspect, np.ones((sr, sr), np.uint8))
+        clean_support = np.clip(support - suspect.astype(np.float32), 0.0, 1.0)
+        nr = max(3, int(face_d * 0.05)) | 1
+        neighborhood = cv2.dilate(suspect, np.ones((nr, nr), np.uint8))
+        refined = score(skinmodel.build(rgb, region, face_d, support=clean_support))
+        conf = np.where(neighborhood > 0, refined, conf)
     conf = np.maximum(
         conf,
         _bright_debris_confidence(
@@ -270,19 +368,19 @@ def _fill_holes(mask: np.ndarray) -> np.ndarray:
     return out
 
 
-def decide(conf: np.ndarray, face_d: float) -> np.ndarray:
-    """Turn a per-pixel confidence map into solid per-LESION masks.
+def hysteresis_core(conf: np.ndarray) -> np.ndarray:
+    """Tight per-lesion mask: extent pixels connected to a confident seed.
 
-    Thresholding pixel by pixel is what broke every previous attempt: a lesion
-    is a REGION, and a ragged mask full of pinholes makes reconstruction sample
-    the blemish in order to repair the blemish — so the mark survives its own
-    removal.
+    Hysteresis fixes both ends of single-threshold detection with one
+    mechanism. A HIGH bar decides *whether* something is a lesion at all; a
+    LOW bar decides *how far that lesion extends*. Speckles with no confident
+    core are dropped instead of being healed, and a real mark keeps the faint
+    halo that a single threshold would have sliced off.
 
-    Hysteresis fixes both ends of that with one mechanism. A HIGH bar decides
-    *whether* something is a lesion at all; a LOW bar decides *how far that
-    lesion extends*. Speckles with no confident core are dropped instead of
-    being healed, and a real mark keeps the faint halo that a single threshold
-    would have sliced off.
+    This is deliberately BEFORE any morphological closing: the structure gate
+    must judge each detection alone. Closing first merged a mark with nearby
+    hair fragments into one component, and the fragment's line veto then
+    condemned the mark it happened to touch.
     """
     seed = (conf > 0.60).astype(np.uint8)
     if not seed.any():
@@ -293,7 +391,25 @@ def decide(conf: np.ndarray, face_d: float) -> np.ndarray:
     keep = np.zeros(count, bool)
     keep[np.unique(labels[seed > 0])] = True
     keep[0] = False
-    mask = keep[labels].astype(np.uint8)
+    return keep[labels].astype(np.uint8)
+
+
+def decide(conf: np.ndarray, face_d: float, mask: np.ndarray | None = None) -> np.ndarray:
+    """Turn gated tight lesions into solid, slightly grown repair regions.
+
+    Thresholding pixel by pixel is what broke every previous attempt: a lesion
+    is a REGION, and a ragged mask full of pinholes makes reconstruction sample
+    the blemish in order to repair the blemish — so the mark survives its own
+    removal.
+
+    `mask` is normally the structure-gated hysteresis core; when omitted the
+    raw core is used (diagnostic scripts call it this way).
+    """
+    if mask is None:
+        mask = hysteresis_core(conf)
+    if not mask.any():
+        return np.zeros(conf.shape, np.uint8)
+    seed = (conf > 0.60).astype(np.uint8)
 
     r = max(3, int(face_d * 0.010)) | 1
     mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, np.ones((r, r), np.uint8))
@@ -373,11 +489,20 @@ def apply(rgb, params: dict):
         # replaces it: we only ever reconstruct marks small enough that the ring
         # feeding the diffusion is the same patch of skin — so local blush is
         # reproduced, not averaged away. test_blush.py holds this honest.
-        repair = decide(conf, face_c)
+        core = hysteresis_core(conf)
+        core, line_vetoed, shading_vetoed = _structure_gate(
+            crop, core, face_c, model.novelty, _novelty_bar(strength), region
+        )
+        repair = decide(conf, face_c, core)
         if not repair.any():
-            return rgb, {"spotsRemoved": 0, "correctedPx": 0}
-        healed, symmetry_used = _heal_with_symmetry(
-            crop, repair, conf, region, face_c
+            return rgb, {
+                "spotsRemoved": 0,
+                "correctedPx": 0,
+                "lineVetoed": line_vetoed,
+                "shadingVetoed": shading_vetoed,
+            }
+        healed = healing.inpaint_texture(
+            crop, repair, (region > 0.35).astype(np.uint8)
         )
         # Colour and texture have different boundaries.  The reconstructed core
         # supplies content/pores, while direct boundary correspondences find
@@ -400,8 +525,9 @@ def apply(rgb, params: dict):
         n, _, stats, _ = cv2.connectedComponentsWithStats(repair, connectivity=8)
         return out, {
             "spotsRemoved": max(0, n - 1),
-            "correctedPx": int(area),
-            "symmetryUsed": symmetry_used,
+            "correctedPx": int((repair > 0).sum()),
+            "lineVetoed": line_vetoed,
+            "shadingVetoed": shading_vetoed,
             "colorHarmonization": harmonized.metadata,
         }
     else:

@@ -19,7 +19,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react
 import type { Recipe } from '../types';
 import {
   defaultRecipe, getTool, isToolAtDefault, orderedInstances, setToolEnabled,
-  updateToolParams,
+  updateToolParams, visibleInstances,
 } from '../toolRegistry';
 import { renderRecipe, checkEngine } from '../api';
 import type { RenderStep } from '../api';
@@ -537,7 +537,7 @@ export default function Lab() {
         </div>
         <EngineBadge ok={engineOk} />
 
-        {orderedInstances(recipe).map((inst) => {
+        {visibleInstances(recipe).map((inst) => {
           const def = getTool(inst.toolId);
           // A tool that is ON always shows its sliders — that is the whole
           // point of switching it on. A tool that is off can still be opened

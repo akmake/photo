@@ -43,11 +43,12 @@ import render as render_mod
 # colour and vignette behave as they do at full size.
 FIT_MAX = 640
 
-# Same order as render.py: 30, 35, 40, 41, 42.
+# Same order as render.py: 30, 35, 41, 42. color-grade (40) is retired — it is
+# still rendered for recipes that predate the merge, but nothing new is fitted
+# into it, so the fitter does not carry the stage at all.
 STAGES = (
     ("tone-color", globals_py.tone_color),
     ("dimension", globals_py.dimension),
-    ("color-grade", globals_py.color_grade),
     ("hsl", hsl.apply),
     ("grade-zones", grade_zones.apply),
     ("glow", globals_py.glow),
@@ -75,9 +76,6 @@ FITTABLE = [
     ("tone-color", "shadows", -100, 100),
     ("tone-color", "whites", -100, 100),
     ("tone-color", "blacks", -100, 100),
-    ("color-grade", "shadowsWarm", -100, 100),
-    ("color-grade", "highlightsWarm", -100, 100),
-    ("color-grade", "fade", 0, 100),
     ("dimension", "clarity", -100, 100),
     ("dimension", "vignette", 0, 100),
 ]
@@ -92,6 +90,12 @@ for _zone in ("shadows", "midtones", "highlights"):
     FITTABLE.append(("grade-zones", f"{_zone}Sat", -100, 100))
     FITTABLE.append(("grade-zones", f"{_zone}Lum", -100, 100))
 FITTABLE.append(("grade-zones", "balance", -100, 100))
+# The matte, inherited from color-grade. `fade` is what that tool's slider was;
+# warmth and roll-off are the two axes it kept fixed, and a learned look reaches
+# them now — a warm flat wash and a cold shadow-only lift are different films.
+FITTABLE.append(("grade-zones", "fade", 0, 100))
+FITTABLE.append(("grade-zones", "fadeWarmth", -100, 100))
+FITTABLE.append(("grade-zones", "fadeRolloff", 0, 100))
 
 # Texture is fitted in its own pass, after colour. It is only seven knobs, and
 # oil-paint in particular is far more expensive per render than a LUT, so
