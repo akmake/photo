@@ -251,6 +251,11 @@ export default function AlbumStudio() {
       profile.spreadWidthMm / profile.spreadHeightMm,
     )
     : null;
+  /* When the crop window already spans the whole photo on an axis, there is
+   * nothing to slide along it — the frame matches the photo there. Say so and
+   * lock that one slider, instead of letting it snap back unexplained. */
+  const canPanX = selectedCrop?.fit === 'cover' && selectedCrop.crop.width < 0.999;
+  const canPanY = selectedCrop?.fit === 'cover' && selectedCrop.crop.height < 0.999;
   const preflightIssues = useMemo(
     () => runAlbumPreflight(project, photos, profile),
     [photos, profile, project],
@@ -667,6 +672,24 @@ export default function AlbumStudio() {
         [selectedSlot.id]: { ...selectedFrameSettings, ...patch },
       },
     });
+  }
+
+  /* Position reads as "locked" in `smart` mode only because smart is the one
+   * choosing it. The moment she moves it herself she has taken that decision
+   * back, so hand her the crop smart had reached and switch to manual — rather
+   * than greying the control out and leaving her with no way to fix the frame. */
+  function setFramePosition(patch: Partial<PhotoFrameSettings>) {
+    if (!selectedFrameSettings) return;
+    if (selectedFrameSettings.fit === 'smart') {
+      updateFrameSettings({
+        fit: 'cover',
+        positionX: selectedCrop?.positionX ?? selectedFrameSettings.positionX,
+        positionY: selectedCrop?.positionY ?? selectedFrameSettings.positionY,
+        ...patch,
+      });
+      return;
+    }
+    updateFrameSettings(patch);
   }
 
   function setFitMode(fit: PhotoFitMode) {
@@ -1180,7 +1203,10 @@ export default function AlbumStudio() {
                   </button>
                 </div>
                 <span className={`album-crop-state ${selectedCrop?.safe ? 'safe' : 'warning'}`}>
-                  {selectedCrop?.warnings[0] ?? `חיתוך בטוח · ${selectedCrop?.retainedPercent ?? 100}% נשמר`}
+                  {selectedCrop?.warnings[0]
+                    ?? (selectedCrop?.letterboxed
+                      ? 'התמונה מוצגת במלואה — נשארים שוליים בצבע הכפולה'
+                      : `חיתוך בטוח · ${selectedCrop?.retainedPercent ?? 100}% נשמר`)}
                 </span>
                 <button
                   className={`album-pan-toggle ${panMode ? 'on' : ''}`}
@@ -1248,26 +1274,26 @@ export default function AlbumStudio() {
                     onChange={(event) => updateSelectedSlot({ y: Number(event.target.value) / 100 })}
                   />
                 </label>
-                <label>
+                <label title={canPanX ? undefined : 'התמונה כבר תואמת את רוחב המסגרת — הגדילי את הזום כדי לקבל מרווח הזזה'}>
                   <span>מיקום אופקי</span>
                   <input
                     type="range"
                     min="0"
                     max="100"
-                    value={selectedFrameSettings.positionX}
-                    disabled={selectedFrameSettings.fit === 'smart'}
-                    onChange={(event) => updateFrameSettings({ positionX: Number(event.target.value) })}
+                    value={Math.round(selectedCrop?.positionX ?? selectedFrameSettings.positionX)}
+                    disabled={!canPanX}
+                    onChange={(event) => setFramePosition({ positionX: Number(event.target.value) })}
                   />
                 </label>
-                <label>
+                <label title={canPanY ? undefined : 'התמונה כבר תואמת את גובה המסגרת — הגדילי את הזום כדי לקבל מרווח הזזה'}>
                   <span>מיקום אנכי</span>
                   <input
                     type="range"
                     min="0"
                     max="100"
-                    value={selectedFrameSettings.positionY}
-                    disabled={selectedFrameSettings.fit === 'smart'}
-                    onChange={(event) => updateFrameSettings({ positionY: Number(event.target.value) })}
+                    value={Math.round(selectedCrop?.positionY ?? selectedFrameSettings.positionY)}
+                    disabled={!canPanY}
+                    onChange={(event) => setFramePosition({ positionY: Number(event.target.value) })}
                   />
                 </label>
                 <button className="album-control-remove" onClick={removeSelectedFramePhoto}>הסרה</button>
@@ -1279,7 +1305,8 @@ export default function AlbumStudio() {
               style={{
                 background: spread.background,
                 aspectRatio: `${profile.spreadWidthMm} / ${profile.spreadHeightMm}`,
-              }}
+                '--spread-aspect': profile.spreadWidthMm / profile.spreadHeightMm,
+              } as React.CSSProperties}
             >
               <div className="album-page album-page-left" />
               <div className="album-page album-page-right" />
@@ -1305,12 +1332,16 @@ export default function AlbumStudio() {
                 return (
                   <button
                     key={slot.id}
-                    className={`album-frame ${slot.role === 'hero' ? 'hero' : ''} ${selectedPhotoId ? 'assignable' : ''} ${selectedSlotIndex === slotIndex ? 'selected' : ''}`}
+                    className={`album-frame ${slot.role === 'hero' ? 'hero' : ''} ${selectedPhotoId ? 'assignable' : ''} ${selectedSlotIndex === slotIndex ? 'selected' : ''} ${crop?.letterboxed ? 'letterboxed' : ''}`}
                     style={{
                       left: `${slot.x * 100}%`,
                       top: `${slot.y * 100}%`,
                       width: `${slot.width * 100}%`,
                       height: `${slot.height * 100}%`,
+                      /* Showing the whole photo is a choice, so what is left over
+                       * has to read as the page it sits on — not as a white bar
+                       * that looks like the frame failed to fill. */
+                      ...(crop?.letterboxed ? { background: spread.background } : null),
                     }}
                     onClick={() => assignPhoto(slotIndex)}
                     draggable={Boolean(photo) && !panMode}

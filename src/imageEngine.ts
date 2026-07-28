@@ -67,6 +67,151 @@ const LUM_R = 0.2126;
 const LUM_G = 0.7152;
 const LUM_B = 0.0722;
 
+/* ---------------- gaussian blur, OpenCV's (helper) ----------------
+ *
+ * Not "a gaussian" — cv2.GaussianBlur's, because the engine's local contrast is
+ * built on that exact blur and a preview built on a different one shows a
+ * different picture. So: the sigma OpenCV derives from an odd ksize, its fixed
+ * small-kernel tables, and BORDER_REFLECT_101 at the edges. */
+
+const SMALL_GAUSSIAN: number[][] = [
+  [1],
+  [0.25, 0.5, 0.25],
+  [0.0625, 0.25, 0.375, 0.25, 0.0625],
+  [0.03125, 0.109375, 0.21875, 0.28125, 0.21875, 0.109375, 0.03125],
+];
+
+function gaussianKernel(ksize: number): Float64Array {
+  if (ksize % 2 === 1 && ksize <= 7) return Float64Array.from(SMALL_GAUSSIAN[ksize >> 1]);
+  const sigma = 0.3 * ((ksize - 1) * 0.5 - 1) + 0.8;
+  const scale = -0.5 / (sigma * sigma);
+  const k = new Float64Array(ksize);
+  const mid = (ksize - 1) * 0.5;
+  let sum = 0;
+  for (let i = 0; i < ksize; i++) {
+    const x = i - mid;
+    k[i] = Math.exp(scale * x * x);
+    sum += k[i];
+  }
+  for (let i = 0; i < ksize; i++) k[i] /= sum;
+  return k;
+}
+
+/** gfedcb|abcdefgh|gfedcba — OpenCV's default border. */
+function reflect101(i: number, n: number): number {
+  if (n === 1) return 0;
+  while (i < 0 || i >= n) {
+    if (i < 0) i = -i;
+    if (i >= n) i = 2 * (n - 1) - i;
+  }
+  return i;
+}
+
+/** Separable gaussian over one float plane. */
+function gaussianBlurPlane(
+  src: Float32Array,
+  w: number,
+  h: number,
+  ksize: number,
+): Float32Array {
+  const k = gaussianKernel(ksize);
+  const half = (ksize - 1) >> 1;
+  const tmp = new Float32Array(w * h);
+  const out = new Float32Array(w * h);
+
+  // Each pass runs the edges and the interior separately. Only the edges need
+  // the reflection, and calling it per tap over the whole frame — which is what
+  // a single loop does — costs more than the convolution itself.
+  const loX = Math.min(half, w);
+  const hiX = Math.max(loX, w - half);
+  for (let y = 0; y < h; y++) {
+    const row = y * w;
+    for (let x = 0; x < loX; x++) {
+      let acc = 0;
+      for (let t = 0; t < ksize; t++) acc += k[t] * src[row + reflect101(x + t - half, w)];
+      tmp[row + x] = acc;
+    }
+    for (let x = loX; x < hiX; x++) {
+      let acc = 0;
+      const base = row + x - half;
+      for (let t = 0; t < ksize; t++) acc += k[t] * src[base + t];
+      tmp[row + x] = acc;
+    }
+    for (let x = hiX; x < w; x++) {
+      let acc = 0;
+      for (let t = 0; t < ksize; t++) acc += k[t] * src[row + reflect101(x + t - half, w)];
+      tmp[row + x] = acc;
+    }
+  }
+
+  const loY = Math.min(half, h);
+  const hiY = Math.max(loY, h - half);
+  for (let y = 0; y < h; y++) {
+    const row = y * w;
+    if (y >= loY && y < hiY) {
+      const base = row - half * w;
+      for (let x = 0; x < w; x++) {
+        let acc = 0;
+        for (let t = 0; t < ksize; t++) acc += k[t] * tmp[base + t * w + x];
+        out[row + x] = acc;
+      }
+    } else {
+      for (let x = 0; x < w; x++) {
+        let acc = 0;
+        for (let t = 0; t < ksize; t++) {
+          acc += k[t] * tmp[reflect101(y + t - half, h) * w + x];
+        }
+        out[row + x] = acc;
+      }
+    }
+  }
+  return out;
+}
+
+/** Box blur over one float plane, replicate borders, running sums — O(1) per
+ *  pixel at any radius. Mirrors cv2.blur(..., BORDER_REPLICATE). */
+function boxBlurPlane(src: Float32Array, w: number, h: number, r: number): Float32Array {
+  const n = 2 * r + 1;
+  const tmp = new Float32Array(w * h);
+  const out = new Float32Array(w * h);
+  for (let y = 0; y < h; y++) {
+    const row = y * w;
+    let sum = 0;
+    for (let x = -r; x <= r; x++) sum += src[row + (x < 0 ? 0 : x > w - 1 ? w - 1 : x)];
+    for (let x = 0; x < w; x++) {
+      tmp[row + x] = sum / n;
+      const gone = x - r < 0 ? 0 : x - r;
+      const next = x + r + 1 > w - 1 ? w - 1 : x + r + 1;
+      sum += src[row + next] - src[row + gone];
+    }
+  }
+  for (let x = 0; x < w; x++) {
+    let sum = 0;
+    for (let y = -r; y <= r; y++) sum += tmp[(y < 0 ? 0 : y > h - 1 ? h - 1 : y) * w + x];
+    for (let y = 0; y < h; y++) {
+      out[y * w + x] = sum / n;
+      const gone = y - r < 0 ? 0 : y - r;
+      const next = y + r + 1 > h - 1 ? h - 1 : y + r + 1;
+      sum += tmp[next * w + x] - tmp[gone * w + x];
+    }
+  }
+  return out;
+}
+
+/** Neighbourhood brightness — three box passes, a gaussian for a third of the
+ *  cost. Mirrors globals_py._local_luma. */
+const LOCAL_RADIUS = 0.03;
+/** Texture's band and edge knee — mirrors globals_py. */
+const TEXTURE_RADIUS = 0.005;
+const TEXTURE_KNEE = 10.0;
+
+function localLuma(lum: Float32Array, w: number, h: number): Float32Array {
+  const r = Math.max(1, Math.trunc(Math.max(w, h) * LOCAL_RADIUS));
+  let out = lum;
+  for (let i = 0; i < 3; i++) out = boxBlurPlane(out, w, h, r);
+  return out;
+}
+
 /* ---------------- separable box blur (helper) ---------------- */
 
 function boxBlur(
@@ -133,6 +278,7 @@ function toneColor(img: ImageData, p: ParamValues): ImageData {
   const tint = (p.tint ?? 0) / 100;
   const sat = (p.saturation ?? 0) / 100;
   const vib = (p.vibrance ?? 0) / 100;
+  const recovery = (p.recovery ?? 0) / 100;
 
   const expGain = Math.pow(2, exposure * 2);
   // white balance = channel gains in LINEAR light (that's what a WB actually is)
@@ -142,12 +288,47 @@ function toneColor(img: ImageData, p: ParamValues): ImageData {
 
   const touchLinear = exposure !== 0 || temp !== 0 || tint !== 0;
 
-  for (let i = 0; i < d.length; i += 4) {
+  // Adaptive recovery needs the whole frame's brightness before it can decide
+  // which zone a pixel belongs to, so it costs a pre-pass. At 0 — every recipe
+  // that predates it — nothing here runs and the loop below is the old one.
+  const stage1 = (v: number, gain: number): number => {
+    let x = touchLinear ? lin2s(shoulder(S2L[v] * gain)) : v / 255;
+    if (contrast !== 0) x = applyContrast(x, contrast);
+    return x;
+  };
+  const adaptive = recovery > 0 && (highlights !== 0 || shadows !== 0);
+  let lref: Float32Array | null = null;
+  let pre: Float32Array | null = null;
+  if (adaptive) {
+    const { width: w, height: h } = img;
+    pre = new Float32Array(w * h * 3);
+    const lum = new Float32Array(w * h);
+    for (let j = 0, i = 0; j < lum.length; j++, i += 4) {
+      const R = stage1(d[i], rGain);
+      const G = stage1(d[i + 1], gGain);
+      const B = stage1(d[i + 2], bGain);
+      pre[j * 3] = R;
+      pre[j * 3 + 1] = G;
+      pre[j * 3 + 2] = B;
+      lum[j] = LUM_R * R + LUM_G * G + LUM_B * B;
+    }
+    const local = localLuma(lum, w, h);
+    lref = new Float32Array(lum.length);
+    for (let j = 0; j < lum.length; j++) {
+      lref[j] = lum[j] + (local[j] - lum[j]) * recovery;
+    }
+  }
+
+  for (let i = 0, j = 0; i < d.length; i += 4, j++) {
     let R: number;
     let G: number;
     let B: number;
 
-    if (touchLinear) {
+    if (pre) {
+      R = pre[j * 3];
+      G = pre[j * 3 + 1];
+      B = pre[j * 3 + 2];
+    } else if (touchLinear) {
       // ---- linear light: exposure + white balance + soft shoulder ----
       R = lin2s(shoulder(S2L[d[i]] * rGain));
       G = lin2s(shoulder(S2L[d[i + 1]] * gGain));
@@ -159,22 +340,25 @@ function toneColor(img: ImageData, p: ParamValues): ImageData {
     }
 
     // ---- perceptual (display-space) adjustments ----
-    if (contrast !== 0) {
+    if (contrast !== 0 && !pre) {
       R = applyContrast(R, contrast);
       G = applyContrast(G, contrast);
       B = applyContrast(B, contrast);
     }
 
     const L = LUM_R * R + LUM_G * G + LUM_B * B;
+    // highlights and shadows follow the AREA when recovery is on; whites and
+    // blacks are endpoints of the range and always follow the pixel
+    const Lz = lref ? lref[j] : L;
 
     if (highlights !== 0) {
-      const m = smoothstep(0.4, 0.95, L) * highlights * 0.35;
+      const m = smoothstep(0.4, 0.95, Lz) * highlights * 0.35;
       R += m;
       G += m;
       B += m;
     }
     if (shadows !== 0) {
-      const m = (1 - smoothstep(0.05, 0.6, L)) * shadows * 0.35;
+      const m = (1 - smoothstep(0.05, 0.6, Lz)) * shadows * 0.35;
       R += m;
       G += m;
       B += m;
@@ -243,20 +427,51 @@ function dimension(img: ImageData, p: ParamValues): ImageData {
   const out = cloneImage(img);
   const d = out.data;
   const clarity = (p.clarity ?? 0) / 100;
+  const texture = (p.texture ?? 0) / 100;
   const vignette = (p.vignette ?? 0) / 100;
 
-  if (clarity !== 0) {
-    const r = Math.max(2, Math.round(Math.max(w, h) * 0.015));
-    const blur = boxBlur(img.data, w, h, r);
-    // luminance-only, with the delta limited so edges don't grow halos
-    const limit = 26;
-    for (let i = 0; i < d.length; i += 4) {
-      const l0 = LUM_R * d[i] + LUM_G * d[i + 1] + LUM_B * d[i + 2];
-      const l1 = LUM_R * blur[i] + LUM_G * blur[i + 1] + LUM_B * blur[i + 2];
-      const mid = 1 - Math.abs(l0 / 255 - 0.5) * 2;
-      let delta = (l0 - l1) * clarity * 1.1 * mid;
-      if (delta > limit) delta = limit;
-      else if (delta < -limit) delta = -limit;
+  if (clarity !== 0 || texture !== 0) {
+    // The engine blurs RGB and takes the luma of it; blur and luma are both
+    // linear, so blurring the luma plane alone is the same answer for a third
+    // of the work.
+    const lum = new Float32Array(w * h);
+    for (let j = 0, i = 0; j < lum.length; j++, i += 4) {
+      lum[j] = LUM_R * d[i] + LUM_G * d[i + 1] + LUM_B * d[i + 2];
+    }
+    // `| 1` makes these odd: they are KERNEL SIZES, the same numbers globals_py
+    // hands to cv2.GaussianBlur. Clarity's was read as a radius here once,
+    // which made the preview's blur three times as wide as the export's.
+    let broad: Float32Array | null = null;
+    let fineBlur: Float32Array | null = null;
+    if (clarity !== 0) {
+      broad = gaussianBlurPlane(lum, w, h, Math.max(2, Math.trunc(Math.max(w, h) * 0.015)) | 1);
+    }
+    if (texture !== 0) {
+      fineBlur = gaussianBlurPlane(
+        lum, w, h, Math.max(2, Math.trunc(Math.max(w, h) * TEXTURE_RADIUS)) | 1,
+      );
+    }
+
+    // luminance-only, with each delta limited so edges don't grow halos
+    for (let j = 0, i = 0; j < lum.length; j++, i += 4) {
+      const l0 = lum[j];
+      let delta = 0;
+      if (broad) {
+        const mid = 1 - Math.abs(l0 / 255 - 0.5) * 2;
+        let c = (l0 - broad[j]) * clarity * 1.1 * mid;
+        if (c > 26) c = 26;
+        else if (c < -26) c = -26;
+        delta += c;
+      }
+      if (fineBlur) {
+        const fine = l0 - fineBlur[j];
+        // guard: full push below the knee, nothing on a real edge
+        const g = 1 / (1 + (fine / TEXTURE_KNEE) * (fine / TEXTURE_KNEE));
+        let t = fine * texture * g;
+        if (t > 20) t = 20;
+        else if (t < -20) t = -20;
+        delta += t;
+      }
       d[i] = clamp255(d[i] + delta);
       d[i + 1] = clamp255(d[i + 1] + delta);
       d[i + 2] = clamp255(d[i + 2] + delta);

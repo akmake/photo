@@ -28,6 +28,7 @@ import skin
 import globals_py
 import hsl
 import grade_zones
+import dehaze
 
 # toolId -> (callable, pipeline order). Lower order runs first.
 # All entries share the (rgb, params) -> (rgb, meta) contract so the frame stays
@@ -49,6 +50,9 @@ TOOLS = {
     # parametric curves sit between the basic tone panel and the local tools,
     # exactly where a raw pipeline runs its tone curve
     "curves": (globals_py.curves, 32),
+    # haze sits in front of the scene, so it comes off before anything shapes
+    # the tone that is behind it. Depth-driven, hence engine-side only.
+    "dehaze": (dehaze.apply, 34),
     "dimension": (globals_py.dimension, 35),
     # RETIRED, merged into grade-zones. Still dispatched so recipes saved before
     # the merge render exactly as they did; nothing new is fitted into it.

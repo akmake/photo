@@ -17,6 +17,14 @@ import common
 
 LUM = np.array([0.2126, 0.7152, 0.0722], dtype=np.float32)
 SHOULDER = 0.72
+# How far "the surroundings" reach when highlights/shadows are asked to adapt
+# locally, as a fraction of the long edge.
+LOCAL_RADIUS = 0.03
+# Texture's band: a third of clarity's radius, so the two do not overlap and a
+# recipe can hold both. The knee is in luma levels — detail below it is texture
+# and gets the push, detail above it is an edge and is left alone.
+TEXTURE_RADIUS = 0.005
+TEXTURE_KNEE = 10.0
 
 
 def _p(params, key, default=0.0):
@@ -80,6 +88,19 @@ def _wrap(fn):
     return inner
 
 
+def _local_luma(lum):
+    """Neighbourhood brightness: three box passes, which is a gaussian for a
+    third of the cost and, unlike a gaussian, is O(1) per pixel at any radius.
+    Radius is a fraction of the frame so a preview and a 20MP export adapt to
+    the same regions. Mirrored in imageEngine.ts::boxBlurPlane."""
+    r = max(1, int(max(lum.shape[:2]) * LOCAL_RADIUS))
+    n = 2 * r + 1
+    out = lum
+    for _ in range(3):
+        out = cv2.blur(out, (n, n), borderType=cv2.BORDER_REPLICATE)
+    return out
+
+
 def _tone_color(rgb, params):
     exposure = _p(params, "exposure")
     contrast = _p(params, "contrast")
@@ -91,6 +112,7 @@ def _tone_color(rgb, params):
     tint = _p(params, "tint")
     sat = _p(params, "saturation")
     vib = _p(params, "vibrance")
+    recovery = _p(params, "recovery")
 
     # ---- stage 1: everything that is a per-channel scalar function ----
     # exposure, white balance, highlight shoulder and contrast all map one
@@ -123,17 +145,43 @@ def _tone_color(rgb, params):
     if highlights or shadows or whites or blacks:
         n = 1024
         lv = np.linspace(0.0, 1.0, n, dtype=np.float32)
-        off = np.zeros(n, dtype=np.float32)
-        if highlights:
-            off += _smoothstep(0.4, 0.95, lv) * highlights * 0.35
-        if shadows:
-            off += (1 - _smoothstep(0.05, 0.6, lv)) * shadows * 0.35
-        if whites:
-            off += _smoothstep(0.7, 1.0, lv) * whites * 0.3
-        if blacks:
-            off += (1 - _smoothstep(0.0, 0.3, lv)) * blacks * 0.3
-        li = np.clip(_luma(x) * (n - 1), 0, n - 1).astype(np.int32)
-        x += off[li][..., None]
+        lum = _luma(x)
+        li = np.clip(lum * (n - 1), 0, n - 1).astype(np.int32)
+
+        if recovery > 0 and (highlights or shadows):
+            # Adaptive recovery: the zone is chosen by how bright the AREA is,
+            # not the pixel. A catchlight inside a dark braid then rides up with
+            # the shadow it lives in instead of being read as a highlight and
+            # pushed the other way — which is the difference between recovering
+            # a shadow and flattening the picture. Whites and blacks stay on the
+            # pixel: they set the endpoints of the range, which is a global
+            # decision by definition.
+            lref = lum + (_local_luma(lum) - lum) * recovery
+            ri = np.clip(lref * (n - 1), 0, n - 1).astype(np.int32)
+            zone = np.zeros(n, dtype=np.float32)
+            if highlights:
+                zone += _smoothstep(0.4, 0.95, lv) * highlights * 0.35
+            if shadows:
+                zone += (1 - _smoothstep(0.05, 0.6, lv)) * shadows * 0.35
+            point = np.zeros(n, dtype=np.float32)
+            if whites:
+                point += _smoothstep(0.7, 1.0, lv) * whites * 0.3
+            if blacks:
+                point += (1 - _smoothstep(0.0, 0.3, lv)) * blacks * 0.3
+            x += (zone[ri] + point[li])[..., None]
+        else:
+            # accumulated in this exact order since the first version — keep it,
+            # so that recovery at 0 is bit-for-bit the old tool
+            off = np.zeros(n, dtype=np.float32)
+            if highlights:
+                off += _smoothstep(0.4, 0.95, lv) * highlights * 0.35
+            if shadows:
+                off += (1 - _smoothstep(0.05, 0.6, lv)) * shadows * 0.35
+            if whites:
+                off += _smoothstep(0.7, 1.0, lv) * whites * 0.3
+            if blacks:
+                off += (1 - _smoothstep(0.0, 0.3, lv)) * blacks * 0.3
+            x += off[li][..., None]
 
     if sat or vib:
         L2 = _luma(x)[..., None]
@@ -181,17 +229,34 @@ def _tone_color(rgb, params):
 
 def _dimension(rgb, params):
     clarity = _p(params, "clarity")
+    texture = _p(params, "texture")
     vignette = _p(params, "vignette")
     out = rgb.copy()
     h, w = rgb.shape[:2]
 
-    if clarity:
-        r = max(2, int(max(h, w) * 0.015)) | 1
-        blur = cv2.GaussianBlur(rgb, (r, r), 0)
+    if clarity or texture:
         l0 = _luma(rgb)
-        l1 = _luma(blur)
-        mid = 1 - np.abs(l0 / 255.0 - 0.5) * 2
-        delta = np.clip((l0 - l1) * clarity * 1.1 * mid, -26, 26)
+        delta = np.zeros_like(l0)
+
+        if clarity:
+            r = max(2, int(max(h, w) * 0.015)) | 1
+            l1 = _luma(cv2.GaussianBlur(rgb, (r, r), 0))
+            mid = 1 - np.abs(l0 / 255.0 - 0.5) * 2
+            delta = delta + np.clip((l0 - l1) * clarity * 1.1 * mid, -26, 26)
+
+        if texture:
+            # A finer band than clarity — pores, weave, hair, the grain of
+            # stone — and guarded, which is the whole difference between this
+            # and sharpening. The guard falls off as the local detail grows, so
+            # a real edge (a bridle against a white horse) keeps its own
+            # amplitude and never gains a halo, while everything below the knee
+            # gets the full push. Negative asks for less texture and keeps the
+            # same edges, which is how you soften skin without smearing it.
+            tr = max(2, int(max(h, w) * TEXTURE_RADIUS)) | 1
+            fine = l0 - cv2.GaussianBlur(l0, (tr, tr), 0)
+            guard = 1.0 / (1.0 + (fine / TEXTURE_KNEE) ** 2)
+            delta = delta + np.clip(fine * texture * guard, -20, 20)
+
         out = out + delta[..., None]
 
     if vignette:

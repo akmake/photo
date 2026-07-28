@@ -100,7 +100,17 @@ export const TOOLS: ToolDef[] = [
     category: 'local-ai',
     order: 20, // AI retouch runs on neutral data, before the creative grade
     batchPolicy: 'absolute',
-    params: [{ id: 'strength', label: 'עוצמה', min: 0, max: 100, step: 1, default: 60 }],
+    params: [
+      { id: 'strength', label: 'עוצמה', min: 0, max: 100, step: 1, default: 60 },
+      // The two settings the frequency separation used to hardcode. `scale` is
+      // where tone ends and texture begins; `evenness` is how hard the tone
+      // side is flattened. 50/50 is the behaviour every existing recipe has.
+      { id: 'scale', label: 'גודל אי-האחידות', min: 0, max: 100, step: 1, default: 50 },
+      { id: 'evenness', label: 'השוואת טון', min: 0, max: 100, step: 1, default: 50 },
+      { id: 'texture', label: 'שימור טקסטורה', min: 0, max: 100, step: 1, default: 100 },
+      // neck, arms and hands — they received nothing at all until now
+      { id: 'body', label: 'עור הגוף', min: 0, max: 100, step: 1, default: 0 },
+    ],
   },
   // Colour work on the retouched face. These three are the same operation —
   // a mask plus a push in Lab — and none of them reconstructs pixels, so they
@@ -166,14 +176,24 @@ export const TOOLS: ToolDef[] = [
     order: 30,
     batchPolicy: 'absolute',
     params: [
-      { id: 'exposure', label: 'חשיפה', min: -100, max: 100, step: 1, default: 0 },
+      // ±200 = ±4 stops. 100 still means +2 stops, exactly as before — the
+      // range grew, the scale did not move. A frame shot two stops under needs
+      // the room, and the shoulder above 0.72 keeps the top from clipping flat.
+      { id: 'exposure', label: 'חשיפה', min: -200, max: 200, step: 1, default: 0 },
       { id: 'contrast', label: 'ניגודיות', min: -100, max: 100, step: 1, default: 0 },
       { id: 'highlights', label: 'היילייטים', min: -100, max: 100, step: 1, default: 0 },
       { id: 'whites', label: 'לבנים (שרוף)', min: -100, max: 100, step: 1, default: 0 },
       { id: 'shadows', label: 'צלליות', min: -100, max: 100, step: 1, default: 0 },
       { id: 'blacks', label: 'שחורים', min: -100, max: 100, step: 1, default: 0 },
-      { id: 'temperature', label: 'חום', min: -100, max: 100, step: 1, default: 0 },
-      { id: 'tint', label: 'גוון', min: -100, max: 100, step: 1, default: 0 },
+      // How much of the zone a pixel belongs to is read from its SURROUNDINGS
+      // rather than from itself. 0 is the tool as it always was. This is what
+      // separates recovering a shadow from flattening the whole picture.
+      { id: 'recovery', label: 'שחזור מקומי', min: 0, max: 100, step: 1, default: 0 },
+      // ±200 = ±4 stops / ±56%. The slope is untouched, so every value an
+      // existing recipe holds means exactly what it meant — there is simply
+      // more travel past the old ends, where a rescue actually lives.
+      { id: 'temperature', label: 'חום', min: -200, max: 200, step: 1, default: 0 },
+      { id: 'tint', label: 'גוון', min: -200, max: 200, step: 1, default: 0 },
       { id: 'saturation', label: 'רוויה', min: -100, max: 100, step: 1, default: 0 },
       { id: 'vibrance', label: 'חיוניות', min: -100, max: 100, step: 1, default: 0 },
     ],
@@ -201,6 +221,28 @@ export const TOOLS: ToolDef[] = [
     ),
   },
   {
+    // Haze sits in FRONT of the scene, so it comes off before anything shapes
+    // the tone behind it. Negative adds it back — atmosphere is a look.
+    // `ai`, not `global`: transmission comes from the depth model, which has no
+    // browser mirror. The dark-channel version that could run in JS was built,
+    // measured and rejected — it reads a white dress as dense haze. See
+    // engine/dehaze.py.
+    id: 'dehaze',
+    label: 'אובך',
+    kind: 'ai',
+    category: 'scene',
+    order: 34,
+    batchPolicy: 'absolute',
+    params: [
+      { id: 'amount', label: 'עוצמה', min: -100, max: 100, step: 1, default: 0 },
+      // how fast haze piles up with distance: low touches only the far horizon,
+      // high clears everything past the subject's plane
+      { id: 'depth', label: 'טווח מרחק', min: 0, max: 100, step: 1, default: 50 },
+      // how far the densest haze may be pushed before it turns to noise
+      { id: 'floor', label: 'עומק החילוץ', min: 0, max: 100, step: 1, default: 50 },
+    ],
+  },
+  {
     id: 'dimension',
     label: 'תלת מימדיות',
     kind: 'global',
@@ -209,6 +251,10 @@ export const TOOLS: ToolDef[] = [
     batchPolicy: 'absolute',
     params: [
       { id: 'clarity', label: 'ניגודיות מקומית', min: -100, max: 100, step: 1, default: 0 },
+      // A third of clarity's radius, and edge-guarded — so it lands on weave,
+      // pores and grain and not on the outline of a bridle. Negative is how
+      // you take texture down without smearing the edges with it.
+      { id: 'texture', label: 'טקסטורה', min: -100, max: 100, step: 1, default: 0 },
       { id: 'vignette', label: 'וינייטה', min: 0, max: 100, step: 1, default: 0 },
       // where the falloff begins: low = darkening reaches toward the centre,
       // high = only the far corners. 50 = the historical behavior.

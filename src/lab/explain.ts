@@ -68,6 +68,7 @@ const EFFECT_KEYS = [
 const FACTS: Record<string, (v: MetaValue) => string> = {
   // coverage / geometry
   skinCoverage: (v) => `כיסוי עור בפריים: ${pct(v)}`,
+  bodyCoverage: (v) => `עור גוף (צוואר/ידיים): ${pct(v)}`,
   hairCoverage: (v) => `כיסוי שיער בפריים: ${pct(v)}`,
   subjectCoverage: (v) => `כיסוי נושא בפריים: ${pct(v)}`,
   fabricCoverage: (v) => `כיסוי בגדים בפריים: ${pct(v)}`,

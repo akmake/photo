@@ -46,6 +46,10 @@ CASES = [
     ("tone-color", globals_py.tone_color, 1, [
         {"exposure": 30, "contrast": 25, "temperature": -20, "vibrance": 40},
         {"highlights": -60, "shadows": 45, "whites": 20, "blacks": -25, "saturation": -30},
+        {"exposure": 170, "temperature": 150},          # past the old ends
+        {"exposure": -160, "tint": -120, "contrast": 30},
+        {"highlights": -70, "shadows": 60, "recovery": 100},   # fully adaptive
+        {"highlights": -50, "shadows": 50, "whites": 15, "blacks": -20, "recovery": 45},
     ]),
     ("curves", globals_py.curves, 1, [
         {"lumaBlacks": 40, "lumaShadows": 20, "lumaHighlights": -15},
@@ -57,6 +61,12 @@ CASES = [
     # anything past that is a real divergence, not the resampling.
     ("dimension", globals_py.dimension, 2, [
         {"vignette": 60, "midpoint": 20},
+        {"clarity": 40},
+        {"clarity": -55},
+        {"clarity": 40, "vignette": 60, "midpoint": 20},
+        {"texture": 80},
+        {"texture": -70},
+        {"texture": 60, "clarity": 35, "vignette": 40},
     ]),
     # Retired, still rendered for recipes that predate the merge — so parity
     # matters exactly as much as it did before.
@@ -83,14 +93,7 @@ CASES = [
 # printed on every run so they cannot be forgotten, but they do not fail it —
 # a red suite that is always red stops being read. Move a line out of here the
 # day it is fixed, never the day it is inconvenient.
-KNOWN = [
-    (
-        "dimension", globals_py.dimension, {"clarity": 40},
-        "clarity's local contrast is built on different blurs on the two sides "
-        "(~95% of pixels differ, up to 25 levels). The preview under-reports "
-        "what the export will do. Not touched by the grade merge.",
-    ),
-]
+KNOWN: list = []
 
 
 def _bundle() -> str:

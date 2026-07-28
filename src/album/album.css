@@ -391,6 +391,9 @@
   gap: 8px;
   padding: 18px 26px 10px;
   overflow: hidden;
+  /* The spread must be sized against THIS box, not against its own grid area —
+   * see the note on .album-spread. */
+  container-type: size;
 }
 
 .album-photo-controls {
@@ -497,8 +500,14 @@
 
 .album-spread {
   position: relative;
-  width: min(100%, 960px);
-  max-height: calc(100% - 20px);
+  /* `max-height: calc(100% - 20px)` used to sit here, and it silently squashed
+   * the album: the grid row sizes itself to the spread's aspect-derived height,
+   * then that max-height resolves against that very row and shaves 20px off it
+   * every time — so a 2:1 album always rendered at about 2.09:1. Bounding the
+   * width by the CONTAINER's height instead keeps the printed proportions
+   * exact, which is the whole point of previewing a print product.
+   * The 44px covers the legend row, the grid gap and a little breathing room. */
+  width: min(100%, 960px, calc((100cqh - 44px) * var(--spread-aspect, 2)));
   aspect-ratio: 2 / 1;
   overflow: hidden;
   border: 1px solid #d7d1c7;
@@ -569,6 +578,13 @@
   display: block;
   object-fit: contain;
   transition: transform 0.18s ease;
+}
+
+/* A photo shown whole sits ON the page, so the frame drops its own white card
+ * and border — otherwise the leftover area reads as a broken fill. */
+.album-frame.letterboxed {
+  border-color: transparent;
+  box-shadow: none;
 }
 
 .album-frame.assignable {
