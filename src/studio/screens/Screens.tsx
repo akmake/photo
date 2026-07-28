@@ -139,21 +139,6 @@ export function GalleryPicked() {
   );
 }
 
-export function AlbumDesign() {
-  return (
-    <>
-      <Head title="עיצוב אלבום" sub="פריסת דפים והרכבת האלבום" />
-      <DemoNote what="עיצוב האלבום" />
-      <section className="card card-pad">
-        <div className="card-title">פריסות</div>
-        <div style={{ marginTop: 14 }}>
-          <Tiles n={8} />
-        </div>
-      </section>
-    </>
-  );
-}
-
 export function Clients() {
   return (
     <>
@@ -244,5 +229,4 @@ export const STAGE_SCREENS: Partial<Record<StageId, () => JSX.Element>> = {
   'gallery-upload': GalleryUpload,
   'gallery-cull': GalleryCull,
   'gallery-picked': GalleryPicked,
-  'album-design': AlbumDesign,
 };

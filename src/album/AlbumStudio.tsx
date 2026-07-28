@@ -1,0 +1,1521 @@
+import { useEffect, useMemo, useRef, useState } from 'react';
+import {
+  IcBook, IcCheck, IcChevron, IcDownload, IcEye, IcGallery, IcSparkle,
+  IcUndo, IcUpload,
+} from '../design/Icons';
+import type {
+  AlbumPhoto, AlbumPhotoAnalysis, AlbumProject, AlbumSpread, LayoutSlot,
+  PhotoFitMode, PhotoFrameSettings,
+} from './model';
+import { FIRST_PRINT_PROFILE, PRINT_PROFILES } from './model';
+import {
+  buildAlbumLayoutCandidates, EMPTY_GENERATED_LAYOUT, type GeneratedAlbumLayout,
+} from './layoutEngine';
+import { assessCrop } from './cropEngine';
+import { analyzeAlbumPhoto } from '../api';
+import { exportAlbumForPrint, exportAlbumProof } from './exportEngine';
+import { buildAutomaticAlbum } from './albumFlow';
+import { loadWorkspace, saveWorkspace, storePhotoBlob } from './albumStorage';
+import AlbumPreview from './AlbumPreview';
+import ReviewWorkspace from './ReviewWorkspace';
+import CoverEditor from './CoverEditor';
+import PreflightPanel from './PreflightPanel';
+import { runAlbumPreflight, type PreflightIssue } from './preflightEngine';
+
+const DEMO_PHOTOS_BASE: AlbumPhoto[] = [
+  { id: 'p1', name: 'רגע עם הסוס', url: '/demo/b.jpg', orientation: 'landscape', widthPx: 1600, heightPx: 1067, focalPoint: { x: 0.58, y: 0.45 } },
+  { id: 'p2', name: 'פורטרט בחוץ', url: '/demo/c.jpg', orientation: 'portrait', widthPx: 1067, heightPx: 1600, focalPoint: { x: 0.5, y: 0.34 } },
+  { id: 'p3', name: 'רגע סתווי', url: '/demo/a.jpg', orientation: 'landscape', widthPx: 1600, heightPx: 1067, focalPoint: { x: 0.48, y: 0.44 } },
+  { id: 'p4', name: 'דיוקן נבחר', url: '/demo/c.jpg', orientation: 'portrait', widthPx: 1067, heightPx: 1600, focalPoint: { x: 0.54, y: 0.32 } },
+  { id: 'p5', name: 'פריים רחב', url: '/demo/b.jpg', orientation: 'landscape', widthPx: 1600, heightPx: 1067, focalPoint: { x: 0.63, y: 0.45 } },
+  { id: 'p6', name: 'פרט משלים', url: '/demo/a.jpg', orientation: 'square', widthPx: 1400, heightPx: 1400, focalPoint: { x: 0.5, y: 0.5 } },
+  { id: 'p7', name: 'רגע טבעי', url: '/demo/b.jpg', orientation: 'landscape', widthPx: 1600, heightPx: 1067, focalPoint: { x: 0.58, y: 0.46 } },
+  { id: 'p8', name: 'דיוקן עם סוס', url: '/demo/c.jpg', orientation: 'portrait', widthPx: 1067, heightPx: 1600, focalPoint: { x: 0.52, y: 0.34 } },
+  { id: 'p9', name: 'מבט מהצד', url: '/demo/a.jpg', orientation: 'landscape', widthPx: 1600, heightPx: 1067, focalPoint: { x: 0.56, y: 0.47 } },
+  { id: 'p10', name: 'רגע שקט', url: '/demo/c.jpg', orientation: 'portrait', widthPx: 1067, heightPx: 1600, focalPoint: { x: 0.5, y: 0.36 } },
+  { id: 'p11', name: 'פריים לסיום', url: '/demo/b.jpg', orientation: 'landscape', widthPx: 1600, heightPx: 1067, focalPoint: { x: 0.62, y: 0.46 } },
+  { id: 'p12', name: 'תמונה משלימה', url: '/demo/a.jpg', orientation: 'square', widthPx: 1400, heightPx: 1400, focalPoint: { x: 0.5, y: 0.5 } },
+];
+
+const DEMO_ANALYSIS: Record<string, AlbumPhotoAnalysis> = {
+  '/demo/a.jpg': {
+    status: 'ready',
+    faces: [{ x: 0.50331, y: 0.32614, width: 0.13707, height: 0.16908 }],
+    subject: { x: 0.32474, y: 0.34063, width: 0.3177, height: 0.44688 },
+    focalPoint: { x: 0.54978, y: 0.44903 },
+    sharpnessScore: 0.486,
+    qualityScore: 0.5926,
+    analyzedBy: 'mediapipe-local-v1',
+  },
+  '/demo/b.jpg': {
+    status: 'ready',
+    faces: [{ x: 0.47894, y: 0.30108, width: 0.13497, height: 0.24971 }],
+    subject: { x: 0.3, y: 0.08441, width: 0.44531, height: 0.91559 },
+    focalPoint: { x: 0.54048, y: 0.455 },
+    sharpnessScore: 0.7496,
+    qualityScore: 0.8047,
+    analyzedBy: 'mediapipe-local-v1',
+  },
+  '/demo/c.jpg': {
+    status: 'ready',
+    faces: [{ x: 0.50345, y: 0.32609, width: 0.13718, height: 0.16897 }],
+    subject: { x: 0.28605, y: 0.33984, width: 0.35756, height: 0.44688 },
+    focalPoint: { x: 0.54524, y: 0.44875 },
+    sharpnessScore: 0.8443,
+    qualityScore: 0.8238,
+    analyzedBy: 'mediapipe-local-v1',
+  },
+};
+
+const DEMO_PHOTOS: AlbumPhoto[] = DEMO_PHOTOS_BASE.map((photo) => ({
+  ...photo,
+  widthPx: photo.url.endsWith('/b.jpg') ? 5472 : 3648,
+  heightPx: photo.url.endsWith('/b.jpg') ? 3648 : 5472,
+  orientation: photo.url.endsWith('/b.jpg') ? 'landscape' : 'portrait',
+  focalPoint: DEMO_ANALYSIS[photo.url].focalPoint,
+  analysis: DEMO_ANALYSIS[photo.url],
+}));
+
+const INITIAL_SPREADS: AlbumSpread[] = [
+  { id: 's1', pageStart: 2, layoutId: 'balanced', photoIds: ['p1'], background: '#f4efe7', locked: false, status: 'draft' },
+  { id: 's2', pageStart: 4, layoutId: 'balanced', photoIds: ['p2', 'p3'], background: '#f8f6f1', locked: false, status: 'draft' },
+  { id: 's3', pageStart: 6, layoutId: 'balanced', photoIds: ['p4', 'p5', 'p6', 'p7', 'p8'], background: '#f5efe7', locked: false, status: 'draft' },
+  { id: 's4', pageStart: 8, layoutId: 'balanced', photoIds: [], background: '#e9e2d8', locked: false, status: 'draft' },
+  { id: 's5', pageStart: 10, layoutId: 'balanced', photoIds: [], background: '#f8f6f1', locked: false, status: 'draft' },
+];
+
+type PhotoTrayFilter = 'available' | 'unused' | 'used' | 'all';
+interface PersonalLayout {
+  id: string;
+  name: string;
+  photoCount: number;
+  pageAspect: number;
+  slots: LayoutSlot[];
+}
+
+const DEFAULT_FRAME_SETTINGS: PhotoFrameSettings = {
+  fit: 'smart',
+  positionX: 50,
+  positionY: 50,
+  zoom: 100,
+};
+
+const INITIAL_PROJECT: AlbumProject = {
+  id: 'album-mali',
+  name: 'מלי כץ — בת מצווה',
+  productProfileId: FIRST_PRINT_PROFILE.id,
+  styleName: 'Fine Art',
+  spreads: INITIAL_SPREADS,
+  activeSpreadId: 's3',
+};
+
+function orientationFor(width: number, height: number): AlbumPhoto['orientation'] {
+  const ratio = width / height;
+  if (ratio > 1.12) return 'landscape';
+  if (ratio < 0.88) return 'portrait';
+  return 'square';
+}
+
+export default function AlbumStudio() {
+  const [project, setProject] = useState(INITIAL_PROJECT);
+  const [photos, setPhotos] = useState(DEMO_PHOTOS);
+  const [historyPast, setHistoryPast] = useState<AlbumProject[]>([]);
+  const [historyFuture, setHistoryFuture] = useState<AlbumProject[]>([]);
+  const [isHydrated, setIsHydrated] = useState(false);
+  const [selectedPhotoId, setSelectedPhotoId] = useState<string | null>(null);
+  const [selectionMode, setSelectionMode] = useState(false);
+  const [albumSelectedIds, setAlbumSelectedIds] = useState<Set<string>>(new Set());
+  const [selectedSlotIndex, setSelectedSlotIndex] = useState<number | null>(null);
+  const [photoFilter, setPhotoFilter] = useState<PhotoTrayFilter>('available');
+  const [showGuides, setShowGuides] = useState(true);
+  const [panelTab, setPanelTab] = useState<'layouts' | 'design'>('layouts');
+  const [notice, setNotice] = useState('הטיוטה נשמרה מקומית');
+  const [photoLimit, setPhotoLimit] = useState(60);
+  const [isExporting, setIsExporting] = useState(false);
+  const [showProfileEditor, setShowProfileEditor] = useState(false);
+  const [showPreview, setShowPreview] = useState(false);
+  const [showReview, setShowReview] = useState(false);
+  const [showCover, setShowCover] = useState(false);
+  const [showPreflight, setShowPreflight] = useState(false);
+  const [panMode, setPanMode] = useState(false);
+  const [printProfiles, setPrintProfiles] = useState(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem('album-print-profiles') ?? '[]');
+      if (!Array.isArray(saved) || !saved.length) return PRINT_PROFILES;
+      return PRINT_PROFILES.map((base) => ({
+        ...base,
+        ...(saved.find((item) => item.id === base.id) ?? {}),
+      }));
+    } catch {
+      return PRINT_PROFILES;
+    }
+  });
+  const [personalLayouts, setPersonalLayouts] = useState<PersonalLayout[]>(() => {
+    try {
+      return JSON.parse(localStorage.getItem('album-personal-layouts') ?? '[]');
+    } catch {
+      return [];
+    }
+  });
+  const fileInput = useRef<HTMLInputElement>(null);
+  const panSession = useRef<{
+    slotIndex: number;
+    startX: number;
+    startY: number;
+    positionX: number;
+    positionY: number;
+    before: AlbumProject;
+    moved: boolean;
+  } | null>(null);
+  const suppressFrameClick = useRef(false);
+
+  useEffect(() => {
+    let alive = true;
+    loadWorkspace()
+      .then((saved) => {
+        if (!alive || !saved) return;
+        setProject(saved.project);
+        setPhotos(saved.photos);
+        setNotice('הפרויקט האחרון שוחזר');
+      })
+      .catch(() => setNotice('לא ניתן היה לשחזר את הטיוטה המקומית'))
+      .finally(() => {
+        if (alive) setIsHydrated(true);
+      });
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!isHydrated) return undefined;
+    const timer = window.setTimeout(() => {
+      saveWorkspace(project, photos);
+      setNotice('כל השינויים נשמרו אוטומטית');
+    }, 600);
+    return () => window.clearTimeout(timer);
+  }, [isHydrated, photos, project]);
+
+  const spreadIndex = project.spreads.findIndex((spread) => spread.id === project.activeSpreadId);
+  const spread = project.spreads[spreadIndex] ?? project.spreads[0];
+  const profile = printProfiles.find((item) => item.id === project.productProfileId)
+    ?? FIRST_PRINT_PROFILE;
+  const layoutCandidates = useMemo(
+    () => buildAlbumLayoutCandidates(
+      spread.photoIds,
+      photos,
+      profile.closedWidthMm / profile.closedHeightMm,
+    ),
+    [photos, profile.closedHeightMm, profile.closedWidthMm, spread.photoIds],
+  );
+  const generatedLayout = layoutCandidates.find((candidate) => candidate.id === spread.layoutId)
+    ?? layoutCandidates[0]
+    ?? EMPTY_GENERATED_LAYOUT;
+  const layout = spread.customSlots?.length === spread.photoIds.length ? {
+    ...generatedLayout,
+    id: spread.layoutId,
+    name: 'פריסה אישית',
+    slots: spread.customSlots,
+    photoIds: spread.photoIds,
+    explanation: 'פריסה אישית שנערכה ידנית',
+  } : generatedLayout;
+  const usedIds = useMemo(() => new Set(project.spreads.flatMap((item) => item.photoIds)), [project.spreads]);
+  const currentSpreadIds = useMemo(() => new Set(spread.photoIds), [spread.photoIds]);
+  const previouslyUsedIds = useMemo(
+    () => new Set(project.spreads.slice(0, Math.max(0, spreadIndex)).flatMap((item) => item.photoIds)),
+    [project.spreads, spreadIndex],
+  );
+  const filteredPhotos = useMemo(() => photos.filter((photo) => {
+    if (photoFilter === 'available') return !previouslyUsedIds.has(photo.id);
+    if (photoFilter === 'unused') return !usedIds.has(photo.id);
+    if (photoFilter === 'used') return usedIds.has(photo.id);
+    return true;
+  }), [photoFilter, photos, previouslyUsedIds, usedIds]);
+  const visiblePhotos = filteredPhotos.slice(0, photoLimit);
+  const selectedSlot = selectedSlotIndex === null ? null : layout.slots[selectedSlotIndex];
+  const selectedFramePhoto = selectedSlotIndex === null
+    ? null
+    : photos.find((photo) => photo.id === layout.photoIds[selectedSlotIndex]) ?? null;
+  const selectedFrameSettings = selectedSlot
+    ? spread.frameSettings?.[selectedSlot.id] ?? {
+      ...DEFAULT_FRAME_SETTINGS,
+      positionX: (selectedFramePhoto?.focalPoint?.x ?? 0.5) * 100,
+      positionY: (selectedFramePhoto?.focalPoint?.y ?? 0.5) * 100,
+    }
+    : null;
+  const selectedCrop = selectedSlot && selectedFramePhoto && selectedFrameSettings
+    ? assessCrop(
+      selectedFramePhoto,
+      selectedSlot,
+      selectedFrameSettings,
+      profile.spreadWidthMm / profile.spreadHeightMm,
+    )
+    : null;
+  const preflightIssues = useMemo(
+    () => runAlbumPreflight(project, photos, profile),
+    [photos, profile, project],
+  );
+  const preflight = useMemo(() => ({
+    blockers: preflightIssues.filter((issue) => issue.severity === 'blocker').length,
+    warnings: preflightIssues.filter((issue) => issue.severity === 'warning').length,
+    lowResolution: preflightIssues.filter((issue) => issue.code === 'LOW_PPI').length,
+    riskyCrop: preflightIssues.filter((issue) => issue.code === 'UNSAFE_CROP').length,
+    waitingAnalysis: preflightIssues.filter((issue) => issue.code === 'ANALYSIS_PENDING').length,
+    overlaps: preflightIssues.filter((issue) => issue.code === 'FRAME_OVERLAP').length,
+    profileIssues: preflightIssues.filter((issue) => issue.target === 'profile').length,
+    approvalIssues: preflightIssues.filter((issue) => issue.target === 'review').length,
+    total: preflightIssues.filter((issue) => issue.severity === 'blocker').length,
+  }), [preflightIssues]);
+
+  function commitProject(next: AlbumProject | ((current: AlbumProject) => AlbumProject)) {
+    const resolved = typeof next === 'function' ? next(project) : next;
+    setHistoryPast((items) => [...items.slice(-49), project]);
+    setHistoryFuture([]);
+    setProject(resolved);
+  }
+
+  function undoProject() {
+    const previous = historyPast[historyPast.length - 1];
+    if (!previous) return;
+    setHistoryPast((items) => items.slice(0, -1));
+    setHistoryFuture((items) => [project, ...items].slice(0, 50));
+    setProject(previous);
+    setSelectedSlotIndex(null);
+    setNotice('השינוי האחרון בוטל');
+  }
+
+  function redoProject() {
+    const next = historyFuture[0];
+    if (!next) return;
+    setHistoryFuture((items) => items.slice(1));
+    setHistoryPast((items) => [...items.slice(-49), project]);
+    setProject(next);
+    setSelectedSlotIndex(null);
+    setNotice('השינוי הוחזר');
+  }
+
+  function updateSpread(patch: Partial<AlbumSpread>) {
+    commitProject((current) => ({
+      ...current,
+      spreads: current.spreads.map((item) => item.id === spread.id ? { ...item, ...patch } : item),
+    }));
+    setNotice('השינויים נשמרו');
+  }
+
+  function updatePrintProfile(patch: Partial<typeof profile>) {
+    const next = printProfiles.map((item) => (
+      item.id === profile.id ? { ...item, ...patch } : item
+    ));
+    setPrintProfiles(next);
+    localStorage.setItem('album-print-profiles', JSON.stringify(next));
+    setNotice('פרופיל הדפוס נשמר במחשב');
+  }
+
+  function setActiveSpread(index: number) {
+    const next = project.spreads[index];
+    if (!next) return;
+    setProject((current) => ({ ...current, activeSpreadId: next.id }));
+    setSelectedPhotoId(null);
+    setSelectedSlotIndex(null);
+    setPhotoFilter('available');
+    setPhotoLimit(60);
+  }
+
+  function addSpread() {
+    const next: AlbumSpread = {
+      id: `spread-${Date.now()}`,
+      pageStart: project.spreads.length * 2 + 2,
+      layoutId: 'balanced',
+      photoIds: [],
+      background: '#f8f6f1',
+      locked: false,
+      status: 'draft',
+      frameSettings: {},
+    };
+    commitProject((current) => ({
+      ...current,
+      spreads: [...current.spreads, next],
+      activeSpreadId: next.id,
+    }));
+    setSelectedSlotIndex(null);
+    setPhotoFilter('available');
+    setNotice('נוספה כפולה חדשה');
+  }
+
+  function removeSpread() {
+    if (project.spreads.length <= 1) {
+      setNotice('האלבום חייב להכיל לפחות כפולה אחת');
+      return;
+    }
+    const remaining = project.spreads
+      .filter((item) => item.id !== spread.id)
+      .map((item, index) => ({ ...item, pageStart: 2 + index * 2 }));
+    const nextActive = remaining[Math.min(spreadIndex, remaining.length - 1)];
+    commitProject((current) => ({
+      ...current,
+      spreads: remaining,
+      activeSpreadId: nextActive.id,
+    }));
+    setSelectedSlotIndex(null);
+    setNotice('הכפולה נמחקה; התמונות נשארו במאגר');
+  }
+
+  function moveSpread(direction: -1 | 1) {
+    const target = spreadIndex + direction;
+    if (target < 0 || target >= project.spreads.length) return;
+    const reordered = [...project.spreads];
+    [reordered[spreadIndex], reordered[target]] = [reordered[target], reordered[spreadIndex]];
+    commitProject((current) => ({
+      ...current,
+      spreads: reordered.map((item, index) => ({ ...item, pageStart: 2 + index * 2 })),
+    }));
+    setNotice(direction < 0 ? 'הכפולה הוזזה אחורה' : 'הכפולה הוזזה קדימה');
+  }
+
+  function toggleAlbumPhoto(photoId: string) {
+    setAlbumSelectedIds((current) => {
+      const next = new Set(current);
+      if (next.has(photoId)) next.delete(photoId);
+      else next.add(photoId);
+      return next;
+    });
+  }
+
+  function selectAllFilteredPhotos() {
+    setAlbumSelectedIds((current) => {
+      const next = new Set(current);
+      filteredPhotos.forEach((photo) => next.add(photo.id));
+      return next;
+    });
+    setNotice(`${filteredPhotos.length} תמונות נוספו לבחירת האלבום`);
+  }
+
+  function buildFullAlbum() {
+    const orderedIds = photos
+      .filter((photo) => albumSelectedIds.has(photo.id))
+      .map((photo) => photo.id);
+    if (!orderedIds.length) {
+      setSelectionMode(true);
+      setNotice('בחרי תחילה את התמונות שייכנסו לאלבום');
+      return;
+    }
+    const spreads = buildAutomaticAlbum(
+      orderedIds,
+      photos,
+      profile.closedWidthMm / profile.closedHeightMm,
+    );
+    commitProject((current) => ({
+      ...current,
+      spreads,
+      activeSpreadId: spreads[0].id,
+    }));
+    setSelectionMode(false);
+    setSelectedPhotoId(null);
+    setSelectedSlotIndex(null);
+    setPhotoFilter('available');
+    setNotice(
+      `נבנתה טיוטה של ${spreads.length} כפולות מתוך ${orderedIds.length} תמונות · ניתן לבטל`,
+    );
+  }
+
+  function createReviewVersion() {
+    const versions = project.reviewVersions ?? [];
+    const version = {
+      id: `review-${Date.now()}`,
+      number: Math.max(0, ...versions.map((item) => item.number)) + 1,
+      createdAt: new Date().toISOString(),
+      status: 'sent' as const,
+      spreads: JSON.parse(JSON.stringify(project.spreads)) as AlbumSpread[],
+      comments: [],
+    };
+    commitProject({
+      ...project,
+      reviewVersions: [...versions, version],
+      activeReviewVersionId: version.id,
+    });
+    setShowReview(true);
+    setNotice(`נוצרה גרסת הגהה ${version.number}`);
+  }
+
+  function openReviewWorkspace() {
+    const versions = project.reviewVersions ?? [];
+    if (!versions.length) {
+      createReviewVersion();
+      return;
+    }
+    const activeId = project.activeReviewVersionId ?? versions[versions.length - 1].id;
+    if (activeId !== project.activeReviewVersionId) {
+      setProject({ ...project, activeReviewVersionId: activeId });
+    }
+    setShowReview(true);
+  }
+
+  function chooseLayout(nextLayout: GeneratedAlbumLayout) {
+    updateSpread({
+      layoutId: nextLayout.id,
+      photoIds: nextLayout.photoIds,
+      frameSettings: {},
+      customSlots: undefined,
+    });
+    setSelectedSlotIndex(null);
+    setNotice(`הוחלה הפריסה „${nextLayout.name}”`);
+  }
+
+  function updateSelectedSlot(patch: Partial<LayoutSlot>) {
+    if (selectedSlotIndex === null) return;
+    const next = layout.slots.map((slot, index) => (
+      index === selectedSlotIndex ? { ...slot, ...patch } : slot
+    ));
+    updateSpread({ customSlots: next });
+    setNotice('המסגרת נערכה · הפריסה כעת אישית');
+  }
+
+  function savePersonalLayout() {
+    if (!layout.slots.length) return;
+    const next: PersonalLayout = {
+      id: `personal-${Date.now()}`,
+      name: `תבנית אישית ${personalLayouts.length + 1}`,
+      photoCount: layout.photoCount,
+      pageAspect: profile.closedWidthMm / profile.closedHeightMm,
+      slots: layout.slots,
+    };
+    const all = [...personalLayouts, next];
+    setPersonalLayouts(all);
+    localStorage.setItem('album-personal-layouts', JSON.stringify(all));
+    updateSpread({ layoutId: next.id, customSlots: next.slots });
+    setNotice(`נשמרה ${next.name}`);
+  }
+
+  function applyPersonalLayout(item: PersonalLayout) {
+    updateSpread({ layoutId: item.id, customSlots: item.slots, frameSettings: {} });
+    setSelectedSlotIndex(null);
+    setNotice(`הוחלה ${item.name}`);
+  }
+
+  function assignPhotoById(slotIndex: number, photoId: string) {
+    const nextIds = [...layout.photoIds];
+    const existingIndex = nextIds.indexOf(photoId);
+    if (existingIndex >= 0) {
+      [nextIds[existingIndex], nextIds[slotIndex]] = [nextIds[slotIndex], nextIds[existingIndex]];
+    } else {
+      nextIds[slotIndex] = photoId;
+    }
+    updateSpread({ photoIds: nextIds });
+    setSelectedPhotoId(null);
+    setSelectedSlotIndex(slotIndex);
+    setNotice('התמונה שובצה במסגרת');
+  }
+
+  function assignPhoto(slotIndex: number) {
+    if (suppressFrameClick.current) return;
+    if (!selectedPhotoId) {
+      setSelectedSlotIndex(slotIndex);
+      setPanMode(false);
+      setNotice('המסגרת נבחרה — אפשר להתאים את התמונה בלי לחתוך אותה');
+      return;
+    }
+    assignPhotoById(slotIndex, selectedPhotoId);
+  }
+
+  function beginPhotoDrag(event: React.DragEvent, photoId: string) {
+    if (panMode) {
+      event.preventDefault();
+      return;
+    }
+    event.dataTransfer.effectAllowed = 'move';
+    event.dataTransfer.setData('application/x-teza-photo', photoId);
+    event.dataTransfer.setData('text/plain', photoId);
+  }
+
+  function dropPhotoOnFrame(event: React.DragEvent, slotIndex: number) {
+    event.preventDefault();
+    const photoId = event.dataTransfer.getData('application/x-teza-photo')
+      || event.dataTransfer.getData('text/plain');
+    if (!photos.some((photo) => photo.id === photoId)) return;
+    assignPhotoById(slotIndex, photoId);
+  }
+
+  function beginPan(
+    event: React.PointerEvent<HTMLButtonElement>,
+    slotIndex: number,
+    settings: PhotoFrameSettings,
+  ) {
+    if (!panMode || settings.fit === 'contain') return;
+    event.preventDefault();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    panSession.current = {
+      slotIndex,
+      startX: event.clientX,
+      startY: event.clientY,
+      positionX: settings.positionX,
+      positionY: settings.positionY,
+      before: project,
+      moved: false,
+    };
+  }
+
+  function movePan(event: React.PointerEvent<HTMLButtonElement>, slotId: string) {
+    const session = panSession.current;
+    if (!session || !panMode) return;
+    const bounds = event.currentTarget.getBoundingClientRect();
+    const positionX = Math.max(
+      0,
+      Math.min(100, session.positionX - (event.clientX - session.startX) / bounds.width * 100),
+    );
+    const positionY = Math.max(
+      0,
+      Math.min(100, session.positionY - (event.clientY - session.startY) / bounds.height * 100),
+    );
+    session.moved = true;
+    setProject((current) => ({
+      ...current,
+      spreads: current.spreads.map((item) => item.id === spread.id ? {
+        ...item,
+        frameSettings: {
+          ...item.frameSettings,
+          [slotId]: {
+            ...(item.frameSettings?.[slotId] ?? DEFAULT_FRAME_SETTINGS),
+            fit: 'cover',
+            positionX,
+            positionY,
+          },
+        },
+      } : item),
+    }));
+  }
+
+  function endPan() {
+    const session = panSession.current;
+    if (session?.moved) {
+      suppressFrameClick.current = true;
+      window.setTimeout(() => {
+        suppressFrameClick.current = false;
+      }, 0);
+      setHistoryPast((items) => [...items.slice(-49), session.before]);
+      setHistoryFuture([]);
+      setNotice('מיקום התמונה עודכן');
+    }
+    panSession.current = null;
+  }
+
+  function toggleSelectedPhotoInSpread() {
+    if (!selectedPhotoId) return;
+
+    if (selectedSlotIndex !== null) {
+      assignPhoto(selectedSlotIndex);
+      return;
+    }
+
+    const currentIds = [...layout.photoIds];
+    if (currentIds.includes(selectedPhotoId)) {
+      updateSpread({
+        photoIds: currentIds.filter((id) => id !== selectedPhotoId),
+        layoutId: 'balanced',
+        frameSettings: {},
+        customSlots: undefined,
+      });
+      setNotice('התמונה הוחזרה למאגר');
+    } else {
+      updateSpread({
+        photoIds: [...currentIds, selectedPhotoId],
+        layoutId: 'balanced',
+        frameSettings: {},
+        customSlots: undefined,
+      });
+      setNotice('התמונה נוספה והכפולה אורגנה מחדש');
+    }
+    setSelectedPhotoId(null);
+    setSelectedSlotIndex(null);
+  }
+
+  function updateFrameSettings(patch: Partial<PhotoFrameSettings>) {
+    if (!selectedSlot || !selectedFrameSettings) return;
+    updateSpread({
+      frameSettings: {
+        ...spread.frameSettings,
+        [selectedSlot.id]: { ...selectedFrameSettings, ...patch },
+      },
+    });
+  }
+
+  function setFitMode(fit: PhotoFitMode) {
+    updateFrameSettings({ fit });
+    if (fit !== 'cover') setPanMode(false);
+    setNotice(
+      fit === 'smart'
+        ? 'מילוי חכם שומר על הפנים והדמות'
+        : fit === 'contain'
+          ? 'התמונה מוצגת במלואה'
+          : 'מילוי מסגרת הופעל — יש לבדוק את אזהרת החיתוך',
+    );
+  }
+
+  function removeSelectedFramePhoto() {
+    if (selectedSlotIndex === null) return;
+    updateSpread({
+      photoIds: layout.photoIds.filter((_, index) => index !== selectedSlotIndex),
+      layoutId: 'balanced',
+      frameSettings: {},
+      customSlots: undefined,
+    });
+    setSelectedSlotIndex(null);
+    setNotice('התמונה הוחזרה למאגר והכפולה אורגנה מחדש');
+  }
+
+  function handleFiles(files: FileList | null) {
+    if (!files) return;
+    const imported: AlbumPhoto[] = Array.from(files)
+      .filter((file) => file.type.startsWith('image/'))
+      .map((file, index) => {
+        const url = URL.createObjectURL(file);
+        const id = `import-${Date.now()}-${index}`;
+        void storePhotoBlob(id, file).catch(() => {
+          setNotice(`לא ניתן היה לשמור את ${file.name} לשחזור`);
+        });
+        return {
+          id,
+          name: file.name,
+          url,
+          storageKey: id,
+          orientation: 'landscape',
+          widthPx: 0,
+          heightPx: 0,
+          analysis: {
+            status: 'pending',
+            faces: [],
+            focalPoint: { x: 0.5, y: 0.5 },
+            sharpnessScore: 0,
+            qualityScore: 0,
+            analyzedBy: 'pending',
+          },
+        };
+      });
+    imported.forEach((photo) => {
+      const img = new Image();
+      img.onload = () => {
+        setPhotos((current) => current.map((item) => item.id === photo.id
+          ? { ...item, widthPx: img.width, heightPx: img.height, orientation: orientationFor(img.width, img.height) }
+          : item));
+        analyzeAlbumPhoto(photo.url)
+          .then((result) => {
+            setPhotos((current) => current.map((item) => item.id === photo.id ? {
+              ...item,
+              widthPx: result.widthPx,
+              heightPx: result.heightPx,
+              orientation: orientationFor(result.widthPx, result.heightPx),
+              focalPoint: result.focalPoint,
+              analysis: { ...result, status: 'ready' },
+            } : item));
+          })
+          .catch(() => {
+            setPhotos((current) => current.map((item) => item.id === photo.id ? {
+              ...item,
+              analysis: {
+                ...item.analysis!,
+                status: 'failed',
+                analyzedBy: 'engine-unavailable',
+              },
+            } : item));
+          });
+      };
+      img.src = photo.url;
+    });
+    setPhotos((current) => [...current, ...imported]);
+    setNotice(`נוספו ${imported.length} תמונות · הניתוח המקומי התחיל`);
+  }
+
+  function createExportItems() {
+    return project.spreads.map((item) => {
+      const candidates = buildAlbumLayoutCandidates(
+        item.photoIds,
+        photos,
+        profile.closedWidthMm / profile.closedHeightMm,
+      );
+      const generated = candidates.find((candidate) => candidate.id === item.layoutId)
+        ?? candidates[0]
+        ?? EMPTY_GENERATED_LAYOUT;
+      return {
+        spread: item,
+        layout: item.customSlots?.length === item.photoIds.length ? {
+          ...generated,
+          id: item.layoutId,
+          slots: item.customSlots,
+          photoIds: item.photoIds,
+        } : generated,
+      };
+    });
+  }
+
+  async function handleExportProof() {
+    if (isExporting) return;
+    setIsExporting(true);
+    setNotice('מכין את קבצי ההגהה…');
+    try {
+      const result = await exportAlbumProof(
+        project,
+        createExportItems(),
+        photos,
+        profile,
+        (current, total) => setNotice(`מרנדר כפולה ${current} מתוך ${total}…`),
+      );
+      setNotice(
+        `חבילת ההגהה מוכנה · ${result.files} קבצים · ${result.pixelSize.width}×${result.pixelSize.height}px`,
+      );
+    } catch (error) {
+      if (error instanceof DOMException && error.name === 'AbortError') {
+        setNotice('ייצוא ההגהה בוטל');
+      } else {
+        setNotice(error instanceof Error ? error.message : 'ייצוא ההגהה נכשל');
+      }
+    } finally {
+      setIsExporting(false);
+    }
+  }
+
+  async function handlePrintExport() {
+    if (isExporting || preflight.total > 0) return;
+    setIsExporting(true);
+    setNotice('מכין חבילת דפוס…');
+    try {
+      const result = await exportAlbumForPrint(
+        project,
+        createExportItems(),
+        photos,
+        profile,
+        (current, total) => setNotice(`מייצא לדפוס כפולה ${current} מתוך ${total}…`),
+      );
+      setNotice(
+        `חבילת הדפוס מוכנה · ${result.files} קבצים · ${result.pixelSize.width}×${result.pixelSize.height}px`,
+      );
+    } catch (error) {
+      if (error instanceof DOMException && error.name === 'AbortError') {
+        setNotice('ייצוא הדפוס בוטל');
+      } else {
+        setNotice(error instanceof Error ? error.message : 'ייצוא הדפוס נכשל');
+      }
+    } finally {
+      setIsExporting(false);
+    }
+  }
+
+  if (showPreview) {
+    return (
+      <AlbumPreview
+        project={project}
+        photos={photos}
+        profile={profile}
+        onClose={() => setShowPreview(false)}
+      />
+    );
+  }
+
+  if (showReview) {
+    return (
+      <ReviewWorkspace
+        project={project}
+        photos={photos}
+        profile={profile}
+        onUpdate={(next) => commitProject(next)}
+        onNewVersion={createReviewVersion}
+        onClose={() => setShowReview(false)}
+      />
+    );
+  }
+
+  return (
+    <div className="album-studio">
+      <header className="album-actionbar">
+        <div className="album-save-state">
+          <span className="album-saved-dot"><IcCheck size={12} /></span>
+          <span>{notice}</span>
+        </div>
+        <div className="album-actionbar-main">
+          <button className="album-action secondary" onClick={() => setShowPreview(true)}>
+            <IcEye size={17} />תצוגה מקדימה
+          </button>
+          <button
+            className="album-action secondary"
+            onClick={handleExportProof}
+            disabled={isExporting}
+          >
+            <IcDownload size={17} />{isExporting ? 'מייצא הגהה…' : 'ייצוא הגהה'}
+          </button>
+          <button
+            className="album-action print"
+            onClick={handlePrintExport}
+            disabled={isExporting || preflight.total > 0}
+            title={preflight.total > 0 ? 'יש להשלים את בדיקת הדפוס' : 'ייצוא קבצים מוכנים לדפוס'}
+          >
+            <IcDownload size={17} />ייצוא לדפוס
+          </button>
+          <button className="album-action secondary" onClick={openReviewWorkspace}>
+            שיתוף ואישור
+            {(project.reviewVersions?.some((item) => item.status === 'changes-requested')) && (
+              <span className="review-alert-dot" />
+            )}
+          </button>
+          <button className="album-action primary" onClick={buildFullAlbum}>
+            <IcSparkle size={17} />
+            {albumSelectedIds.size
+              ? `עיצוב אלבום מ־${albumSelectedIds.size} תמונות`
+              : 'בחירת תמונות ועיצוב אלבום'}
+          </button>
+        </div>
+        <div className="album-history">
+          <button aria-label="ביטול" onClick={undoProject} disabled={!historyPast.length}><IcUndo size={19} /></button>
+          <button aria-label="ביצוע חוזר" onClick={redoProject} disabled={!historyFuture.length}><IcUndo size={19} style={{ transform: 'scaleX(-1)' }} /></button>
+        </div>
+      </header>
+
+      <div className="album-workspace">
+        <aside className="album-settings-panel">
+          <div className="album-panel-title">
+            <IcBook size={18} />
+            <span>הגדרות אלבום</span>
+          </div>
+
+          <label className="album-field-label">סוג אלבום</label>
+          <select className="album-select" value="layflat" disabled>
+            <option value="layflat">בת מצווה — Layflat</option>
+          </select>
+
+          <div className="album-field-label">גודל סגור</div>
+          <div className="album-size-options">
+            {printProfiles.map((item) => (
+              <button
+                key={item.id}
+                className={item.id === profile.id ? 'on' : ''}
+                onClick={() => {
+                  commitProject((current) => ({
+                    ...current,
+                    productProfileId: item.id,
+                    spreads: current.spreads.map((candidate) => ({
+                      ...candidate,
+                      layoutId: 'balanced',
+                      customSlots: undefined,
+                      frameSettings: {},
+                    })),
+                  }));
+                  setSelectedSlotIndex(null);
+                  setNotice(`האלבום הותאם לפורמט ${item.name}`);
+                }}
+              >
+                {item.closedWidthMm / 10}×{item.closedHeightMm / 10} ס״מ
+                <small>{item.closedWidthMm === item.closedHeightMm ? 'מרובע' : item.closedWidthMm > item.closedHeightMm ? 'רוחב' : 'אורך'}</small>
+              </button>
+            ))}
+          </div>
+
+          <label className="album-field-label">סגנון</label>
+          <select className="album-select" value={project.styleName} onChange={(event) => commitProject({ ...project, styleName: event.target.value })}>
+            <option>Fine Art</option>
+            <option>נקי ומודרני</option>
+            <option>קלאסי</option>
+          </select>
+
+          <div className="album-field-label">רקע הכפולה</div>
+          <div className="album-palette">
+            {['#f8f6f1', '#f4efe7', '#e9e2d8', '#c9bfb2', '#222326'].map((color) => (
+              <button
+                key={color}
+                className={spread.background === color ? 'on' : ''}
+                style={{ background: color }}
+                onClick={() => updateSpread({ background: color })}
+                aria-label={`רקע ${color}`}
+              />
+            ))}
+          </div>
+
+          <div className="album-panel-divider" />
+          <div className="album-field-label">תצוגת ייצור</div>
+          <label className="album-check">
+            <input type="checkbox" checked={showGuides} onChange={(event) => setShowGuides(event.target.checked)} />
+            <span>גלישה, חיתוך ואזור בטוח</span>
+          </label>
+          <label className="album-check">
+            <input type="checkbox" checked readOnly />
+            <span>סימון מרכז הכפולה</span>
+          </label>
+
+          <div className="album-profile-note">
+            <strong>{profile.name}</strong>
+            <span>{profile.labName}</span>
+            <span>{profile.targetPpi} PPI · {profile.outputFormat.toUpperCase()}</span>
+            <span className={profile.verified ? 'profile-verified' : 'profile-draft'}>
+              {profile.verified ? `מאומת · ${profile.profileVersion}` : 'טיוטה · יצוא דפוס חסום'}
+            </span>
+            <button onClick={() => setShowProfileEditor((value) => !value)}>
+              {showProfileEditor ? 'סגירת הגדרות' : 'הגדרת בית דפוס'}
+            </button>
+          </div>
+          {showProfileEditor && (
+            <div className="album-profile-editor">
+              <label>
+                <span>שם בית הדפוס</span>
+                <input
+                  value={profile.labName}
+                  onChange={(event) => updatePrintProfile({
+                    labName: event.target.value,
+                    verified: false,
+                  })}
+                />
+              </label>
+              <label>
+                <span>גרסת המפרט</span>
+                <input
+                  value={profile.profileVersion}
+                  onChange={(event) => updatePrintProfile({
+                    profileVersion: event.target.value,
+                    verified: false,
+                  })}
+                />
+              </label>
+              <div className="profile-grid">
+                <label>
+                  <span>רוחב כפולה במ״מ</span>
+                  <input
+                    type="number"
+                    min="100"
+                    max="2000"
+                    value={profile.spreadWidthMm}
+                    onChange={(event) => updatePrintProfile({
+                      spreadWidthMm: Number(event.target.value),
+                      verified: false,
+                    })}
+                  />
+                </label>
+                <label>
+                  <span>גובה כפולה במ״מ</span>
+                  <input
+                    type="number"
+                    min="100"
+                    max="1000"
+                    value={profile.spreadHeightMm}
+                    onChange={(event) => updatePrintProfile({
+                      spreadHeightMm: Number(event.target.value),
+                      verified: false,
+                    })}
+                  />
+                </label>
+                <label>
+                  <span>גלישה במ״מ</span>
+                  <input
+                    type="number"
+                    min="0"
+                    max="20"
+                    value={profile.bleedMm}
+                    onChange={(event) => updatePrintProfile({
+                      bleedMm: Number(event.target.value),
+                      verified: false,
+                    })}
+                  />
+                </label>
+                <label>
+                  <span>PPI</span>
+                  <input
+                    type="number"
+                    min="150"
+                    max="600"
+                    value={profile.targetPpi}
+                    onChange={(event) => updatePrintProfile({
+                      targetPpi: Number(event.target.value),
+                      verified: false,
+                    })}
+                  />
+                </label>
+              </div>
+              <label>
+                <span>פרופיל צבע</span>
+                <select
+                  value={profile.colorProfile}
+                  onChange={(event) => updatePrintProfile({
+                    colorProfile: event.target.value,
+                    verified: false,
+                  })}
+                >
+                  <option>ייקבע מול בית הדפוס</option>
+                  <option>sRGB</option>
+                  <option>Adobe RGB</option>
+                  <option>ICC מותאם</option>
+                </select>
+              </label>
+              <label>
+                <span>תבנית שמות</span>
+                <input
+                  value={profile.namingPattern}
+                  onChange={(event) => updatePrintProfile({
+                    namingPattern: event.target.value,
+                    verified: false,
+                  })}
+                />
+              </label>
+              <label className="profile-verify-check">
+                <input
+                  type="checkbox"
+                  checked={profile.verified}
+                  disabled={
+                    !profile.labName.trim()
+                    || !profile.profileVersion.trim()
+                    || profile.colorProfile !== 'sRGB'
+                    || !profile.namingPattern.includes('{index}')
+                  }
+                  onChange={(event) => updatePrintProfile({ verified: event.target.checked })}
+                />
+                <span>בדקתי את הנתונים מול מפרט כתוב של בית הדפוס</span>
+              </label>
+              {profile.colorProfile !== 'sRGB' && (
+                <div className="profile-blocker">
+                  יצוא דפוס פעיל כרגע רק ל־sRGB. פרופיל אחר דורש קובץ ICC.
+                </div>
+              )}
+            </div>
+          )}
+        </aside>
+
+        <main className="album-center">
+          <div className="album-canvas-toolbar">
+            <div className="album-page-nav">
+              <button onClick={() => setActiveSpread(spreadIndex - 1)} disabled={spreadIndex === 0} aria-label="כפולה קודמת"><IcChevron size={16} /></button>
+              <strong>עמודים {spread.pageStart}–{spread.pageStart + 1}</strong>
+              <span>מתוך {project.spreads.length * 2 + 1}</span>
+              <button onClick={() => setActiveSpread(spreadIndex + 1)} disabled={spreadIndex === project.spreads.length - 1} aria-label="כפולה הבאה"><IcChevron size={16} style={{ transform: 'rotate(180deg)' }} /></button>
+              <button onClick={addSpread}>+ כפולה</button>
+              <button onClick={() => moveSpread(-1)} disabled={spreadIndex === 0}>הזזה אחורה</button>
+              <button onClick={() => moveSpread(1)} disabled={spreadIndex === project.spreads.length - 1}>הזזה קדימה</button>
+              <button className="remove-spread" onClick={removeSpread}>מחיקה</button>
+            </div>
+            <div className="album-canvas-tools">
+              <button onClick={() => fileInput.current?.click()}><IcUpload size={16} />החלף תמונות</button>
+              <button><IcGallery size={16} />{layout.photoCount} מסגרות</button>
+              <button
+                aria-label="בדיקה לפני ייצוא"
+                title="בדיקה לפני ייצוא"
+                className={preflight.total ? 'has-issues' : ''}
+                onClick={() => setNotice(
+                  `בדיקת דפוס: ${preflight.lowResolution} ברזולוציה נמוכה · ${preflight.riskyCrop} חיתוכים לבדיקה · ${preflight.overlaps} מסגרות חופפות · ${preflight.waitingAnalysis} ללא ניתוח · ${preflight.profileIssues ? 'פרופיל הדפוס חסר או לא נתמך' : 'פרופיל הדפוס תקין'} · ${preflight.approvalIssues ? 'העיצוב הנוכחי לא אושר' : 'הגרסה הנוכחית מאושרת'}`,
+                )}
+              >
+                <IcDownload size={16} />בדיקת דפוס ({preflight.total})
+              </button>
+            </div>
+          </div>
+
+          <div className="album-canvas-area">
+            {selectedSlot && selectedFrameSettings && (
+              <div className="album-photo-controls" role="group" aria-label="התאמת התמונה במסגרת">
+                <strong>התאמת תמונה</strong>
+                <div className="album-fit-options">
+                  <button
+                    className={selectedFrameSettings.fit === 'smart' ? 'on' : ''}
+                    onClick={() => setFitMode('smart')}
+                  >
+                    חכם
+                  </button>
+                  <button
+                    className={selectedFrameSettings.fit === 'contain' ? 'on' : ''}
+                    onClick={() => setFitMode('contain')}
+                  >
+                    הצג הכול
+                  </button>
+                  <button
+                    className={selectedFrameSettings.fit === 'cover' ? 'on' : ''}
+                    onClick={() => setFitMode('cover')}
+                  >
+                    מלא מסגרת
+                  </button>
+                </div>
+                <span className={`album-crop-state ${selectedCrop?.safe ? 'safe' : 'warning'}`}>
+                  {selectedCrop?.warnings[0] ?? `חיתוך בטוח · ${selectedCrop?.retainedPercent ?? 100}% נשמר`}
+                </span>
+                <button
+                  className={`album-pan-toggle ${panMode ? 'on' : ''}`}
+                  disabled={selectedFrameSettings.fit === 'contain'}
+                  onClick={() => {
+                    if (selectedFrameSettings.fit === 'smart') {
+                      updateFrameSettings({ fit: 'cover' });
+                    }
+                    setPanMode((value) => !value);
+                  }}
+                >
+                  {panMode ? 'גרירה פעילה' : 'הזזה עם העכבר'}
+                </button>
+                <label>
+                  <span>זום</span>
+                  <input
+                    type="range"
+                    min="100"
+                    max="250"
+                    value={selectedFrameSettings.zoom ?? 100}
+                    disabled={selectedFrameSettings.fit === 'contain'}
+                    onChange={(event) => updateFrameSettings({ zoom: Number(event.target.value) })}
+                  />
+                </label>
+                <label>
+                  <span>רוחב מסגרת</span>
+                  <input
+                    type="range"
+                    min="8"
+                    max={Math.max(8, ((selectedSlot.x < 0.5 ? 0.49 : 0.99) - selectedSlot.x) * 100)}
+                    value={selectedSlot.width * 100}
+                    onChange={(event) => updateSelectedSlot({ width: Number(event.target.value) / 100 })}
+                  />
+                </label>
+                <label>
+                  <span>גובה מסגרת</span>
+                  <input
+                    type="range"
+                    min="8"
+                    max={Math.max(8, (0.95 - selectedSlot.y) * 100)}
+                    value={selectedSlot.height * 100}
+                    onChange={(event) => updateSelectedSlot({ height: Number(event.target.value) / 100 })}
+                  />
+                </label>
+                <label>
+                  <span>מיקום מסגרת</span>
+                  <input
+                    type="range"
+                    min={selectedSlot.x < 0.5 ? 1 : 51}
+                    max={Math.max(
+                      selectedSlot.x < 0.5 ? 1 : 51,
+                      ((selectedSlot.x < 0.5 ? 0.49 : 0.99) - selectedSlot.width) * 100,
+                    )}
+                    value={selectedSlot.x * 100}
+                    onChange={(event) => updateSelectedSlot({ x: Number(event.target.value) / 100 })}
+                  />
+                </label>
+                <label>
+                  <span>גובה בעמוד</span>
+                  <input
+                    type="range"
+                    min="1"
+                    max={Math.max(1, (0.95 - selectedSlot.height) * 100)}
+                    value={selectedSlot.y * 100}
+                    onChange={(event) => updateSelectedSlot({ y: Number(event.target.value) / 100 })}
+                  />
+                </label>
+                <label>
+                  <span>מיקום אופקי</span>
+                  <input
+                    type="range"
+                    min="0"
+                    max="100"
+                    value={selectedFrameSettings.positionX}
+                    disabled={selectedFrameSettings.fit === 'smart'}
+                    onChange={(event) => updateFrameSettings({ positionX: Number(event.target.value) })}
+                  />
+                </label>
+                <label>
+                  <span>מיקום אנכי</span>
+                  <input
+                    type="range"
+                    min="0"
+                    max="100"
+                    value={selectedFrameSettings.positionY}
+                    disabled={selectedFrameSettings.fit === 'smart'}
+                    onChange={(event) => updateFrameSettings({ positionY: Number(event.target.value) })}
+                  />
+                </label>
+                <button className="album-control-remove" onClick={removeSelectedFramePhoto}>הסרה</button>
+                <button className="album-control-close" onClick={() => setSelectedSlotIndex(null)}>סיום</button>
+              </div>
+            )}
+            <div
+              className={`album-spread ${showGuides ? 'show-guides' : ''}`}
+              style={{
+                background: spread.background,
+                aspectRatio: `${profile.spreadWidthMm} / ${profile.spreadHeightMm}`,
+              }}
+            >
+              <div className="album-page album-page-left" />
+              <div className="album-page album-page-right" />
+              <div className="album-gutter" />
+              {showGuides && <><div className="album-bleed-guide" /><div className="album-safe-guide" /></>}
+
+              {layout.slots.map((slot, slotIndex) => {
+                const photoId = layout.photoIds[slotIndex];
+                const photo = photos.find((item) => item.id === photoId);
+                const frameSettings = spread.frameSettings?.[slot.id] ?? {
+                  ...DEFAULT_FRAME_SETTINGS,
+                  positionX: (photo?.focalPoint?.x ?? 0.5) * 100,
+                  positionY: (photo?.focalPoint?.y ?? 0.5) * 100,
+                };
+                const crop = photo
+                  ? assessCrop(
+                    photo,
+                    slot,
+                    frameSettings,
+                    profile.spreadWidthMm / profile.spreadHeightMm,
+                  )
+                  : null;
+                return (
+                  <button
+                    key={slot.id}
+                    className={`album-frame ${slot.role === 'hero' ? 'hero' : ''} ${selectedPhotoId ? 'assignable' : ''} ${selectedSlotIndex === slotIndex ? 'selected' : ''}`}
+                    style={{
+                      left: `${slot.x * 100}%`,
+                      top: `${slot.y * 100}%`,
+                      width: `${slot.width * 100}%`,
+                      height: `${slot.height * 100}%`,
+                    }}
+                    onClick={() => assignPhoto(slotIndex)}
+                    draggable={Boolean(photo) && !panMode}
+                    onDragStart={(event) => {
+                      if (photo) beginPhotoDrag(event, photo.id);
+                    }}
+                    onDragOver={(event) => {
+                      event.preventDefault();
+                      event.dataTransfer.dropEffect = 'move';
+                    }}
+                    onDrop={(event) => dropPhotoOnFrame(event, slotIndex)}
+                    onPointerDown={(event) => beginPan(event, slotIndex, frameSettings)}
+                    onPointerMove={(event) => movePan(event, slot.id)}
+                    onPointerUp={endPan}
+                    onPointerCancel={endPan}
+                    aria-label={photo ? `מסגרת עם ${photo.name}` : 'מסגרת ריקה'}
+                  >
+                    {photo ? (
+                      <img
+                        src={photo.url}
+                        alt={photo.name}
+                        style={{
+                          objectFit: crop?.fit,
+                          objectPosition: `${crop?.positionX ?? 50}% ${crop?.positionY ?? 50}%`,
+                          transform: `scale(${crop?.fit === 'contain' ? 1 : (frameSettings.zoom ?? 100) / 100})`,
+                          transformOrigin: `${crop?.positionX ?? 50}% ${crop?.positionY ?? 50}%`,
+                        }}
+                      />
+                    ) : (
+                      <span className="album-empty-frame"><IcGallery size={22} />בחרי תמונה</span>
+                    )}
+                  </button>
+                );
+              })}
+
+              <div className="album-page-number left">{spread.pageStart}</div>
+              <div className="album-page-number right">{spread.pageStart + 1}</div>
+            </div>
+            <div className="album-guide-legend">
+              {showGuides ? 'כתום: גלישה · אפור: אזור בטוח · המרכז מסמן את הקיפול' : 'תצוגה נקייה'}
+            </div>
+          </div>
+
+          <section className="album-photo-tray">
+            <div className="album-photo-tray-head">
+              <div className="album-photo-summary">
+                <strong>מאגר התמונות</strong>
+                <span>{filteredPhotos.length} מוצגות · {photos.length - usedIds.size} טרם שובצו</span>
+              </div>
+              <div className="album-photo-filters" role="group" aria-label="סינון תמונות">
+                {([
+                  ['available', 'זמינות לכפולה'],
+                  ['unused', 'טרם שובצו'],
+                  ['used', 'בשימוש'],
+                  ['all', 'הכול'],
+                ] as const).map(([value, label]) => (
+                  <button
+                    key={value}
+                    className={photoFilter === value ? 'on' : ''}
+                    onClick={() => {
+                      setPhotoFilter(value);
+                      setPhotoLimit(60);
+                    }}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+              <div className="album-selection-tools">
+                <button
+                  className={selectionMode ? 'on' : ''}
+                  onClick={() => {
+                    setSelectionMode((value) => !value);
+                    setSelectedPhotoId(null);
+                  }}
+                >
+                  {selectionMode ? `בחירה מרובה · ${albumSelectedIds.size}` : 'בחירת תמונות לאלבום'}
+                </button>
+                {selectionMode && (
+                  <>
+                    <button onClick={selectAllFilteredPhotos}>בחירת המוצגות</button>
+                    <button onClick={() => setAlbumSelectedIds(new Set())}>ניקוי</button>
+                    <button className="build" disabled={!albumSelectedIds.size} onClick={buildFullAlbum}>
+                      בניית אלבום
+                    </button>
+                  </>
+                )}
+              </div>
+              <button
+                className="album-photo-commit"
+                disabled={!selectedPhotoId}
+                onClick={toggleSelectedPhotoInSpread}
+              >
+                {selectedSlotIndex !== null
+                  ? 'החלפה במסגרת'
+                  : selectedPhotoId && currentSpreadIds.has(selectedPhotoId)
+                    ? 'הסרה מהכפולה'
+                    : 'הוספה לכפולה'}
+              </button>
+              <button className="album-import" onClick={() => fileInput.current?.click()}><IcUpload size={16} />הוספת תמונות</button>
+              <input ref={fileInput} type="file" accept="image/*" multiple hidden onChange={(event) => handleFiles(event.target.files)} />
+            </div>
+            <div className="album-photos">
+              {visiblePhotos.map((photo) => (
+                <button
+                  key={photo.id}
+                  className={`album-photo-thumb ${selectedPhotoId === photo.id ? 'selected' : ''} ${albumSelectedIds.has(photo.id) ? 'album-selected' : ''}`}
+                  onClick={() => {
+                    if (selectionMode) toggleAlbumPhoto(photo.id);
+                    else setSelectedPhotoId(selectedPhotoId === photo.id ? null : photo.id);
+                  }}
+                  aria-label={`בחרי ${photo.name}`}
+                  draggable={!selectionMode}
+                  onDragStart={(event) => beginPhotoDrag(event, photo.id)}
+                >
+                  <img src={photo.url} alt="" loading="lazy" decoding="async" />
+                  {albumSelectedIds.has(photo.id) && (
+                    <span className="album-selection-order">
+                      <IcCheck size={11} />
+                    </span>
+                  )}
+                  <span className={`album-analysis-state ${photo.analysis?.status ?? 'pending'}`}>
+                    {photo.analysis?.status === 'ready' ? 'נותחה' : photo.analysis?.status === 'failed' ? 'ללא ניתוח' : 'מנתח'}
+                  </span>
+                  {usedIds.has(photo.id) && (
+                    <span
+                      className={`album-used ${currentSpreadIds.has(photo.id) ? 'current' : ''}`}
+                      title={currentSpreadIds.has(photo.id) ? 'נמצאת בכפולה הנוכחית' : 'כבר שובצה באלבום — עדיין אפשר להשתמש בה שוב'}
+                    >
+                      <IcCheck size={11} />
+                    </span>
+                  )}
+                  <span className="album-photo-name">{photo.name}</span>
+                </button>
+              ))}
+              {visiblePhotos.length < filteredPhotos.length && (
+                <button
+                  className="album-load-more"
+                  onClick={() => setPhotoLimit((value) => value + 60)}
+                >
+                  עוד {Math.min(60, filteredPhotos.length - visiblePhotos.length)} תמונות
+                </button>
+              )}
+              {filteredPhotos.length === 0 && (
+                <div className="album-photo-empty">
+                  אין תמונות במסנן הזה. אפשר לעבור ל״הכול״ או להוסיף תמונות חדשות.
+                </div>
+              )}
+            </div>
+          </section>
+        </main>
+
+        <aside className="album-layout-panel">
+          <div className="album-panel-tabs">
+            <button className={panelTab === 'layouts' ? 'on' : ''} onClick={() => setPanelTab('layouts')}>פריסות</button>
+            <button className={panelTab === 'design' ? 'on' : ''} onClick={() => setPanelTab('design')}>עיצובים</button>
+          </div>
+
+          {panelTab === 'layouts' ? (
+            <>
+              <div className="album-layout-title">
+                <strong>פריסות שנבנו לתמונות</strong>
+                <span>{layoutCandidates.length ? `${layout.photoCount} תמונות · ללא חיתוך` : 'בחרי תמונות מהמגש כדי להתחיל'}</span>
+              </div>
+              <div className="album-layout-list">
+                {layoutCandidates.map((item) => (
+                  <button
+                    key={item.id}
+                    className={`album-layout-card ${item.id === layout.id ? 'on' : ''}`}
+                    onClick={() => chooseLayout(item)}
+                    title={item.explanation}
+                  >
+                    <span className="album-layout-preview">
+                      {item.slots.map((slot) => (
+                        <i key={slot.id} style={{
+                          left: `${slot.x * 100}%`,
+                          top: `${slot.y * 100}%`,
+                          width: `${slot.width * 100}%`,
+                          height: `${slot.height * 100}%`,
+                        }} />
+                      ))}
+                      <em />
+                    </span>
+                    <span className="album-layout-meta">
+                      <b>{item.name}</b>
+                      <small>{item.photoCount} תמונות · ציון התאמה {item.score}</small>
+                      <small className={item.warnings.length ? 'layout-warning' : 'layout-safe'}>
+                        {item.warnings[0] ?? 'ללא חיתוך מסוכן'}
+                      </small>
+                    </span>
+                  </button>
+                ))}
+                {personalLayouts
+                  .filter((item) => item.photoCount === layout.photoCount
+                    && Math.abs(item.pageAspect - profile.closedWidthMm / profile.closedHeightMm) < 0.02)
+                  .map((item) => (
+                    <button
+                      key={item.id}
+                      className={`album-layout-card ${item.id === spread.layoutId ? 'on' : ''}`}
+                      onClick={() => applyPersonalLayout(item)}
+                    >
+                      <span className="album-layout-preview">
+                        {item.slots.map((slot) => (
+                          <i key={slot.id} style={{
+                            left: `${slot.x * 100}%`,
+                            top: `${slot.y * 100}%`,
+                            width: `${slot.width * 100}%`,
+                            height: `${slot.height * 100}%`,
+                          }} />
+                        ))}
+                        <em />
+                      </span>
+                      <span className="album-layout-meta">
+                        <b>{item.name}</b>
+                        <small>{item.photoCount} תמונות · נשמרה על ידך</small>
+                        <small className="layout-safe">ניתנת לעריכה חוזרת</small>
+                      </span>
+                    </button>
+                  ))}
+                {!layoutCandidates.length && (
+                  <div className="album-layout-empty">
+                    <IcGallery size={24} />
+                    <strong>הכפולה עדיין ריקה</strong>
+                    <span>בחרי תמונות מהמגש ולחצי „הוספה לכפולה”. הפריסות ייווצרו מהתמונות עצמן.</span>
+                  </div>
+                )}
+              </div>
+              <button
+                className="album-auto-layout"
+                disabled={layoutCandidates.length < 2}
+                onClick={() => {
+                  const currentIndex = layoutCandidates.findIndex((candidate) => candidate.id === layout.id);
+                  chooseLayout(layoutCandidates[(currentIndex + 1) % layoutCandidates.length]);
+                }}
+              >
+                <IcSparkle size={16} />
+                הציעי פריסה אחרת
+              </button>
+              <button
+                className="album-save-layout"
+                disabled={!layout.slots.length}
+                onClick={savePersonalLayout}
+              >
+                שמירת הפריסה כתבנית אישית
+              </button>
+            </>
+          ) : (
+            <div className="album-design-options">
+              <button className="on"><span className="design-swatch fine-art" /><b>Fine Art</b><small>רך, אוורירי וחם</small></button>
+              <button><span className="design-swatch clean" /><b>נקי ומודרני</b><small>לבן, מדויק ושקט</small></button>
+              <button><span className="design-swatch classic" /><b>קלאסי</b><small>מסגרות וקצב סימטרי</small></button>
+            </div>
+          )}
+
+          <div className="album-tip">
+            <IcSparkle size={16} />
+            <span><strong>טיפ:</strong> בחרי תמונה מהמגש ולחצי על מסגרת כדי להחליף אותה.</span>
+          </div>
+        </aside>
+      </div>
+    </div>
+  );
+}

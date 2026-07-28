@@ -7,6 +7,7 @@ import ClientStatus from './studio/screens/ClientStatus';
 import GalleryEdit from './studio/screens/GalleryEdit';
 import Lab from './lab/Lab';
 import Compare from './lab/Compare';
+import AlbumStudio from './album/AlbumStudio';
 import {
   Clients, Home, STAGE_SCREENS, Simple,
 } from './studio/screens/Screens';
@@ -81,6 +82,7 @@ export default function App() {
   const isLab = section === 'lab';
   const isCompare = section === 'compare';
   const isEditor = stage === 'gallery-edit' && !Standalone && !isLab && !isCompare;
+  const isAlbum = stage === 'album-design' && !Standalone && !isLab && !isCompare;
 
   let body: JSX.Element;
   let title = PROJECT.title;
@@ -96,6 +98,9 @@ export default function App() {
     title = 'TEZA AI';
   } else if (isEditor) {
     body = <GalleryEdit />;
+  } else if (isAlbum) {
+    body = <AlbumStudio />;
+    title = 'עיצוב אלבום';
   } else if (stage === 'client-status') {
     body = <ClientStatus onStage={goStage} />;
   } else {
@@ -110,8 +115,8 @@ export default function App() {
       stage={stage}
       onStage={goStage}
       title={title}
-      flush={isEditor || isLab || isCompare}
-      bare={isLab || isCompare}
+      flush={isEditor || isAlbum || isLab || isCompare}
+      bare={isAlbum || isLab || isCompare}
     >
       {body}
     </Shell>

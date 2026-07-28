@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
 import { SECTIONS, STAGES } from './nav';
 import type { SectionId, StageId } from './nav';
@@ -23,18 +24,32 @@ export function Icon({ name, size = 20 }: { name: string; size?: number }) {
 export function Sidebar({
   section,
   onSection,
+  compact,
+  onCompact,
 }: {
   section: SectionId;
   onSection: (s: SectionId) => void;
+  compact: boolean;
+  onCompact: () => void;
 }) {
   const pct = Math.round((STORAGE.usedGb / STORAGE.totalGb) * 100);
   return (
-    <aside className="sidebar">
-      <div className="logo">
-        <div className="logo-mark">
-          TEZA <em>AI</em>
+    <aside className="sidebar" aria-label="ניווט ראשי">
+      <div className="logo-row">
+        <div className="logo">
+          <div className="logo-mark">
+            {compact ? 'T' : <>TEZA <em>AI</em></>}
+          </div>
+          {!compact && <div className="logo-sub">מערכת ההפעלה של הצלמות</div>}
         </div>
-        <div className="logo-sub">מערכת ההפעלה של הצלמות</div>
+        <button
+          className="sidebar-toggle"
+          onClick={onCompact}
+          aria-label={compact ? 'הרחיבי תפריט' : 'כווצי תפריט'}
+          title={compact ? 'הרחיבי תפריט' : 'כווצי תפריט'}
+        >
+          <IcChevron size={16} />
+        </button>
       </div>
 
       {SECTIONS.map((s) => (
@@ -42,6 +57,8 @@ export function Sidebar({
           key={s.id}
           className={`nav-item ${s.id === section ? 'on' : ''}`}
           onClick={() => onSection(s.id)}
+          title={compact ? s.label : undefined}
+          aria-label={compact ? s.label : undefined}
         >
           <Icon name={s.icon} />
           <span>{s.label}</span>
@@ -49,22 +66,28 @@ export function Sidebar({
       ))}
 
       <div className="sidebar-foot">
-        <div className="storage">
-          <div className="storage-head">
+        {compact ? (
+          <button className="nav-item storage-compact" title="אחסון בענן" aria-label="אחסון בענן">
             <IcCloud size={17} />
-            <span>אחסון בענן</span>
-          </div>
-          <div className="meter">
-            <span style={{ width: `${pct}%` }} />
-          </div>
-          <div className="storage-note">
-            {STORAGE.usedGb} GB מתוך {STORAGE.totalGb / 1024} TB
-          </div>
-          <button className="btn btn-wide" style={{ marginTop: 12 }}>
-            שדרוג חבילה
           </button>
-        </div>
-        <button className="nav-item">
+        ) : (
+          <div className="storage">
+            <div className="storage-head">
+              <IcCloud size={17} />
+              <span>אחסון בענן</span>
+            </div>
+            <div className="meter">
+              <span style={{ width: `${pct}%` }} />
+            </div>
+            <div className="storage-note">
+              {STORAGE.usedGb} GB מתוך {STORAGE.totalGb / 1024} TB
+            </div>
+            <button className="btn btn-wide" style={{ marginTop: 12 }}>
+              שדרוג חבילה
+            </button>
+          </div>
+        )}
+        <button className="nav-item" title={compact ? 'מרכז עזרה' : undefined}>
           <IcHelp />
           <span>מרכז עזרה</span>
         </button>
@@ -146,9 +169,42 @@ export function Shell({
   bare?: boolean;
   children: ReactNode;
 }) {
+  const [navPreference, setNavPreference] = useState<boolean | null>(() => {
+    try {
+      const saved = localStorage.getItem('teza.sidebar.compact');
+      return saved === null ? null : saved === 'true';
+    } catch {
+      return null;
+    }
+  });
+  const [narrow, setNarrow] = useState(() => window.innerWidth <= 1180);
+
+  useEffect(() => {
+    const onResize = () => setNarrow(window.innerWidth <= 1180);
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
+
+  const compact = navPreference ?? Boolean(flush || bare || narrow);
+
+  function toggleCompact() {
+    const next = !compact;
+    setNavPreference(next);
+    try {
+      localStorage.setItem('teza.sidebar.compact', String(next));
+    } catch {
+      // The preference is optional; the shell still works without storage.
+    }
+  }
+
   return (
-    <div className="shell">
-      <Sidebar section={section} onSection={onSection} />
+    <div className={`shell ${compact ? 'shell-compact' : ''} ${flush ? 'shell-workspace' : ''}`}>
+      <Sidebar
+        section={section}
+        onSection={onSection}
+        compact={compact}
+        onCompact={toggleCompact}
+      />
       <div className="main">
         <TopBar title={title} onBack={() => onSection('projects')} />
         {!bare && <StageTabs stage={stage} onStage={onStage} />}

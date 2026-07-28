@@ -27,6 +27,53 @@ export interface AiToolResult {
   meta?: Record<string, number>;
 }
 
+export interface AlbumAnalysisResponse {
+  widthPx: number;
+  heightPx: number;
+  faces: Array<{ x: number; y: number; width: number; height: number }>;
+  subject?: { x: number; y: number; width: number; height: number } | null;
+  focalPoint: { x: number; y: number };
+  sharpnessScore: number;
+  qualityScore: number;
+  analyzedBy: string;
+}
+
+export async function analyzeAlbumPhoto(imageUrlOrData: string): Promise<AlbumAnalysisResponse> {
+  const image = imageUrlOrData.startsWith('data:')
+    ? imageUrlOrData
+    : await urlToDataURL(imageUrlOrData);
+  const response = await fetch(`${ENGINE}/album/analyze`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ image }),
+  });
+  if (!response.ok) throw new Error(`engine ${response.status}`);
+  return response.json();
+}
+
+export async function finalizeAlbumJpeg(
+  imageDataUrl: string,
+  ppi: number,
+): Promise<{
+  image: string;
+  meta: {
+    widthPx: number;
+    heightPx: number;
+    ppi: number;
+    quality: number;
+    subsampling: string;
+    icc: string;
+  };
+}> {
+  const response = await fetch(`${ENGINE}/album/finalize-jpeg`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ image: imageDataUrl, ppi }),
+  });
+  if (!response.ok) throw new Error('מנוע הייצוא המקומי אינו זמין');
+  return response.json();
+}
+
 /** What one tool reported about its own run. Values are whatever the tool
  *  module chose to return — see engine/*.py, each `return rgb, {...}`. */
 export interface RenderStep {

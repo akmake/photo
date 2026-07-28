@@ -38,8 +38,9 @@
   --r-sm: 8px;
   --r: 12px;
   --r-lg: 16px;
-  --sidebar-w: 236px;
-  --topbar-h: 72px;
+  --sidebar-w: 224px;
+  --sidebar-compact-w: 76px;
+  --topbar-h: 64px;
 
   --shadow-sm: 0 1px 2px rgba(30, 25, 15, 0.04);
   --shadow: 0 2px 10px rgba(30, 25, 15, 0.05);

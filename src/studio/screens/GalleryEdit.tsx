@@ -51,6 +51,22 @@ export default function GalleryEdit() {
     () => photos.find((p) => p.id === openId) ?? null,
     [photos, openId],
   );
+  const openIndex = photos.findIndex((p) => p.id === openId);
+
+  useEffect(() => {
+    function onKeyDown(event: KeyboardEvent) {
+      const target = event.target as HTMLElement | null;
+      if (target?.matches('input, textarea, select, [contenteditable="true"]')) return;
+      if (photos.length < 2 || openIndex < 0) return;
+      if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
+      event.preventDefault();
+      const delta = event.key === 'ArrowLeft' ? 1 : -1;
+      const next = (openIndex + delta + photos.length) % photos.length;
+      setOpenId(photos[next].id);
+    }
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [openIndex, photos]);
 
   const loadFolder = useCallback((files: FileList) => {
     const imgs: Photo[] = [];
@@ -138,13 +154,21 @@ export default function GalleryEdit() {
           <span>{edited} נערכו</span>
           <i />
           <span>{selected.size} מסומנות</span>
+          {openPhoto && (
+            <>
+              <i />
+              <strong>{openIndex + 1}/{photos.length} · {openPhoto.name}</strong>
+            </>
+          )}
         </div>
         <div className="row">
           <button
             className="btn btn-ghost"
-            onClick={() => setSelected(new Set(photos.map((p) => p.id)))}
+            onClick={() => setSelected(
+              selected.size === photos.length ? new Set() : new Set(photos.map((p) => p.id)),
+            )}
           >
-            סמני הכל
+            {selected.size === photos.length ? 'בטלי סימון' : 'סמני הכל'}
           </button>
           <label className="btn">
             <IcFolderOpen size={17} />
@@ -181,10 +205,15 @@ export default function GalleryEdit() {
               className={`thumb ${p.id === openId ? 'open' : ''} ${
                 selected.has(p.id) ? 'selected' : ''
               }`}
-              onClick={() => setOpenId(p.id)}
               title={p.name}
             >
-              <img src={p.url} alt={p.name} loading="lazy" />
+              <button
+                className="thumb-open"
+                onClick={() => setOpenId(p.id)}
+                aria-label={`פתחי ${p.name}`}
+              >
+                <img src={p.url} alt="" loading="lazy" />
+              </button>
               {isEdited && (
                 <span className="thumb-badge">
                   <IcSparkle size={11} />

@@ -118,6 +118,43 @@ CONFIGS = {
         "MATERIAL_MODEL_ENABLED": True,
         "SUBJECT_BASE_ENABLED": True,
     },
+    # `33` still shows a small residual regression (-2 to -3pt) even with
+    # validation-shrinkage at the initial guess (scale=6.0) -- these two
+    # raise the bar for how much held-out improvement earns full trust, to
+    # see if that closes `33`'s gap further without costing `poppy` (whose
+    # own validated improvement was large) or `22`.
+    "uncapped+skin+strength+material+subjectbase+scale10": {
+        "MAX_ANCHOR_DELTA": 110.0,
+        "LEARN_ONLY_MATCHED": False,
+        "SKIN_MODEL_ENABLED": True,
+        "STRENGTH_TRUST_SCALE": 6000.0,
+        "MATERIAL_MODEL_ENABLED": True,
+        "SUBJECT_BASE_ENABLED": True,
+        "SUBJECT_BASE_VALIDATION_SCALE": 10.0,
+    },
+    "uncapped+skin+strength+material+subjectbase+scale15": {
+        "MAX_ANCHOR_DELTA": 110.0,
+        "LEARN_ONLY_MATCHED": False,
+        "SKIN_MODEL_ENABLED": True,
+        "STRENGTH_TRUST_SCALE": 6000.0,
+        "MATERIAL_MODEL_ENABLED": True,
+        "SUBJECT_BASE_ENABLED": True,
+        "SUBJECT_BASE_VALIDATION_SCALE": 15.0,
+    },
+    # User's ask: when subjectBase isn't confident, prefer leaving the
+    # subject close to the ORIGINAL (identity) over giving it the same shift
+    # as the background -- "no change" can never be the wrong direction,
+    # unlike the whole-frame base. Built on the validated scale=15.
+    "uncapped+skin+strength+material+subjectbase+scale15+identityfallback": {
+        "MAX_ANCHOR_DELTA": 110.0,
+        "LEARN_ONLY_MATCHED": False,
+        "SKIN_MODEL_ENABLED": True,
+        "STRENGTH_TRUST_SCALE": 6000.0,
+        "MATERIAL_MODEL_ENABLED": True,
+        "SUBJECT_BASE_ENABLED": True,
+        "SUBJECT_BASE_VALIDATION_SCALE": 15.0,
+        "SUBJECT_BASE_SHRINK_TO_IDENTITY": True,
+    },
     # One-at-a-time sweep of constants that were chosen once, by inspection,
     # and never swept against an alternative (see pixel_color.py's comment
     # above _FEATURE_L_WEIGHT). Each config changes exactly one value away
@@ -142,6 +179,21 @@ CONFIGS = {
         "MAX_ANCHOR_DELTA": 110.0, "LEARN_ONLY_MATCHED": False,
         "SKIN_MODEL_ENABLED": True, "STRENGTH_TRUST_SCALE": 6000.0,
         "MATERIAL_MODEL_ENABLED": True, "CONFIDENCE_SUPPORT_SCALE": 4000.0,
+    },
+    # chroma95 safety margin -- docs/opo.md section 13 flagged this ceiling
+    # as "still there, never revisited" after finding it was NOT the active
+    # constraint in the one case checked. Testing whether relaxing it lets
+    # demanding regions (saturated flowers/foliage) close more of their
+    # colour gap without letting anything run away unsafe.
+    "uncapped+skin+strength+material+chroma95margin12": {
+        "MAX_ANCHOR_DELTA": 110.0, "LEARN_ONLY_MATCHED": False,
+        "SKIN_MODEL_ENABLED": True, "STRENGTH_TRUST_SCALE": 6000.0,
+        "MATERIAL_MODEL_ENABLED": True, "CHROMA95_MARGIN": 12.0,
+    },
+    "uncapped+skin+strength+material+chroma95margin20": {
+        "MAX_ANCHOR_DELTA": 110.0, "LEARN_ONLY_MATCHED": False,
+        "SKIN_MODEL_ENABLED": True, "STRENGTH_TRUST_SCALE": 6000.0,
+        "MATERIAL_MODEL_ENABLED": True, "CHROMA95_MARGIN": 20.0,
     },
 }
 
@@ -375,6 +427,10 @@ def apply_config(config):
     pixel_color._MIN_SLOPE_SAMPLES = config.get("MIN_SLOPE_SAMPLES", 40)
     pixel_color._SLOPE_TRUST_SCALE = config.get("SLOPE_TRUST_SCALE", 6000.0)
     pixel_color.SUBJECT_BASE_ENABLED = config.get("SUBJECT_BASE_ENABLED", False)
+    pixel_color._SUBJECT_BASE_VALIDATION_SCALE = config.get("SUBJECT_BASE_VALIDATION_SCALE", 6.0)
+    pixel_color.SUBJECT_BASE_SHRINK_TO_IDENTITY = config.get(
+        "SUBJECT_BASE_SHRINK_TO_IDENTITY", False
+    )
     # The five "never swept" decision constants from pixel_color.py -- see
     # their docstring there. Defaults here match the values already live in
     # production, so a config that omits them measures exactly today's
@@ -385,6 +441,7 @@ def apply_config(config):
     pixel_color._CHROMA_GATE_FLOOR = config.get("CHROMA_GATE_FLOOR", 5.0)
     pixel_color._CHROMA_GATE_SPAN = config.get("CHROMA_GATE_SPAN", 13.0)
     pixel_color._FAMILIARITY_RADIUS = config.get("FAMILIARITY_RADIUS", 34.0)
+    pixel_color._CHROMA95_MARGIN = config.get("CHROMA95_MARGIN", 5.0)
     pixel_color._CUBE_CACHE.clear()
 
 

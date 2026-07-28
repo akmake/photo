@@ -212,9 +212,17 @@ export default function Editor({
           <h2>מתכון עריכה</h2>
           <button
             className="ghost"
-            onMouseDown={() => setShowOriginal(true)}
-            onMouseUp={() => setShowOriginal(false)}
-            onMouseLeave={() => setShowOriginal(false)}
+            onPointerDown={() => setShowOriginal(true)}
+            onPointerUp={() => setShowOriginal(false)}
+            onPointerCancel={() => setShowOriginal(false)}
+            onPointerLeave={() => setShowOriginal(false)}
+            onKeyDown={(e) => {
+              if (e.key === ' ' || e.key === 'Enter') setShowOriginal(true);
+            }}
+            onKeyUp={() => setShowOriginal(false)}
+            onBlur={() => setShowOriginal(false)}
+            aria-pressed={showOriginal}
+            title="החזיקי כדי לראות את המקור"
           >
             לפני / אחרי
           </button>
@@ -242,6 +250,7 @@ export default function Editor({
                     <label className="switch" onClick={(e) => e.stopPropagation()}>
                       <input
                         type="checkbox"
+                        aria-label={def.label}
                         checked={inst.enabled}
                         onChange={(e) =>
                           onRecipeChange(setToolEnabled(recipe, def.id, e.target.checked))
@@ -262,10 +271,11 @@ export default function Editor({
                       return (
                         <div className={`tool ${on ? 'active' : ''}`} key={spec.id}>
                           <div className="tool-row">
-                            <label>{spec.label}</label>
+                            <label htmlFor={`${def.id}-${spec.id}`}>{spec.label}</label>
                             <span className="val">{val}</span>
                           </div>
                           <input
+                            id={`${def.id}-${spec.id}`}
                             type="range"
                             min={spec.min}
                             max={spec.max}

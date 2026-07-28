@@ -26,6 +26,8 @@ import grade_zones
 import hsl
 import recipe_fit
 import pixel_color
+import album_analysis
+import album_export
 
 PORT = 8756
 
@@ -182,6 +184,12 @@ class Handler(BaseHTTPRequestHandler):
             return
         if self.path == "/export":
             self._export()
+            return
+        if self.path == "/album/analyze":
+            self._album_analyze()
+            return
+        if self.path == "/album/finalize-jpeg":
+            self._album_finalize_jpeg()
             return
         parts = self.path.strip("/").split("/")
         if len(parts) == 3 and parts[0] == "tools" and parts[2] == "apply":
@@ -372,6 +380,35 @@ class Handler(BaseHTTPRequestHandler):
                     errors.append({"file": path, "error": str(e)})  # kill the batch
             self._json(
                 200, {"written": written, "errors": errors, "count": len(written)}
+            )
+        except Exception as e:  # noqa: BLE001
+            self._json(500, {"error": str(e)})
+
+    def _album_analyze(self):
+        """Analyse one photo for safe album placement. { image|path }"""
+        try:
+            body = self._body()
+            image = (
+                common.load_image(body["path"])
+                if body.get("path")
+                else common.b64_to_image(body["image"])
+            )
+            self._json(200, on_worker(album_analysis.analyze, image))
+        except Exception as e:  # noqa: BLE001
+            self._json(500, {"error": str(e)})
+
+    def _album_finalize_jpeg(self):
+        """Encode a rendered spread as full-quality JPEG with embedded sRGB."""
+        try:
+            body = self._body()
+            payload, meta = on_worker(
+                album_export.finalize_srgb_jpeg,
+                body["image"],
+                body.get("ppi", 300),
+            )
+            self._json(
+                200,
+                {"image": "data:image/jpeg;base64," + payload, "meta": meta},
             )
         except Exception as e:  # noqa: BLE001
             self._json(500, {"error": str(e)})

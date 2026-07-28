@@ -60,6 +60,17 @@ _CHROMA_GATE_SPAN = 13.0
 # from every anchor gets zero correction -- the model refuses to extrapolate
 # to colours the teach pair never showed it.
 _FAMILIARITY_RADIUS = 34.0
+# Safety margin added to a target's own 95th-percentile chroma before
+# treating a candidate strength as "safe" (see _choose_palette,
+# _calibrate_anchor_strengths, _fit_material_anchors): the corrected output
+# is allowed to be this much MORE saturated than the retoucher's own actual
+# result, never more. This check runs on the aggregate 95th percentile
+# across every pixel being scored at that strength, not per region -- docs/
+# opo.md section 13 flagged that a demanding region (the flower) could in
+# principle get capped by pixels elsewhere pushing the aggregate over this
+# margin, though it was NOT the active constraint in the one case measured
+# there. Never swept against an alternative.
+_CHROMA95_MARGIN = 5.0
 
 # `_fit_base` is one global temperature/exposure grid search shared by the
 # whole frame -- when background and subject need to move in OPPOSITE
@@ -75,7 +86,35 @@ _FAMILIARITY_RADIUS = 34.0
 # `_apply_model_samples`'s "protected" mode uses that instead of the shared
 # base -- reusing existing code with a different mask, no new model.
 SUBJECT_BASE_ENABLED = False
+# When the subject-specific fit does NOT validate (see _fit_subject_base),
+# what to shrink toward. False (default, validated): the whole-frame base --
+# the subject still gets whatever grade the rest of the photo gets. True:
+# identity (no correction at all) -- "leave the subject alone" is treated as
+# strictly safer than "give it the same shift as the background", since the
+# whole-frame base can itself be a large, confident-looking shift that is
+# simply wrong FOR THE SUBJECT specifically (this was the actual failure
+# mode measured on `33` before validation-shrinkage existed at all). Not yet
+# swept via holdout.py -- the trade-off is a subject that can look
+# uncorrected next to a graded background when trust is low.
+SUBJECT_BASE_SHRINK_TO_IDENTITY = False
 _MIN_SUBJECT_BASE_PX = 400
+# Held-out subject pixels needed before trusting the validation comparison
+# at all (see _fit_subject_base) -- below this, "the subject fit validated
+# better" is too noisy a read to act on.
+_SUBJECT_BASE_MIN_VALIDATION_PX = 200
+# Lab-distance units of held-out improvement (subject-specific fit vs.
+# whole-frame base, both scored on subject pixels neither was fit on) needed
+# to reach full trust in the subject-specific answer. Swept 6/10/15 via
+# experiments/holdout.py: `poppy` (real divergence, +22.3L vs -14.9L
+# directional failure) and `jm` holdout were bit-for-bit IDENTICAL across
+# all three -- their validated improvement clears even the highest bar with
+# margin to spare. `33` (a removed-person set with no real subject/
+# background divergence) kept improving as the bar rose: skin 48.6% ->
+# 52.6% -> 54.4% (above the 50.6% no-subjectbase baseline), subject 55.2%
+# -> 58.1% -> 58.8% (matching the 58.6% baseline). `22` gave up some of its
+# gain (skin 53.4% -> 46.7%) but stayed clearly net-positive (baseline
+# 41.7%). 15 is the validated default; not yet tested above 15.
+_SUBJECT_BASE_VALIDATION_SCALE = 15.0
 # A hue rotation like magenta->rust needs ~95 in Lab. At 46 the model could not
 # express it and cranked global strength to the rail instead. See
 # experiments/holdout.py: on unseen pairs this is +8pt overall, +38pt on
@@ -264,7 +303,7 @@ def _correspondence(before, after):
     return ~mismatch
 
 
-def _fit_base(before, after, matched=None, restrict=None):
+def _fit_base(before, after, matched=None):
     before_small = _resize(before, BASE_MAX)
     after_small = _resize(after, BASE_MAX)
     target = _look_lab(after_small)
@@ -282,18 +321,6 @@ def _fit_base(before, after, matched=None, restrict=None):
         ).astype(bool)
         if resized.sum() > valid.sum() * 0.15:
             valid &= resized
-    if restrict is not None:
-        # Unlike `matched` above, a deliberate restriction (e.g. to just the
-        # subject) is not skipped for covering "too little" of the frame --
-        # a person filling 5% of a wide shot is the normal case this exists
-        # for, not a data-loss risk to guard against. Only refuse if there is
-        # too little absolute evidence to fit two parameters at all.
-        resized_restrict = cv2.resize(
-            restrict.astype(np.uint8), (width, height), interpolation=cv2.INTER_NEAREST
-        ).astype(bool)
-        restricted = valid & resized_restrict
-        if restricted.sum() >= _MIN_SUBJECT_BASE_PX:
-            valid = restricted
 
     def score(params):
         delta = np.sqrt(((_look_lab(_tone(before_small, params)) - target) ** 2).sum(2))
@@ -322,6 +349,98 @@ def _fit_base(before, after, matched=None, restrict=None):
             if value < best[0]:
                 best = (value, params)
     return best[1], best[0]
+
+
+def _fit_subject_base(before, after, whole_base, matched, subject_mask):
+    """The subject's own temperature/exposure, shrunk toward `whole_base` by
+    how much it actually validates on subject pixels it did NOT fit on --
+    not by how many pixels support it.
+
+    Measured on `33` (a person removed elsewhere in the frame): even after
+    excluding the removed-person pixels via `matched`, a 2-parameter fit
+    restricted to the subject still landed far from the whole-frame answer
+    (exposure -2.5 vs +13.75) and made every downstream score on that photo
+    worse, not better -- there was PLENTY of subject data (85k px), so this
+    was never a small-sample problem. A narrower fit over a smaller, more
+    homogeneous region will almost always land somewhere different from the
+    whole-frame fit, real divergence or not -- only a held-out check can
+    tell "the retoucher really did treat the subject differently" (measured
+    on `poppy`: a genuine, large, directional difference) from "the fit just
+    moved because the sample changed" (measured on `33`: no such
+    generalisation). Same principle as _STRENGTH_TRUST_SCALE, applied to
+    validation error instead of raw sample count.
+    """
+    before_small = _resize(before, BASE_MAX)
+    after_small = _resize(after, BASE_MAX)
+    target = _look_lab(after_small)
+    height, width = before_small.shape[:2]
+
+    rim = max(3, round(min(height, width) * 0.03))
+    valid = np.ones((height, width), bool)
+    valid[:rim] = False
+    valid[-rim:] = False
+    valid[:, :rim] = False
+    valid[:, -rim:] = False
+    valid &= cv2.resize(
+        subject_mask.astype(np.uint8), (width, height), interpolation=cv2.INTER_NEAREST
+    ).astype(bool)
+    if matched is not None:
+        resized_matched = cv2.resize(
+            matched.astype(np.uint8), (width, height), interpolation=cv2.INTER_NEAREST
+        ).astype(bool)
+        if (valid & resized_matched).sum() > valid.sum() * 0.15:
+            valid &= resized_matched
+
+    fallback = (
+        {"temperature": 0.0, "exposure": 0.0} if SUBJECT_BASE_SHRINK_TO_IDENTITY else whole_base
+    )
+
+    if int(valid.sum()) < _MIN_SUBJECT_BASE_PX:
+        return dict(fallback)
+
+    yy, xx = np.mgrid[0:height, 0:width]
+    holdout_cells = ((xx // 24 + yy // 24) % 5) == 0
+    train = valid & ~holdout_cells
+    validation = valid & holdout_cells
+    if int(validation.sum()) < _SUBJECT_BASE_MIN_VALIDATION_PX or int(train.sum()) < _MIN_SUBJECT_BASE_PX:
+        # Not enough held-out subject evidence to tell real divergence from
+        # fit noise -- stay at the fallback rather than guess.
+        return dict(fallback)
+
+    def score(params, mask):
+        delta = np.sqrt(((_look_lab(_tone(before_small, params)) - target) ** 2).sum(2))
+        return float(delta[mask].mean())
+
+    best = (score({}, train), {"temperature": 0.0, "exposure": 0.0})
+    for temperature in np.linspace(-80, 80, 17):
+        for exposure in np.linspace(-30, 30, 13):
+            params = {"temperature": float(temperature), "exposure": float(exposure)}
+            value = score(params, train)
+            if value < best[0]:
+                best = (value, params)
+    center_temperature = best[1]["temperature"]
+    center_exposure = best[1]["exposure"]
+    for temperature in np.linspace(center_temperature - 10, center_temperature + 10, 9):
+        for exposure in np.linspace(center_exposure - 5, center_exposure + 5, 9):
+            params = {
+                "temperature": float(np.clip(temperature, -100, 100)),
+                "exposure": float(np.clip(exposure, -50, 50)),
+            }
+            value = score(params, train)
+            if value < best[0]:
+                best = (value, params)
+    raw_subject_base = best[1]
+
+    subject_val_error = score(raw_subject_base, validation)
+    whole_val_error = score(whole_base, validation)
+    improvement = whole_val_error - subject_val_error
+    trust = float(np.clip(improvement / _SUBJECT_BASE_VALIDATION_SCALE, 0.0, 1.0))
+    return {
+        "temperature": trust * raw_subject_base["temperature"]
+        + (1.0 - trust) * float(fallback["temperature"]),
+        "exposure": trust * raw_subject_base["exposure"]
+        + (1.0 - trust) * float(fallback["exposure"]),
+    }
 
 
 def _stratified_positions(lab, valid):
@@ -524,7 +643,8 @@ def _calibrate_anchor_strengths(source_values, target_values, nearest, model, si
     anchors = model["anchors"]
     n = len(anchors)
     global_strength = _best_uniform_strength(
-        source_values, target_values, model, np.ones(n, np.float32), sigma, global_chroma95 + 5.0,
+        source_values, target_values, model, np.ones(n, np.float32), sigma,
+        global_chroma95 + _CHROMA95_MARGIN,
     )
     strengths = np.full(n, global_strength, np.float32)
     for index in range(n):
@@ -553,7 +673,7 @@ def _calibrate_anchor_strengths(source_values, target_values, nearest, model, si
             single["slopes"] = model["slopes"][index : index + 1]
         local_strength = _best_uniform_strength(
             cluster_source, cluster_target, single, np.ones(1, np.float32), sigma,
-            cluster_chroma95 + 5.0,
+            cluster_chroma95 + _CHROMA95_MARGIN,
         )
         trust = count / (count + _STRENGTH_TRUST_SCALE)
         strengths[index] = trust * local_strength + (1.0 - trust) * global_strength
@@ -588,7 +708,7 @@ def _choose_palette(source_lab, target_lab, positions, model):
         chroma95 = float(
             np.percentile(np.hypot(output[:, 1] - 128.0, output[:, 2] - 128.0), 95)
         )
-        safe = chroma95 <= target_chroma95 + 5.0
+        safe = chroma95 <= target_chroma95 + _CHROMA95_MARGIN
         trials.append(
             {
                 "sigma": sigma,
@@ -690,7 +810,7 @@ def _fit_material_anchors(before, general_lab, target_lab, valid, general_streng
             )
         )
         local_strength = _best_material_strength(
-            source_values, target_values, capped_delta, target_chroma95 + 5.0,
+            source_values, target_values, capped_delta, target_chroma95 + _CHROMA95_MARGIN,
         )
         # Same empirical-Bayes shrink as the general model's per-anchor
         # strength (_STRENGTH_TRUST_SCALE): thin evidence stays close to the
@@ -944,7 +1064,16 @@ def fit(before_rgb, after_rgb):
 
     subject_base = None
     if SUBJECT_BASE_ENABLED and subject.max() > 0.5:
-        subject_base, _ = _fit_base(before, after, matched, restrict=subject > 0.5)
+        # See _fit_subject_base's docstring: a matched-region guard alone
+        # (excluding removed-person pixels like `33`'s) was NOT enough --
+        # `33` still collapsed even with 85k clean subject pixels feeding
+        # the fit, because a narrower region just lands somewhere different
+        # from the whole-frame answer regardless of contamination. Trusting
+        # that difference now requires it to actually validate on held-out
+        # subject pixels, the same seen/unseen discipline used everywhere
+        # else in this file.
+        subject_matched = _correspondence(before, after)
+        subject_base = _fit_subject_base(before, after, base, subject_matched, subject > 0.5)
 
     height, width = before.shape[:2]
     rim = max(4, round(min(height, width) * 0.03))
