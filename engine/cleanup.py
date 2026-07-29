@@ -117,6 +117,49 @@ def _bright_debris_confidence(
     return out
 
 
+def _orifice_context(rgb: np.ndarray):
+    """Where fluids come from, and which way they run.
+
+    Returns (orifice_mask, down_field) at full resolution — the filled
+    eye/nostril/mouth outlines of every detected face, and a per-pixel unit
+    vector pointing "down the face" (eyes toward mouth). The field is written
+    per face over its own disc, so a lying-down child keeps their own gravity
+    even when a sibling stands upright in the same frame.
+    """
+    h, w = rgb.shape[:2]
+    orifice = np.zeros((h, w), np.uint8)
+    down = np.zeros((h, w, 2), np.float32)
+    faces = masks._face_landmarks(rgb)
+    for lm in faces or []:
+        def pt(i):
+            return np.array([lm[i].x * w, lm[i].y * h], np.float32)
+
+        fw = float(np.linalg.norm(pt(masks.FACE_RIGHT) - pt(masks.FACE_LEFT)))
+        if fw < 40:
+            continue
+        pts = lambda idx: np.array([pt(i) for i in idx], np.int32)
+        cv2.fillConvexPoly(orifice, cv2.convexHull(pts(masks.LIPS)), 255)
+        cv2.fillConvexPoly(orifice, cv2.convexHull(pts(masks.LEFT_EYE)), 255)
+        cv2.fillConvexPoly(orifice, cv2.convexHull(pts(masks.RIGHT_EYE)), 255)
+        for ala in masks.NOSE_ALA:
+            c = pt(ala)
+            cv2.circle(orifice, (int(c[0]), int(c[1])), max(2, int(fw * 0.025)), 255, -1)
+
+        eye_c = (np.mean([pt(i) for i in masks.LEFT_EYE], axis=0)
+                 + np.mean([pt(i) for i in masks.RIGHT_EYE], axis=0)) / 2
+        mouth_c = (pt(masks.MOUTH_CORNERS[0]) + pt(masks.MOUTH_CORNERS[1])) / 2
+        vec = mouth_c - eye_c
+        n = float(np.linalg.norm(vec))
+        if n < 1:
+            continue
+        vec /= n
+        centre = ((eye_c + mouth_c) / 2).astype(int)
+        disc = np.zeros((h, w), np.uint8)
+        cv2.circle(disc, (int(centre[0]), int(centre[1])), int(fw * 1.2), 255, -1)
+        down[disc > 0] = vec
+    return orifice, down
+
+
 def _structure_gate(
     crop: np.ndarray,
     repair: np.ndarray,
@@ -124,7 +167,9 @@ def _structure_gate(
     novelty: np.ndarray,
     novelty_bar: float,
     region: np.ndarray,
-) -> tuple[np.ndarray, int, int]:
+    orifice: np.ndarray | None = None,
+    down_field: np.ndarray | None = None,
+) -> tuple[np.ndarray, int, int, int]:
     """A blemish is ISOLATED. Drop components that are pieces of something.
 
     Both vetoes test the same principle in different spaces:
@@ -151,22 +196,38 @@ def _structure_gate(
     (and, near the eye, copied the other eye's lashes). Diffusion + texture
     grafting needed no such donor and produced clean repairs everywhere.
 
-    Returns (mask, line_vetoed, shading_vetoed).
+    A line-vetoed component gets one second chance: the WET-TRAIL test. Fluids
+    on a face — drool, tears, a runny nose — leave a thin BRIGHT strand with
+    the skin's own hue, anchored at an orifice and running down the face, and
+    ending in open skin. A hair shares none of that anchor: hair never grows
+    out of a lip. A component whose strand passes all five checks is healed —
+    the WHOLE strand, not just the detected stretch, because healing part of a
+    line is exactly the mid-air break the veto exists to prevent.
+
+    Returns (mask, line_vetoed, shading_vetoed, wet_trails).
     """
     if not repair.any():
-        return repair, 0, 0
+        return repair, 0, 0, 0
 
     lab = cv2.cvtColor(crop, cv2.COLOR_RGB2LAB)
     k = max(5, int(face_d * 0.02)) | 1
     kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (k, k))
     seed = np.zeros(repair.shape, bool)
     extent = np.zeros(repair.shape, bool)
+    top_l = black_l = None
     # Chroma deviations are numerically smaller than luminance ones, so the
     # floor drops for a/b — a faint red-pencil line must still register.
     for channel, floor in ((0, 6.0), (1, 4.0), (2, 4.0)):
         plane = lab[..., channel]
         for op in (cv2.MORPH_BLACKHAT, cv2.MORPH_TOPHAT):
             resp = cv2.morphologyEx(plane, op, kernel).astype(np.float32)
+            if channel == 0:
+                # kept for the wet-trail polarity check: shine is a TOPHAT
+                # ridge, hair and creases are BLACKHAT
+                if op == cv2.MORPH_TOPHAT:
+                    top_l = resp
+                else:
+                    black_l = resp
             med = float(np.median(resp))
             sigma = 1.4826 * float(np.median(np.abs(resp - med)))
             # Hysteresis, same as decide(): the high bar says "this is real
@@ -206,9 +267,86 @@ def _structure_gate(
         # ring; a continuing gradient elevates all of it.
         return float(np.median(novelty[ring]))
 
+    near_orifice = None
+    if orifice is not None and orifice.any():
+        # the drool hangs from BELOW the vermilion the landmarks trace — the
+        # anchor zone must reach past that gap (0.02 measured too short)
+        ow = max(3, int(face_d * 0.05))
+        near_orifice = cv2.dilate(orifice, np.ones((ow, ow), np.uint8)) > 0
+
+    def wet_trail(rid: int, comp: np.ndarray):
+        """The five checks, judged in a LOCAL window around the component.
+
+        A fluid trail fits the window whole; a hair or a scenery-scale shadow
+        web — the 445k-px structure that merges half the crop at the extent
+        bar — leaves through the window's edge, which doubles as the
+        termination check. Returns the heal mask for a fluid trail, or None.
+        """
+        if near_orifice is None or down_field is None:
+            return None
+        cys, cxs = np.nonzero(comp)
+        pad = int(face_d * 0.40)
+        wy0 = max(0, int(cys.min()) - pad)
+        wy1 = min(repair.shape[0], int(cys.max()) + pad + 1)
+        wx0 = max(0, int(cxs.min()) - pad)
+        wx1 = min(repair.shape[1], int(cxs.max()) + pad + 1)
+        sl = np.s_[wy0:wy1, wx0:wx1]
+        strand = r_labels[sl] == rid
+        if not strand.any():
+            return None
+        no = near_orifice[sl]
+        us = usable[sl]
+
+        # termination: the strand may touch the window edge only inside the
+        # orifice zone (its anchor side). Any other exit means it is a piece
+        # of something longer — exactly what the veto protects.
+        border = np.zeros_like(strand)
+        border[0, :] = border[-1, :] = True
+        border[:, 0] = border[:, -1] = True
+        if (strand & border & ~no).any():
+            return None
+        # (3) anchored at an orifice
+        anchor = strand & no
+        if not anchor.any():
+            return None
+        # (1) bright ridge — shine, not pigment or shadow
+        top_w, black_w = top_l[sl], black_l[sl]
+        if float(np.median(top_w[strand])) <= float(np.median(black_w[strand])) + 1.0:
+            return None
+        # (2) the skin's own hue: chroma of the strand vs its surrounding ring
+        rw = max(3, int(face_d * 0.015))
+        ring = (
+            cv2.dilate(strand.astype(np.uint8), np.ones((rw, rw), np.uint8), iterations=2) > 0
+        ) & ~strand & us
+        if ring.sum() < 16:
+            return None
+        lab_w = lab[sl]
+        da = abs(float(np.median(lab_w[..., 1][strand])) - float(np.median(lab_w[..., 1][ring])))
+        db = abs(float(np.median(lab_w[..., 2][strand])) - float(np.median(lab_w[..., 2][ring])))
+        if da + db > 14.0:
+            return None
+        # (4) runs down the face from its anchor
+        ay, ax = np.nonzero(anchor)
+        a_pt = np.array([ax.mean(), ay.mean()], np.float32)
+        vec = down_field[sl][int(a_pt[1]), int(a_pt[0])]
+        if float(np.linalg.norm(vec)) < 0.5:
+            return None
+        sy, sx = np.nonzero(strand)
+        proj = (sx - a_pt[0]) * vec[0] + (sy - a_pt[1]) * vec[1]
+        if (proj > 0).mean() < 0.55 or float(np.percentile(proj, 90)) < face_d * 0.02:
+            return None
+        # (5) the body of the strand lives on open, heal-eligible skin
+        body = strand & ~no
+        if body.sum() < 8 or float((body & us).sum()) < 0.8 * float(body.sum()):
+            return None
+        heal = np.zeros(repair.shape, np.uint8)
+        heal[sl] = cv2.dilate((strand & us).astype(np.uint8), np.ones((3, 3), np.uint8))
+        return heal
+
     out = repair.copy()
     line_vetoed = 0
     shading_vetoed = 0
+    wet_trails = 0
     grow = np.ones((7, 7), np.uint8)
     step = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
     n, labels, _, _ = cv2.connectedComponentsWithStats(repair, connectivity=8)
@@ -233,6 +371,13 @@ def _structure_gate(
                 continue
             outside = int(totals[rid] - inside[rid])
             if outside > max(8, int(0.6 * inside[rid])):
+                rescue = wet_trail(rid, component)
+                if rescue is not None:
+                    # a fluid trail, not a hair: heal the whole strand
+                    out = np.maximum(out, rescue)
+                    wet_trails += 1
+                    line_hit = False
+                    break
                 out[component > 0] = 0
                 line_vetoed += 1
                 line_hit = True
@@ -256,7 +401,7 @@ def _structure_gate(
                 break
             component = grown
         out = np.maximum(out, component)
-    return out, line_vetoed, shading_vetoed
+    return out, line_vetoed, shading_vetoed, wet_trails
 
 
 def process(image_b64: str, params: dict):
@@ -490,8 +635,10 @@ def apply(rgb, params: dict):
         # feeding the diffusion is the same patch of skin — so local blush is
         # reproduced, not averaged away. test_blush.py holds this honest.
         core = hysteresis_core(conf)
-        core, line_vetoed, shading_vetoed = _structure_gate(
-            crop, core, face_c, model.novelty, _novelty_bar(strength), region
+        orifice, down_field = _orifice_context(rgb)
+        core, line_vetoed, shading_vetoed, wet_trails = _structure_gate(
+            crop, core, face_c, model.novelty, _novelty_bar(strength), region,
+            orifice=orifice[y0:y1, x0:x1], down_field=down_field[y0:y1, x0:x1],
         )
         repair = decide(conf, face_c, core)
         if not repair.any():
@@ -500,6 +647,7 @@ def apply(rgb, params: dict):
                 "correctedPx": 0,
                 "lineVetoed": line_vetoed,
                 "shadingVetoed": shading_vetoed,
+                "wetTrails": wet_trails,
             }
         healed = healing.inpaint_texture(
             crop, repair, (region > 0.35).astype(np.uint8)
@@ -528,6 +676,7 @@ def apply(rgb, params: dict):
             "correctedPx": int((repair > 0).sum()),
             "lineVetoed": line_vetoed,
             "shadingVetoed": shading_vetoed,
+            "wetTrails": wet_trails,
             "colorHarmonization": harmonized.metadata,
         }
     else:

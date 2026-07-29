@@ -98,6 +98,8 @@ const FACTS: Record<string, (v: MetaValue) => string> = {
   pushOnFabric: (v) => `מהמבנה נחת על בגדים: ${pct(v)}`,
   pushOnSkin: (v) => `מהמבנה נחת על עור: ${pct(v)}`,
   pushOnRest: (v) => `מהמבנה נחת על הרקע: ${pct(v)}`,
+  mask: (v) => `הוחל דרך מסכה: ${v === 'painted' ? 'מכחול ידני' : v}`,
+  maskCoverage: (v) => `כיסוי המסכה: ${pct(v)}`,
   matte: (v) => (num(v) ? `מאט: ${Math.round(num(v) * 100)}%` : 'ללא מאט'),
 
   // flags / values

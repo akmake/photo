@@ -19,7 +19,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react
 import type { Recipe } from '../types';
 import {
   defaultRecipe, getTool, isToolAtDefault, orderedInstances, setToolEnabled,
-  updateToolParams, visibleInstances,
+  updateToolMask, updateToolParams, visibleInstances,
 } from '../toolRegistry';
 import { renderRecipe, checkEngine } from '../api';
 import type { RenderStep } from '../api';
@@ -36,6 +36,12 @@ const DIFF_CAP = 2400;
 /** Multiplier on the fitted size. A 3648px frame fitted into ~900px of stage
  *  sits at ~0.25, so 80x is roughly 2000% — enough to inspect single pixels. */
 const MAX_ZOOM = 80;
+/** Frame-relative tools reject region masks in the engine (render.py
+ *  FRAME_ONLY) — offering a brush for them would be a lying control. */
+const NO_BRUSH = new Set(['light-point', 'glow', 'vignette']);
+/** Painted edges get engine-side feathering so a preview-resolution stroke
+ *  stays soft at export resolution. */
+const PAINT_FEATHER = 12;
 
 interface Loaded {
   name: string;
@@ -179,6 +185,18 @@ export default function Lab() {
   const diffRef = useRef<HTMLCanvasElement>(null);
   const drag = useRef<{ x: number; y: number; px: number; py: number } | null>(null);
 
+  /* The manual brush: a per-photo override painted over ONE tool's result.
+   * The strokes live in an offscreen canvas at preview size; commit ships
+   * them as a PNG in the tool's mask spec, and the ENGINE blends — the same
+   * code path the export uses, so what she paints is what she gets. */
+  const [paintFor, setPaintFor] = useState<string | null>(null);
+  const [brush, setBrush] = useState(70);
+  const [erase, setErase] = useState(false);
+  const [paintMode, setPaintMode] = useState<'except' | 'only'>('except');
+  const maskCanvas = useRef<HTMLCanvasElement | null>(null);
+  const overlayRef = useRef<HTMLCanvasElement>(null);
+  const stroke = useRef<{ x: number; y: number } | null>(null);
+
   const originalSrc = img ? img.full : '';
 
   useEffect(() => {
@@ -281,6 +299,130 @@ export default function Lab() {
     drag.current = null;
   }
 
+  /* ------------------------------------------------------------- brush */
+
+  const redrawOverlay = useCallback(() => {
+    const ov = overlayRef.current;
+    const mc = maskCanvas.current;
+    if (!ov || !mc) return;
+    const g = ov.getContext('2d')!;
+    g.clearRect(0, 0, ov.width, ov.height);
+    g.drawImage(mc, 0, 0);
+    g.globalCompositeOperation = 'source-in';
+    g.fillStyle = 'rgba(255, 64, 64, 0.5)';
+    g.fillRect(0, 0, ov.width, ov.height);
+    g.globalCompositeOperation = 'source-over';
+  }, []);
+
+  const enterPaint = useCallback(
+    (toolId: string) => {
+      if (paintFor === toolId) {
+        setPaintFor(null);
+        return;
+      }
+      if (!img) return;
+      let c = maskCanvas.current;
+      if (!c || c.width !== img.pw || c.height !== img.ph) {
+        c = document.createElement('canvas');
+        c.width = img.pw;
+        c.height = img.ph;
+        maskCanvas.current = c;
+      }
+      const ctx = c.getContext('2d')!;
+      ctx.clearRect(0, 0, c.width, c.height);
+      const inst = recipe.tools.find((t) => t.toolId === toolId);
+      if (inst?.mask?.region === 'painted' && inst.mask.paint) {
+        setPaintMode(inst.mask.invert ? 'except' : 'only');
+        loadImage(inst.mask.paint).then((im) => {
+          ctx.drawImage(im, 0, 0, c!.width, c!.height);
+          redrawOverlay();
+        });
+      }
+      setPaintFor(toolId);
+    },
+    [img, paintFor, recipe, redrawOverlay],
+  );
+
+  useEffect(() => {
+    if (paintFor) redrawOverlay();
+  }, [paintFor, redrawOverlay]);
+
+  const commitMask = useCallback(
+    (mode: 'except' | 'only') => {
+      const c = maskCanvas.current;
+      if (!c || !paintFor) return;
+      setRecipe((r) =>
+        updateToolMask(r, paintFor, {
+          region: 'painted',
+          paint: c.toDataURL('image/png'),
+          invert: mode === 'except',
+          feather: PAINT_FEATHER,
+        }),
+      );
+    },
+    [paintFor],
+  );
+
+  /** Pointer position in mask-bitmap pixels. object-fit: contain letterboxes
+   *  the bitmap inside the element box; the box itself already carries the
+   *  zoom/pan transform, so this mapping is honest at any zoom. */
+  function maskPoint(e: React.PointerEvent<HTMLCanvasElement>) {
+    const el = e.currentTarget;
+    const r = el.getBoundingClientRect();
+    const s = Math.min(r.width / el.width, r.height / el.height);
+    const ox = r.left + (r.width - el.width * s) / 2;
+    const oy = r.top + (r.height - el.height * s) / 2;
+    return { x: (e.clientX - ox) / s, y: (e.clientY - oy) / s, s };
+  }
+
+  function stamp(x: number, y: number, rad: number) {
+    const ctx = maskCanvas.current?.getContext('2d');
+    if (!ctx) return;
+    ctx.globalCompositeOperation = erase ? 'destination-out' : 'source-over';
+    const grad = ctx.createRadialGradient(x, y, rad * 0.55, x, y, rad);
+    grad.addColorStop(0, 'rgba(255,255,255,1)');
+    grad.addColorStop(1, 'rgba(255,255,255,0)');
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    ctx.arc(x, y, rad, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  function brushDown(e: React.PointerEvent<HTMLCanvasElement>) {
+    e.stopPropagation();
+    e.currentTarget.setPointerCapture(e.pointerId);
+    const p = maskPoint(e);
+    stamp(p.x, p.y, Math.max(3, brush / 2 / p.s));
+    stroke.current = { x: p.x, y: p.y };
+    redrawOverlay();
+  }
+
+  function brushMove(e: React.PointerEvent<HTMLCanvasElement>) {
+    if (!stroke.current) return;
+    const p = maskPoint(e);
+    const rad = Math.max(3, brush / 2 / p.s);
+    const last = stroke.current;
+    const steps = Math.max(1, Math.floor(Math.hypot(p.x - last.x, p.y - last.y) / (rad * 0.35)));
+    for (let i = 1; i <= steps; i++) {
+      stamp(last.x + ((p.x - last.x) * i) / steps, last.y + ((p.y - last.y) * i) / steps, rad);
+    }
+    stroke.current = { x: p.x, y: p.y };
+    redrawOverlay();
+  }
+
+  function brushUp() {
+    if (!stroke.current) return;
+    stroke.current = null;
+    commitMask(paintMode);
+  }
+
+  const clearMask = useCallback(() => {
+    const c = maskCanvas.current;
+    if (c) c.getContext('2d')!.clearRect(0, 0, c.width, c.height);
+    redrawOverlay();
+    if (paintFor) setRecipe((r) => updateToolMask(r, paintFor, null));
+  }, [paintFor, redrawOverlay]);
+
   /* -------------------------------------------------------------- load */
 
   const load = useCallback(async (file: File) => {
@@ -292,6 +434,8 @@ export default function Lab() {
     setRecipe(emptyRecipe());
     setZoom(1);
     setPan({ x: 0, y: 0 });
+    setPaintFor(null);
+    maskCanvas.current = null;
     try {
       const full = await readFile(file);
       const dims = await downscale(full);
@@ -325,7 +469,12 @@ export default function Lab() {
       try {
         const res = await renderRecipe(
           originalSrc,
-          enabled.map((i) => ({ toolId: i.toolId, params: i.params, enabled: true })),
+          enabled.map((i) => ({
+            toolId: i.toolId,
+            params: i.params,
+            enabled: true,
+            ...(i.mask ? { mask: i.mask } : {}),
+          })),
         );
         if (mine !== seq.current) return;
         const steps: RenderStep[] = res.meta?.steps ?? [];
@@ -390,7 +539,12 @@ export default function Lab() {
     try {
       const res = await renderRecipe(
         img.full,
-        enabled.map((i) => ({ toolId: i.toolId, params: i.params, enabled: true })),
+        enabled.map((i) => ({
+          toolId: i.toolId,
+          params: i.params,
+          enabled: true,
+          ...(i.mask ? { mask: i.mask } : {}),
+        })),
         true,
       );
       const a = document.createElement('a');
@@ -468,12 +622,62 @@ export default function Lab() {
               className="lab-img lab-over"
               style={{ opacity: showProcessed && mode === 'diff' ? 1 : 0 }}
             />
+            {paintFor && (
+              <canvas
+                ref={overlayRef}
+                className="lab-img lab-over lab-paintlayer"
+                width={img.pw}
+                height={img.ph}
+                onPointerDown={brushDown}
+                onPointerMove={brushMove}
+                onPointerUp={brushUp}
+                onPointerCancel={brushUp}
+              />
+            )}
           </div>
 
           {busy && <span className="lab-spinner">מעבד…</span>}
           {showOriginal && out && <span className="lab-badge-orig">מקור</span>}
           {/* histogram follows what the eye sees: result, or original on hold */}
           <Histogram src={showProcessed ? out! : originalSrc} />
+
+          {paintFor && (
+            <div className="lab-paintbar">
+              <strong>מכחול · {getTool(paintFor).label}</strong>
+              <label className="lab-paint-size">
+                גודל
+                <input
+                  type="range"
+                  min={14}
+                  max={240}
+                  value={brush}
+                  onChange={(e) => setBrush(Number(e.target.value))}
+                />
+              </label>
+              <div className="lab-modes">
+                <button className={!erase ? 'on' : ''} onClick={() => setErase(false)}>צייר</button>
+                <button className={erase ? 'on' : ''} onClick={() => setErase(true)}>מחק</button>
+              </div>
+              <div className="lab-modes">
+                <button
+                  className={paintMode === 'except' ? 'on' : ''}
+                  onClick={() => { setPaintMode('except'); commitMask('except'); }}
+                  title="האזור שצויר מוגן — הכלי לא נוגע בו"
+                >
+                  הסר מהציור
+                </button>
+                <button
+                  className={paintMode === 'only' ? 'on' : ''}
+                  onClick={() => { setPaintMode('only'); commitMask('only'); }}
+                  title="הכלי פועל רק בתוך האזור שצויר"
+                >
+                  רק בציור
+                </button>
+              </div>
+              <button onClick={clearMask}>נקה</button>
+              <button onClick={() => setPaintFor(null)}>סיום</button>
+            </div>
+          )}
 
           <div className="lab-zoombar">
             <button onClick={() => setZoom((z) => Math.max(1, z / 1.5))}>−</button>
@@ -588,6 +792,23 @@ export default function Lab() {
                       />
                     </div>
                   ))}
+
+                  {!NO_BRUSH.has(def.id) && (
+                    <div className="lab-mask-row">
+                      <button
+                        className={`btn btn-ghost lab-brush-btn ${paintFor === def.id ? 'on' : ''}`}
+                        disabled={!inst.enabled}
+                        onClick={() => enterPaint(def.id)}
+                      >
+                        {paintFor === def.id ? 'מצייר… (סיום)' : 'מכחול ידני'}
+                      </button>
+                      {inst.mask?.region === 'painted' && (
+                        <span className="lab-mask-note">
+                          {inst.mask.invert ? 'מוסר באזור שצויר' : 'פועל רק באזור שצויר'}
+                        </span>
+                      )}
+                    </div>
+                  )}
                 </div>
               )}
             </div>

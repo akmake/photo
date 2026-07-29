@@ -12,6 +12,7 @@ import {
   buildAlbumLayoutCandidates, EMPTY_GENERATED_LAYOUT, type GeneratedAlbumLayout,
 } from './layoutEngine';
 import { assessCrop } from './cropEngine';
+import { LAYOUT_TEMPLATES, TEMPLATE_PHOTO_COUNTS } from './layoutTemplates';
 import { analyzeAlbumPhoto } from '../api';
 import { exportAlbumForPrint, exportAlbumProof } from './exportEngine';
 import { buildAutomaticAlbum } from './albumFlow';
@@ -134,6 +135,7 @@ export default function AlbumStudio() {
   const [photoFilter, setPhotoFilter] = useState<PhotoTrayFilter>('available');
   const [showGuides, setShowGuides] = useState(true);
   const [panelTab, setPanelTab] = useState<'layouts' | 'design'>('layouts');
+  const [templateCount, setTemplateCount] = useState<number | null>(null);
   const [notice, setNotice] = useState('הטיוטה נשמרה מקומית');
   const [photoLimit, setPhotoLimit] = useState(60);
   const [isExporting, setIsExporting] = useState(false);
@@ -580,6 +582,61 @@ export default function AlbumStudio() {
       return;
     }
     if (issue.target === 'review') openReviewWorkspace();
+  }
+
+  /* Applying a template is layout-FIRST: the frames come from the template, and
+   * the photos already on the spread fall into them in order. Extra frames stay
+   * empty and wait to be filled, instead of the layout being dictated by how
+   * many photos happen to be placed. */
+  function applyTemplate(templateSlots: LayoutSlot[], id: string, name: string) {
+    const existing = spread.photoIds.filter(Boolean);
+    const photoIds = Array.from({ length: templateSlots.length }, (_, i) => existing[i] ?? '');
+    updateSpread({
+      layoutId: id,
+      customSlots: templateSlots,
+      photoIds,
+      frameSettings: {},
+    });
+    setSelectedSlotIndex(null);
+    const spare = existing.length - templateSlots.length;
+    setNotice(spare > 0
+      ? `הוחלה „${name}” · ${spare} תמונות חזרו למגש`
+      : `הוחלה „${name}”`);
+  }
+
+  function addFrame() {
+    const slots = layout.slots;
+    const next: LayoutSlot = {
+      id: `frame-${Date.now()}`,
+      // dropped near the middle, offset so a second one does not hide the first
+      x: 0.62 + (slots.length % 3) * 0.06,
+      y: 0.2 + (slots.length % 3) * 0.06,
+      width: 0.4,
+      height: 0.4,
+      role: 'support',
+      preferred: [],
+    };
+    const allSlots = [...slots, next];
+    updateSpread({
+      layoutId: `custom-${Date.now()}`,
+      customSlots: allSlots,
+      // the empty strings are the empty frames — filtering them collapses the layout
+      photoIds: [...spread.photoIds, ''].slice(0, allSlots.length),
+    });
+    setSelectedSlotIndex(allSlots.length - 1);
+    setNotice('מסגרת נוספה — גררי אותה ושני את גודלה');
+  }
+
+  function removeFrame(index: number) {
+    if (layout.slots.length <= 1) return;
+    const allSlots = layout.slots.filter((_, i) => i !== index);
+    updateSpread({
+      layoutId: `custom-${Date.now()}`,
+      customSlots: allSlots,
+      photoIds: layout.photoIds.filter((_, i) => i !== index),
+    });
+    setSelectedSlotIndex(null);
+    setNotice('המסגרת הוסרה');
   }
 
   function chooseLayout(nextLayout: GeneratedAlbumLayout) {
@@ -1666,7 +1723,18 @@ export default function AlbumStudio() {
         onChange={(event) => setFramePosition({ positionY: Number(event.target.value) })}
         />
         </label>
-        <button className="album-control-remove" onClick={removeSelectedFramePhoto}>הסרה</button>
+        {/* Two different removals, and confusing them loses work: one empties
+            the frame, the other deletes the frame itself. */}
+        <div className="album-inspector-removals">
+          <button className="album-control-remove" onClick={removeSelectedFramePhoto}>הסרת התמונה</button>
+          <button
+            className="album-control-remove danger"
+            disabled={layout.slots.length <= 1}
+            onClick={() => selectedSlotIndex !== null && removeFrame(selectedSlotIndex)}
+          >
+            מחיקת המסגרת
+          </button>
+        </div>
           </div>
         ) : (
           <>
@@ -1678,10 +1746,84 @@ export default function AlbumStudio() {
           {panelTab === 'layouts' ? (
             <>
               <div className="album-layout-title">
-                <strong>פריסות שנבנו לתמונות</strong>
-                <span>{layoutCandidates.length ? `${layout.photoCount} תמונות · ללא חיתוך` : 'בחרי תמונות מהמגש כדי להתחיל'}</span>
+                <strong>תבניות פריסה</strong>
+                <span>בחרי תבנית ואז מלאי אותה — או צרי משלך</span>
               </div>
+
+              <div className="template-counts" role="group" aria-label="סינון לפי מספר מסגרות">
+                <button
+                  className={templateCount === null ? 'on' : ''}
+                  onClick={() => setTemplateCount(null)}
+                >הכול</button>
+                {TEMPLATE_PHOTO_COUNTS.map((count) => (
+                  <button
+                    key={count}
+                    className={templateCount === count ? 'on' : ''}
+                    onClick={() => setTemplateCount(count)}
+                  >{count}</button>
+                ))}
+              </div>
+
               <div className="album-layout-list">
+                {LAYOUT_TEMPLATES
+                  .filter((item) => templateCount === null || item.photoCount === templateCount)
+                  .map((item) => (
+                    <button
+                      key={item.id}
+                      className={`album-layout-card ${item.id === spread.layoutId ? 'on' : ''}`}
+                      onClick={() => applyTemplate(item.slots, item.id, item.name)}
+                      title={item.name}
+                    >
+                      <span className="album-layout-preview">
+                        {item.slots.map((frame) => (
+                          <i key={frame.id} style={{
+                            left: `${frame.x * 100}%`,
+                            top: `${frame.y * 100}%`,
+                            width: `${frame.width * 100}%`,
+                            height: `${frame.height * 100}%`,
+                          }} />
+                        ))}
+                        <em />
+                      </span>
+                      <span className="album-layout-meta">
+                        <b>{item.name}</b>
+                        <small>{item.photoCount} מסגרות</small>
+                      </span>
+                    </button>
+                  ))}
+
+                {personalLayouts.length > 0 && (
+                  <div className="album-layout-section">התבניות שלי</div>
+                )}
+                {personalLayouts.map((item) => (
+                  <button
+                    key={item.id}
+                    className={`album-layout-card ${item.id === spread.layoutId ? 'on' : ''}`}
+                    onClick={() => applyTemplate(item.slots, item.id, item.name)}
+                  >
+                    <span className="album-layout-preview">
+                      {item.slots.map((frame) => (
+                        <i key={frame.id} style={{
+                          left: `${frame.x * 100}%`,
+                          top: `${frame.y * 100}%`,
+                          width: `${frame.width * 100}%`,
+                          height: `${frame.height * 100}%`,
+                        }} />
+                      ))}
+                      <em />
+                    </span>
+                    <span className="album-layout-meta">
+                      <b>{item.name}</b>
+                      <small>{item.photoCount} מסגרות · נשמרה על ידך</small>
+                    </span>
+                  </button>
+                ))}
+
+                {layoutCandidates.length > 0 && (
+                  <div className="album-layout-section">מותאם לתמונות שבכפולה</div>
+                )}
+              </div>
+              <div className="album-layout-list secondary">
                 {layoutCandidates.map((item) => (
                   <button
                     key={item.id}
@@ -1709,52 +1851,14 @@ export default function AlbumStudio() {
                     </span>
                   </button>
                 ))}
-                {personalLayouts
-                  .filter((item) => item.photoCount === layout.photoCount
-                    && Math.abs(item.pageAspect - profile.closedWidthMm / profile.closedHeightMm) < 0.02)
-                  .map((item) => (
-                    <button
-                      key={item.id}
-                      className={`album-layout-card ${item.id === spread.layoutId ? 'on' : ''}`}
-                      onClick={() => applyPersonalLayout(item)}
-                    >
-                      <span className="album-layout-preview">
-                        {item.slots.map((slot) => (
-                          <i key={slot.id} style={{
-                            left: `${slot.x * 100}%`,
-                            top: `${slot.y * 100}%`,
-                            width: `${slot.width * 100}%`,
-                            height: `${slot.height * 100}%`,
-                          }} />
-                        ))}
-                        <em />
-                      </span>
-                      <span className="album-layout-meta">
-                        <b>{item.name}</b>
-                        <small>{item.photoCount} תמונות · נשמרה על ידך</small>
-                        <small className="layout-safe">ניתנת לעריכה חוזרת</small>
-                      </span>
-                    </button>
-                  ))}
-                {!layoutCandidates.length && (
-                  <div className="album-layout-empty">
-                    <IcGallery size={24} />
-                    <strong>הכפולה עדיין ריקה</strong>
-                    <span>בחרי תמונות מהמגש ולחצי „הוספה לכפולה”. הפריסות ייווצרו מהתמונות עצמן.</span>
-                  </div>
-                )}
               </div>
-              <button
-                className="album-auto-layout"
-                disabled={layoutCandidates.length < 2}
-                onClick={() => {
-                  const currentIndex = layoutCandidates.findIndex((candidate) => candidate.id === layout.id);
-                  chooseLayout(layoutCandidates[(currentIndex + 1) % layoutCandidates.length]);
-                }}
-              >
-                <IcSparkle size={16} />
-                הציעי פריסה אחרת
-              </button>
+              <div className="album-frame-tools">
+                <strong>בניית פריסה</strong>
+                <div>
+                  <button onClick={addFrame}>+ הוספת מסגרת</button>
+                </div>
+                <small>בחרי מסגרת בקנבס כדי להזיז אותה, לשנות את גודלה או למחוק אותה</small>
+              </div>
               <button
                 className="album-save-layout"
                 disabled={!layout.slots.length}

@@ -162,7 +162,10 @@ def render(img, recipe_tools):
                 m = _region_mask(rgb, spec)[..., None]
                 out = (rgb.astype(np.float32) * (1.0 - m)
                        + out.astype(np.float32) * m)
-                out = np.clip(out, 0, 255).astype(np.uint8)
+                # rint, not a bare cast: astype truncates, so a mask weight of
+                # 1e-4 pulling downward would drop a full level (measured 0.10
+                # mean inside a fully-protected brush core)
+                out = np.clip(np.rint(out), 0, 255).astype(np.uint8)
                 meta = {**meta, "mask": spec.get("region", "subject"),
                         "maskCoverage": round(float(m.mean()), 4)}
             rgb = out

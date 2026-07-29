@@ -184,24 +184,28 @@ def _face_landmarks(rgb: np.ndarray):
     (eyes, cheeks, features) come back EMPTY on real full-resolution photos —
     silently disabling feature protection.
 
-    So: try the whole frame first (cheap, fine for tight portraits); if that
-    finds nothing, locate faces with the segmenter — which works at any scale —
-    and run the landmarker on a crop of each one, mapping the results back.
+    So: try the whole frame first (cheap, fine for tight portraits) — but do
+    NOT trust it to be COMPLETE. The short-range detector routinely drops the
+    smallest head in a group (measured: 3 of 4 faces in a 2330px crop — the
+    baby vanished, and with him every landmark mask on his face, so cleanup's
+    eligible region there was literally zero). Every face-skin blob the
+    segmenter sees — it works at any scale — that no detected face claims gets
+    the per-blob pass, whether the frame pass found zero faces or three.
     """
     h, w = rgb.shape[:2]
 
-    faces = _detect_on(rgb)
-    if faces:
-        return faces
+    out = list(_detect_on(rgb) or [])
 
     cat = _category_map(rgb)
     face_skin = (cat == CLS_FACE_SKIN).astype(np.uint8)
     if not face_skin.any():
-        return []
+        return out
+
+    def noses():
+        return [(f[NOSE_TIP].x * w, f[NOSE_TIP].y * h) for f in out]
 
     n, labels, stats, _ = cv2.connectedComponentsWithStats(face_skin, connectivity=8)
     min_area = max(64, int(0.00002 * h * w))
-    out = []
     for i in range(1, n):
         if int(stats[i, cv2.CC_STAT_AREA]) < min_area:
             continue
@@ -209,6 +213,12 @@ def _face_landmarks(rgb: np.ndarray):
         by = int(stats[i, cv2.CC_STAT_TOP])
         bw = int(stats[i, cv2.CC_STAT_WIDTH])
         bh = int(stats[i, cv2.CC_STAT_HEIGHT])
+        # a blob already claimed by a detected face needs no second pass
+        if any(
+            bx - bw * 0.3 <= nx <= bx + bw * 1.3 and by - bh * 0.3 <= ny <= by + bh * 1.3
+            for nx, ny in noses()
+        ):
+            continue
         # generous padding: the skin class excludes hair, brows and lips, so the
         # real head is considerably larger than this box
         pad = int(max(bw, bh) * 0.6)
@@ -220,12 +230,19 @@ def _face_landmarks(rgb: np.ndarray):
         if cw < 32 or ch < 32:
             continue
         for lms in _detect_on(rgb[y0:y1, x0:x1]):
-            out.append(
-                [
-                    _Pt((x0 + p.x * cw) / w, (y0 + p.y * ch) / h, getattr(p, "z", 0.0))
-                    for p in lms
-                ]
-            )
+            mapped = [
+                _Pt((x0 + p.x * cw) / w, (y0 + p.y * ch) / h, getattr(p, "z", 0.0))
+                for p in lms
+            ]
+            # the padded crop can re-find a neighbour the frame pass already
+            # has — one nose, one face
+            mx, my = mapped[NOSE_TIP].x * w, mapped[NOSE_TIP].y * h
+            fw_new = abs(mapped[FACE_RIGHT].x - mapped[FACE_LEFT].x) * w
+            if all(
+                np.hypot(mx - nx, my - ny) >= max(24.0, fw_new * 0.5)
+                for nx, ny in noses()
+            ):
+                out.append(mapped)
     return out
 
 
