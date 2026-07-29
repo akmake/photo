@@ -246,6 +246,32 @@ def _face_landmarks(rgb: np.ndarray):
     return out
 
 
+def face_boxes(rgb: np.ndarray, pad_x=0.35, pad_top=0.35, pad_bot=0.65):
+    """Per-face crop boxes for tools whose thresholds scale from face_d.
+
+    sqrt(total skin area) reads a group as one giant face — four ~250px
+    children as a 557px face — and every size-relative parameter runs ~2x
+    coarse (cleanup missed marks; smoothing ate texture). Tools dispatch on
+    len(boxes) >= 2 and run their unchanged single-face pipeline per crop.
+    """
+    h, w = rgb.shape[:2]
+    out = []
+    for lm in _face_landmarks(rgb):
+        xs = [p.x * w for p in lm]
+        ys = [p.y * h for p in lm]
+        fw = float(np.hypot((lm[FACE_RIGHT].x - lm[FACE_LEFT].x) * w,
+                            (lm[FACE_RIGHT].y - lm[FACE_LEFT].y) * h))
+        if fw < 40:
+            continue
+        x0 = max(0, int(min(xs) - fw * pad_x))
+        x1 = min(w, int(max(xs) + fw * pad_x))
+        y0 = max(0, int(min(ys) - fw * pad_top))
+        y1 = min(h, int(max(ys) + fw * pad_bot))
+        if x1 - x0 >= 48 and y1 - y0 >= 48:
+            out.append((x0, y0, x1, y1))
+    return out
+
+
 def _poly_mask(rgb: np.ndarray, polys, feather_px: int) -> np.ndarray:
     h, w = rgb.shape[:2]
     m = np.zeros((h, w), dtype=np.uint8)

@@ -96,6 +96,23 @@ def apply(rgb, params: dict):
     if not available():
         return rgb, {"model": "abpn", "error": "weights missing"}
 
+    # sqrt(total skin) reads a group as one giant face, and the low-frequency
+    # colour guard (0.12·face_d) then spans a third of each small face —
+    # the same scale bug cleanup had. Each face runs at its own scale.
+    boxes = masks.face_boxes(rgb)
+    if len(boxes) >= 2:
+        out = rgb.copy()
+        applied = 0
+        for x0, y0, x1, y1 in boxes:
+            sub, m = _apply_one(out[y0:y1, x0:x1], strength)
+            out[y0:y1, x0:x1] = sub
+            applied += int("faceDiameter" in m)
+        return out, {"model": "abpn", "faces": len(boxes), "applied": applied}
+
+    return _apply_one(rgb, strength)
+
+
+def _apply_one(rgb, strength: float):
     skin = masks.get_mask(rgb, "face-skin")
     face_d = float(np.sqrt(skin.sum()))
     if face_d < MIN_FACE_PX:

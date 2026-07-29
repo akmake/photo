@@ -38,6 +38,30 @@ import skinmodel
 # A face must be at least this wide (px) for blemish healing to be safe.
 MIN_FACE_PX = 180
 
+# What counts as "structure" for the line veto is calibrated on the SKIN, at a
+# fixed RANK — not at a fixed Lab amplitude, and not from a robust sigma.
+#
+# The old bar was max(floor, median + k*MAD) over the whole crop, and it was
+# degenerate: a morphological tophat/blackhat is exactly zero across most of a
+# face, so median = 0 AND MAD = 0, and the statistical term collapsed to 0.00.
+# Only the absolute floor ever survived — and an absolute Lab amplitude is not
+# the same evidence at every resolution, because a small face carries pore and
+# sensor noise at the same amplitude that real structure carries on a large
+# one. Measured across face_d 188/196/473/729 the old bar admitted 36.4%,
+# 29.9%, 13.3% and 2.7% of heal-eligible skin as "structure": on a small face
+# a third of the cheek was a line, and one percolated component then vetoed
+# every mark that touched it.
+#
+# A rank over eligible skin is scale-free by construction: the same fraction
+# of the skin is the strongest, whatever the resolution. Same four faces at
+# RIDGE_EXTENT_PCT: 5.6%, 6.3%, 4.8%, 6.9% — and, just as necessary, an
+# injected hair is traced 93.8% to 100% at every size instead of vanishing
+# from the map entirely on the small one. See _ridge_bars for why the rank has
+# to run over ALL skin pixels and not only the responding ones.
+RIDGE_EXTENT_PCT = 99.0
+RIDGE_SEED_PCT = 99.7
+
+
 
 def _novelty_bar(strength: float) -> float:
     """Detection bar in sigmas of the skin model's Mahalanobis distance.
@@ -160,6 +184,134 @@ def _orifice_context(rgb: np.ndarray):
     return orifice, down
 
 
+def _fluid_trails(
+    crop: np.ndarray,
+    face_d: float,
+    orifice: np.ndarray,
+    down_field: np.ndarray,
+    skin_zone: np.ndarray,
+) -> tuple[np.ndarray, int]:
+    """Direct detector for the one blemish class the skin model cannot see.
+
+    A drool strand (or a tear track, or a runny nose) hangs exactly inside the
+    lip/eye-adjacent band that the anatomy exclusion blanks — that band is a
+    chronic false-positive zone for the generic detector, so the fluid never
+    becomes a candidate at all (measured on 321A1809: novelty 128 on the
+    strand, region 0.0, conf 0.0). So this class gets its own detector, on its
+    own physics: a fluid trail is a thin BRIGHT ridge with the skin's own hue,
+    anchored at an orifice, running down the face, and ENDING in open skin.
+    Hair fails the anchor; the philtrum fails the thinness; a necklace or a
+    collar edge leaves the search zone and fails the termination.
+
+    Returns (heal mask, count).
+    """
+    h, w = crop.shape[:2]
+    out = np.zeros((h, w), np.uint8)
+    ow = max(3, int(face_d * 0.05))
+    anchor_zone = cv2.dilate(orifice, np.ones((ow, ow), np.uint8)) > 0
+    # 0.55, not less: a hanging drool reaches half a face-width below the lip
+    # (measured 120px on a 250px face — 0.28 put the rim mid-strand and the
+    # rim-exit rule rejected the real drool)
+    zr = max(7, int(face_d * 0.55)) | 1
+    reach = cv2.dilate(orifice, np.ones((zr, zr), np.uint8)) > 0
+    zone = reach & (orifice == 0) & (skin_zone > 0.35)
+    if int(zone.sum()) < 64:
+        return out, 0
+
+    lab = cv2.cvtColor(crop, cv2.COLOR_RGB2LAB)
+    k = max(5, int(face_d * 0.02)) | 1
+    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (k, k))
+    top = cv2.morphologyEx(lab[..., 0], cv2.MORPH_TOPHAT, kernel).astype(np.float32)
+    med = float(np.median(top[zone]))
+    sigma = 1.4826 * float(np.median(np.abs(top[zone] - med))) + 1e-6
+    # floored like the structure gate's L channel: on a smooth baby cheek the
+    # median tophat is exactly 0, the MAD is 0, and an unfloored bar admits
+    # the whole zone as one giant "strand"
+    strands = ((top > max(6.0, med + 4.0 * sigma)) & zone).astype(np.uint8)
+    strands = cv2.morphologyEx(strands, cv2.MORPH_CLOSE, np.ones((5, 5), np.uint8))
+
+    # the outer rim of the search zone: anything still bright THERE keeps
+    # going beyond the zone and is not a fluid that ended on the chin
+    rim = reach & ~cv2.erode(reach.astype(np.uint8), np.ones((7, 7), np.uint8)).astype(bool)
+
+    found = 0
+    n, labels, stats, _ = cv2.connectedComponentsWithStats(strands, connectivity=8)
+    for i in range(1, n):
+        comp = labels == i
+        area = int(stats[i, cv2.CC_STAT_AREA])
+        if area < max(16, int(face_d * 0.5)) or area > int(face_d * face_d * 0.01):
+            continue
+        length = max(int(stats[i, cv2.CC_STAT_WIDTH]), int(stats[i, cv2.CC_STAT_HEIGHT]))
+        # thin and elongated — a strand, not a patch of shine. 0.03, not less:
+        # a hanging fluid ENDS IN A DROPLET, and the droplet is what a tighter
+        # bar rejected (measured 11.4 vs an 11.0 bar on the 1809 drool)
+        if length < face_d * 0.05 or area / max(1, length) > face_d * 0.03:
+            continue
+        anchor = comp & anchor_zone
+        if not anchor.any() or (comp & rim).any():
+            continue
+        # the skin's own hue — shine, not pigment
+        rw = max(3, int(face_d * 0.015))
+        ring = (
+            cv2.dilate(comp.astype(np.uint8), np.ones((rw, rw), np.uint8), iterations=2) > 0
+        ) & ~comp & (skin_zone > 0.35)
+        if ring.sum() < 16:
+            continue
+        da = abs(float(np.median(lab[..., 1][comp])) - float(np.median(lab[..., 1][ring])))
+        db = abs(float(np.median(lab[..., 2][comp])) - float(np.median(lab[..., 2][ring])))
+        if da + db > 14.0:
+            continue
+        # runs down the face from its anchor
+        ay, ax = np.nonzero(anchor)
+        a_pt = np.array([ax.mean(), ay.mean()], np.float32)
+        vec = down_field[int(a_pt[1]), int(a_pt[0])]
+        if float(np.linalg.norm(vec)) < 0.5:
+            continue
+        sy, sx = np.nonzero(comp)
+        proj = (sx - a_pt[0]) * vec[0] + (sy - a_pt[1]) * vec[1]
+        if (proj > 0).mean() < 0.55:
+            continue
+        out = np.maximum(out, cv2.dilate(comp.astype(np.uint8), np.ones((5, 5), np.uint8)))
+        found += 1
+    return out, found
+
+
+def _ridge_bars(
+    resp: np.ndarray, sample: np.ndarray, floor: float
+) -> tuple[float, float]:
+    """(seed bar, extent bar) for one morphological response plane.
+
+    Ranks are taken over EVERY heal-eligible skin pixel, zeros included. That
+    choice is the whole point: the quantity that has to be constant across
+    resolutions is "what fraction of the SKIN counts as structure", and a rank
+    over all skin pixels controls exactly that. Ranking the positive responses
+    instead controls the fraction of RESPONDING pixels, which is a different
+    thing on every face — a tophat is zero wherever the neighbourhood is flat,
+    and a small face is smooth almost everywhere, so the same rank landed far
+    higher there. Measured, positives-only at P99 against all-pixels at P99:
+
+        face_d   cov  traced      cov  traced
+          197   1.8%    0.0%     6.3%   93.8%
+          474   3.3%   99.6%     4.8%  100.0%
+          729   5.3%   98.8%     6.9%   99.6%
+
+    The left column is the failure this whole gate suffers from: on the small
+    face the injected hair was not in the ridge map AT ALL, so nothing could
+    veto healing a stretch of it.
+
+    The absolute floors stay as a MINIMUM. They are inactive at these ranks on
+    every face measured, but they keep a flawless face from promoting its own
+    noise: a rank always returns something, even when nothing on the skin is
+    structure at all.
+    """
+    v = resp[sample]
+    if v.size < 64:
+        return max(floor, 0.0), max(floor * 0.5, 0.0)
+    seed = max(floor, float(np.percentile(v, RIDGE_SEED_PCT)))
+    extent = max(floor * 0.5, float(np.percentile(v, RIDGE_EXTENT_PCT)))
+    return seed, extent
+
+
 def _structure_gate(
     crop: np.ndarray,
     repair: np.ndarray,
@@ -215,6 +367,10 @@ def _structure_gate(
     seed = np.zeros(repair.shape, bool)
     extent = np.zeros(repair.shape, bool)
     top_l = black_l = None
+    # The bars are calibrated on heal-eligible skin — the population the veto
+    # actually judges — but applied to the whole crop, so a hair traced from
+    # the cheek keeps running into the hairline where it belongs.
+    sample = region > 0.35
     # Chroma deviations are numerically smaller than luminance ones, so the
     # floor drops for a/b — a faint red-pencil line must still register.
     for channel, floor in ((0, 6.0), (1, 4.0), (2, 4.0)):
@@ -228,19 +384,35 @@ def _structure_gate(
                     top_l = resp
                 else:
                     black_l = resp
-            med = float(np.median(resp))
-            sigma = 1.4826 * float(np.median(np.abs(resp - med)))
             # Hysteresis, same as decide(): the high bar says "this is real
             # structure", the low bar follows how far it runs. A crease or
             # hair softens along its length; a single threshold would break
-            # it there and hide the continuation.
-            seed |= resp > max(floor, med + 6.0 * sigma)
-            extent |= resp > max(floor * 0.5, med + 3.0 * sigma)
+            # it there and hide the continuation. Both bars are ranks on the
+            # skin's own response — see RIDGE_EXTENT_PCT for why the old
+            # median+MAD form was degenerate.
+            seed_bar, extent_bar = _ridge_bars(resp, sample, floor)
+            seed |= resp > seed_bar
+            extent |= resp > extent_bar
     # Bridge pixel-scale gaps so one hair stays one structure even where its
     # contrast dips below threshold for a moment.
     seed = cv2.dilate(seed.astype(np.uint8), np.ones((3, 3), np.uint8))
     extent = cv2.dilate(extent.astype(np.uint8), np.ones((3, 3), np.uint8))
     extent = np.maximum(extent, seed)
+
+    # The two bars were computed and then never actually joined: `extent` was
+    # used for the components directly, so pixels that merely cleared the LOW
+    # bar could form their own structure with no confident evidence anywhere
+    # in it. That is what a noise web is — and one such web is enough to veto
+    # every mark it touches. Hysteresis is the missing half: the low bar
+    # describes how far a structure runs, it does not get to declare one.
+    # Measured on the 197px face: coverage 6.8% -> 4.7% of eligible skin with
+    # the injected hair still traced (90.7% -> 82.5%).
+    r_count, r_labels = cv2.connectedComponents(extent, connectivity=8)
+    if seed.any():
+        keep = np.zeros(max(2, r_count), bool)
+        keep[np.unique(r_labels[seed > 0])] = True
+        keep[0] = False
+        extent = keep[r_labels].astype(np.uint8)
 
     r_count, r_labels = cv2.connectedComponents(extent, connectivity=8)
     totals = np.bincount(r_labels.ravel(), minlength=max(2, r_count))
@@ -391,7 +563,11 @@ def _structure_gate(
         # of itself. The kept component grows while the ring outside it is
         # still novel — the same isolation measure that vetoes, now steering
         # the boundary — capped so a mistake cannot swallow a cheek.
-        for _ in range(max(3, int(face_d * 0.02))):
+        # cap raised from 0.02: at per-face scale (~250px) five iterations
+        # covered a soft smudge's core but left its skirt — "healed into a
+        # paler copy of itself". The ring-novelty bar is the real stop; the
+        # cap only bounds a runaway.
+        for _ in range(max(4, int(face_d * 0.045))):
             rn = ring_novelty(component)
             if rn is None or rn <= grow_bar:
                 break
@@ -603,6 +779,47 @@ def apply(rgb, params: dict):
     if strength <= 0:
         return rgb, {"spotsRemoved": 0}
 
+    # A group photo is N faces, not one big one. face_d here is sqrt of the
+    # TOTAL skin area — four ~250px children read as one 557px face, and every
+    # size-relative threshold (detection kernel, mark-size gates) runs ~2x too
+    # coarse. Measured on 321A1809: 5/12 injected marks healed, one child 0/3.
+    # So each face is processed in its own crop at its own scale; the frame
+    # composites progressively so overlapping crops keep earlier heals.
+    faces = masks._face_landmarks(rgb)
+    if len(faces) >= 2:
+        h, w = rgb.shape[:2]
+        out = rgb.copy()
+        totals = {"spotsRemoved": 0, "correctedPx": 0, "lineVetoed": 0,
+                  "shadingVetoed": 0, "wetTrails": 0, "fluidTrails": 0}
+        for lm in faces:
+            xs = np.array([p.x * w for p in lm])
+            ys = np.array([p.y * h for p in lm])
+            fw = float(np.hypot(
+                (lm[masks.FACE_RIGHT].x - lm[masks.FACE_LEFT].x) * w,
+                (lm[masks.FACE_RIGHT].y - lm[masks.FACE_LEFT].y) * h,
+            ))
+            if fw < 40:
+                continue
+            # margin: chin, forehead and the below-mouth fluid zone included
+            x0 = max(0, int(xs.min() - fw * 0.35))
+            x1 = min(w, int(xs.max() + fw * 0.35))
+            y0 = max(0, int(ys.min() - fw * 0.35))
+            y1 = min(h, int(ys.max() + fw * 0.65))
+            if x1 - x0 < 48 or y1 - y0 < 48:
+                continue
+            healed_sub, m = _apply_one(out[y0:y1, x0:x1], params)
+            out[y0:y1, x0:x1] = healed_sub
+            for key in totals:
+                totals[key] += int(m.get(key, 0))
+        totals["faces"] = len(faces)
+        return out, totals
+
+    return _apply_one(rgb, params)
+
+
+def _apply_one(rgb, params: dict):
+    """The single-face pipeline: every threshold scales from THIS face."""
+    strength = common.clamp01(params.get("strength", 60))
     skin = masks.get_mask(rgb, "face-skin")
     face_d = float(np.sqrt(skin.sum()))
     if face_d < MIN_FACE_PX:
@@ -641,6 +858,14 @@ def apply(rgb, params: dict):
             orifice=orifice[y0:y1, x0:x1], down_field=down_field[y0:y1, x0:x1],
         )
         repair = decide(conf, face_c, core)
+        # fluids live in the orifice-adjacent band the generic detector cannot
+        # judge — they get their own pass, merged into the same healing
+        skin_zone = masks.get_mask(crop, "face-skin") * masks.get_mask(crop, "face-oval")
+        fluid, fluid_found = _fluid_trails(
+            crop, face_c, orifice[y0:y1, x0:x1], down_field[y0:y1, x0:x1], skin_zone
+        )
+        if fluid_found:
+            repair = np.maximum(repair, fluid)
         if not repair.any():
             return rgb, {
                 "spotsRemoved": 0,
@@ -648,6 +873,7 @@ def apply(rgb, params: dict):
                 "lineVetoed": line_vetoed,
                 "shadingVetoed": shading_vetoed,
                 "wetTrails": wet_trails,
+                "fluidTrails": fluid_found,
             }
         healed = healing.inpaint_texture(
             crop, repair, (region > 0.35).astype(np.uint8)
@@ -677,6 +903,7 @@ def apply(rgb, params: dict):
             "lineVetoed": line_vetoed,
             "shadingVetoed": shading_vetoed,
             "wetTrails": wet_trails,
+            "fluidTrails": fluid_found,
             "colorHarmonization": harmonized.metadata,
         }
     else:

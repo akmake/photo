@@ -116,6 +116,35 @@ def apply(rgb, params: dict):
     if strength <= 0 and body <= 0:
         return rgb, {"skinCoverage": 0.0}
 
+    # A group is N faces, not one big one: sqrt(total skin) put the bilateral
+    # window ~2.4x too wide on a five-child frame and ate texture past the 95%
+    # budget (measured 89-93% on 321A5078). Faces smooth per crop at their own
+    # scale; body skin (neck, hands — outside the crops) keeps the global pass.
+    boxes = masks.face_boxes(rgb)
+    if len(boxes) >= 2:
+        h, w = rgb.shape[:2]
+        out = rgb.copy()
+        cov = 0.0
+        for x0, y0, x1, y1 in boxes:
+            sub, m = _apply_one(out[y0:y1, x0:x1], {**params, "body": 0})
+            out[y0:y1, x0:x1] = sub
+            cov += float(m.get("skinCoverage", 0.0)) * (x1 - x0) * (y1 - y0)
+        meta = {"skinCoverage": round(cov / (h * w), 4), "faces": len(boxes)}
+        if body > 0:
+            out, mb = _apply_one(out, {**params, "strength": 0})
+            meta["bodyCoverage"] = mb.get("bodyCoverage", 0.0)
+        return out, meta
+
+    return _apply_one(rgb, params)
+
+
+def _apply_one(rgb, params: dict):
+    """The single-face pipeline: split radius and window read off THIS face."""
+    strength = _p(params, "strength", 60)
+    body = _p(params, "body", 0)
+    if strength <= 0 and body <= 0:
+        return rgb, {"skinCoverage": 0.0}
+
     skin_mask = masks.get_mask(rgb, "face-skin")
     skin_px = float(skin_mask.sum())
     face_d = float(np.sqrt(skin_px))  # ~face diameter in px
