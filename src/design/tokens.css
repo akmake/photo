@@ -28,11 +28,38 @@
   --accent-soft: #fdf1e7;
   --accent-line: #f8ddc4;
 
-  /* status */
-  --ok: #5aa97b;
+  /* Status colours come in three parts, the same split `--accent` already uses:
+   *   --x        the FILL, dark enough to carry white text
+   *   --x-ink    TEXT on a page or panel
+   *   --x-soft   a tinted background
+   * Collapsing fill and ink into one value is what makes a "green button" and
+   * "green label" impossible to satisfy at once — one of them always fails. */
+  --ok: #347453;
+  --ok-ink: #347453;
   --ok-soft: #e9f5ee;
-  --warn: #d9a441;
-  --danger: #d2604f;
+  --warn: #9a6728;
+  --warn-ink: #9a6728;
+  --warn-soft: #fdf4e3;
+  --danger: #b8503c;
+  --danger-ink: #b8503c;
+  --danger-soft: #fbecea;
+  --info: #456b89;
+  --info-ink: #456b89;
+  --info-soft: #ecf3f8;
+
+  /* Text sitting on a saturated fill or directly on a photo. Constant in both
+   * surfaces — those backgrounds do not invert, so this must not either. */
+  --on-solid: #ffffff;
+
+  /* Type scale. Five steps, no half pixels — every size in the product has to
+   * be one of these. Dense professional tools drift into 8-10px text one
+   * component at a time; a closed scale is what stops that. */
+  --t-xs: 11px;   /* badges, meta, legends — the smallest text allowed */
+  --t-sm: 12px;   /* secondary labels, captions */
+  --t-md: 13px;   /* body, controls, buttons */
+  --t-lg: 15px;   /* panel and section titles */
+  --t-xl: 18px;   /* screen titles */
+  --t-2xl: 24px;  /* standalone figures */
 
   /* geometry */
   --r-sm: 8px;
@@ -74,6 +101,19 @@
   --accent-soft: #3a2a1c;
   --accent-line: #543c26;
   --ok-soft: #23342a;
+  --warn-soft: #362c1a;
+  --danger-soft: #3a2422;
+  --info-soft: #1f2c36;
+
+  /* Only the INK re-tunes. The fills stay put: they still carry white text,
+   * and lightening them would break every filled button. Text ink darkened for
+   * white turns muddy on a dark surround, so it lightens instead. */
+  --accent-ink: #f0a35e;
+  --ok-ink: #74c495;
+  --warn-ink: #e3b95f;
+  --danger-ink: #ea8270;
+  --info-ink: #85adcb;
+  --ink-3: #93969f; /* the lightest ink that still clears 4.5:1 on --card */
   --shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
   --shadow-lg: 0 10px 34px rgba(0, 0, 0, 0.45);
 }

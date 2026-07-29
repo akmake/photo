@@ -40,6 +40,7 @@ BETA_MIN, BETA_MAX = 0.3, 2.5
 TMIN_MAX, TMIN_MIN = 0.30, 0.06
 # the far field, for reading the airlight off
 FAR_DIST = 0.65
+A_MAX = 0.95
 PROC_MAX = 1024  # depth carries no fine detail; estimate small and scale up
 
 
@@ -64,7 +65,9 @@ def _airlight(img, dist):
     if sel.sum() < 8:
         sel = far
     a = img[sel].reshape(-1, 3).mean(axis=0)
-    return np.clip(a, 0.35, 1.0).astype(np.float32), int(sel.sum())
+    # Capped below 1: a blown-out backlit sky puts the whole far field at pure
+    # white, and an airlight of 1.0 makes (I-A)/t drag every pixel toward black.
+    return np.clip(a, 0.35, A_MAX).astype(np.float32), int(sel.sum())
 
 
 def apply(rgb, params: dict):
@@ -76,13 +79,16 @@ def apply(rgb, params: dict):
     small = common.downscale(rgb, PROC_MAX) if max(rgb.shape[:2]) > PROC_MAX else rgb
     inv = common.upscale_to(depth_mod.get_depth(small), rgb.shape)
 
-    # anchor: the subject's own plane is distance zero, so it is never touched
-    subject = masks.get_mask(rgb, "subject") > 0.5
-    if subject.sum() > inv.size * 0.01:
-        ref = float(np.median(inv[subject]))
-        anchored = 1
-    else:
-        ref, anchored = 1.0, 0
+    # Anchor: the subject's own plane is distance zero, so it is never touched.
+    # The face is tried first and the matte only as a fallback — matting costs
+    # 15s on a cold cache against 0.7s for the face, and in a portrait the face
+    # IS the subject's plane. A frame with no face pays for the matte.
+    ref, anchored = 1.0, 0
+    for kind, floor_frac in (("face-skin", 0.002), ("subject", 0.01)):
+        m = masks.get_mask(rgb, kind) > 0.5
+        if m.sum() > inv.size * floor_frac:
+            ref, anchored = float(np.median(inv[m])), 1
+            break
     dist = np.clip((ref - inv) / max(ref, 0.15), 0.0, 1.0).astype(np.float32)
 
     A, n_air = _airlight(img, dist)

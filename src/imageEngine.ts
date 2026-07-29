@@ -478,29 +478,52 @@ function dimension(img: ImageData, p: ParamValues): ImageData {
     }
   }
 
-  if (vignette !== 0) {
-    const cx = w / 2;
-    const cy = h / 2;
-    const maxD = Math.sqrt(cx * cx + cy * cy);
-    // midpoint 50 reproduces the historical 0.35 start; floor at 0.25 keeps
-    // corners from going to black — kept identical to globals_py._dimension
-    const midpoint = (p.midpoint ?? 50) / 100;
-    const start = 0.35 + (midpoint - 0.5) * 0.5;
-    for (let y = 0; y < h; y++) {
-      for (let x = 0; x < w; x++) {
-        const i = (y * w + x) * 4;
-        const dx = x - cx;
-        const dy = y - cy;
-        const t = Math.sqrt(dx * dx + dy * dy) / maxD;
-        // smooth falloff instead of a hard parabola
-        let f = 1 - vignette * smoothstep(start, 1.0, t);
-        if (f < 0.25) f = 0.25;
-        d[i] = clamp255(d[i] * f);
-        d[i + 1] = clamp255(d[i + 1] * f);
-        d[i + 2] = clamp255(d[i + 2] * f);
-      }
+  // legacy: recipes that predate the split still carry the vignette here
+  if (vignette !== 0) vignetteOnto(d, w, h, vignette, (p.midpoint ?? 50) / 100);
+  return out;
+}
+
+/* ---------------- vignette ----------------
+ *
+ * Its own tool since the split. It is defined RELATIVE TO THE FRAME, where
+ * clarity and texture are defined relative to the content — sharing a tool id
+ * forced all three into render.py's FRAME_ONLY set and left clarity and texture
+ * unmaskable. Mirrors globals_py._vignette. */
+
+function vignetteOnto(
+  d: Uint8ClampedArray,
+  w: number,
+  h: number,
+  amount: number,
+  midpoint: number,
+): void {
+  const cx = w / 2;
+  const cy = h / 2;
+  const maxD = Math.sqrt(cx * cx + cy * cy);
+  // midpoint 50 reproduces the historical 0.35 start; floor at 0.25 keeps
+  // corners from going to black — kept identical to globals_py
+  const start = 0.35 + (midpoint - 0.5) * 0.5;
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const i = (y * w + x) * 4;
+      const dx = x - cx;
+      const dy = y - cy;
+      const t = Math.sqrt(dx * dx + dy * dy) / maxD;
+      // smooth falloff instead of a hard parabola
+      let f = 1 - amount * smoothstep(start, 1.0, t);
+      if (f < 0.25) f = 0.25;
+      d[i] = clamp255(d[i] * f);
+      d[i + 1] = clamp255(d[i + 1] * f);
+      d[i + 2] = clamp255(d[i + 2] * f);
     }
   }
+}
+
+function vignette(img: ImageData, p: ParamValues): ImageData {
+  const out = cloneImage(img);
+  const amount = (p.amount ?? 0) / 100;
+  if (amount === 0) return out;
+  vignetteOnto(out.data, img.width, img.height, amount, (p.midpoint ?? 50) / 100);
   return out;
 }
 
@@ -1233,6 +1256,7 @@ const IMPL: Record<string, (img: ImageData, p: ParamValues) => ImageData> = {
   'tone-color': toneColor,
   curves,
   dimension,
+  vignette,
   'color-grade': colorGrade, // retired; still dispatched for pre-merge styles
   'grade-zones': gradeZones,
   hsl,

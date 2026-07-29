@@ -1,5 +1,5 @@
 import type { Recipe } from './types';
-import { cloneRecipe, normalizeRecipe } from './toolRegistry';
+import { cloneRecipe, normalizeRecipe, stripPerPhotoState } from './toolRegistry';
 
 // A named, reusable look. This is the photographer's #1 ask: build the look
 // once ("לוק ים"), then apply it to every future session of that type.
@@ -33,15 +33,18 @@ function persist(styles: Style[]): void {
 export function saveStyle(name: string, recipe: Recipe): Style[] {
   const styles = listStyles();
   const trimmed = name.trim();
+  // a style must transfer between photos — hand-painted masks do not, and
+  // would also bloat localStorage with a PNG per stroke session
+  const clean = cloneRecipe(stripPerPhotoState(recipe));
   const existing = styles.find((s) => s.name === trimmed);
   if (existing) {
-    existing.recipe = cloneRecipe(recipe);
+    existing.recipe = clean;
     existing.createdAt = Date.now();
   } else {
     styles.push({
       id: `s${Date.now()}`,
       name: trimmed,
-      recipe: cloneRecipe(recipe),
+      recipe: clean,
       createdAt: Date.now(),
     });
   }

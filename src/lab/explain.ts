@@ -91,6 +91,13 @@ const FACTS: Record<string, (v: MetaValue) => string> = {
   faces: (v) => `פנים שזוהו: ${int(v)}`,
   eyes: (v) => `עיניים שטופלו: ${int(v)}`,
   zonesUsed: (v) => `טווחי טון שנצבעו: ${int(v)}`,
+  dodgedPx: (v) => `פיקסלים שהוארו: ${int(v)}`,
+  burnedPx: (v) => `פיקסלים שהוכהו: ${int(v)}`,
+  meanAbsL: (v) => `דחיפת L* ממוצעת: ${num(v).toFixed(2)}`,
+  lightFollow: (v) => `מהדחיפה האנטומית שרד את אור הסצנה: ${Math.round(num(v) * 100)}%`,
+  pushOnFabric: (v) => `מהמבנה נחת על בגדים: ${pct(v)}`,
+  pushOnSkin: (v) => `מהמבנה נחת על עור: ${pct(v)}`,
+  pushOnRest: (v) => `מהמבנה נחת על הרקע: ${pct(v)}`,
   matte: (v) => (num(v) ? `מאט: ${Math.round(num(v) * 100)}%` : 'ללא מאט'),
 
   // flags / values

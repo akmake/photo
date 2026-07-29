@@ -15,11 +15,16 @@ import { assessCrop } from './cropEngine';
 import { analyzeAlbumPhoto } from '../api';
 import { exportAlbumForPrint, exportAlbumProof } from './exportEngine';
 import { buildAutomaticAlbum } from './albumFlow';
-import { loadWorkspace, saveWorkspace, storePhotoBlob } from './albumStorage';
+import {
+  deleteAlbum, duplicateAlbum, listAlbums, loadAlbum, renameAlbum, saveAlbum, storePhotoBlob,
+  type AlbumSummary,
+} from './albumStorage';
 import AlbumPreview from './AlbumPreview';
 import ReviewWorkspace from './ReviewWorkspace';
 import CoverEditor from './CoverEditor';
 import PreflightPanel from './PreflightPanel';
+import OrganizeView from './OrganizeView';
+import AlbumLibrary from './AlbumLibrary';
 import { runAlbumPreflight, type PreflightIssue } from './preflightEngine';
 
 const DEMO_PHOTOS_BASE: AlbumPhoto[] = [
@@ -133,11 +138,17 @@ export default function AlbumStudio() {
   const [photoLimit, setPhotoLimit] = useState(60);
   const [isExporting, setIsExporting] = useState(false);
   const [showProfileEditor, setShowProfileEditor] = useState(false);
+  /* `organize` is the album; `design` is one spread. The module opens on the
+   * album, because that is the question a photographer actually asks first. */
+  const [mode, setMode] = useState<'organize' | 'design'>('organize');
+  /* Null means the library is showing. An album is a saved thing you come back
+   * to, so nothing is open until the photographer picks one. */
+  const [activeAlbumId, setActiveAlbumId] = useState<string | null>(null);
+  const [albums, setAlbums] = useState<AlbumSummary[]>(() => listAlbums());
   const [showPreview, setShowPreview] = useState(false);
   const [showReview, setShowReview] = useState(false);
   const [showCover, setShowCover] = useState(false);
   const [showPreflight, setShowPreflight] = useState(false);
-  const [panMode, setPanMode] = useState(false);
   const [printProfiles, setPrintProfiles] = useState(() => {
     try {
       const saved = JSON.parse(localStorage.getItem('album-print-profiles') ?? '[]');
@@ -170,31 +181,62 @@ export default function AlbumStudio() {
   const suppressFrameClick = useRef(false);
 
   useEffect(() => {
+    if (!activeAlbumId) return undefined;
     let alive = true;
-    loadWorkspace()
+    setIsHydrated(false);
+    loadAlbum(activeAlbumId)
       .then((saved) => {
         if (!alive || !saved) return;
         setProject(saved.project);
         setPhotos(saved.photos);
-        setNotice('הפרויקט האחרון שוחזר');
+        setNotice(`${saved.project.name} נפתח`);
       })
-      .catch(() => setNotice('לא ניתן היה לשחזר את הטיוטה המקומית'))
+      .catch(() => setNotice('לא ניתן היה לפתוח את האלבום'))
       .finally(() => {
         if (alive) setIsHydrated(true);
       });
     return () => {
       alive = false;
     };
-  }, []);
+  }, [activeAlbumId]);
 
   useEffect(() => {
-    if (!isHydrated) return undefined;
+    // autosave belongs to the OPEN album; with none open there is nothing to write
+    if (!isHydrated || !activeAlbumId) return undefined;
     const timer = window.setTimeout(() => {
-      saveWorkspace(project, photos);
+      saveAlbum(project, photos);
+      setAlbums(listAlbums());
       setNotice('כל השינויים נשמרו אוטומטית');
     }, 600);
     return () => window.clearTimeout(timer);
-  }, [isHydrated, photos, project]);
+  }, [activeAlbumId, isHydrated, photos, project]);
+
+  /* The core loop is the keyboard: vertical cycles this spread's candidate
+   * layouts, horizontal walks the album. The album reads right-to-left, so
+   * LEFT advances — matching the direction the pages actually turn. */
+  useEffect(() => {
+    function onKey(event: KeyboardEvent) {
+      if (event.metaKey || event.ctrlKey || event.altKey) return;
+      // never steal a keystroke that belongs to a field (alb.md §14.5).
+      // The target is not always an Element — guard the method, not just null.
+      const target = event.target;
+      if (target instanceof Element
+        && target.closest('input, textarea, select, [contenteditable="true"]')) return;
+      if (showPreview || showReview || showCover || showPreflight) return;
+
+      switch (event.key) {
+        // cycling a layout you cannot see would change the album blindly
+        case 'ArrowUp':   if (mode === 'design') { event.preventDefault(); cycleLayout(-1); } break;
+        case 'ArrowDown': if (mode === 'design') { event.preventDefault(); cycleLayout(1); } break;
+        case 'ArrowLeft': event.preventDefault(); setActiveSpread(spreadIndex + 1); break;
+        case 'ArrowRight':event.preventDefault(); setActiveSpread(spreadIndex - 1); break;
+        case 'Escape':    setSelectedSlotIndex(null); setSelectedPhotoId(null); break;
+        default: break;
+      }
+    }
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  });
 
   const spreadIndex = project.spreads.findIndex((spread) => spread.id === project.activeSpreadId);
   const spread = project.spreads[spreadIndex] ?? project.spreads[0];
@@ -375,6 +417,60 @@ export default function AlbumStudio() {
     setNotice('הכפולה נמחקה; התמונות נשארו במאגר');
   }
 
+  function createAlbum(name: string, productProfileId: string) {
+    const id = `album-${Date.now()}`;
+    const fresh: AlbumProject = {
+      id,
+      name,
+      productProfileId,
+      styleName: 'Fine Art',
+      /* One empty spread, so the album opens on a page rather than on nothing.
+       * Photos are chosen next, from the tray. */
+      spreads: [{
+        id: 's1', pageStart: 2, layoutId: 'balanced', photoIds: [],
+        background: '#f8f6f1', locked: false, status: 'draft',
+      }],
+      activeSpreadId: 's1',
+    };
+    saveAlbum(fresh, []);
+    setAlbums(listAlbums());
+    setProject(fresh);
+    setPhotos([]);
+    setHistoryPast([]);
+    setHistoryFuture([]);
+    setSelectedSlotIndex(null);
+    setSelectedPhotoId(null);
+    setAlbumSelectedIds(new Set());
+    setSelectionMode(true);
+    setMode('design');
+    setActiveAlbumId(id);
+    setNotice('בחרי את התמונות שייכנסו לאלבום');
+  }
+
+  function closeAlbum() {
+    // flush before leaving; the autosave debounce may not have fired yet
+    if (activeAlbumId && isHydrated) saveAlbum(project, photos);
+    setAlbums(listAlbums());
+    setActiveAlbumId(null);
+    setSelectedSlotIndex(null);
+    setSelectedPhotoId(null);
+    setMode('organize');
+  }
+
+  /** Reorder by dropping one spread onto another's slot, from the organise grid. */
+  function reorderSpread(from: number, to: number) {
+    if (from === to || from < 0 || to < 0) return;
+    const reordered = [...project.spreads];
+    const [moved] = reordered.splice(from, 1);
+    reordered.splice(to, 0, moved);
+    commitProject((current) => ({
+      ...current,
+      // page numbers are a function of position, never stored independently
+      spreads: reordered.map((item, index) => ({ ...item, pageStart: 2 + index * 2 })),
+    }));
+    setNotice('סדר הכפולות עודכן');
+  }
+
   function moveSpread(direction: -1 | 1) {
     const target = spreadIndex + direction;
     if (target < 0 || target >= project.spreads.length) return;
@@ -546,18 +642,13 @@ export default function AlbumStudio() {
     if (suppressFrameClick.current) return;
     if (!selectedPhotoId) {
       setSelectedSlotIndex(slotIndex);
-      setPanMode(false);
-      setNotice('המסגרת נבחרה — אפשר להתאים את התמונה בלי לחתוך אותה');
+      setNotice('גררי את התמונה במסגרת כדי למקם אותה · גלגלת לזום');
       return;
     }
     assignPhotoById(slotIndex, selectedPhotoId);
   }
 
   function beginPhotoDrag(event: React.DragEvent, photoId: string) {
-    if (panMode) {
-      event.preventDefault();
-      return;
-    }
     event.dataTransfer.effectAllowed = 'move';
     event.dataTransfer.setData('application/x-teza-photo', photoId);
     event.dataTransfer.setData('text/plain', photoId);
@@ -576,7 +667,11 @@ export default function AlbumStudio() {
     slotIndex: number,
     settings: PhotoFrameSettings,
   ) {
-    if (!panMode || settings.fit === 'contain') return;
+    /* Dragging inside the SELECTED frame moves the photo; dragging any other
+     * frame still hands the photo to a different slot. Selection is what tells
+     * the two apart — the same rule InDesign uses for its content grabber —
+     * so there is no mode to switch on first. */
+    if (selectedSlotIndex !== slotIndex || settings.fit === 'contain') return;
     event.preventDefault();
     event.currentTarget.setPointerCapture(event.pointerId);
     panSession.current = {
@@ -592,7 +687,7 @@ export default function AlbumStudio() {
 
   function movePan(event: React.PointerEvent<HTMLButtonElement>, slotId: string) {
     const session = panSession.current;
-    if (!session || !panMode) return;
+    if (!session) return;
     const bounds = event.currentTarget.getBoundingClientRect();
     const positionX = Math.max(
       0,
@@ -632,6 +727,32 @@ export default function AlbumStudio() {
       setNotice('מיקום התמונה עודכן');
     }
     panSession.current = null;
+  }
+
+  /** Wheel over the selected frame zooms its photo, the way every canvas tool does. */
+  function zoomSelectedFrame(event: React.WheelEvent<HTMLButtonElement>, slotIndex: number) {
+    if (selectedSlotIndex !== slotIndex || !selectedFrameSettings) return;
+    if (selectedFrameSettings.fit === 'contain') return;
+    event.preventDefault();
+    const step = event.deltaY > 0 ? -6 : 6;
+    const zoom = Math.max(100, Math.min(250, (selectedFrameSettings.zoom ?? 100) + step));
+    if (zoom === (selectedFrameSettings.zoom ?? 100)) return;
+    // zooming is a manual decision, so it takes the frame off `smart` too
+    setFramePosition({ zoom });
+  }
+
+  /** Move to another candidate layout for this spread. Wraps at both ends. */
+  function cycleLayout(direction: 1 | -1) {
+    if (layoutCandidates.length < 2) return;
+    const current = layoutCandidates.findIndex((item) => item.id === spread.layoutId);
+    const at = current === -1 ? 0 : current;
+    const next = layoutCandidates[(at + direction + layoutCandidates.length) % layoutCandidates.length];
+    /* Clearing customSlots is deliberate: leaving them set makes the spread
+     * resolve as "פריסה אישית", so every candidate you cycled to would claim
+     * to be a hand-made layout. `updateSpread` records the undo step itself. */
+    updateSpread({ layoutId: next.id, customSlots: undefined, frameSettings: {} });
+    setSelectedSlotIndex(null);
+    setNotice(`${next.name} · ${next.explanation}`);
   }
 
   function toggleSelectedPhotoInSpread() {
@@ -694,13 +815,12 @@ export default function AlbumStudio() {
 
   function setFitMode(fit: PhotoFitMode) {
     updateFrameSettings({ fit });
-    if (fit !== 'cover') setPanMode(false);
     setNotice(
       fit === 'smart'
         ? 'מילוי חכם שומר על הפנים והדמות'
         : fit === 'contain'
-          ? 'התמונה מוצגת במלואה'
-          : 'מילוי מסגרת הופעל — יש לבדוק את אזהרת החיתוך',
+          ? 'התמונה מוצגת במלואה — אין מה להזיז'
+          : 'מילוי מסגרת — גררי במסגרת כדי למקם',
     );
   }
 
@@ -852,6 +972,30 @@ export default function AlbumStudio() {
     }
   }
 
+  /* No album open means the library IS the screen — every overlay below this
+   * point assumes a loaded project, so this has to come first. */
+  if (!activeAlbumId) {
+    return (
+      <AlbumLibrary
+        albums={albums}
+        profiles={printProfiles}
+        onOpen={(id) => { setHistoryPast([]); setHistoryFuture([]); setActiveAlbumId(id); }}
+        onCreate={createAlbum}
+        onRename={(id, name) => {
+          renameAlbum(id, name);
+          setAlbums(listAlbums());
+        }}
+        onDuplicate={(id) => {
+          const source = albums.find((item) => item.id === id);
+          if (duplicateAlbum(id, `${source?.name ?? 'אלבום'} — עותק`)) setAlbums(listAlbums());
+        }}
+        onDelete={(id) => {
+          deleteAlbum(id).then(() => setAlbums(listAlbums()));
+        }}
+      />
+    );
+  }
+
   if (showPreview) {
     return (
       <AlbumPreview
@@ -900,9 +1044,27 @@ export default function AlbumStudio() {
   }
 
   return (
-    <div className="album-studio">
+    <div className="album-studio" data-surface="studio">
       <header className="album-actionbar">
         <div className="album-save-state">
+          <button className="album-back-to-library" onClick={closeAlbum} title="כל האלבומים">
+            <IcChevron size={15} style={{ transform: 'rotate(180deg)' }} />
+            <span>האלבומים</span>
+          </button>
+          <div className="album-mode-switch" role="group" aria-label="מצב עבודה">
+            <button
+              className={mode === 'organize' ? 'on' : ''}
+              onClick={() => setMode('organize')}
+            >
+              <IcBook size={15} />האלבום
+            </button>
+            <button
+              className={mode === 'design' ? 'on' : ''}
+              onClick={() => setMode('design')}
+            >
+              <IcGallery size={15} />עריכת כפולה
+            </button>
+          </div>
           <span className="album-saved-dot"><IcCheck size={12} /></span>
           <span>{notice}</span>
         </div>
@@ -947,7 +1109,8 @@ export default function AlbumStudio() {
         </div>
       </header>
 
-      <div className="album-workspace">
+      <div className={`album-workspace ${mode}`}>
+        {mode === 'organize' && (
         <aside className="album-settings-panel">
           <div className="album-panel-title">
             <IcBook size={18} />
@@ -1151,7 +1314,25 @@ export default function AlbumStudio() {
             </div>
           )}
         </aside>
+        )}
 
+        {mode === 'organize' ? (
+          <OrganizeView
+            project={project}
+            photos={photos}
+            profile={profile}
+            issues={preflightIssues}
+            onOpenSpread={(id) => {
+              const index = project.spreads.findIndex((item) => item.id === id);
+              if (index >= 0) setActiveSpread(index);
+              setMode('design');
+            }}
+            onReorder={reorderSpread}
+            onAddSpread={addSpread}
+            onAddPhotos={() => { setMode('design'); fileInput.current?.click(); }}
+          />
+        ) : (
+          <>
         <main className="album-center">
           <div className="album-canvas-toolbar">
             <div className="album-page-nav">
@@ -1179,127 +1360,6 @@ export default function AlbumStudio() {
           </div>
 
           <div className="album-canvas-area">
-            {selectedSlot && selectedFrameSettings && (
-              <div className="album-photo-controls" role="group" aria-label="התאמת התמונה במסגרת">
-                <strong>התאמת תמונה</strong>
-                <div className="album-fit-options">
-                  <button
-                    className={selectedFrameSettings.fit === 'smart' ? 'on' : ''}
-                    onClick={() => setFitMode('smart')}
-                  >
-                    חכם
-                  </button>
-                  <button
-                    className={selectedFrameSettings.fit === 'contain' ? 'on' : ''}
-                    onClick={() => setFitMode('contain')}
-                  >
-                    הצג הכול
-                  </button>
-                  <button
-                    className={selectedFrameSettings.fit === 'cover' ? 'on' : ''}
-                    onClick={() => setFitMode('cover')}
-                  >
-                    מלא מסגרת
-                  </button>
-                </div>
-                <span className={`album-crop-state ${selectedCrop?.safe ? 'safe' : 'warning'}`}>
-                  {selectedCrop?.warnings[0]
-                    ?? (selectedCrop?.letterboxed
-                      ? 'התמונה מוצגת במלואה — נשארים שוליים בצבע הכפולה'
-                      : `חיתוך בטוח · ${selectedCrop?.retainedPercent ?? 100}% נשמר`)}
-                </span>
-                <button
-                  className={`album-pan-toggle ${panMode ? 'on' : ''}`}
-                  disabled={selectedFrameSettings.fit === 'contain'}
-                  onClick={() => {
-                    if (selectedFrameSettings.fit === 'smart') {
-                      updateFrameSettings({ fit: 'cover' });
-                    }
-                    setPanMode((value) => !value);
-                  }}
-                >
-                  {panMode ? 'גרירה פעילה' : 'הזזה עם העכבר'}
-                </button>
-                <label>
-                  <span>זום</span>
-                  <input
-                    type="range"
-                    min="100"
-                    max="250"
-                    value={selectedFrameSettings.zoom ?? 100}
-                    disabled={selectedFrameSettings.fit === 'contain'}
-                    onChange={(event) => updateFrameSettings({ zoom: Number(event.target.value) })}
-                  />
-                </label>
-                <label>
-                  <span>רוחב מסגרת</span>
-                  <input
-                    type="range"
-                    min="8"
-                    max={Math.max(8, ((selectedSlot.x < 0.5 ? 0.49 : 0.99) - selectedSlot.x) * 100)}
-                    value={selectedSlot.width * 100}
-                    onChange={(event) => updateSelectedSlot({ width: Number(event.target.value) / 100 })}
-                  />
-                </label>
-                <label>
-                  <span>גובה מסגרת</span>
-                  <input
-                    type="range"
-                    min="8"
-                    max={Math.max(8, (0.95 - selectedSlot.y) * 100)}
-                    value={selectedSlot.height * 100}
-                    onChange={(event) => updateSelectedSlot({ height: Number(event.target.value) / 100 })}
-                  />
-                </label>
-                <label>
-                  <span>מיקום מסגרת</span>
-                  <input
-                    type="range"
-                    min={selectedSlot.x < 0.5 ? 1 : 51}
-                    max={Math.max(
-                      selectedSlot.x < 0.5 ? 1 : 51,
-                      ((selectedSlot.x < 0.5 ? 0.49 : 0.99) - selectedSlot.width) * 100,
-                    )}
-                    value={selectedSlot.x * 100}
-                    onChange={(event) => updateSelectedSlot({ x: Number(event.target.value) / 100 })}
-                  />
-                </label>
-                <label>
-                  <span>גובה בעמוד</span>
-                  <input
-                    type="range"
-                    min="1"
-                    max={Math.max(1, (0.95 - selectedSlot.height) * 100)}
-                    value={selectedSlot.y * 100}
-                    onChange={(event) => updateSelectedSlot({ y: Number(event.target.value) / 100 })}
-                  />
-                </label>
-                <label title={canPanX ? undefined : 'התמונה כבר תואמת את רוחב המסגרת — הגדילי את הזום כדי לקבל מרווח הזזה'}>
-                  <span>מיקום אופקי</span>
-                  <input
-                    type="range"
-                    min="0"
-                    max="100"
-                    value={Math.round(selectedCrop?.positionX ?? selectedFrameSettings.positionX)}
-                    disabled={!canPanX}
-                    onChange={(event) => setFramePosition({ positionX: Number(event.target.value) })}
-                  />
-                </label>
-                <label title={canPanY ? undefined : 'התמונה כבר תואמת את גובה המסגרת — הגדילי את הזום כדי לקבל מרווח הזזה'}>
-                  <span>מיקום אנכי</span>
-                  <input
-                    type="range"
-                    min="0"
-                    max="100"
-                    value={Math.round(selectedCrop?.positionY ?? selectedFrameSettings.positionY)}
-                    disabled={!canPanY}
-                    onChange={(event) => setFramePosition({ positionY: Number(event.target.value) })}
-                  />
-                </label>
-                <button className="album-control-remove" onClick={removeSelectedFramePhoto}>הסרה</button>
-                <button className="album-control-close" onClick={() => setSelectedSlotIndex(null)}>סיום</button>
-              </div>
-            )}
             <div
               className={`album-spread ${showGuides ? 'show-guides' : ''}`}
               style={{
@@ -1344,7 +1404,7 @@ export default function AlbumStudio() {
                       ...(crop?.letterboxed ? { background: spread.background } : null),
                     }}
                     onClick={() => assignPhoto(slotIndex)}
-                    draggable={Boolean(photo) && !panMode}
+                    draggable={Boolean(photo) && selectedSlotIndex !== slotIndex}
                     onDragStart={(event) => {
                       if (photo) beginPhotoDrag(event, photo.id);
                     }}
@@ -1353,6 +1413,7 @@ export default function AlbumStudio() {
                       event.dataTransfer.dropEffect = 'move';
                     }}
                     onDrop={(event) => dropPhotoOnFrame(event, slotIndex)}
+                    onWheel={(event) => zoomSelectedFrame(event, slotIndex)}
                     onPointerDown={(event) => beginPan(event, slotIndex, frameSettings)}
                     onPointerMove={(event) => movePan(event, slot.id)}
                     onPointerUp={endPan}
@@ -1495,6 +1556,120 @@ export default function AlbumStudio() {
         </main>
 
         <aside className="album-layout-panel">
+        {selectedSlot && selectedFrameSettings ? (
+          <div className="album-inspector" role="group" aria-label="התאמת התמונה במסגרת">
+            <div className="album-inspector-head">
+              <strong>התאמת תמונה</strong>
+              <button onClick={() => setSelectedSlotIndex(null)}>סיום</button>
+            </div>
+        <strong>התאמת תמונה</strong>
+        <div className="album-fit-options">
+        <button
+        className={selectedFrameSettings.fit === 'smart' ? 'on' : ''}
+        onClick={() => setFitMode('smart')}
+        >
+        חכם
+        </button>
+        <button
+        className={selectedFrameSettings.fit === 'contain' ? 'on' : ''}
+        onClick={() => setFitMode('contain')}
+        >
+        הצג הכול
+        </button>
+        <button
+        className={selectedFrameSettings.fit === 'cover' ? 'on' : ''}
+        onClick={() => setFitMode('cover')}
+        >
+        מלא מסגרת
+        </button>
+        </div>
+        <span className={`album-crop-state ${selectedCrop?.safe ? 'safe' : 'warning'}`}>
+        {selectedCrop?.warnings[0]
+        ?? (selectedCrop?.letterboxed
+        ? 'התמונה מוצגת במלואה — נשארים שוליים בצבע הכפולה'
+        : `חיתוך בטוח · ${selectedCrop?.retainedPercent ?? 100}% נשמר`)}
+        </span>
+        <span className="album-control-hint">גררי במסגרת · גלגלת לזום</span>
+        <label>
+        <span>זום</span>
+        <input
+        type="range"
+        min="100"
+        max="250"
+        value={selectedFrameSettings.zoom ?? 100}
+        disabled={selectedFrameSettings.fit === 'contain'}
+        onChange={(event) => updateFrameSettings({ zoom: Number(event.target.value) })}
+        />
+        </label>
+        <label>
+        <span>רוחב מסגרת</span>
+        <input
+        type="range"
+        min="8"
+        max={Math.max(8, ((selectedSlot.x < 0.5 ? 0.49 : 0.99) - selectedSlot.x) * 100)}
+        value={selectedSlot.width * 100}
+        onChange={(event) => updateSelectedSlot({ width: Number(event.target.value) / 100 })}
+        />
+        </label>
+        <label>
+        <span>גובה מסגרת</span>
+        <input
+        type="range"
+        min="8"
+        max={Math.max(8, (0.95 - selectedSlot.y) * 100)}
+        value={selectedSlot.height * 100}
+        onChange={(event) => updateSelectedSlot({ height: Number(event.target.value) / 100 })}
+        />
+        </label>
+        <label>
+        <span>מיקום מסגרת</span>
+        <input
+        type="range"
+        min={selectedSlot.x < 0.5 ? 1 : 51}
+        max={Math.max(
+        selectedSlot.x < 0.5 ? 1 : 51,
+        ((selectedSlot.x < 0.5 ? 0.49 : 0.99) - selectedSlot.width) * 100,
+        )}
+        value={selectedSlot.x * 100}
+        onChange={(event) => updateSelectedSlot({ x: Number(event.target.value) / 100 })}
+        />
+        </label>
+        <label>
+        <span>גובה בעמוד</span>
+        <input
+        type="range"
+        min="1"
+        max={Math.max(1, (0.95 - selectedSlot.height) * 100)}
+        value={selectedSlot.y * 100}
+        onChange={(event) => updateSelectedSlot({ y: Number(event.target.value) / 100 })}
+        />
+        </label>
+        <label title={canPanX ? undefined : 'התמונה כבר תואמת את רוחב המסגרת — הגדילי את הזום כדי לקבל מרווח הזזה'}>
+        <span>מיקום אופקי</span>
+        <input
+        type="range"
+        min="0"
+        max="100"
+        value={Math.round(selectedCrop?.positionX ?? selectedFrameSettings.positionX)}
+        disabled={!canPanX}
+        onChange={(event) => setFramePosition({ positionX: Number(event.target.value) })}
+        />
+        </label>
+        <label title={canPanY ? undefined : 'התמונה כבר תואמת את גובה המסגרת — הגדילי את הזום כדי לקבל מרווח הזזה'}>
+        <span>מיקום אנכי</span>
+        <input
+        type="range"
+        min="0"
+        max="100"
+        value={Math.round(selectedCrop?.positionY ?? selectedFrameSettings.positionY)}
+        disabled={!canPanY}
+        onChange={(event) => setFramePosition({ positionY: Number(event.target.value) })}
+        />
+        </label>
+        <button className="album-control-remove" onClick={removeSelectedFramePhoto}>הסרה</button>
+          </div>
+        ) : (
+          <>
           <div className="album-panel-tabs">
             <button className={panelTab === 'layouts' ? 'on' : ''} onClick={() => setPanelTab('layouts')}>פריסות</button>
             <button className={panelTab === 'design' ? 'on' : ''} onClick={() => setPanelTab('design')}>עיצובים</button>
@@ -1598,9 +1773,13 @@ export default function AlbumStudio() {
 
           <div className="album-tip">
             <IcSparkle size={16} />
-            <span><strong>טיפ:</strong> בחרי תמונה מהמגש ולחצי על מסגרת כדי להחליף אותה.</span>
+            <span><strong>טיפ:</strong> ↑↓ מחליפות פריסה · ←→ מדפדפות בין כפולות.</span>
           </div>
+          </>
+        )}
         </aside>
+          </>
+        )}
       </div>
     </div>
   );

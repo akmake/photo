@@ -77,7 +77,9 @@ FITTABLE = [
     ("tone-color", "whites", -100, 100),
     ("tone-color", "blacks", -100, 100),
     ("dimension", "clarity", -100, 100),
-    ("dimension", "vignette", 0, 100),
+    ("dimension", "texture", -100, 100),
+    ("vignette", "amount", 0, 100),
+    ("vignette", "midpoint", 0, 100),
 ]
 
 for _band in ("red", "orange", "yellow", "green", "aqua", "blue", "purple", "magenta"):

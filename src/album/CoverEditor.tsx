@@ -12,6 +12,18 @@ interface Props {
   onClose(): void;
 }
 
+/** Relative luminance of a `#rgb`/`#rrggbb` cover colour, per WCAG. */
+function isLight(color: string): boolean {
+  const hex = color.trim().replace('#', '');
+  const full = hex.length === 3 ? hex.split('').map((c) => c + c).join('') : hex;
+  if (full.length < 6) return true; // not a hex we understand — assume paper
+  const channel = (i: number) => {
+    const v = parseInt(full.slice(i, i + 2), 16) / 255;
+    return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4;
+  };
+  return 0.2126 * channel(0) + 0.7152 * channel(2) + 0.0722 * channel(4) > 0.35;
+}
+
 const DEFAULT_COVER: AlbumCover = {
   background: '#eee6db',
   title: 'הרגעים שלנו',
@@ -82,7 +94,7 @@ export default function CoverEditor({
   const bleedInsetY = spec.bleedMm / spec.totalHeightMm * 100;
 
   return (
-    <div className="cover-editor" role="dialog" aria-modal="true" aria-label="עורך כריכה">
+    <div className="cover-editor" data-surface="studio" role="dialog" aria-modal="true" aria-label="עורך כריכה">
       <header>
         <div>
           <strong>עיצוב כריכה</strong>
@@ -163,7 +175,12 @@ export default function CoverEditor({
             style={{
               background: cover.background,
               aspectRatio: `${spec.totalWidthMm} / ${spec.totalHeightMm}`,
-            }}
+              /* Cover text is white because it usually lies on a photo — but the
+               * cover colour is the photographer's to choose, and on a cream
+               * cover with no photo yet white text disappears. Pick the ink from
+               * the colour actually behind it. */
+              '--cover-ink': isLight(cover.background) ? '#2b2b2b' : '#ffffff',
+            } as React.CSSProperties}
           >
             <button
               className={`cover-photo-zone back ${target === 'back' ? 'selected' : ''}`}

@@ -270,7 +270,14 @@ export async function applyColorModel(
  *  to see WHY a tool did nothing. */
 export async function renderRecipe(
   imageDataUrl: string,
-  tools: { toolId: string; params: Record<string, number>; enabled: boolean }[],
+  tools: {
+    toolId: string;
+    params: Record<string, number>;
+    enabled: boolean;
+    /** optional region blend — semantic ({region:'subject'|…}) or hand-painted
+     *  ({region:'painted', paint: dataURL}); engine/render.py::_region_mask */
+    mask?: import('./types').ToolMask;
+  }[],
   /** true for a file being saved: q97 with no chroma subsampling instead of
    *  the q90 4:2:0 preview. */
   deliver = false,

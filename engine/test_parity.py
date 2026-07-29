@@ -63,7 +63,7 @@ CASES = [
         {"vignette": 60, "midpoint": 20},
         {"clarity": 40},
         {"clarity": -55},
-        {"clarity": 40, "vignette": 60, "midpoint": 20},
+        {"clarity": 40, "vignette": 60, "midpoint": 20},  # the legacy in-tool path
         {"texture": 80},
         {"texture": -70},
         {"texture": 60, "clarity": 35, "vignette": 40},
@@ -79,6 +79,11 @@ CASES = [
         {"fade": 30},                                   # the migrated matte
         {"fade": 45, "fadeWarmth": 70, "fadeRolloff": 80},
         {"shadowsHue": 260, "shadowsSat": 50, "fade": 25, "fadeRolloff": 60},
+    ]),
+    ("vignette", globals_py.vignette, 2, [
+        {"amount": 60, "midpoint": 20},
+        {"amount": 100},
+        {"amount": 35, "midpoint": 90},
     ]),
     ("hsl", hsl.apply, 1, [
         {"greenSat": -70, "greenLum": -30},                 # the edit it was built for

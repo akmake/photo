@@ -2,6 +2,7 @@ import type {
   ToolDef,
   Recipe,
   ToolInstance,
+  ToolMask,
   ParamValues,
 } from './types';
 
@@ -110,6 +111,35 @@ export const TOOLS: ToolDef[] = [
       { id: 'texture', label: 'שימור טקסטורה', min: 0, max: 100, step: 1, default: 100 },
       // neck, arms and hands — they received nothing at all until now
       { id: 'body', label: 'עור הגוף', min: 0, max: 100, step: 1, default: 0 },
+    ],
+  },
+  {
+    // Dodge & burn. Not another contrast slider: clarity and texture amplify
+    // light that is already there, this puts light where the bone is. Runs
+    // after smoothing, which would otherwise flatten a highlight it just added.
+    id: 'contour',
+    label: 'פיסול אור וצל',
+    kind: 'ai',
+    category: 'local-ai',
+    order: 21,
+    batchPolicy: 'absolute',
+    params: [
+      // one slider per anatomical move; the cheekbone pair is ONE move —
+      // lifting the bone without deepening the hollow is just a bright patch
+      { id: 'cheekbones', label: 'עצמות לחיים', min: -100, max: 100, step: 1, default: 0 },
+      { id: 'forehead', label: 'מרכז המצח', min: -100, max: 100, step: 1, default: 0 },
+      { id: 'jaw', label: 'קו הלסת', min: -100, max: 100, step: 1, default: 0 },
+      // the concealer move — a lift of the tear trough below each eye. Sized
+      // by the eye itself; the features mask keeps it off lashes and waterline
+      { id: 'undereye', label: 'מתחת לעיניים', min: -100, max: 100, step: 1, default: 0 },
+      // needs no landmarks: amplifies the modelling the frame already has, so
+      // it works at any head angle and never invents a highlight
+      { id: 'sculpt', label: 'הגברת התאורה הקיימת', min: 0, max: 100, step: 1, default: 0 },
+      // how much the anatomical bands defer to the scene's light: at 100 a
+      // cheek in deep shadow gets nothing, at 0 both cheeks get the same push
+      // regardless of the light (measured reading as fill on side-lit faces)
+      { id: 'fidelity', label: 'נאמנות לאור הסצנה', min: 0, max: 100, step: 1, default: 70 },
+      { id: 'softness', label: 'רכות המעברים', min: 0, max: 100, step: 1, default: 50 },
     ],
   },
   // Colour work on the retouched face. These three are the same operation —
@@ -221,6 +251,35 @@ export const TOOLS: ToolDef[] = [
     ),
   },
   {
+    // The photographer's "3D" (הסבר על כלים.mp4): Nik Tonal Contrast 80/80/80
+    // Strong at ~26% opacity, hand-masked onto the CLOTHES, faces only after
+    // smoothing. Structure contrast split by tonal zone, with the mask work
+    // replaced by region sliders. Zone shape ships as her preset (60/60/60);
+    // `amount` is the one dial she actually turns.
+    id: 'tonal-contrast',
+    label: 'תלת מימד',
+    kind: 'ai',
+    category: 'scene',
+    order: 33,
+    batchPolicy: 'absolute',
+    params: [
+      { id: 'amount', label: 'עוצמה', min: 0, max: 100, step: 1, default: 0 },
+      { id: 'highlights', label: 'בהירים', min: -100, max: 100, step: 1, default: 60 },
+      { id: 'midtones', label: 'גוני אמצע', min: -100, max: 100, step: 1, default: 60 },
+      { id: 'shadows', label: 'צללים', min: -100, max: 100, step: 1, default: 60 },
+      // she lowers Nik's colour push; ours is L-only at 0, this adds/removes
+      { id: 'saturation', label: 'צבעוניות', min: -100, max: 100, step: 1, default: 0 },
+      // Nik's "Contrast Type" enum as an axis: fine detail-pop at 0, broad
+      // modelling at 100. 50 = the measured knit/bark scale (3% of long edge)
+      { id: 'scale', label: 'גודל המבנה', min: 0, max: 100, step: 1, default: 50 },
+      // where the structure lands. Her defaults exactly: clothes yes, skin and
+      // background no. Hair is never a target — crunchy peyos are a bug.
+      { id: 'fabric', label: 'בגדים', min: 0, max: 100, step: 1, default: 100 },
+      { id: 'skin', label: 'עור', min: 0, max: 100, step: 1, default: 0 },
+      { id: 'rest', label: 'רקע', min: 0, max: 100, step: 1, default: 0 },
+    ],
+  },
+  {
     // Haze sits in FRONT of the scene, so it comes off before anything shapes
     // the tone behind it. Negative adds it back — atmosphere is a look.
     // `ai`, not `global`: transmission comes from the depth model, which has no
@@ -243,8 +302,11 @@ export const TOOLS: ToolDef[] = [
     ],
   },
   {
+    // Renamed from "תלת מימדיות" (2026-07-29): the 3D name moved to the new
+    // zonal tonal-contrast tool the photographer asked for. Same id — recipes
+    // and the JS mirror are untouched.
     id: 'dimension',
-    label: 'תלת מימדיות',
+    label: 'מרקם וניגודיות',
     kind: 'global',
     category: 'tone-color',
     order: 35,
@@ -255,10 +317,24 @@ export const TOOLS: ToolDef[] = [
       // pores and grain and not on the outline of a bridle. Negative is how
       // you take texture down without smearing the edges with it.
       { id: 'texture', label: 'טקסטורה', min: -100, max: 100, step: 1, default: 0 },
-      { id: 'vignette', label: 'וינייטה', min: 0, max: 100, step: 1, default: 0 },
+    ],
+  },
+  {
+    // Split out of `dimension`: this one is defined relative to the FRAME, and
+    // sharing an id with clarity and texture put all three in the engine's
+    // FRAME_ONLY set — which meant neither of those could ever be masked to a
+    // region. Order 36 keeps it exactly where it used to run in the chain.
+    id: 'vignette',
+    label: 'וינייטה',
+    kind: 'global',
+    category: 'artistic',
+    order: 36,
+    batchPolicy: 'absolute',
+    params: [
+      { id: 'amount', label: 'עוצמה', min: 0, max: 100, step: 1, default: 0 },
       // where the falloff begins: low = darkening reaches toward the centre,
       // high = only the far corners. 50 = the historical behavior.
-      { id: 'midpoint', label: 'וינייטה · נקודת אמצע', min: 0, max: 100, step: 1, default: 50 },
+      { id: 'midpoint', label: 'נקודת אמצע', min: 0, max: 100, step: 1, default: 50 },
     ],
   },
   {
@@ -411,6 +487,14 @@ export function defaultRecipe(): Recipe {
  */
 export function normalizeRecipe(recipe: Recipe): Recipe {
   const stored = new Map((recipe?.tools ?? []).map((t) => [t.toolId, t]));
+  // The vignette used to live inside `dimension`. A recipe saved back then
+  // carries it there, and the engine still honours it — so it has to move
+  // across here, or it would be applied twice.
+  const oldDim = stored.get('dimension');
+  const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : undefined);
+  const movedAmount = num(oldDim?.params?.vignette);
+  const movedMid = num(oldDim?.params?.midpoint);
+
   const tools: ToolInstance[] = [];
   for (const def of TOOLS) {
     const prev = stored.get(def.id);
@@ -420,11 +504,18 @@ export function normalizeRecipe(recipe: Recipe): Recipe {
       const v = prev?.params?.[spec.id];
       if (typeof v === 'number' && Number.isFinite(v)) params[spec.id] = v;
     }
+    if (def.id === 'vignette' && !prev && movedAmount) {
+      params.amount = movedAmount;
+      if (movedMid !== undefined) params.midpoint = movedMid;
+    }
     const inst: ToolInstance = {
       toolId: def.id,
       params,
       enabled: prev ? !!prev.enabled : def.kind === 'global',
     };
+    // a mask survives normalization — but a PAINTED one only for the same
+    // photo; styles go through stripPerPhotoState() before saving
+    if (prev?.mask) inst.mask = prev.mask;
     if (def.legacy && isToolAtDefault(inst)) continue;
     tools.push(inst);
   }
@@ -489,6 +580,36 @@ export function updateToolParams(
 export function setToolEnabled(recipe: Recipe, toolId: string, enabled: boolean): Recipe {
   return {
     tools: recipe.tools.map((t) => (t.toolId === toolId ? { ...t, enabled } : t)),
+  };
+}
+
+export function updateToolMask(
+  recipe: Recipe,
+  toolId: string,
+  mask: ToolMask | null,
+): Recipe {
+  return {
+    tools: recipe.tools.map((t) => {
+      if (t.toolId !== toolId) return t;
+      if (!mask) {
+        const { mask: _drop, ...rest } = t;
+        return rest;
+      }
+      return { ...t, mask };
+    }),
+  };
+}
+
+/** What may be saved into a STYLE. A painted mask is a correction for one
+ *  photograph; carrying it into a style would stamp that photo's strokes onto
+ *  every other frame. Semantic-region masks transfer and stay. */
+export function stripPerPhotoState(recipe: Recipe): Recipe {
+  return {
+    tools: recipe.tools.map((t) => {
+      if (t.mask?.region !== 'painted') return t;
+      const { mask: _drop, ...rest } = t;
+      return rest;
+    }),
   };
 }
 

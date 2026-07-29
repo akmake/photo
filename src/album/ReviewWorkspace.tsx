@@ -112,7 +112,7 @@ export default function ReviewWorkspace({
   }
 
   return (
-    <div className="review-workspace" role="dialog" aria-modal="true" aria-label="אישור אלבום">
+    <div className="review-workspace" data-surface="studio" role="dialog" aria-modal="true" aria-label="אישור אלבום">
       <header className="review-header">
         <div>
           <strong>אישור אלבום · גרסה {version.number}</strong>

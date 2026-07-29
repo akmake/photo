@@ -260,27 +260,49 @@ def _dimension(rgb, params):
         out = out + delta[..., None]
 
     if vignette:
-        # a smooth radial falloff carries no detail — build it small, scale up.
-        # 256 goes on the SHORT side; written as a statement because as a
-        # conditional expression the `else` branch binds to sw alone and
-        # silently makes it a tuple on landscape frames.
-        if h >= w:
-            sh, sw = 256, max(1, int(256 * w / h))
-        else:
-            sh, sw = max(1, int(256 * h / w)), 256
-        yy, xx = np.mgrid[0:sh, 0:sw].astype(np.float32)
-        cx, cy = sw / 2.0, sh / 2.0
-        t = np.sqrt((xx - cx) ** 2 + (yy - cy) ** 2) / np.sqrt(cx * cx + cy * cy)
-        # midpoint slides where the falloff begins (ACR-style); 50 reproduces
-        # the historical 0.35 exactly, so old recipes render unchanged
-        midpoint = _p(params, "midpoint", 50)
-        start = 0.35 + (midpoint - 0.5) * 0.5
-        # floor at 0.25: two stops down. A vignette is a look; a black corner
-        # is a hole in the print. Only binds above vignette 75.
-        fall = np.maximum(1 - vignette * _smoothstep(start, 1.0, t), 0.25)
-        out = out * common.upscale_to(fall.astype(np.float32), rgb.shape)[..., None]
+        out = _vignette_onto(out, rgb.shape, vignette, _p(params, "midpoint", 50))
 
     return np.clip(out, 0, 255)
+
+
+def _vignette(rgb, params):
+    """The vignette, as its own tool.
+
+    It was split out of `dimension` because it is defined RELATIVE TO THE FRAME
+    while clarity and texture are defined relative to the content. Sharing one
+    tool id put all three in render.py's FRAME_ONLY set, which meant clarity and
+    texture could never be masked to a region — and texture on a dress but not
+    on the face is an ordinary retouching move.
+    """
+    amount = _p(params, "amount")
+    if not amount:
+        return rgb
+    return np.clip(
+        _vignette_onto(rgb.copy(), rgb.shape, amount, _p(params, "midpoint", 50)),
+        0, 255,
+    )
+
+
+def _vignette_onto(out, shape, vignette, midpoint):
+    h, w = shape[:2]
+    # a smooth radial falloff carries no detail — build it small, scale up.
+    # 256 goes on the SHORT side; written as a statement because as a
+    # conditional expression the `else` branch binds to sw alone and
+    # silently makes it a tuple on landscape frames.
+    if h >= w:
+        sh, sw = 256, max(1, int(256 * w / h))
+    else:
+        sh, sw = max(1, int(256 * h / w)), 256
+    yy, xx = np.mgrid[0:sh, 0:sw].astype(np.float32)
+    cx, cy = sw / 2.0, sh / 2.0
+    t = np.sqrt((xx - cx) ** 2 + (yy - cy) ** 2) / np.sqrt(cx * cx + cy * cy)
+    # midpoint slides where the falloff begins (ACR-style); 50 reproduces
+    # the historical 0.35 exactly, so old recipes render unchanged
+    start = 0.35 + (midpoint - 0.5) * 0.5
+    # floor at 0.25: two stops down. A vignette is a look; a black corner
+    # is a hole in the print. Only binds above vignette 75.
+    fall = np.maximum(1 - vignette * _smoothstep(start, 1.0, t), 0.25)
+    return out * common.upscale_to(fall.astype(np.float32), shape)[..., None]
 
 
 def _color_grade(rgb, params):
@@ -521,6 +543,7 @@ tone_color = _wrap(_tone_color)
 curves = _wrap(_curves)
 noise_reduction = _wrap(_noise)
 dimension = _wrap(_dimension)
+vignette = _wrap(_vignette)
 color_grade = _wrap(_color_grade)
 light_point = _wrap(_light_point)
 glow = _wrap(_glow)

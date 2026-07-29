@@ -29,6 +29,8 @@ import globals_py
 import hsl
 import grade_zones
 import dehaze
+import contour
+import tonal_contrast
 
 # toolId -> (callable, pipeline order). Lower order runs first.
 # All entries share the (rgb, params) -> (rgb, meta) contract so the frame stays
@@ -40,6 +42,9 @@ TOOLS = {
     "face-retouch": (abpn.apply, 8),  # learned model — the primary skin tool
     "skin-cleanup": (cleanup.apply, 10),
     "skin": (skin.apply, 20),
+    # sculpting comes AFTER smoothing — smoothing an added highlight would
+    # flatten it straight back out — and before any colour work
+    "contour": (contour.apply, 21),
     # Colour work on the retouched face: after smoothing, which would otherwise
     # wash a blush straight back out, and before any global grade.
     "blush": (blush.apply, 22),
@@ -50,10 +55,15 @@ TOOLS = {
     # parametric curves sit between the basic tone panel and the local tools,
     # exactly where a raw pipeline runs its tone curve
     "curves": (globals_py.curves, 32),
+    # the photographer's "3D": zonal structure contrast on clothes (and skin,
+    # when a recipe enables it — always after smoothing at 20, her ordering)
+    "tonal-contrast": (tonal_contrast.apply, 33),
     # haze sits in front of the scene, so it comes off before anything shapes
     # the tone that is behind it. Depth-driven, hence engine-side only.
     "dehaze": (dehaze.apply, 34),
     "dimension": (globals_py.dimension, 35),
+    # split out of dimension at 36 — the same place in the chain it always ran
+    "vignette": (globals_py.vignette, 36),
     # RETIRED, merged into grade-zones. Still dispatched so recipes saved before
     # the merge render exactly as they did; nothing new is fitted into it.
     "color-grade": (globals_py.color_grade, 40),
@@ -75,22 +85,38 @@ TOOLS = {
 # mask produces arcs and blotches across the background, which is exactly what
 # happened when the fitter was free to put `vignette` in a subject slot. The
 # same holds for a placed light and for glow, which spreads across the frame.
-FRAME_ONLY = {"dimension", "light-point", "glow", "vignette"}
+# `dimension` came off this list when the vignette moved out of it: clarity and
+# texture are defined relative to the CONTENT, and texture on a dress but not on
+# a face is an ordinary retouching move that used to be impossible.
+FRAME_ONLY = {"light-point", "glow", "vignette"}
 
 
 def _region_mask(rgb, spec):
     """Build the 0..1 map a masked tool is blended through.
 
-    spec: {region, invert, feather, strength}. `region` is any kind masks.py
-    knows — subject, hair, face-skin, body-skin, face-features — plus
-    `background`, which is simply the subject inverted.
+    spec: {region, invert, feather, strength, paint?}. `region` is any kind
+    masks.py knows — subject, hair, face-skin, body-skin, face-features — plus
+    `background` (the subject inverted) and `painted`: a hand-drawn alpha the
+    UI ships as a base64 image in `paint`, at whatever resolution it was drawn.
+    Painted masks are per-photo state — they live with the photo, never inside
+    a style, because a brush stroke cannot transfer to the next frame.
     """
     region = spec.get("region", "subject")
     invert = bool(spec.get("invert", False))
     if region == "background":
         region, invert = "subject", not invert
 
-    m = masks.get_mask(rgb, region).astype(np.float32)
+    if region == "painted":
+        paint = spec.get("paint")
+        if not paint:
+            return np.zeros(rgb.shape[:2], np.float32)
+        pm = common.to_np(common.b64_to_image(paint)).astype(np.float32)
+        if pm.ndim == 3:
+            pm = pm[..., :3].max(axis=2)
+        m = cv2.resize(pm / 255.0, (rgb.shape[1], rgb.shape[0]),
+                       interpolation=cv2.INTER_LINEAR)
+    else:
+        m = masks.get_mask(rgb, region).astype(np.float32)
     if invert:
         m = 1.0 - m
 
