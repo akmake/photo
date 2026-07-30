@@ -1352,7 +1352,7 @@ class FaceScan:
     quiet: bool = False
 
 
-def _scan_face(rgb, params: dict, candidates: bool = True) -> FaceScan | None:
+def _scan_face(rgb, params: dict, candidates: bool = True, frame_eye=None) -> FaceScan | None:
     """Stage the correctable field, then detect on the untouched original."""
     redness, strength, spot_params = _params(params)
     skin = masks.get_mask(rgb, "face-skin")
@@ -1416,6 +1416,34 @@ def _scan_face(rgb, params: dict, candidates: bool = True) -> FaceScan | None:
         pig_judge = np.clip(
             skin_c - masks.get_mask(crop, "face-pigment-protect") - hair_c, 0.0, 1.0
         )
+        # The eye is a NO-GO ZONE, not a correction boundary, and the difference
+        # decides whether it may be feathered.
+        #
+        # A feather is right where a correction meets open skin: it hides the
+        # edge of the operator's own work. It is wrong around an eye, because
+        # "60% protected" then means "40% of the correction still lands on the
+        # lid rim". Measured after every other leak into the eye was closed:
+        # 100% of the pixels still moving by more than 5 levels sat inside
+        # face-anatomy, at protection 0.50-0.86 — squarely in the feather — and
+        # 40% of the correction there was still 11-12 levels.
+        #
+        # The delta is blurred BEFORE it is confined (see even_pigment), so a
+        # hard stop here is still smooth on the inside. Same rule as the repair
+        # mask a few stages down: smooth inside, hard stop at the border.
+        #
+        # And the mask is taken from the FRAME when the caller has one, not
+        # recomputed on this crop. The same kind, computed on a crop, does not
+        # agree with itself: MediaPipe re-detects on the smaller image and the
+        # region lands a few pixels off. Measured on a four-face frame, 2,078
+        # pixels were protected by the frame mask and NOT by the union of the
+        # crop masks — and 53 of the 62 pixels still changing near an eye were
+        # exactly those. A protection mask that moves when you crop is not a
+        # protection mask.
+        eye_guard = (
+            frame_eye[y0:y1, x0:x1] if frame_eye is not None
+            else masks.get_mask(crop, "face-eye-region")
+        )
+        pig_judge *= (eye_guard <= 0.35).astype(np.float32)
         crop, pig_meta = pigment.even_pigment(crop, pig_judge, face_pc, redness)
 
     # --- stage B: specular highlights (wet lips) -----------------------------
@@ -1662,11 +1690,17 @@ def apply(rgb, params: dict):
                   "shadingVetoed": 0, "wetTrails": 0, "fluidTrails": 0,
                   "pigmentPx": 0, "protectedSpotPx": 0, "selected": 0,
                   "faceTooSmall": 0}
+        # Protection masks belong to the FRAME. Computing them once here and
+        # slicing per crop is not an optimisation: recomputed on a crop they
+        # come back in a slightly different place (see the note at eye_guard),
+        # and a per-face pass then edits skin the frame said was off limits.
+        frame_eye = masks.get_mask(rgb, "face-eye-region")
         for x0, y0, x1, y1 in _face_boxes(rgb, faces):
             healed_sub, m = _apply_one(
                 out[y0:y1, x0:x1],
                 params,
                 sel_mask=None if sel_mask is None else sel_mask[y0:y1, x0:x1],
+                frame_eye=frame_eye[y0:y1, x0:x1],
             )
             out[y0:y1, x0:x1] = healed_sub
             for key in totals:
@@ -1676,7 +1710,12 @@ def apply(rgb, params: dict):
             totals.pop("selected", None)
         return out, totals
 
-    return _apply_one(rgb, params, sel_mask=sel_mask)
+    # Single face still crops — `_scan_face` takes its own region box — so it
+    # needs the frame-computed guard for the same reason the group path does.
+    return _apply_one(
+        rgb, params, sel_mask=sel_mask,
+        frame_eye=masks.get_mask(rgb, "face-eye-region"),
+    )
 
 
 def _params(params: dict):
@@ -1711,7 +1750,7 @@ def _params(params: dict):
     )
 
 
-def _apply_one(rgb, params: dict, sel_mask=None):
+def _apply_one(rgb, params: dict, sel_mask=None, frame_eye=None):
     """The single-face pipeline: every threshold scales from THIS face.
 
     `sel_mask` is a crop-aligned 0/1 array when a person marked what to treat.
@@ -1720,7 +1759,7 @@ def _apply_one(rgb, params: dict, sel_mask=None):
     harmonisation are the same code doing the same thing, because none of them
     is a judgement about what counts as a blemish.
     """
-    scan = _scan_face(rgb, params, candidates=sel_mask is None)
+    scan = _scan_face(rgb, params, candidates=sel_mask is None, frame_eye=frame_eye)
     if scan is None:
         return rgb, {"spotsRemoved": 0, "faceTooSmall": 1}
 

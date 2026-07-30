@@ -431,3 +431,16 @@ export async function exportColorFiles(
 export function thumbUrl(path: string, width = 320): string {
   return `${ENGINE}/thumb?path=${encodeURIComponent(path)}&w=${width}`;
 }
+
+/** Open the operating system's own folder dialog and return what was chosen.
+ *
+ * The browser cannot produce an absolute path — that is a deliberate boundary
+ * and no UI work gets around it. The engine is a local process on the same
+ * machine, so it raises the native dialog instead. `null` means the dialog was
+ * cancelled, which is an answer and not a failure. */
+export async function pickFolder(): Promise<string | null> {
+  const r = await fetch(`${ENGINE}/pick-folder`, { method: 'POST' });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j?.error ?? `engine ${r.status}`);
+  return j.cancelled ? null : (j.folder as string);
+}

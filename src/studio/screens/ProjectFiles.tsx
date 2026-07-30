@@ -15,7 +15,7 @@
  */
 
 import { useCallback, useEffect, useState } from 'react';
-import { listImages, thumbUrl } from '../../api';
+import { listImages, pickFolder, thumbUrl } from '../../api';
 import {
   PHOTO_STATUS, addFolder, removeFolder, setPhotoStatus, useFolders, useStatuses,
 } from '../store';
@@ -45,7 +45,6 @@ export default function ProjectFiles({
   const statuses = useStatuses();
 
   const [loaded, setLoaded] = useState<Record<string, FolderFiles>>({});
-  const [path, setPath] = useState('');
   const [adding, setAdding] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -74,43 +73,41 @@ export default function ProjectFiles({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [folders]);
 
+  /* One button, one dialog, no typing. The engine raises the operating
+   * system's own folder picker — the browser cannot, and asking a photographer
+   * to paste a path is asking them to do the computer's job. */
   const add = useCallback(async () => {
-    const clean = path.trim();
-    if (!clean) return;
     setAdding(true);
     setError(null);
     try {
-      const r = await listImages(clean);
+      const chosen = await pickFolder();
+      if (!chosen) return; // cancelled — an answer, not a failure
+      const r = await listImages(chosen);
+      if (r.count === 0) {
+        setError(`אין תמונות בתיקייה שנבחרה: ${chosen}`);
+        return;
+      }
       const folder = addFolder(projectId, r.folder, r.count);
-      setPath('');
       readFolder(folder);
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'התיקייה לא נמצאה');
+      setError(e instanceof Error ? e.message : 'לא ניתן לפתוח את התיקייה');
     } finally {
       setAdding(false);
     }
-  }, [path, projectId, readFolder]);
+  }, [projectId, readFolder]);
 
   const total = Object.values(loaded).reduce((n, f) => n + f.files.length, 0);
 
   return (
     <div className="pf">
       <div className="pf-add">
-        <label className="cm-field">
-          <span>הוסף תיקייה לפרויקט</span>
-          <input
-            className="field mono"
-            dir="ltr"
-            value={path}
-            placeholder="D:\Shoots\2026-07-24\ceremony"
-            onChange={(e) => setPath(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && add()}
-          />
-        </label>
-        <button className="btn btn-primary" onClick={add} disabled={!path.trim() || adding}>
+        <button className="btn btn-primary" onClick={add} disabled={adding}>
           <IcFolderOpen size={16} />
-          {adding ? 'קורא…' : 'הוסף'}
+          {adding ? 'בוחר…' : 'בחר תיקייה'}
         </button>
+        <span className="pf-add-note">
+          חלון הבחירה של Windows ייפתח. אפשר להוסיף כמה תיקיות לאותו פרויקט.
+        </span>
       </div>
 
       {error && <p className="cm-error">{error}</p>}

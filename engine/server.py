@@ -9,6 +9,7 @@ import base64
 import io
 import json
 import os
+import subprocess
 import urllib.parse
 from concurrent.futures import ThreadPoolExecutor
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -176,7 +177,7 @@ class Handler(BaseHTTPRequestHandler):
             self._json(404, {"error": "not found"})
 
     def _thumb(self):
-        """GET /thumb?path=<abs path>&w=<px> -> a JPEG thumbnail.
+        r"""GET /thumb?path=<abs path>&w=<px> -> a JPEG thumbnail.
 
         The renderer cannot read D:\Shoots\... — a browser has no access to
         the disk, and the whole point of this product is that the files stay
@@ -243,6 +244,9 @@ class Handler(BaseHTTPRequestHandler):
             return
         if self.path == "/list-images":
             self._list_images()
+            return
+        if self.path == "/pick-folder":
+            self._pick_folder()
             return
         if self.path == "/export":
             self._export()
@@ -446,6 +450,44 @@ class Handler(BaseHTTPRequestHandler):
                     output_image
                 )
             self._json(200, {"image": payload, "meta": meta})
+        except Exception as e:  # noqa: BLE001
+            self._json(500, {"error": str(e)})
+
+    def _pick_folder(self):
+        """Open the real Windows folder dialog and return the path chosen.
+
+        A browser cannot hand out an absolute path — by design, and no amount of
+        UI work changes that. But the engine is a local process on the user's
+        own machine, so IT can raise the native dialog and report the answer.
+        That is the difference between "paste a path" and "choose a folder", and
+        the second one is the only acceptable version.
+
+        The dialog is owned by a TopMost form, or Windows would open it behind
+        the browser and the click would look like it did nothing.
+        """
+        script = (
+            "Add-Type -AssemblyName System.Windows.Forms;"
+            "$owner = New-Object System.Windows.Forms.Form;"
+            "$owner.TopMost = $true;"
+            "$d = New-Object System.Windows.Forms.FolderBrowserDialog;"
+            "$d.Description = 'בחר תיקייה עם תמונות הפרויקט';"
+            "$d.ShowNewFolderButton = $false;"
+            "if ($d.ShowDialog($owner) -eq [System.Windows.Forms.DialogResult]::OK)"
+            " { [Console]::Out.Write($d.SelectedPath) };"
+            "$owner.Dispose()"
+        )
+        try:
+            out = subprocess.run(
+                ["powershell", "-NoProfile", "-STA", "-Command", script],
+                capture_output=True,
+                text=True,
+                timeout=300,
+            )
+            folder = (out.stdout or "").strip()
+            if not folder:
+                self._json(200, {"cancelled": True})
+                return
+            self._json(200, {"folder": folder, "cancelled": False})
         except Exception as e:  # noqa: BLE001
             self._json(500, {"error": str(e)})
 

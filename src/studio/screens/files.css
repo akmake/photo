@@ -198,3 +198,15 @@
 .pf-use:focus {
   opacity: 1;
 }
+
+.pf-add {
+  display: flex;
+  align-items: center;
+  gap: var(--s3);
+  flex-wrap: wrap;
+}
+
+.pf-add-note {
+  color: var(--ink-3);
+  font-size: var(--t-sm);
+}
