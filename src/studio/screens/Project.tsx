@@ -19,6 +19,7 @@ import { useState } from 'react';
 import type { Project as ProjectModel } from '../store';
 import { STATE_LABEL, stagesOf } from '../store';
 import type { StageKey } from '../store';
+import ProjectFiles from './ProjectFiles';
 import {
   IcCalendar, IcCamera, IcCheckCircle, IcFolderOpen, IcLink, IcMail, IcSliders,
   IcSparkle,
@@ -39,15 +40,22 @@ function stageValue(p: ProjectModel, key: StageKey): string {
 
 export default function Project({
   project,
+  initialStage,
   onBack,
   onOpenTool,
 }: {
   project: ProjectModel;
+  /** From the hash, so a stage can be linked and reloaded. */
+  initialStage?: StageKey;
   onBack: () => void;
   onOpenTool: (what: 'edit' | 'album' | 'color') => void;
 }) {
   const stages = stagesOf(project);
-  const [stage, setStage] = useState<StageKey>(stages[Math.min(project.at, stages.length - 1)].id);
+  const [stage, setStage] = useState<StageKey>(
+    initialStage && stages.some((s) => s.id === initialStage)
+      ? initialStage
+      : stages[Math.min(project.at, stages.length - 1)].id,
+  );
   const [context, setContext] = useState(true);
 
   const open = project.price ? (project.price - (project.paid ?? 0)) : 0;
@@ -117,14 +125,11 @@ export default function Project({
           )}
 
           {stage === 'import' && (
-            <Stage title="ייבוא" sub="הקבצים נשארים על המחשב שלך; המערכת מצביעה עליהם">
-              <Numbers items={[
-                ['יובאו', project.imported],
-                ['נשארו אחרי סינון', project.kept],
-              ]} />
-              <div className="stage-actions">
-                <button className="btn btn-primary"><IcFolderOpen size={16} />בחר תיקייה</button>
-              </div>
+            <Stage
+              title="התיקיות של הפרויקט"
+              sub="לפרויקט יכולות להיות כמה תיקיות. התמונות נשארות על המחשב — המערכת מצביעה עליהן."
+            >
+              <ProjectFiles projectId={project.id} />
             </Stage>
           )}
 

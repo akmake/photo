@@ -328,8 +328,20 @@ class Handler(BaseHTTPRequestHandler):
         """Read an edit. { before, after } -> report + annotated overlay."""
         try:
             body = self._body()
-            before = common.to_np(common.b64_to_image(body["before"]))
-            after = common.to_np(common.b64_to_image(body["after"]))
+
+            # The BEFORE frame is chosen from the project, so the renderer has
+            # its path and not its bytes — and pushing a 25MB raw file through
+            # base64 to reach a process that can just open it is waste. The
+            # AFTER frame comes from wherever the photographer edited it, so it
+            # still arrives as data.
+            def _read(key):
+                path_key = key + "Path"
+                if body.get(path_key):
+                    return common.to_np(common.load_image(body[path_key]))
+                return common.to_np(common.b64_to_image(body[key]))
+
+            before = _read("before")
+            after = _read("after")
             report, marked = on_worker(compare.analyze, before, after)
             self._json(
                 200,
@@ -347,8 +359,20 @@ class Handler(BaseHTTPRequestHandler):
         much of the edit it actually reproduces."""
         try:
             body = self._body()
-            before = common.to_np(common.b64_to_image(body["before"]))
-            after = common.to_np(common.b64_to_image(body["after"]))
+
+            # The BEFORE frame is chosen from the project, so the renderer has
+            # its path and not its bytes — and pushing a 25MB raw file through
+            # base64 to reach a process that can just open it is waste. The
+            # AFTER frame comes from wherever the photographer edited it, so it
+            # still arrives as data.
+            def _read(key):
+                path_key = key + "Path"
+                if body.get(path_key):
+                    return common.to_np(common.load_image(body[path_key]))
+                return common.to_np(common.b64_to_image(body[key]))
+
+            before = _read("before")
+            after = _read("after")
             params, report, fitted = on_worker(recipe_fit.fit, before, after)
             self._json(
                 200,
@@ -370,8 +394,20 @@ class Handler(BaseHTTPRequestHandler):
         """
         try:
             body = self._body()
-            before = common.to_np(common.b64_to_image(body["before"]))
-            after = common.to_np(common.b64_to_image(body["after"]))
+
+            # The BEFORE frame is chosen from the project, so the renderer has
+            # its path and not its bytes — and pushing a 25MB raw file through
+            # base64 to reach a process that can just open it is waste. The
+            # AFTER frame comes from wherever the photographer edited it, so it
+            # still arrives as data.
+            def _read(key):
+                path_key = key + "Path"
+                if body.get(path_key):
+                    return common.to_np(common.load_image(body[path_key]))
+                return common.to_np(common.b64_to_image(body[key]))
+
+            before = _read("before")
+            after = _read("after")
             model, report, preview = on_worker(pixel_color.fit, before, after)
             self._json(
                 200,

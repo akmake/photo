@@ -276,13 +276,17 @@ export async function compareImages(
 
 /** Learn a compact, validated colour model from a before/after pair. */
 export async function learnColorModel(
-  beforeDataUrl: string,
-  afterDataUrl: string,
+  /** A path when the frame comes from the project, a data URL when it does not. */
+  before: { path: string } | { data: string },
+  after: { path: string } | { data: string },
 ): Promise<LearnColorResponse> {
   const r = await fetch(`${ENGINE}/learn-color`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ before: beforeDataUrl, after: afterDataUrl }),
+    body: JSON.stringify({
+      ...('path' in before ? { beforePath: before.path } : { before: before.data }),
+      ...('path' in after ? { afterPath: after.path } : { after: after.data }),
+    }),
   });
   if (!r.ok) {
     let detail = `engine ${r.status}`;

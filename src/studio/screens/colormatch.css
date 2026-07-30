@@ -309,3 +309,45 @@
     grid-template-columns: 1fr;
   }
 }
+
+/* The origin frame is a button, not a file input — it opens the project. */
+.cm-slot-frame.as-button {
+  width: 100%;
+  cursor: pointer;
+  padding: 0;
+}
+
+.cm-picker {
+  width: min(1180px, 100%);
+  background: var(--card);
+}
+
+.cm-picker-body {
+  display: block;
+  max-height: 68vh;
+  overflow-y: auto;
+}
+
+/* ---- apply, with no folder to choose ---- */
+
+.cm-apply {
+  display: grid;
+  gap: var(--s4);
+  padding-top: var(--s6);
+  margin-top: var(--s4);
+  border-top: 1px solid var(--line);
+}
+
+.cm-apply-where {
+  display: grid;
+  gap: 4px;
+  font-size: var(--t-sm);
+  color: var(--ink-3);
+}
+
+.cm-apply-where b {
+  font-size: var(--t-md);
+  color: var(--ink);
+  font-weight: 500;
+  word-break: break-all;
+}

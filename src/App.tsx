@@ -131,12 +131,13 @@ export default function App() {
   let title = PROJECT.title;
 
   if (openedProject && colorMatch) {
-    body = <ColorMatch onBack={() => setColorMatch(false)} />;
+    body = <ColorMatch project={openedProject} onBack={() => setColorMatch(false)} />;
     title = `התאמת צבעים · ${openedProject.client}`;
   } else if (openedProject) {
     body = (
       <ProjectScreen
         project={openedProject}
+        initialStage={(initial.sub || undefined) as never}
         onBack={() => goSection('projects')}
         onOpenTool={(what) => {
           if (what === 'color') {

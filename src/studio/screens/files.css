@@ -1,0 +1,200 @@
+/* Project folders and their frames.
+ *
+ * A contact sheet, not a card grid: 4px between frames, no border, no radius,
+ * no shadow. The photographs are the content and the gaps are wasted space.
+ */
+
+.pf {
+  display: grid;
+  gap: var(--s6);
+  align-content: start;
+}
+
+.pf-add {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--s3);
+}
+
+.pf-empty,
+.pf-note {
+  color: var(--ink-3);
+  font-size: var(--t-md);
+  max-width: 70ch;
+}
+
+.pf-total {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--ink-2);
+  font-size: var(--t-md);
+}
+
+.pf-total b {
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.pf-total svg {
+  color: var(--ok-ink);
+}
+
+/* --------------------------------------------------------- one folder */
+
+.pf-folder {
+  display: grid;
+  gap: var(--s3);
+}
+
+.pf-folder-bar {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s3);
+  padding-bottom: var(--s2);
+  border-bottom: 1px solid var(--line-strong);
+}
+
+.pf-folder-bar h3 {
+  font-size: var(--t-md);
+  font-weight: 600;
+}
+
+.pf-path {
+  font-size: var(--t-xs);
+  color: var(--ink-3);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pf-counts {
+  margin-inline-start: auto;
+  font-size: var(--t-sm);
+  color: var(--ink-3);
+  white-space: nowrap;
+}
+
+.pf-counts i {
+  font-style: normal;
+}
+
+.pf-counts .c-working {
+  color: var(--warn-ink);
+}
+
+.pf-counts .c-ready {
+  color: var(--ok-ink);
+}
+
+.pf-drop {
+  font-size: var(--t-sm);
+  color: var(--ink-3);
+}
+
+.pf-drop:hover {
+  color: var(--danger-ink);
+}
+
+/* ---------------------------------------------------- the contact sheet */
+
+.pf-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  gap: var(--s1);
+}
+
+.pf-shot {
+  position: relative;
+  display: grid;
+  gap: 0;
+  background: var(--card);
+  min-width: 0;
+}
+
+.pf-shot img {
+  width: 100%;
+  aspect-ratio: 3 / 2;
+  object-fit: cover;
+  display: block;
+  background: var(--l-88);
+}
+
+.pf-shot figcaption {
+  font-size: var(--t-xs);
+  color: var(--ink-3);
+  padding: 4px 6px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* A frame that carries a decision says so on the frame itself — a 3px edge, so
+ * a sheet of 400 can be read for state without opening anything. */
+.pf-shot.s-working img {
+  outline: 3px solid var(--warn-ink);
+  outline-offset: -3px;
+}
+
+.pf-shot.s-ready img {
+  outline: 3px solid var(--ok-ink);
+  outline-offset: -3px;
+}
+
+/* The status control is quiet until the frame is under the cursor: on a sheet
+ * of hundreds, three permanent buttons per frame would be all you could see. */
+.pf-status {
+  position: absolute;
+  inset-block-end: 26px;
+  inset-inline: 0;
+  display: flex;
+  opacity: 0;
+  transition: opacity 0.09s ease-out;
+}
+
+.pf-shot:hover .pf-status,
+.pf-status:focus-within {
+  opacity: 1;
+}
+
+.pf-status button {
+  flex: 1;
+  padding: 5px 2px;
+  font-size: var(--t-xs);
+  background: rgba(11, 11, 11, 0.82);
+  color: #d6d6d6;
+  border-inline-start: 1px solid rgba(255, 255, 255, 0.14);
+}
+
+.pf-status button:first-child {
+  border-inline-start: 0;
+}
+
+.pf-status button:hover {
+  background: rgba(11, 11, 11, 0.95);
+  color: #fff;
+}
+
+.pf-status button.on {
+  background: var(--acc-fill);
+  color: #fff;
+}
+
+.pf-use {
+  position: absolute;
+  inset-block-start: 0;
+  inset-inline-start: 0;
+  padding: 5px 10px;
+  background: var(--acc-fill);
+  color: #fff;
+  font-size: var(--t-xs);
+  font-weight: 500;
+  opacity: 0;
+  transition: opacity 0.09s ease-out;
+}
+
+.pf-shot:hover .pf-use,
+.pf-use:focus {
+  opacity: 1;
+}

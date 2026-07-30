@@ -99,7 +99,7 @@ export default function Compare() {
     setError(null);
     const t0 = performance.now();
     try {
-      const learned = await learnColorModel(before.url, after.url);
+      const learned = await learnColorModel({ data: before.url }, { data: after.url });
       setColour(learned);
       setView('learned');
       setMs(Math.round(performance.now() - t0));
