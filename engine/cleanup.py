@@ -67,6 +67,14 @@ MIN_FACE_PX = 180
 #    found again in a second place. Fixed the same way.
 FLUID_TRAILS_ENABLED = True
 
+# Mean width a strand may reach, as a fraction of face_d. A hanging fluid ENDS
+# IN A DROPLET and the droplet inflates area/length, which is why 0.02 rejected
+# the real 321A1809 drool (11.4 against an 11.0 bar) and the bar was raised to
+# 0.03. It then rejected the SAME drool a second time, at 8.28 against 7.77,
+# once the detector was moved onto the undoctored crop -- a 6% margin in one
+# parameter, which this file says elsewhere is not a mechanism.
+FLUID_MAX_WIDTH = 0.03
+
 # What counts as "structure" for the line veto is calibrated on the SKIN, at a
 # fixed RANK — not at a fixed Lab amplitude, and not from a robust sigma.
 #
@@ -275,14 +283,32 @@ def _bright_debris_confidence(
 def _orifice_context(rgb: np.ndarray):
     """Where fluids come from, and which way they run.
 
-    Returns (orifice_mask, down_field) at full resolution — the filled
-    eye/nostril/mouth outlines of every detected face, and a per-pixel unit
-    vector pointing "down the face" (eyes toward mouth). The field is written
-    per face over its own disc, so a lying-down child keeps their own gravity
-    even when a sibling stands upright in the same frame.
+    Returns (orifice_mask, anchor_mask, down_field) at full resolution — the
+    filled eye/nostril/mouth outlines of every detected face, the subset of
+    those a trail may be ANCHORED to, and a per-pixel unit vector pointing
+    "down the face" (eyes toward mouth). The field is written per face over its
+    own disc, so a lying-down child keeps their own gravity even when a sibling
+    stands upright in the same frame.
+
+    The two masks differ by THE EYES, and the split is why they are separate.
+    `orifice` must keep them: it is what carves the eye openings out of the
+    search zone. `anchor` must not, and that is measured — with the eyes
+    anchoring trails, every bright vertical strip of skin beside them qualified
+    as a tear. On two dry faces the detector returned 5 and 3 "fluids", each one
+    a shine streak on the temple or the strip between the eye and the peyot, and
+    each one then rewrote the lower lid rim by up to 52 levels. That is the
+    damage the user reported from the delivered images, and it is a precision
+    failure, not a masking one: the strands really do run downward from
+    something the code was told is an orifice.
+
+    Cost of the split: a genuine tear track is no longer detected. It never was
+    validated — the one real fluid in the corpus is drool from a lip — and a
+    detector that invents 4 fluids per dry face to catch a case nobody has
+    demonstrated is not worth its false-positive rate.
     """
     h, w = rgb.shape[:2]
     orifice = np.zeros((h, w), np.uint8)
+    anchor = np.zeros((h, w), np.uint8)
     down = np.zeros((h, w, 2), np.float32)
     faces = masks._face_landmarks(rgb)
     for lm in faces or []:
@@ -294,11 +320,13 @@ def _orifice_context(rgb: np.ndarray):
             continue
         pts = lambda idx: np.array([pt(i) for i in idx], np.int32)
         cv2.fillConvexPoly(orifice, cv2.convexHull(pts(masks.LIPS)), 255)
+        cv2.fillConvexPoly(anchor, cv2.convexHull(pts(masks.LIPS)), 255)
         cv2.fillConvexPoly(orifice, cv2.convexHull(pts(masks.LEFT_EYE)), 255)
         cv2.fillConvexPoly(orifice, cv2.convexHull(pts(masks.RIGHT_EYE)), 255)
         for ala in masks.NOSE_ALA:
             c = pt(ala)
             cv2.circle(orifice, (int(c[0]), int(c[1])), max(2, int(fw * 0.025)), 255, -1)
+            cv2.circle(anchor, (int(c[0]), int(c[1])), max(2, int(fw * 0.025)), 255, -1)
 
         eye_c = (np.mean([pt(i) for i in masks.LEFT_EYE], axis=0)
                  + np.mean([pt(i) for i in masks.RIGHT_EYE], axis=0)) / 2
@@ -312,13 +340,14 @@ def _orifice_context(rgb: np.ndarray):
         disc = np.zeros((h, w), np.uint8)
         cv2.circle(disc, (int(centre[0]), int(centre[1])), int(fw * 1.2), 255, -1)
         down[disc > 0] = vec
-    return orifice, down
+    return orifice, anchor, down
 
 
 def _fluid_trails(
     crop: np.ndarray,
     face_d: float,
     orifice: np.ndarray,
+    anchor_src: np.ndarray,
     down_field: np.ndarray,
     skin_zone: np.ndarray,
 ) -> tuple[np.ndarray, int]:
@@ -339,7 +368,8 @@ def _fluid_trails(
     h, w = crop.shape[:2]
     out = np.zeros((h, w), np.uint8)
     ow = max(3, int(face_d * 0.05))
-    anchor_zone = cv2.dilate(orifice, np.ones((ow, ow), np.uint8)) > 0
+    # mouth and nostrils only — see _orifice_context for why the eyes are out
+    anchor_zone = cv2.dilate(anchor_src, np.ones((ow, ow), np.uint8)) > 0
     # 0.55, not less: a hanging drool reaches half a face-width below the lip
     # (measured 120px on a 250px face — 0.28 put the rim mid-strand and the
     # rim-exit rule rejected the real drool)
@@ -405,7 +435,7 @@ def _fluid_trails(
         # thin and elongated — a strand, not a patch of shine. 0.03, not less:
         # a hanging fluid ENDS IN A DROPLET, and the droplet is what a tighter
         # bar rejected (measured 11.4 vs an 11.0 bar on the 1809 drool)
-        if length < face_d * 0.05 or area / max(1, length) > face_d * 0.03:
+        if length < face_d * 0.05 or area / max(1, length) > face_d * FLUID_MAX_WIDTH:
             continue
         anchor = comp & anchor_zone
         if not anchor.any() or (comp & rim).any():
@@ -1097,7 +1127,7 @@ def _forced_repair(conf, face_d, component, size_gate=False):
     return out
 
 
-def _candidates(crop, crop_pre, det: Detection, orifice, down_field, strength, fluids):
+def _candidates(crop, crop_pre, det: Detection, orifice, anchor_src, down_field, strength, fluids):
     """Every candidate on one face, each with the verdict the engine reached.
 
     Returns (candidates, repair, counts). `repair` is the automatic mask — the
@@ -1120,6 +1150,28 @@ def _candidates(crop, crop_pre, det: Detection, orifice, down_field, strength, f
         report=report,
     )
     repair = decide(conf, face_c, gated)
+
+    # --- hard stop at the border of the eligible region ----------------------
+    #
+    # `decide` GROWS what it was given — a morphological close, `_fill_holes`,
+    # then a dilate of 0.6% of face_d "because a mark fades at its rim" — and
+    # grow-to-isolation widens it again. Every one of those is right, and not
+    # one of them was re-confined, so the mask walked straight out of the
+    # heal-eligible region and onto the anatomy that region exists to withhold.
+    #
+    # Measured before this line existed: 24.6% / 36.1% / 20.4% of the repair
+    # mask on three faces sat OUTSIDE `region`, and 100% of the pixels that
+    # changed by more than 5 levels inside `face-eye-region` were inside BOTH
+    # protection masks. The visible result is the one the user reported — a
+    # dark smudge appearing on the lower lash line. The eyeball itself was
+    # never touched (max 2.7 levels); the damage is 4-12px outside it, on the
+    # lid rim, which is exactly where the grown mask lands.
+    #
+    # Same rule pigment.py already writes for its own blur: smooth inside, hard
+    # stop at the border. Applied to `decide`'s output only — the fluid pass
+    # merges AFTER this, and it must keep reaching the lips (see its call site:
+    # subtracting anatomy there set drool reachability to exactly 0.000).
+    repair = (repair & (region > 0.35)).astype(np.uint8)
 
     # --- a detection that IS a crease is not a mark --------------------------
     #
@@ -1184,7 +1236,18 @@ def _candidates(crop, crop_pre, det: Detection, orifice, down_field, strength, f
             0.0,
             1.0,
         )
-        fluid, fluid_found = _fluid_trails(crop, face_c, orifice, down_field, skin_zone)
+        # Detect on the ORIGINAL, heal on the corrected field — the same
+        # composition rule the spot detector already follows, applied to the one
+        # place that still chained instead. Reading `crop` made this detector a
+        # function of whatever the pigment stage happened to do upstream: adding
+        # the crease veto shifted the Lab values under the strand just enough to
+        # fail the hue check, and the real drool on 321A1809 — the single
+        # validated true positive in the corpus — went from found to not found
+        # while its seed pixels barely moved (711 -> 707). A detector that a
+        # different operator can silently switch off is not a detector.
+        fluid, fluid_found = _fluid_trails(
+            crop_pre, face_c, orifice, anchor_src, down_field, skin_zone
+        )
         if fluid_found:
             repair = np.maximum(repair, fluid)
 
@@ -1408,12 +1471,13 @@ def _scan_face(rgb, params: dict, candidates: bool = True) -> FaceScan | None:
     # The legacy frequency-separation mode has no repair mask to describe — it
     # attenuates a band by confidence — so it never pays for the candidate pass.
     if candidates and str(params.get("mode", "reconstruct")) == "reconstruct":
-        orifice, down_field = _orifice_context(rgb)
+        orifice, anchor_src, down_field = _orifice_context(rgb)
         scan.candidates, scan.repair, scan.counts = _candidates(
             crop,
             crop_pre,
             scan.detection,
             orifice[y0:y1, x0:x1],
+            anchor_src[y0:y1, x0:x1],
             down_field[y0:y1, x0:x1],
             strength,
             fluids=bool(params.get("fluids", FLUID_TRAILS_ENABLED)),

@@ -877,6 +877,23 @@ export default function Lab() {
                   const w = (item.bbox[2] - item.bbox[0]) * marks.width;
                   const h = (item.bbox[3] - item.bbox[1]) * marks.height;
                   const tiny = Math.max(w, h) * scale < 16;
+                  // Line width is COMPUTED, never declared.
+                  //
+                  // `vector-effect: non-scaling-stroke` was the obvious tool and
+                  // it is the wrong one here: it compensates for the SVG's own
+                  // viewBox scale, and this stage zooms with a CSS transform on
+                  // an ancestor HTML element, which stretches the rasterised
+                  // layer — strokes included. So the outline grew with the zoom:
+                  // at 20x a 1.25px line paints 25px, which is exactly the
+                  // "huge and clunky at every zoom" that was reported.
+                  //
+                  // User units here ARE frame pixels (the viewBox is the frame),
+                  // so dividing by the frame->screen scale pins the line to one
+                  // screen pixel at every zoom by arithmetic. And that is what
+                  // makes zooming in worth doing: the line stays a hairline while
+                  // the contour under it resolves, so the boundary gets more
+                  // exact the closer you look, instead of thicker.
+                  const hair = 1 / scale;
                   const d = item.contours
                     .map(
                       (ring) =>
@@ -907,8 +924,7 @@ export default function Lab() {
                         d={d}
                         fill="none"
                         stroke="transparent"
-                        strokeWidth={16}
-                        vectorEffect="non-scaling-stroke"
+                        strokeWidth={16 * hair}
                         onPointerDown={(e) => {
                           e.stopPropagation();
                           toggleMark(item.id);
@@ -923,10 +939,9 @@ export default function Lab() {
                           r={13 / scale}
                           fill="none"
                           stroke={colour}
-                          strokeWidth={1}
-                          strokeDasharray="2 3"
+                          strokeWidth={hair}
+                          strokeDasharray={`${2 * hair} ${3 * hair}`}
                           opacity={0.75}
-                          vectorEffect="non-scaling-stroke"
                         />
                       )}
                       {/* Two strokes on the SAME path, both a hairline and both
@@ -939,16 +954,14 @@ export default function Lab() {
                         d={d}
                         fill="none"
                         stroke="rgba(0,0,0,0.7)"
-                        strokeWidth={hot ? 1.75 : 1.25}
-                        vectorEffect="non-scaling-stroke"
+                        strokeWidth={(hot ? 1.6 : 1) * hair}
                       />
                       <path
                         d={d}
                         fill="none"
                         stroke={colour}
-                        strokeWidth={hot ? 1.75 : 1.25}
-                        strokeDasharray={chosen ? undefined : '3 2.5'}
-                        vectorEffect="non-scaling-stroke"
+                        strokeWidth={(hot ? 1.6 : 1) * hair}
+                        strokeDasharray={chosen ? undefined : `${3 * hair} ${2.5 * hair}`}
                       />
                     </g>
                   );
