@@ -1588,9 +1588,16 @@ def apply(rgb, params: dict):
     faces = masks._face_landmarks(rgb)
     if len(faces) >= 2:
         out = rgb.copy()
+        # `faceTooSmall` belongs here or it is LOST. The single-face path already
+        # reports it, but this loop accumulates only keys declared up front, so
+        # in a group photo — the one case where small faces actually occur — a
+        # skipped child vanished without a word. Measured on 321A5078: three of
+        # the five faces are 137-154px against MIN_FACE_PX 180, so the tool did
+        # nothing to them and said nothing about it.
         totals = {"spotsRemoved": 0, "correctedPx": 0, "lineVetoed": 0, "creaseVetoed": 0,
                   "shadingVetoed": 0, "wetTrails": 0, "fluidTrails": 0,
-                  "pigmentPx": 0, "protectedSpotPx": 0, "selected": 0}
+                  "pigmentPx": 0, "protectedSpotPx": 0, "selected": 0,
+                  "faceTooSmall": 0}
         for x0, y0, x1, y1 in _face_boxes(rgb, faces):
             healed_sub, m = _apply_one(
                 out[y0:y1, x0:x1],
@@ -1614,8 +1621,11 @@ def _params(params: dict):
     One slider driving both was the wrong control, and it cost the tool its whole
     result in practice. The two halves have OPPOSITE risk profiles:
 
-      pigment evening  cannot write structure, cannot flatten a crease, passes
-                       test_blush at full strength. Safe at 100.
+      pigment evening  cannot write structure, passes test_blush at full
+                       strength. ("cannot flatten a crease" was also claimed
+                       here and was false — it flattened a nasolabial fold at
+                       9-16x the rate of ordinary skin until pigment.crease_map
+                       was added. See CREASE_MIN_ELONGATION there.)
       spot healing     recall ~30% and a known missing mid-frequency band, so
                        what it does repair can still read as a patch. Needs a
                        conservative hand.

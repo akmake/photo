@@ -571,11 +571,20 @@ def _compute_mask(rgb: np.ndarray, kind: str) -> np.ndarray:
         # reconstruction must stay off, and conflating the two was expensive.
         #
         # `face-anatomy` withholds every crease, the contour band and the
-        # nasolabial fold because reconstruction would flatten them. Pigment
-        # evening cannot: a crease carries no colour excess, and it is a line, so
-        # both of that operator's gates reject it. Handing it the reconstruction
-        # mask covered ~1.0 of every strong papule that survived at full
-        # strength — the marks most needing removal were permanently unreachable.
+        # nasolabial fold because reconstruction would flatten them. Handing that
+        # same mask to pigment evening covered ~1.0 of every strong papule that
+        # survived at full strength — the marks most needing removal were
+        # permanently unreachable. So the three pure-geometry parts are freed.
+        #
+        # The ORIGINAL justification for freeing them was "a crease carries no
+        # colour excess, and it is a line, so both of that operator's gates
+        # reject it". THE FIRST HALF IS FALSE and was measured on three faces:
+        # a crease is a shadowed groove and shadowed skin is redder AND yellower,
+        # so the colour gate reads 0.98 on a real nasolabial fold. Freeing them
+        # here is still right — a landmark band is the wrong instrument, it is a
+        # straight line covering 0-20.7% of the real fold — but what makes it
+        # SAFE is pigment.crease_map, which measures the fold from the image.
+        # Do not widen this mask back; fix the measurement if it under-covers.
         #
         # So this is `face-anatomy` MINUS the three parts that are pure geometry:
         # the nasolabial fold, the chin crease and the contour band. Those are
