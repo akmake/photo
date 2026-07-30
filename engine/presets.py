@@ -24,28 +24,52 @@ low frequencies. That is what reads as "doll" long before any pore disappears,
 and it is why the default here is `light` rather than `medium`.
 """
 
+# `skin-cleanup` now carries TWO numbers, because it is two operators with
+# opposite risk profiles (see cleanup._params):
+#
+#   redness — diffuse pigment. Cannot write structure, cannot flatten a crease,
+#             passes test_blush at full strength. This is where the result comes
+#             from: measured on a 573px acne face, it alone removed 85 of the 86
+#             marks the tool removes. So it climbs fast with the level.
+#   spots   — discrete healing. Contributed ONE mark out of 86 while carrying all
+#             of the patch risk, so it stays deliberately low. It is kept rather
+#             than zeroed because a scab, a crumb or a scratch is a real object
+#             that only reconstruction can remove.
+#
+# The redness ladder tops out at 90, not 100, and that is measured too: 100 wins
+# on a 573px face (132 marks against 149) but LOSES on a 290px one (27 against
+# 24) — at small scale the aggressive lightness lift leaves its own residue.
+# Since face width in a real frame is not something the photographer controls,
+# the default sits where it cannot hurt the small case.
 PORTRAIT_LEVELS = {
-    "off": (0, 0, 0),
-    "natural": (25, 30, 12),
-    "light": (40, 40, 22),
-    "medium": (55, 50, 35),
-    "strong": (72, 62, 50),
-    "max": (90, 80, 70),
+    #             retouch  redness  spots  smooth
+    "off": (0, 0, 0, 0),
+    "natural": (25, 70, 15, 12),
+    "light": (40, 90, 25, 22),
+    "medium": (55, 90, 35, 35),
+    "strong": (72, 100, 45, 50),
+    "max": (90, 100, 60, 70),
 }
 
 DEFAULT_LEVEL = "light"
 
-# `skin-cleanup` (the blemish healer) is switched OFF pending rework — its
-# repairs read as patches rather than skin. The calibration above is left
-# intact so nothing has to be re-measured when it comes back; flipping this
-# one flag re-enables it everywhere, including /presets.
+# `skin-cleanup` is ON.
 #
-# The open diagnosis is in docs/RESEARCH-blush-eyes-hair.md's sibling thread:
-# `inpaint_texture` takes low frequencies from Telea diffusion and high
-# frequencies from a donor at sigma 1.5, and nothing supplies the band in
-# between — so a repair lands with the right colour, the right grain and no
-# structure. `patch_poisson` exists and is unused.
-SKIN_CLEANUP_ENABLED = False
+# It was switched off for a real reason: its repairs read as patches. That
+# diagnosis was correct and is still correct — `inpaint_texture` takes low
+# frequencies from Telea diffusion and high frequencies from a donor at sigma
+# 1.5, and NOTHING supplies the band in between, so a repair lands with the right
+# colour, the right grain and no structure. (`patch_poisson` exists, is the
+# classical answer to exactly this, and is still unused.)
+#
+# What changed is that the patching path is no longer where the result comes
+# from. The diffuse-pigment operator does the work and cannot patch anything,
+# because it never writes structure. Measured on a 573px acne face at the
+# `light` level: 217 marks -> 149, redness -85%, texture inside repairs 1.04
+# (1.0 = indistinguishable from the surrounding skin), test_blush PASS on both
+# reference faces. Keeping the whole tool off to restrain a component that now
+# contributes 1 mark in 86 costs far more than it protects.
+SKIN_CLEANUP_ENABLED = True
 
 # The finishing tools that are safe to apply at any level — they add colour, not
 # smoothing, so they cannot contribute to a plastic face.
@@ -58,12 +82,19 @@ COLOUR_DEFAULTS = {
 
 def portrait(level: str = DEFAULT_LEVEL, colour: bool = True) -> list:
     """A ready recipe for one dial position. -> [{toolId, params}, ...]"""
-    retouch, clean, smooth = PORTRAIT_LEVELS.get(level, PORTRAIT_LEVELS[DEFAULT_LEVEL])
+    retouch, redness, spots, smooth = PORTRAIT_LEVELS.get(
+        level, PORTRAIT_LEVELS[DEFAULT_LEVEL]
+    )
     tools = []
     if retouch:
         tools.append({"toolId": "face-retouch", "params": {"strength": retouch}})
-    if clean and SKIN_CLEANUP_ENABLED:
-        tools.append({"toolId": "skin-cleanup", "params": {"strength": clean}})
+    if (redness or spots) and SKIN_CLEANUP_ENABLED:
+        tools.append(
+            {
+                "toolId": "skin-cleanup",
+                "params": {"redness": redness, "spots": spots},
+            }
+        )
     if smooth:
         tools.append({"toolId": "skin", "params": {"strength": smooth}})
     if colour:

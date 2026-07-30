@@ -202,6 +202,11 @@ function boxBlurPlane(src: Float32Array, w: number, h: number, r: number): Float
  *  cost. Mirrors globals_py._local_luma. */
 const LOCAL_RADIUS = 0.03;
 /** Texture's band and edge knee — mirrors globals_py. */
+/* Oil-paint brush size, as a fraction of the long edge. Mirrors
+ * globals_py.OIL_MIN_FRAC / OIL_SPAN_FRAC — change both or the preview lies. */
+const OIL_MIN_FRAC = 0.003;
+const OIL_SPAN_FRAC = 0.027;
+
 const TEXTURE_RADIUS = 0.005;
 const TEXTURE_KNEE = 10.0;
 
@@ -924,7 +929,13 @@ function oilPaint(img: ImageData, p: ParamValues): ImageData {
   if (amount === 0) return cloneImage(img);
   const { width: w, height: h } = img;
   const src = img.data;
-  const r = Math.max(1, Math.round(1 + ((p.radius ?? 30) / 100) * 9));
+  // FRAME-RELATIVE, and the same formula as globals_py.oil_radius_px. This
+  // used to be an absolute 1..10px here while Python ran a frame-relative
+  // radius capped at 10 — two different brushes, preview lying about export.
+  const r = Math.max(
+    1,
+    Math.round(Math.max(w, h) * (OIL_MIN_FRAC + ((p.radius ?? 30) / 100) * OIL_SPAN_FRAC)),
+  );
 
   const iw = w + 1;
   const ih = h + 1;

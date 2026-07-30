@@ -848,3 +848,192 @@
 }
 .lab-brush-btn.on { background: var(--accent); color: #fff; }
 .lab-mask-note { font-size: 11.5px; opacity: 0.75; }
+
+/* ------------------------------------------------------------------ marks */
+
+/* The outline layer. Strokes are declared in USER SPACE units and then pinned
+   to screen space by vector-effect, so one hairline stays one hairline from
+   "fit" all the way to 2000% — the zoom at which a photographer actually judges
+   whether a mark was outlined correctly. */
+.lab-marks {
+  pointer-events: none;
+  z-index: 3;
+  overflow: visible;
+}
+
+.lab-marks path {
+  vector-effect: non-scaling-stroke;
+}
+
+/* The clickable body of a candidate: invisible, and far fatter than the outline
+   it belongs to. A 5px blob on a 20MP frame is sub-pixel on screen at fit, and
+   an outline nobody can hit is not a control. */
+.lab-mark-hit {
+  fill: transparent;
+  stroke: transparent;
+  stroke-width: 14px;
+  pointer-events: all;
+  cursor: pointer;
+}
+
+/* Green = the engine treats this. Red = it refused, and the row says why.
+   Dashed and hollow = found but not being treated; solid and filled = this is
+   what the current render rebuilt. So "what did it find" and "what is it doing"
+   are two different readings of the same picture, which is the whole point. */
+.lab-mark {
+  fill: none;
+  stroke-width: 1.5px;
+  stroke-dasharray: 4 3;
+  paint-order: stroke;
+}
+
+.lab-mark.ok { stroke: #12e39a; }
+.lab-mark.refused { stroke: #ff5c5c; }
+
+.lab-mark.on {
+  stroke-dasharray: none;
+  stroke-width: 2px;
+  fill: rgba(18, 227, 154, 0.18);
+}
+
+.lab-mark.refused.on {
+  fill: rgba(255, 92, 92, 0.2);
+}
+
+.lab-mark.hot {
+  stroke-width: 3px;
+  filter: drop-shadow(0 0 3px rgba(0, 0, 0, 0.9));
+}
+
+.lab-marksbar {
+  position: absolute;
+  top: 14px;
+  inset-inline-start: 50%;
+  transform: translateX(50%);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: rgba(12, 14, 18, 0.85);
+  color: #fff;
+  font-size: 12.5px;
+  backdrop-filter: blur(6px);
+  z-index: 5;
+  max-width: calc(100% - 28px);
+  flex-wrap: wrap;
+}
+
+.lab-marksbar strong { font-size: 12.5px; white-space: nowrap; }
+.lab-marksbar strong.bad { color: #ff9c9c; }
+
+.lab-marksbar button {
+  height: 26px;
+  padding: 0 10px;
+  border-radius: 999px;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+}
+.lab-marksbar button:hover { background: rgba(255, 255, 255, 0.16); }
+.lab-marksbar button:disabled { opacity: 0.4; }
+.lab-marksbar button.stale { background: #b4630e; }
+.lab-marksbar .lab-modes { background: rgba(255, 255, 255, 0.1); border-color: transparent; }
+.lab-marksbar .lab-modes button.on { background: var(--accent); }
+
+.lab-mark-tally {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+  opacity: 0.85;
+}
+
+.lab-mark-tally .dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+  margin-inline-start: 6px;
+}
+.lab-mark-tally .dot.on { background: #12e39a; }
+.lab-mark-tally .dot.refused { background: #ff5c5c; }
+
+.lab-mark-check {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.lab-marks-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 10px;
+}
+
+.lab-marks-actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-bottom: 4px;
+}
+
+.lab-marks-actions button {
+  height: 26px;
+  padding: 0 10px;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--line);
+  background: var(--card-2);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink-2);
+}
+.lab-marks-actions button:hover { border-color: var(--line-strong); }
+.lab-marks-actions button.on { background: var(--accent); color: #fff; border-color: transparent; }
+
+/* One row per candidate, with the measurement that decided it. A refusal the
+   reader cannot see the reason for is indistinguishable from a detector that
+   found nothing — and those two call for opposite responses. */
+.lab-mark-row {
+  display: grid;
+  grid-template-columns: auto auto 1fr auto;
+  align-items: start;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--line);
+  border-inline-start-width: 3px;
+  background: var(--card-2);
+  font-size: 12px;
+  line-height: 1.45;
+  cursor: pointer;
+}
+
+.lab-mark-row:hover { border-color: var(--line-strong); }
+.lab-mark-row.ok { border-inline-start-color: #12b57e; }
+.lab-mark-row.refused { border-inline-start-color: #e04b4b; }
+.lab-mark-row.on { background: var(--card); }
+
+.lab-mark-row input { margin-top: 2px; }
+
+.lab-mark-kind {
+  font-weight: 700;
+  white-space: nowrap;
+  color: var(--ink);
+}
+
+.lab-mark-why { color: var(--ink-2); }
+
+.lab-mark-forced {
+  align-self: center;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: #e04b4b;
+  color: #fff;
+  font-size: 10.5px;
+  font-weight: 700;
+  white-space: nowrap;
+}

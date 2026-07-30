@@ -79,15 +79,27 @@ def _stamp(rgb: np.ndarray, cx: int, cy: int, radius: float, delta_lab, ecc=1.0,
     return out, alpha > 0.30
 
 
-# name, radius (of face_d), Lab delta, eccentricity — realistic amplitudes,
-# one of each novelty direction the detector claims to catch.
+# name, radius (of face_d), Lab delta, eccentricity, expectation — realistic
+# amplitudes, one of each novelty direction the detector claims to catch.
+#
+# `expect` is the point of the last two entries. The suite used to inject a
+# small, ROUND, warm-dark spot called "dark-speck" and demand it be removed —
+# which is, by every measurable property, a MOLE, and pigment.protected_spots
+# exists precisely to refuse that ("a real mole moved 20 RGB units, i.e. the
+# tool was quietly removing part of someone's face"). Two guarantees cannot
+# both be true, so the suite now states which it wants: dark debris is
+# IRREGULAR and neutral-to-cool, and must go; a round warm-dark spot is a mole
+# and must SURVIVE. The safety half is a new assertion, not a relaxed one.
 MARKS = [
-    ("dirt-smudge", 0.024, (-16.0, +2.0, +11.0), 1.6),
-    ("red-pimple", 0.011, (-4.0, +19.0, +5.0), 1.0),
-    ("dark-speck", 0.007, (-34.0, +4.0, +6.0), 1.2),
-    ("bright-crumb", 0.007, (+26.0, -2.0, -4.0), 1.0),
-    ("scratch", 0.020, (-20.0, +6.0, +7.0), 0.16),
+    ("dirt-smudge", 0.024, (-16.0, +2.0, +11.0), 1.6, "heal"),
+    ("red-pimple", 0.011, (-4.0, +19.0, +5.0), 1.0, "heal"),
+    ("dark-speck", 0.007, (-34.0, +4.0, +6.0), 1.2, "heal"),
+    ("bright-crumb", 0.007, (+26.0, -2.0, -4.0), 1.0, "heal"),
+    ("scratch", 0.020, (-20.0, +6.0, +7.0), 0.16, "heal"),
 ]
+# A protected mark must stay: it may not lose more than this fraction of its
+# own amplitude. Not zero — a neighbouring repair legitimately feathers past.
+PROTECT_MAX_LOSS = 0.25
 
 
 def check(path: str, sheet_dir: str | None) -> bool:
@@ -106,30 +118,41 @@ def check(path: str, sheet_dir: str | None) -> bool:
     rng = np.random.default_rng(7)
     dirty = clean.copy()
     mark_masks = []
-    for (name, r, delta, ecc), (x, y) in zip(MARKS, points):
+    for (name, r, delta, ecc, expect), (x, y) in zip(MARKS, points):
         dirty, m = _stamp(
             dirty, x, y, face_d * r, delta, ecc, angle=float(rng.uniform(0, np.pi))
         )
-        mark_masks.append((name, m))
+        mark_masks.append((name, m, expect))
 
     healed, meta = cleanup.apply(dirty, {"strength": 60})
 
     clean_f = clean.astype(np.float32)
     all_marks = np.zeros(clean.shape[:2], bool)
-    for _, m in mark_masks:
+    for _, m, _e in mark_masks:
         all_marks |= m
 
     ok_count = 0
+    wanted = 0
+    protect_failures = 0
     lines = []
-    for name, m in mark_masks:
+    for name, m, expect in mark_masks:
         injected = float(np.abs(dirty.astype(np.float32) - clean_f)[m].mean())
         residual = float(np.abs(healed.astype(np.float32) - clean_f)[m].mean())
         touched = bool((np.abs(healed.astype(np.int16) - dirty.astype(np.int16)).max(axis=2) > 3)[m].any())
+        if expect == "protect":
+            kept = residual >= injected * (1.0 - PROTECT_MAX_LOSS)
+            protect_failures += int(not kept)
+            lines.append(
+                f"    {'KEPT' if kept else 'ERASED':6s}"
+                f"  {name:13s} injected={injected:5.1f} residual={residual:5.1f}  (must stay)"
+            )
+            continue
+        wanted += 1
         healed_ok = touched and residual < injected * RESIDUAL_FRACTION
         ok_count += int(healed_ok)
         lines.append(
-            f"    {'HEAL' if healed_ok else ('part' if touched else 'MISS'):4s}"
-            f"  {name:12s} injected={injected:5.1f} residual={residual:5.1f}"
+            f"    {'HEAL' if healed_ok else ('part' if touched else 'MISS'):6s}"
+            f"  {name:13s} injected={injected:5.1f} residual={residual:5.1f}"
         )
 
     healed_clean, _ = cleanup.apply(clean, {"strength": 60})
@@ -139,12 +162,13 @@ def check(path: str, sheet_dir: str | None) -> bool:
     grown = cv2.dilate(all_marks.astype(np.uint8), np.ones((25, 25), np.uint8)) > 0
     collateral = int((diff & ~grown & ~base_diff).sum())
 
-    recall_ok = ok_count >= int(np.ceil(REQUIRED_RECALL * len(MARKS)))
+    recall_ok = ok_count >= int(np.ceil(REQUIRED_RECALL * wanted))
     collateral_ok = collateral <= COLLATERAL_MAX_PX
     name = path.replace("/", chr(92)).split(chr(92))[-1]
     print(
-        f"  {'PASS' if (recall_ok and collateral_ok) else 'FAIL'}  {name}  "
-        f"healed {ok_count}/{len(MARKS)}  collateral={collateral}px  {meta}"
+        f"  {'PASS' if (recall_ok and collateral_ok and not protect_failures) else 'FAIL'}"
+        f"  {name}  healed {ok_count}/{wanted}  protected-erased {protect_failures}"
+        f"  collateral={collateral}px  {meta}"
     )
     print("\n".join(lines))
 

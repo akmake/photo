@@ -56,10 +56,46 @@ def normalized_smooth(img: np.ndarray, mask: np.ndarray, radius: int) -> np.ndar
 # the smile line and the eyelid folds — and healing those flattens the face.
 W_L, W_A, W_B = 0.25, 1.0, 0.7
 
+# Pixels below this novelty define "normal skin" when re-estimating the scale.
+# In sigma units on purpose: a fraction (e.g. "the cleanest 80%") would let a
+# heavily affected face keep calling its own acne normal.
+INLIER_SIGMA = 1.5
+
 
 def _robust_sigma(v: np.ndarray) -> float:
     med = float(np.median(v))
     return max(0.35, 1.4826 * float(np.median(np.abs(v - med))))
+
+
+def normalized_median(img: np.ndarray, mask: np.ndarray, radius: int) -> np.ndarray:
+    """The LOW field, estimated with a median instead of a mean.
+
+    This is the difference between a detector that works on one blemish and one
+    that works on a face full of them. The reference field is estimated from
+    data that CONTAINS the outliers we are hunting, so estimating it with a mean
+    lets the marks pull the reference toward themselves: on a dense-acne face
+    the model learns "this skin is blotchy" and the acne becomes normal. The
+    measured effect was fatal — median novelty on real marks 1.45 against a
+    threshold of 1.50, i.e. the typical mark scored BELOW the bar.
+
+    A median over the same window is immune to outliers occupying less than half
+    of it, while still bending to follow real blush — so nothing is given up.
+    This is the same argument that already justifies MAD over standard deviation
+    in `_robust_sigma`; it was simply never applied to the location as well as
+    the scale.
+
+    Pixels outside `mask` are first filled with the masked-mean estimate, so
+    hair, lips and background cannot enter the window.
+    """
+    k = int(radius) | 1
+    k = max(3, min(k, 199))
+    guess = normalized_smooth(img, mask, k)
+    m = mask.astype(np.float32)
+    if img.ndim == 3:
+        m = m[..., None]
+    filled = np.where(m > 0.5, img, guess)
+    filled = np.clip(filled, 0, 255).astype(np.uint8)
+    return cv2.medianBlur(filled, k).astype(np.float32)
 
 
 class SkinModel:
@@ -106,7 +142,7 @@ def build(
     # HIGH cut: just above pore/noise scale.
     r_high = max(1, int(face_d * 0.006))
 
-    low = normalized_smooth(lab, support, r_low)
+    low = normalized_median(lab, support, r_low)
     fine = normalized_smooth(lab, support, r_high)
 
     mid = fine - low  # band-pass — this is the only band we judge
@@ -118,15 +154,29 @@ def build(
     else:
         # robust per-channel scale: what counts as "normal variation" for THIS
         # skin, so the tool behaves the same on clean studio skin and grainy
-        # outdoor skin
+        # outdoor skin.
+        #
+        # Estimated by SIGMA-CLIPPING, for the same reason the low field uses a
+        # median: the marks are inside the sample. A face covered in acne
+        # inflates its own definition of "normal variation" and so raises its own
+        # bar — the more there is to fix, the less the detector sees. Measured
+        # inflation on a dense-acne face: a x1.19, L x1.28. Two passes are
+        # enough; the inlier cut is in sigma units so it cannot depend on how
+        # much of the face happens to be affected.
         weights = (W_L, W_A, W_B)
-        acc = np.zeros(lab.shape[:2], dtype=np.float32)
-        for c, w in enumerate(weights):
-            v = mid[..., c]
-            med = float(np.median(v[usable]))
-            sigma = _robust_sigma(v[usable])
-            z = (v - med) / sigma
-            acc += w * (z * z)
-        novelty = np.sqrt(acc / sum(weights)).astype(np.float32)
+        inliers = usable.copy()
+        novelty = np.zeros(lab.shape[:2], dtype=np.float32)
+        for iteration in range(2):
+            if inliers.sum() < 64:
+                inliers = usable
+            acc = np.zeros(lab.shape[:2], dtype=np.float32)
+            for c, w in enumerate(weights):
+                v = mid[..., c]
+                med = float(np.median(v[inliers]))
+                sigma = _robust_sigma(v[inliers])
+                z = (v - med) / sigma
+                acc += w * (z * z)
+            novelty = np.sqrt(acc / sum(weights)).astype(np.float32)
+            inliers = usable & (novelty < INLIER_SIGMA)
 
     return SkinModel(lab, low, mid, high, novelty)

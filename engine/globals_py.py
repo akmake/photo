@@ -376,19 +376,97 @@ def _glow(rgb, params):
     return np.clip(rgb + (screen - rgb) * amount, 0, 255)
 
 
+# --- oil paint: a real Kuwahara -----------------------------------------
+#
+# `cv2.xphoto.oilPainting` was measured and REJECTED. Its `dynRatio` — the
+# parameter the entire effect depends on, the one that quantises colour into
+# discrete levels — changed NOTHING: mean|delta| stayed 1.66 at dynRatio 1, 2,
+# 4, 8 and 16, and the output was a soft gaussian. Oil paint means FLAT
+# PATCHES WITH SHARP EDGES; a blur is its opposite. See ARCHITECTURE.md §10.2.
+#
+# Kuwahara: a pixel takes the mean colour of whichever of its four corner
+# quadrants has the LOWEST luma variance. Flat skin flattens further; an edge
+# survives because the quadrant that does not straddle it always wins. Box
+# filters make each quadrant O(1) per pixel, so brush size costs nothing —
+# which is what lets the radius be frame-relative instead of capped at 10px.
+OIL_MIN_FRAC = 0.003
+OIL_SPAN_FRAC = 0.027
+# rows per pass. Kuwahara needs five running planes; on a 26MP master, doing
+# the frame in one go peaks past a gigabyte. Strips bound that regardless of
+# input size, and the r-row overlap keeps every window fed with real pixels.
+OIL_STRIP_ROWS = 512
+
+
+def oil_radius_px(w: int, h: int, slider: float) -> int:
+    """Brush radius in px — frame-relative, and IDENTICAL in imageEngine.ts.
+
+    The old pair was the worst kind of drift: Python took a frame-relative
+    radius and then capped it at 10px (so slider 100 was 10px on any frame —
+    invisible on a 20MP master), while the JS used an absolute 1..10px. Two
+    different brushes, and no parity case to catch it. `slider` is 0..1.
+    """
+    return max(1, int(round(max(w, h) * (OIL_MIN_FRAC + slider * OIL_SPAN_FRAC))))
+
+
+def _kuwahara_block(rgb, r):
+    """Min-variance quadrant mean, per pixel. rgb is float32 HxWx3.
+
+    Accumulated in FLOAT64, like the JS mirror's Float64Array. This is not
+    fussiness: picking a quadrant is an argmin, so it is discontinuous. Where
+    two flat regions meet, two quadrants each sit inside one of them with
+    near-zero variance but very DIFFERENT means, and a rounding difference of
+    1e-6 in the tie swings the output pixel by tens of levels. Both sides also
+    iterate the quadrants in the same order and compare strictly (`<`), so the
+    first quadrant wins an exact tie on both.
+    """
+    k = r + 1
+    # float64 for the LUMA only — that is what the argmin compares, so that is
+    # what has to agree with the mirror. The colour mean stays float32: an
+    # error of 1e-6 there rounds away, it cannot flip a decision.
+    lum = rgb.astype(np.float64) @ LUM.astype(np.float64)
+    lum2 = lum * lum
+    ones64 = np.ones(rgb.shape[:2], np.float64)
+    ones32 = np.ones(rgb.shape[:2], np.float32)
+    best_var = None
+    best_rgb = None
+    # anchors place the output pixel at a CORNER of the window, giving the
+    # four quadrants that share it — the same four the JS mirror builds.
+    for anchor in ((r, r), (0, r), (r, 0), (0, 0)):
+        geom = dict(ksize=(k, k), anchor=anchor, normalize=False,
+                    borderType=cv2.BORDER_CONSTANT)
+        # counted, not normalised: at a border the window is CLIPPED, so it
+        # must average over the pixels that exist rather than over zeros
+        n64 = np.maximum(cv2.boxFilter(ones64, ddepth=cv2.CV_64F, **geom), 1.0)
+        mean_l = cv2.boxFilter(lum, ddepth=cv2.CV_64F, **geom) / n64
+        var = cv2.boxFilter(lum2, ddepth=cv2.CV_64F, **geom) / n64 - mean_l * mean_l
+        n32 = np.maximum(cv2.boxFilter(ones32, ddepth=cv2.CV_32F, **geom), 1.0)
+        mean_rgb = cv2.boxFilter(rgb, ddepth=cv2.CV_32F, **geom) / n32[..., None]
+        if best_var is None:
+            best_var, best_rgb = var, mean_rgb
+        else:
+            # strict `<`, matching the mirror: the first quadrant wins a tie
+            take = var < best_var
+            np.copyto(best_var, var, where=take)
+            np.copyto(best_rgb, mean_rgb, where=take[..., None])
+    return best_rgb
+
+
 def _oil_paint(rgb, params):
     amount = _p(params, "amount")
     if not amount:
         return rgb
-    # capped: oilPainting is roughly O(r^2) per pixel, and an uncapped
-    # frame-relative radius on a 26MP master runs for minutes
-    r = min(10, _radius_px(rgb, 1 + _p(params, "radius", 30) * 9))
-    src = np.clip(rgb, 0, 255).astype(np.uint8)
-    if hasattr(cv2, "xphoto") and hasattr(cv2.xphoto, "oilPainting"):
-        painted = cv2.xphoto.oilPainting(src, r, 1, cv2.COLOR_BGR2Lab).astype(np.float32)
-    else:  # fallback: edge-preserving smoothing
-        painted = cv2.edgePreservingFilter(src, flags=1, sigma_s=r * 6, sigma_r=0.4)
-        painted = painted.astype(np.float32)
+    h, w = rgb.shape[:2]
+    r = oil_radius_px(w, h, _p(params, "radius", 30))
+
+    src = np.ascontiguousarray(rgb, dtype=np.float32)
+    painted = np.empty_like(src)
+    step = max(64, OIL_STRIP_ROWS)
+    for y0 in range(0, h, step):
+        y1 = min(h, y0 + step)
+        p0, p1 = max(0, y0 - r), min(h, y1 + r)
+        block = _kuwahara_block(np.ascontiguousarray(src[p0:p1]), r)
+        painted[y0:y1] = block[y0 - p0: y1 - p0]
+
     return np.clip(rgb + (painted - rgb) * amount, 0, 255)
 
 

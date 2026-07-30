@@ -60,6 +60,7 @@ const EFFECT_KEYS = [
   'subjectCoverage',
   'spotsRemoved',
   'correctedPx',
+  'pigmentPx',
   'blushApplied',
   'eyes',
   'applied',
@@ -107,6 +108,21 @@ const FACTS: Record<string, (v: MetaValue) => string> = {
   applied: (v) => (num(v) ? 'הופעל' : 'לא הופעל'),
   lineVetoed: (v) => `קטעי קו שדולגו (שערה/קמט): ${int(v)}`,
   shadingVetoed: (v) => `אזורי הצללה שדולגו: ${int(v)}`,
+  wetTrails: (v) => `נוזלים שזוהו בשער המבנה: ${int(v)}`,
+  fluidTrails: (v) => `שבילי נוזל (ריר/דמעה/נזלת): ${int(v)}`,
+  selected: (v) => `תוקנו לפי סימון ידני: ${int(v)} מוקדים`,
+
+  // pigment evening (cleanup.py stage A). `pigmentPx` vs `correctedPx` is the
+  // distinction that matters when reading a result: the first is colour that was
+  // corrected in place, the second is pixels that were rebuilt. A face where the
+  // second is large is a face where patches are possible.
+  pigmentPx: (v) => `פיקסלים שתוקנו בצבע (בלי שחזור): ${int(v)}`,
+  protectedSpotPx: (v) => `שומות שהוגנו מפני תיקון: ${int(v)} פיקסלים`,
+  blobGatePx: (v) => `כתמים כהים שזוהו לפי צורה: ${int(v)} פיקסלים`,
+  aMaxShift: (v) => `הסטת אדמומיות מקסימלית: ${num(v).toFixed(1)} יחידות Lab`,
+  aKnee: (v) => `סף האדמומיות של העור הזה: ${num(v).toFixed(2)}`,
+  lMaxLift: (v) => `הבהרה מקסימלית של כתם: ${num(v).toFixed(1)} יחידות L*`,
+  lKnee: (v) => `סף הכהות של העור הזה: ${num(v).toFixed(2)}`,
   model: (v) => `מודל: ${v}`,
   strength: (v) => `עוצמה בפועל: ${num(v).toFixed(2)}`,
   warmth: (v) => `חמימות בפועל: ${num(v).toFixed(2)}`,
@@ -156,6 +172,56 @@ function labelOf(toolId: string): string {
 
 function isSet(v: MetaValue): boolean {
   return v !== undefined && v !== null && v !== 0 && v !== '' && v !== false;
+}
+
+/* ------------------------------------------------------------------ marks */
+
+/* What ONE detected candidate is, in words. The engine deliberately returns a
+ * machine verdict plus the measurements behind it and no prose — the same split
+ * as everything above, so a threshold can move without a Hebrew string having
+ * to move with it. */
+
+const KIND_LABEL: Record<string, string> = {
+  spot: 'כתם',
+  debris: 'פירור בהיר',
+  fluid: 'נוזל (ריר/דמעה)',
+};
+
+export function markLabel(kind: string): string {
+  return KIND_LABEL[kind] ?? kind;
+}
+
+/** Why the engine reached its verdict — and, for a refusal, what it is risking
+ *  if you overrule it. A refusal with no stated reason is indistinguishable
+ *  from a tool that found nothing, which is the whole problem this view fixes. */
+export function markReason(verdict: string, facts: Record<string, number>): string {
+  const area = facts.areaPx ? `${int(facts.areaPx)}px` : '';
+  switch (verdict) {
+    case 'heal':
+      return `יתוקן · ${area}${
+        facts.parts > 1 ? ` · ${facts.parts} מוקדים שהתמזגו` : ''
+      }`;
+    case 'line':
+      return (
+        'נדחה: קטע מתוך קו ארוך יותר — שערה, קו אייליינר או קמט. ' +
+        `הקו נמשך ${int(facts.ridgeOutside ?? 0)}px מעבר לכתם, ותיקון של קטע ` +
+        'באמצע קוטע אותו ונראה כמו נזק'
+      );
+    case 'shading':
+      return (
+        'נדחה: החריגה לא נגמרת — הטבעת סביב הכתם חריגה בעצמה ' +
+        `(${(facts.ringNovelty ?? 0).toFixed(2)} מול סף ${(facts.ringBar ?? 0).toFixed(2)}). ` +
+        'זו הצללה, סומק או אור, ולא לכלוך'
+      );
+    case 'size':
+      return (
+        `נדחה: רחב מדי לכתם — ${area}, עובי ${Math.round(facts.thicknessPx ?? 0)}px ` +
+        `(${((facts.faceFraction ?? 0) * 100).toFixed(1)}% מרוחב הפנים). ` +
+        'שחזור של שטח כזה עלול להיראות כטלאי'
+      );
+    default:
+      return verdict;
+  }
 }
 
 export function explainStep(

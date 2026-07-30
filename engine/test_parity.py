@@ -92,6 +92,19 @@ CASES = [
         {"redSat": 40, "orangeSat": 40, "yellowSat": 40, "greenSat": 40,
          "aquaSat": 40, "blueSat": 40, "purpleSat": 40, "magentaSat": 40},
     ]),
+    # The tool this test exists for. The two sides used to run DIFFERENT
+    # ALGORITHMS — a real Kuwahara in JS against cv2.xphoto's blur in Python,
+    # on differently-scaled radii — and nothing measured it. Tolerance 1, like
+    # every other tool: picking a quadrant is an ARGMIN, so it only agrees if
+    # both sides accumulate at the same precision. At float32 this ran max=45
+    # on 150ppm — where two flat regions meet, two quadrants tie on variance
+    # with very different means, and 1e-6 of rounding swings the pixel.
+    ("oil-paint", globals_py.oil_paint, 1, [
+        {"amount": 100, "radius": 30},
+        {"amount": 100, "radius": 0},     # smallest brush
+        {"amount": 100, "radius": 100},   # largest brush
+        {"amount": 45, "radius": 60},     # partial blend
+    ]),
 ]
 
 # Divergences we already know about and have not fixed. They are measured and

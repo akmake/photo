@@ -15,15 +15,15 @@
  *     so the question stops being a matter of opinion.
  */
 
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { Recipe } from '../types';
 import {
   defaultRecipe, getTool, isToolAtDefault, orderedInstances, setToolEnabled,
-  updateToolMask, updateToolParams, visibleInstances,
+  updateToolMask, updateToolParams, updateToolSelection, visibleInstances,
 } from '../toolRegistry';
-import { renderRecipe, checkEngine } from '../api';
-import type { RenderStep } from '../api';
-import { explainStep, isScaleBlocked } from './explain';
+import { renderRecipe, checkEngine, detectSpots } from '../api';
+import type { RenderStep, SpotCandidate, SpotDetection } from '../api';
+import { explainStep, isScaleBlocked, markLabel, markReason } from './explain';
 import type { StepReport } from './explain';
 
 /** Only used when "מהיר" is switched on — and it is off by default, because at
@@ -42,6 +42,9 @@ const NO_BRUSH = new Set(['light-point', 'glow', 'vignette']);
 /** Painted edges get engine-side feathering so a preview-resolution stroke
  *  stays soft at export resolution. */
 const PAINT_FEATHER = 12;
+/** The one tool that reports its findings as objects a person can choose
+ *  between. Everything else here is a field: there is nothing to enumerate. */
+const CLEANUP_ID = 'skin-cleanup';
 
 interface Loaded {
   name: string;
@@ -171,7 +174,7 @@ export default function Lab() {
   const [engineOk, setEngineOk] = useState<boolean | null>(null);
   const [openTool, setOpenTool] = useState<string | null>(null);
 
-  const [mode, setMode] = useState<'result' | 'diff'>('result');
+  const [mode, setMode] = useState<'result' | 'diff' | 'marks'>('result');
   const [gain, setGain] = useState(10);
   const [delta, setDelta] = useState<Delta | null>(null);
   const [zoom, setZoom] = useState(1);
@@ -189,6 +192,32 @@ export default function Lab() {
    * The strokes live in an offscreen canvas at preview size; commit ships
    * them as a PNG in the tool's mask spec, and the ENGINE blends — the same
    * code path the export uses, so what she paints is what she gets. */
+  /* The marking pass: every candidate the cleanup detector found, outlined, and
+   * a choice about each one.
+   *
+   * The outlines are the engine's own repair geometry (engine/cleanup.py
+   * detect()), not an illustration of it — so what is drawn here is what gets
+   * rebuilt, and marking exactly what the engine accepted reproduces the
+   * automatic result bit for bit (test_cleanup_marking.py). That identity is the
+   * reason this can be a control and not a preview.
+   *
+   * The chosen outlines live in the RECIPE, which means the ordinary render
+   * effect below picks them up with no special path: choosing a mark is the same
+   * kind of act as moving a slider, and it reaches the export the same way. */
+  const [marks, setMarks] = useState<SpotDetection | null>(null);
+  const [marksKey, setMarksKey] = useState('');
+  const [marksBusy, setMarksBusy] = useState(false);
+  const [marksError, setMarksError] = useState<string | null>(null);
+  const [marksReset, setMarksReset] = useState(false);
+  const [showRefused, setShowRefused] = useState(true);
+  const [hoverMark, setHoverMark] = useState<string | null>(null);
+  /* What the outlines are drawn over. The default is the ORIGINAL, because the
+   * question this view answers is "what did it find on my photo" — outlining
+   * dirt on a frame the dirt has already been removed from asks the reader to
+   * take the marks on faith. Switching to the result is one click, for checking
+   * the repair without leaving the marks. */
+  const [markBase, setMarkBase] = useState<'original' | 'result'>('original');
+
   const [paintFor, setPaintFor] = useState<string | null>(null);
   const [brush, setBrush] = useState(70);
   const [erase, setErase] = useState(false);
@@ -436,6 +465,14 @@ export default function Lab() {
     setPan({ x: 0, y: 0 });
     setPaintFor(null);
     maskCanvas.current = null;
+    // A candidate set describes one photograph. Carrying it to the next frame
+    // would outline marks that are not there.
+    setMarks(null);
+    setMarksKey('');
+    setMarksError(null);
+    setMarksReset(false);
+    setHoverMark(null);
+    scanAttempt.current = '';
     try {
       const full = await readFile(file);
       const dims = await downscale(full);
@@ -524,6 +561,142 @@ export default function Lab() {
       alive = false;
     };
   }, [out, originalSrc, gain]);
+
+  /* ------------------------------------------------------------- marks */
+
+  const cleanupInst = recipe.tools.find((t) => t.toolId === CLEANUP_ID);
+  const cleanupOrder = getTool(CLEANUP_ID).order;
+
+  /* Everything the candidate set depends on. Not just the cleanup sliders: a
+   * tool that runs EARLIER changes the frame cleanup receives, so it changes
+   * what there is to find. Leaving that out is how a marking view ends up
+   * describing a picture that no longer exists. The chosen outlines are
+   * deliberately NOT in here — choosing marks must not invalidate the scan they
+   * came from. */
+  const scanKey = useMemo(() => {
+    if (!img) return '';
+    return JSON.stringify({
+      img: img.name,
+      w: img.w,
+      h: img.h,
+      before: orderedInstances(recipe)
+        .filter((i) => i.enabled && getTool(i.toolId).order <= cleanupOrder)
+        .map((i) => ({ t: i.toolId, p: i.params })),
+    });
+  }, [img, recipe, cleanupOrder]);
+
+  const marksStale = !!marks && marksKey !== scanKey;
+  const scanAttempt = useRef('');
+
+  const selectedIds = useMemo(
+    () => new Set((cleanupInst?.selection?.polygons ?? []).map((p) => p.id)),
+    [cleanupInst],
+  );
+
+  /** Write a set of chosen candidates into the recipe. The render effect above
+   *  does the rest — a chosen mark travels exactly like a slider value, which is
+   *  also how it reaches the export. */
+  const commitMarks = useCallback(
+    (ids: Set<string>, items: SpotCandidate[]) => {
+      setRecipe((r) =>
+        updateToolSelection(r, CLEANUP_ID, {
+          polygons: items
+            .filter((i) => ids.has(i.id))
+            .flatMap((i) => i.contours.map((points) => ({ id: i.id, points }))),
+        }),
+      );
+    },
+    [],
+  );
+
+  const runScan = useCallback(async () => {
+    if (!img) return;
+    const key = scanKey;
+    setMarksBusy(true);
+    setMarksError(null);
+    try {
+      const prefix = orderedInstances(recipe)
+        .filter((i) => i.enabled && getTool(i.toolId).order < cleanupOrder)
+        .map((i) => ({ toolId: i.toolId, params: i.params, enabled: true }));
+      const found = await detectSpots(img.full, cleanupInst?.params ?? {}, prefix);
+      setMarks(found);
+      setMarksKey(key);
+      // A fresh scan starts from the engine's own answer: everything it accepted
+      // is marked. Two reasons — the picture does not jump when this view opens
+      // (marking all the accepted candidates reproduces the automatic result
+      // exactly), and unmarking three is less work than marking forty.
+      commitMarks(
+        new Set(found.items.filter((i) => i.verdict === 'heal').map((i) => i.id)),
+        found.items,
+      );
+    } catch (e) {
+      setMarksError((e as Error).message);
+    } finally {
+      setMarksBusy(false);
+    }
+  }, [img, recipe, scanKey, cleanupInst, cleanupOrder, commitMarks]);
+
+  const rescan = useCallback(() => {
+    scanAttempt.current = scanKey;
+    setMarksReset(true);
+    runScan();
+  }, [runScan, scanKey]);
+
+  // Scan once, when the view is first opened on this photo. Deliberately NOT on
+  // every slider move: detection runs at full resolution, and a view that
+  // silently re-runs a multi-second pass on every drag is a view nobody opens.
+  // Staleness is surfaced instead — and the marks already chosen stay valid
+  // whatever the sliders do, because an outline describes itself.
+  useEffect(() => {
+    if (mode !== 'marks' || !img || marks || marksBusy) return;
+    if (scanAttempt.current === scanKey) return;
+    scanAttempt.current = scanKey;
+    runScan();
+  }, [mode, img, marks, marksBusy, scanKey, runScan]);
+
+  const toggleMark = useCallback(
+    (id: string) => {
+      if (!marks) return;
+      const next = new Set(selectedIds);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      setMarksReset(false);
+      commitMarks(next, marks.items);
+    },
+    [marks, selectedIds, commitMarks],
+  );
+
+  const markEvery = useCallback(
+    (which: 'all' | 'accepted' | 'none') => {
+      if (!marks) return;
+      setMarksReset(false);
+      const ids = new Set(
+        marks.items
+          .filter((i) => which === 'all' || (which === 'accepted' && i.verdict === 'heal'))
+          .map((i) => i.id),
+      );
+      commitMarks(ids, marks.items);
+    },
+    [marks, commitMarks],
+  );
+
+  /** Hand the decision back to the engine. Different from marking everything it
+   *  accepted, even though today they produce the same pixels: this one keeps
+   *  following the detector if a slider moves, and that one does not. */
+  const backToAuto = useCallback(() => {
+    setRecipe((r) => updateToolSelection(r, CLEANUP_ID, null));
+  }, []);
+
+  const shownMarks = useMemo(() => {
+    const items = (marks?.items ?? []).filter(
+      (i) => showRefused || i.verdict === 'heal' || selectedIds.has(i.id),
+    );
+    return [...items].sort((a, b) => {
+      const rank = (i: SpotCandidate) => (i.verdict === 'heal' ? 0 : 1);
+      if (rank(a) !== rank(b)) return rank(a) - rank(b);
+      return (b.facts.areaPx ?? 0) - (a.facts.areaPx ?? 0);
+    });
+  }, [marks, showRefused, selectedIds]);
 
   /* ------------------------------------------------------------- save */
 
@@ -615,7 +788,13 @@ export default function Lab() {
               className="lab-img lab-over"
               src={out ?? originalSrc}
               alt=""
-              style={{ opacity: showProcessed && mode === 'result' ? 1 : 0 }}
+              style={{
+                opacity:
+                  showProcessed &&
+                  (mode === 'result' || (mode === 'marks' && markBase === 'result'))
+                    ? 1
+                    : 0,
+              }}
             />
             <canvas
               ref={diffRef}
@@ -633,6 +812,51 @@ export default function Lab() {
                 onPointerUp={brushUp}
                 onPointerCancel={brushUp}
               />
+            )}
+            {/* SVG, not a canvas: the outline has to stay one hairline wide at
+                2000% zoom (vector-effect) and each candidate has to be clickable
+                as itself. A rasterised overlay would need manual hit-testing and
+                would go to mush exactly when the photographer leans in. */}
+            {mode === 'marks' && marks && (
+              <svg
+                className="lab-img lab-over lab-marks"
+                viewBox={`0 0 ${marks.width} ${marks.height}`}
+                preserveAspectRatio="xMidYMid meet"
+              >
+                {shownMarks.map((item) => {
+                  const chosen = selectedIds.has(item.id);
+                  const d = item.contours
+                    .map(
+                      (ring) =>
+                        'M' +
+                        ring
+                          .map(([x, y]) => `${x * marks.width} ${y * marks.height}`)
+                          .join('L') +
+                        'Z',
+                    )
+                    .join(' ');
+                  const cls =
+                    `lab-mark ${item.verdict === 'heal' ? 'ok' : 'refused'}` +
+                    `${chosen ? ' on' : ''}${hoverMark === item.id ? ' hot' : ''}`;
+                  return (
+                    <g key={item.id}>
+                      {/* a 5px blob on a 20MP frame is sub-pixel on screen; the
+                          fat transparent stroke is what makes it clickable */}
+                      <path
+                        className="lab-mark-hit"
+                        d={d}
+                        onPointerDown={(e) => {
+                          e.stopPropagation();
+                          toggleMark(item.id);
+                        }}
+                        onPointerEnter={() => setHoverMark(item.id)}
+                        onPointerLeave={() => setHoverMark(null)}
+                      />
+                      <path className={cls} d={d} />
+                    </g>
+                  );
+                })}
+              </svg>
             )}
           </div>
 
@@ -679,6 +903,68 @@ export default function Lab() {
             </div>
           )}
 
+          {mode === 'marks' && (
+            <div className="lab-marksbar">
+              {marksBusy ? (
+                <strong>סורק את הפנים…</strong>
+              ) : marksError ? (
+                <strong className="bad">הסריקה נכשלה: {marksError}</strong>
+              ) : !marks ? (
+                <strong>אין סריקה</strong>
+              ) : (
+                <>
+                  <strong>
+                    {marks.items.length} מוקדים
+                    {marks.faces > 1 && <> · {marks.faces} פנים</>}
+                  </strong>
+                  <span className="lab-mark-tally">
+                    <i className="dot on" />
+                    {selectedIds.size} מסומנים לתיקון
+                    <i className="dot refused" />
+                    {marks.items.filter((i) => i.verdict !== 'heal').length} נדחו ע״י המנוע
+                  </span>
+                </>
+              )}
+              <div className="lab-modes">
+                <button
+                  className={markBase === 'original' ? 'on' : ''}
+                  onClick={() => setMarkBase('original')}
+                  title="הקווקוו על התמונה המקורית — שם הלכלוך עוד נמצא"
+                >
+                  מקור
+                </button>
+                <button
+                  className={markBase === 'result' ? 'on' : ''}
+                  onClick={() => setMarkBase('result')}
+                  disabled={!out}
+                  title="אותו קווקוו על התוצאה — לבדוק את התיקון בלי לאבד את הסימון"
+                >
+                  תוצאה
+                </button>
+              </div>
+              <label className="lab-mark-check">
+                <input
+                  type="checkbox"
+                  checked={showRefused}
+                  onChange={(e) => setShowRefused(e.target.checked)}
+                />
+                הצג נדחים
+              </label>
+              <button
+                className={marksStale ? 'stale' : ''}
+                onClick={rescan}
+                disabled={marksBusy || !img}
+                title={
+                  marksStale
+                    ? 'הפרמטרים השתנו מאז הסריקה — הסימון הקיים עדיין תקף, אבל הרשימה לא מעודכנת'
+                    : 'סרוק מחדש'
+                }
+              >
+                {marksStale ? 'סרוק מחדש ●' : 'סרוק מחדש'}
+              </button>
+            </div>
+          )}
+
           <div className="lab-zoombar">
             <button onClick={() => setZoom((z) => Math.max(1, z / 1.5))}>−</button>
             <span>{pctZoom}%</span>
@@ -707,6 +993,13 @@ export default function Lab() {
             <button className={mode === 'diff' ? 'on' : ''} onClick={() => setMode('diff')}
               disabled={!out}>
               הפרש
+            </button>
+            <button
+              className={mode === 'marks' ? 'on' : ''}
+              onClick={() => setMode('marks')}
+              title="מראה כל מה שהמנוע מצא — מאושר ונדחה — ונותן לבחור מה לתקן"
+            >
+              סימון
             </button>
             {mode === 'diff' && (
               <select value={gain} onChange={(e) => setGain(Number(e.target.value))}>
@@ -793,6 +1086,24 @@ export default function Lab() {
                     </div>
                   ))}
 
+                  {def.id === CLEANUP_ID && (
+                    <div className="lab-mask-row">
+                      <button
+                        className={`btn btn-ghost ${mode === 'marks' ? 'on' : ''}`}
+                        onClick={() => setMode('marks')}
+                      >
+                        סמן ובחר מה לתקן
+                      </button>
+                      {inst.selection && (
+                        <span className="lab-mask-note">
+                          {inst.selection.polygons.length === 0
+                            ? 'ידני — לא נבחר כלום'
+                            : `ידני — ${new Set(inst.selection.polygons.map((p) => p.id)).size} מוקדים`}
+                        </span>
+                      )}
+                    </div>
+                  )}
+
                   {!NO_BRUSH.has(def.id) && (
                     <div className="lab-mask-row">
                       <button
@@ -830,6 +1141,79 @@ export default function Lab() {
 
         <div className="lab-log-body scroll-y">
           {error && <div className="lab-error">✗ {error}</div>}
+
+          {mode === 'marks' && (
+            <div className="lab-marks-panel">
+              {!cleanupInst?.enabled && (
+                <div className="lab-hint">
+                  כלי ניקוי הכתמים כבוי, אז שום סימון לא ייושם.
+                  <button
+                    className="btn btn-ghost"
+                    onClick={() => setRecipe(setToolEnabled(recipe, CLEANUP_ID, true))}
+                  >
+                    הדלק אותו
+                  </button>
+                </div>
+              )}
+
+              {marks && marks.items.length > 0 && (
+                <div className="lab-marks-actions">
+                  <button onClick={() => markEvery('accepted')}>רק מה שאושר</button>
+                  <button onClick={() => markEvery('all')}>סמן הכל</button>
+                  <button onClick={() => markEvery('none')}>נקה הכל</button>
+                  <button
+                    className={cleanupInst?.selection ? '' : 'on'}
+                    onClick={backToAuto}
+                    title="מבטל את הסימון וחוזר להחלטת המנוע — שממשיכה להתעדכן כשמזיזים סליידר"
+                  >
+                    אוטומטי
+                  </button>
+                </div>
+              )}
+
+              {marksReset && (
+                <div className="lab-hint">
+                  סריקה חדשה — הסימון אופס לברירת המחדל (כל מה שהמנוע אישר).
+                </div>
+              )}
+
+              {marks && marks.items.length === 0 && !marksBusy && (
+                <div className="lab-log-idle">
+                  הגלאי לא מצא כלום על הפנים האלה בעוצמה הזאת.
+                  {marks.notes.faceTooSmall
+                    ? ' הפנים קטנות מהמינימום שהכלי דורש.'
+                    : ' העלה את "ניקוי נקודתי" וסרוק מחדש כדי לראות מועמדים חלשים יותר.'}
+                </div>
+              )}
+
+              {shownMarks.map((item) => {
+                const chosen = selectedIds.has(item.id);
+                return (
+                  <label
+                    key={item.id}
+                    className={`lab-mark-row ${item.verdict === 'heal' ? 'ok' : 'refused'}${
+                      chosen ? ' on' : ''
+                    }`}
+                    onMouseEnter={() => setHoverMark(item.id)}
+                    onMouseLeave={() => setHoverMark(null)}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={chosen}
+                      onChange={() => toggleMark(item.id)}
+                    />
+                    <span className="lab-mark-kind">{markLabel(item.kind)}</span>
+                    <span className="lab-mark-why">
+                      {markReason(item.verdict, item.facts)}
+                    </span>
+                    {item.verdict !== 'heal' && chosen && (
+                      <span className="lab-mark-forced">נכפה</span>
+                    )}
+                  </label>
+                );
+              })}
+            </div>
+          )}
 
           {scaleBlocked && (
             <div className="lab-hint">

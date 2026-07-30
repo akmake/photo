@@ -4,6 +4,7 @@ import type {
   ToolInstance,
   ToolMask,
   ParamValues,
+  SpotSelection,
 } from './types';
 
 /* The eight hue bands, generated rather than typed out: 24 sliders written by
@@ -82,17 +83,32 @@ export const TOOLS: ToolDef[] = [
     params: [{ id: 'strength', label: 'עוצמה', min: 0, max: 100, step: 1, default: 70 }],
   },
   {
-    // Engine-side this is `cleanup.py` — spot detection and healing. It is off
-    // in the default recipes (see engine/presets.py) pending rework, so it is
-    // marked experimental: the lab can drive it, the gallery editor cannot.
+    // Engine-side this is `cleanup.py`, and it is TWO operators, so it gets two
+    // dials rather than one. They are not a fine/coarse pair — they do different
+    // things and carry opposite risk:
+    //
+    //   אדמומיות  diffuse pigment. Edits a*/b* and lifts L* only where the colour
+    //             channels prove the darkness is pigment, so it cannot flatten a
+    //             crease or blur a pore. Safe high, and it is where the result
+    //             comes from: 85 of the 86 marks removed on the reference face.
+    //   כתמים     discrete reconstruction. Still has the known missing
+    //             mid-frequency band, so repairs can read as patches. It earned 1
+    //             mark in 86, so it defaults low — enough for a scab or a crumb,
+    //             which nothing else can remove.
+    //
+    // A single slider had no good setting: at the old default of 60 it withheld
+    // the safe half to restrain the risky one, and threw away more than half the
+    // achievable result (marks -17% against -44%).
     id: 'skin-cleanup',
     label: 'ניקוי כתמים',
     kind: 'ai',
     category: 'local-ai',
     order: 10,
     batchPolicy: 'absolute',
-    experimental: true,
-    params: [{ id: 'strength', label: 'עוצמה', min: 0, max: 100, step: 1, default: 60 }],
+    params: [
+      { id: 'redness', label: 'אדמומיות וכתמי צבע', min: 0, max: 100, step: 1, default: 90 },
+      { id: 'spots', label: 'ניקוי נקודתי', min: 0, max: 100, step: 1, default: 25 },
+    ],
   },
   {
     id: 'skin',
@@ -600,14 +616,39 @@ export function updateToolMask(
   };
 }
 
+/** Which detected blemishes to treat, for a tool that reports candidates.
+ *  `null` hands the decision back to the engine; an empty polygon list is the
+ *  opposite answer — "none of them" — and both must be expressible. */
+export function updateToolSelection(
+  recipe: Recipe,
+  toolId: string,
+  selection: SpotSelection | null,
+): Recipe {
+  return {
+    tools: recipe.tools.map((t) => {
+      if (t.toolId !== toolId) return t;
+      if (!selection) {
+        const { selection: _drop, ...rest } = t;
+        return rest;
+      }
+      return { ...t, selection };
+    }),
+  };
+}
+
 /** What may be saved into a STYLE. A painted mask is a correction for one
  *  photograph; carrying it into a style would stamp that photo's strokes onto
- *  every other frame. Semantic-region masks transfer and stay. */
+ *  every other frame. Semantic-region masks transfer and stay.
+ *
+ *  A spot selection is the same kind of thing, only more so: it names marks on
+ *  one face in one frame, by their outlines. Nothing about it can mean anything
+ *  in another photograph. */
 export function stripPerPhotoState(recipe: Recipe): Recipe {
   return {
     tools: recipe.tools.map((t) => {
-      if (t.mask?.region !== 'painted') return t;
-      const { mask: _drop, ...rest } = t;
+      const { selection: _sel, ...kept } = t;
+      if (kept.mask?.region !== 'painted') return t.selection ? kept : t;
+      const { mask: _drop, ...rest } = kept;
       return rest;
     }),
   };

@@ -195,6 +195,62 @@ export interface LearnColorResponse {
   };
 }
 
+/** One thing skin-cleanup found, and what it decided about it.
+ *
+ *  `contours` are the EXACT boundary of the region that would be rebuilt —
+ *  normalised to the frame, so they draw over a preview and apply to the
+ *  full-resolution file unchanged. `verdict` is the engine's decision:
+ *  'heal' means it treats this on its own; anything else is a refusal the
+ *  photographer is entitled to overrule. */
+export interface SpotCandidate {
+  id: string;
+  face: number;
+  kind: 'spot' | 'debris' | 'fluid';
+  verdict: 'heal' | 'line' | 'shading' | 'size';
+  contours: [number, number][][];
+  /** x0, y0, x1, y1 — normalised to the frame */
+  bbox: [number, number, number, number];
+  facts: Record<string, number>;
+}
+
+export interface SpotDetection {
+  width: number;
+  height: number;
+  faces: number;
+  items: SpotCandidate[];
+  /** counts the engine reached along the way (lineVetoed, faceTooSmall, …) */
+  notes: Record<string, number>;
+}
+
+/** Ask what the cleanup tool would find, without healing anything.
+ *
+ *  `recipe` matters and is not decoration: with face-retouch also enabled the
+ *  candidates must be measured on the frame cleanup will actually receive, so
+ *  the engine renders the earlier tools first. Passing the recipe the lab is
+ *  showing keeps the outlines honest. */
+export async function detectSpots(
+  imageDataUrl: string,
+  params: Record<string, number>,
+  recipe: { toolId: string; params: Record<string, number>; enabled: boolean }[] = [],
+): Promise<SpotDetection> {
+  const r = await fetch(`${ENGINE}/cleanup/detect`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ image: imageDataUrl, params, recipe }),
+  });
+  if (!r.ok) {
+    let detail = `engine ${r.status}`;
+    try {
+      const j = await r.json();
+      if (j?.error) detail = j.error;
+    } catch {
+      /* keep the status-code message */
+    }
+    throw new Error(detail);
+  }
+  return r.json();
+}
+
 /** Read an edit: what changed between two versions of the same frame. */
 export async function compareImages(
   beforeDataUrl: string,
@@ -277,6 +333,8 @@ export async function renderRecipe(
     /** optional region blend — semantic ({region:'subject'|…}) or hand-painted
      *  ({region:'painted', paint: dataURL}); engine/render.py::_region_mask */
     mask?: import('./types').ToolMask;
+    /** which detected candidates to treat (skin-cleanup); see detectSpots */
+    selection?: import('./types').SpotSelection;
   }[],
   /** true for a file being saved: q97 with no chroma subsampling instead of
    *  the q90 4:2:0 preview. */

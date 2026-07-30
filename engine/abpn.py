@@ -136,7 +136,28 @@ def _apply_one(rgb, strength: float):
     ret_low = cv2.GaussianBlur(retouched, (r_low, r_low), 0)
     retouched = retouched - ret_low + orig_low
 
-    # 2) restrict to skin, and restore real features from the original
+    # 2) NO OVERSHOOT. The model may move a blemish TOWARD the surrounding
+    #    skin; it may not sail past it and come out the other side.
+    #
+    #    Measured on real acne (a teen, 54 located pimples): the model turned
+    #    26 of them into pale yellow-green spots — a dark red mark became a
+    #    light one, and the absolute contrast against neighbouring skin went
+    #    UP, 22.1 -> 24.1. The flaw was more visible after retouching than
+    #    before, which is worse than doing nothing. The photographer had been
+    #    seeing exactly these spots in her own work.
+    #
+    #    Written as a monotone constraint on the deviation from local skin:
+    #    the retouched deviation must keep the ORIGINAL's sign and must not
+    #    exceed its magnitude. Healing is allowed all the way to zero (a mark
+    #    fully gone); inversion and amplification are not expressible.
+    dev_o = orig - orig_low
+    dev_r = retouched - orig_low
+    same_side = np.sign(dev_r) == np.sign(dev_o)
+    dev_r = np.where(same_side, dev_r, 0.0)
+    dev_r = np.clip(np.abs(dev_r), 0.0, np.abs(dev_o)) * np.sign(dev_o)
+    retouched = orig_low + dev_r
+
+    # 3) restrict to skin, and restore real features from the original
     region = np.clip(
         skin[y0:y1, x0:x1] - masks.get_mask(rgb, "face-features")[y0:y1, x0:x1],
         0.0,

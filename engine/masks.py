@@ -525,6 +525,88 @@ def _compute_mask(rgb: np.ndarray, kind: str) -> np.ndarray:
         k = max(3, int(min(h, w) * 0.003)) | 1
         return cv2.GaussianBlur(m, (k, k), 0).astype(np.float32) / 255.0
 
+    if kind == "face-lips":
+        # The lip vermilion on its own. Every other mask here either protects the
+        # lips or ignores them; `specular.py` needs to WORK inside them, which no
+        # existing kind expresses. Tight (no margin): a generous lip mask would
+        # let highlight reduction spill onto the philtrum and the skin below.
+        faces = _face_landmarks(rgb)
+        if not faces:
+            return np.zeros((h, w), dtype=np.float32)
+        m = np.zeros((h, w), dtype=np.uint8)
+        for lm in faces:
+            pts = np.array([[lm[i].x * w, lm[i].y * h] for i in LIPS], np.int32)
+            cv2.fillPoly(m, [cv2.convexHull(pts)], 255)
+        k = max(3, int(min(h, w) * 0.002)) | 1
+        return cv2.GaussianBlur(m, (k, k), 0).astype(np.float32) / 255.0
+
+    if kind == "face-eye-region":
+        # Eyes, brows, lid creases and the infraorbital strip — nothing else.
+        #
+        # Exists for the FLUID pass, which needs the opposite exclusion from
+        # every other path: a drool strand or a runny nose starts at the mouth or
+        # a nostril and runs down, so the mouth and nose must stay INSIDE its
+        # search zone while the eyes must be out. Handing it the whole
+        # `face-anatomy` mask (the obvious fix for the eye bug below) set lip
+        # reachability to exactly 0.000 and made drool permanently unreachable.
+        #
+        # The eye bug it guards against is not hypothetical. On a 290px face the
+        # fluid pass rewrote 111 RGB units on a child's lower lid, and on a baby
+        # it nominated BOTH eyes as fluid candidates — saved only by the
+        # runs-downward gate at 0.45 against a 0.55 bar. A 0.10 margin in one
+        # parameter is not a safety mechanism.
+        faces = _face_landmarks(rgb)
+        if not faces:
+            return np.zeros((h, w), dtype=np.float32)
+        m = np.zeros((h, w), dtype=np.uint8)
+        for lm in faces:
+            for name, part in anatomy_parts(rgb, lm).items():
+                if name.startswith(("eye", "brow", "infraorbital")):
+                    m = np.maximum(m, part)
+        k = max(3, int(min(h, w) * 0.003)) | 1
+        return cv2.GaussianBlur(m, (k, k), 0).astype(np.float32) / 255.0
+
+    if kind == "face-pigment-protect":
+        # What a COLOUR correction must stay off — which is much less than what a
+        # reconstruction must stay off, and conflating the two was expensive.
+        #
+        # `face-anatomy` withholds every crease, the contour band and the
+        # nasolabial fold because reconstruction would flatten them. Pigment
+        # evening cannot: a crease carries no colour excess, and it is a line, so
+        # both of that operator's gates reject it. Handing it the reconstruction
+        # mask covered ~1.0 of every strong papule that survived at full
+        # strength — the marks most needing removal were permanently unreachable.
+        #
+        # So this is `face-anatomy` MINUS the three parts that are pure geometry:
+        # the nasolabial fold, the chin crease and the contour band. Those are
+        # lines with no colour of their own, and freeing them is what makes the
+        # marks living on the cheek, jaw and nose reachable at all.
+        #
+        # Everything else stays protected, including the parts a colour operator
+        # might seem able to handle safely:
+        #   · INFRAORBITAL — its darkness is anatomy, but it is BLUISH, a true `b`
+        #     deviation, so the colour gate does not recognise it as structure.
+        #     Unprotected, a child gains smudged under-eye circles.
+        #   · EYELID CREASE and the eye hulls — measured on a 290px face, freeing
+        #     these for colour raised eye-region damage from 1.65 to 2.56 mean.
+        #     A small face has no margin: the lash line and the lid are within a
+        #     few pixels of each other, so a band that is safe at 573px is not.
+        # Tried and rejected: freeing the infraorbital strip for colour while
+        # blocking only the lift. It bought 3 marks out of 222 and cost that.
+        skip = ("nasolabial", "chin-crease", "contour")
+        base = _compute_mask(rgb, "face-features")
+        faces = _face_landmarks(rgb)
+        if not faces:
+            return base
+        m = np.zeros((h, w), dtype=np.uint8)
+        for lm in faces:
+            for name, part in anatomy_parts(rgb, lm).items():
+                if not name.startswith(skip):
+                    m = np.maximum(m, part)
+        k = max(3, int(min(h, w) * 0.003)) | 1
+        kept = cv2.GaussianBlur(m, (k, k), 0).astype(np.float32) / 255.0
+        return np.clip(np.maximum(base, kept), 0.0, 1.0)
+
     if kind == "face-oval":
         # Containment, not protection: the filled facial contour.
         #

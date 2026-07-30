@@ -50,11 +50,29 @@ export interface ToolMask {
   strength?: number;
 }
 
+/** One outline a person marked in the lab's detection view.
+ *  Points are normalised to the frame (0..1), which is what lets a selection
+ *  made on a preview apply to the full-resolution file being delivered. */
+export interface SpotOutline {
+  id: string;
+  points: [number, number][];
+}
+
+/** Which of the candidates the engine found should actually be treated.
+ *  An EMPTY `polygons` array is a real answer — "I looked, and none of them" —
+ *  and is deliberately different from the field being absent, which means
+ *  "decide for me". Per-photo state, like a painted mask: it can never travel
+ *  into a style, because the marks belong to one face in one frame. */
+export interface SpotSelection {
+  polygons: SpotOutline[];
+}
+
 export interface ToolInstance {
   toolId: string;
   params: ParamValues;
   enabled: boolean;
   mask?: ToolMask;
+  selection?: SpotSelection;
 }
 
 // The recipe: an ordered, non-destructive stack of tools. This is the heart.

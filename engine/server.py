@@ -59,11 +59,18 @@ TOOLS = [
         "id": "skin-cleanup",
         "kind": "ai",
         "category": "local-ai",
-        # Off pending rework — see presets.SKIN_CLEANUP_ENABLED. Still listed
-        # and still dispatchable so it can be exercised directly while it is
-        # being fixed; it is only kept out of the default recipes.
-        "disabled": True,
-        "params": [{"id": "strength", "min": 0, "max": 100, "default": 60}],
+        # Two operators, two dials — see cleanup._params. `strength` is still
+        # accepted as a master fallback so older recipes keep rendering.
+        #
+        # NOTE: this list and src/toolRegistry.ts are the SAME contract declared
+        # twice, and they had silently drifted: the UI kept showing one slider at
+        # 60 and treating the tool as experimental long after the engine could do
+        # better. That is not a cosmetic mismatch — it is the reason a working
+        # tool looked broken from the front end. Change both, together.
+        "params": [
+            {"id": "redness", "min": 0, "max": 100, "default": 90},
+            {"id": "spots", "min": 0, "max": 100, "default": 25},
+        ],
     },
     {
         "id": "skin",
@@ -167,6 +174,9 @@ class Handler(BaseHTTPRequestHandler):
         if self.path == "/render":
             self._render()
             return
+        if self.path == "/cleanup/detect":
+            self._cleanup_detect()
+            return
         if self.path == "/compare":
             self._compare()
             return
@@ -234,6 +244,31 @@ class Handler(BaseHTTPRequestHandler):
             else:
                 payload = "data:image/jpeg;base64," + common.image_to_jpeg_b64(out)
             self._json(200, {"image": payload, "meta": meta})
+        except Exception as e:  # noqa: BLE001
+            self._json(500, {"error": str(e)})
+
+    def _cleanup_detect(self):
+        """Outline what the cleanup tool found. { image|path, params, recipe? }
+
+        No image comes back. Detection returns GEOMETRY — one outline per
+        candidate, normalised to the frame — so the UI draws the marks over the
+        photo it already has, and the same outlines go back in a recipe as the
+        selection. Rendering a marked-up JPEG here would have been easier and
+        useless: nobody can click a pixel in a picture of a click.
+        """
+        try:
+            body = self._body()
+            if body.get("path"):
+                img = common.load_image(body["path"])
+            else:
+                img = common.b64_to_image(body["image"])
+            found = on_worker(
+                render.detect_cleanup,
+                img,
+                body.get("params", {}),
+                body.get("recipe", []),
+            )
+            self._json(200, found)
         except Exception as e:  # noqa: BLE001
             self._json(500, {"error": str(e)})
 

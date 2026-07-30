@@ -26,6 +26,8 @@ gate: only marks small enough that the ring feeding the diffusion is the same
 patch of skin are ever rebuilt (test_blush.py holds this honest).
 """
 
+import dataclasses
+
 import cv2
 import numpy as np
 
@@ -33,10 +35,37 @@ import color_harmonization
 import common
 import healing
 import masks
+import pigment
 import skinmodel
+import specular
 
 # A face must be at least this wide (px) for blemish healing to be safe.
 MIN_FACE_PX = 180
+
+# `_fluid_trails` is ON. It was switched off for two measured reasons, and both
+# are now fixed rather than tolerated.
+#
+# 1. IT COULD REACH AN EYE. On a 290px face it rewrote 111 RGB units across a
+#    child's lower eyelid, and on a baby its three largest candidates were the
+#    LEFT EYE, the RIGHT EYE and a NOSTRIL — saved only by the runs-downward gate
+#    at 0.45 against a 0.55 bar. A 0.10 margin in one parameter is not a safety
+#    mechanism. Fixed by withholding `face-eye-region` from its search zone
+#    (NOT `face-anatomy`, which would take the lips with it — see the call site).
+#    Verified: with the pass ON, eye-region damage on that face is identical to
+#    having it OFF (mean 0.45, max 10.7) while it still fires. It is no longer
+#    "narrowly declined to touch the eye"; it cannot.
+#
+# 2. IT FOUND NOTHING. It returned 0 on a real, plainly visible drool strand
+#    running down a baby's chin — the exact case it exists for. The cause was not
+#    the thresholds: a strand GLINTS where it catches light and nearly disappears
+#    between glints, so a single bar returned the glints and dropped the trail
+#    joining them, and each fragment was then judged alone — 27, 33 and 35px
+#    against a 129px minimum, each also failing the orifice anchor because no
+#    fragment reached the lip. It detected the drool and rejected it four times
+#    for being in pieces. This is the SAME failure `hysteresis_core` was written
+#    to fix for lesions ("a lesion is a REGION, the decision was per-pixel"),
+#    found again in a second place. Fixed the same way.
+FLUID_TRAILS_ENABLED = True
 
 # What counts as "structure" for the line veto is calibrated on the SKIN, at a
 # fixed RANK — not at a fixed Lab amplitude, and not from a robust sigma.
@@ -61,6 +90,66 @@ MIN_FACE_PX = 180
 RIDGE_EXTENT_PCT = 99.0
 RIDGE_SEED_PCT = 99.7
 
+# Half-thickness a ridge component may reach and still be allowed to veto, as
+# a fraction of face_d. A stray hair on a 270px face measures ~1-2px across;
+# an eyeliner tail and a nasolabial crease stay under ~2% of the face. The
+# percolated blob that condemned three marks on 321A4934 was far thicker than
+# its own face. 0.02 keeps every real line and rejects the blob.
+RIDGE_MAX_THICK = 0.02
+
+# ...and LONG. A stray hair, an eyeliner tail and a nasolabial fold all run a
+# good fraction of the face; that is what makes cutting one visible. A mark's
+# own morphological response does not: measured on 321A5254, the injected
+# bright crumb produced its own tophat ridge (35 against a 21 bar) of 56px,
+# ~7px long on a 475px face, and that ridge was allowed to condemn the mark it
+# came from. The veto was reading the blemish as evidence against itself.
+# Length is estimated as area / width, which is what a ridge is.
+RIDGE_MIN_LEN = 0.10
+
+
+
+@dataclasses.dataclass
+class Detection:
+    """What `confidence` measured about one face.
+
+    Unpacks as the 4-tuple it used to be — `conf, region, face_d, model = got`
+    still works, and every diagnostic script in this folder relies on that. The
+    extra field is additive: `debris` is the bright-crumb detector's own map,
+    kept so a candidate can be LABELLED by which detector found it instead of
+    re-deriving that from its shape (a second heuristic that could disagree
+    with the first is exactly the drift this module keeps fixing).
+    """
+
+    conf: np.ndarray
+    region: np.ndarray
+    face_d: float
+    model: "skinmodel.SkinModel"
+    debris: np.ndarray
+
+    def __iter__(self):
+        return iter((self.conf, self.region, self.face_d, self.model))
+
+
+@dataclasses.dataclass
+class Candidate:
+    """One thing the detector found, and what the engine decided about it.
+
+    `mask` is not a hint or a bounding shape: it is EXACTLY the region healing
+    would rebuild if this candidate is treated. That is what lets the lab draw
+    an outline and promise that the outline is the edit — see `_fill_holes` for
+    why a contour is a lossless description of it.
+
+    verdict:
+      heal     — the engine treats it on its own
+      line     — vetoed: it is one stretch of a longer line (hair, liner, crease)
+      shading  — vetoed: the anomaly does not end, so it is lighting or blush
+      size     — dropped by the size gate: too broad/thick to be a blemish
+    """
+
+    kind: str  # 'spot' | 'debris' | 'fluid'
+    verdict: str
+    mask: np.ndarray
+    facts: dict
 
 
 def _novelty_bar(strength: float) -> float:
@@ -227,7 +316,36 @@ def _fluid_trails(
     # floored like the structure gate's L channel: on a smooth baby cheek the
     # median tophat is exactly 0, the MAD is 0, and an unfloored bar admits
     # the whole zone as one giant "strand"
-    strands = ((top > max(6.0, med + 4.0 * sigma)) & zone).astype(np.uint8)
+    # HYSTERESIS, for the same reason `hysteresis_core` exists for lesions — and
+    # it is the same bug, found again in a second place.
+    #
+    # A drool strand is not uniformly bright: it glints where it catches the light
+    # and nearly vanishes between the glints. A single threshold therefore returns
+    # the glints and drops the trail connecting them, and every fragment is then
+    # judged ALONE — measured on a real, plainly visible strand running down a
+    # baby's chin, it broke into pieces of 27, 33 and 35px against a 129px minimum
+    # area, each one also failing the orifice-anchor test because no single
+    # fragment reaches the lip. The detector found the drool and then rejected it
+    # four times over for being in pieces.
+    #
+    # High bar decides WHETHER there is a strand; low bar decides HOW FAR it runs.
+    seed = ((top > max(6.0, med + 4.0 * sigma)) & zone).astype(np.uint8)
+    if not seed.any():
+        return out, 0
+    extent = ((top > max(2.0, med + 1.5 * sigma)) & zone).astype(np.uint8)
+
+    # Bridge along the direction a fluid actually travels. A vertical structuring
+    # element joins glints separated by a dim stretch of the same strand without
+    # merging two neighbouring strands sideways into one blob.
+    bridge = max(3, int(face_d * 0.03)) | 1
+    extent = cv2.morphologyEx(
+        extent, cv2.MORPH_CLOSE, cv2.getStructuringElement(cv2.MORPH_RECT, (1, bridge))
+    )
+    count, labels, _, _ = cv2.connectedComponentsWithStats(extent, connectivity=8)
+    keep = np.zeros(count, bool)
+    keep[np.unique(labels[seed > 0])] = True
+    keep[0] = False
+    strands = keep[labels].astype(np.uint8)
     strands = cv2.morphologyEx(strands, cv2.MORPH_CLOSE, np.ones((5, 5), np.uint8))
 
     # the outer rim of the search zone: anything still bright THERE keeps
@@ -321,6 +439,7 @@ def _structure_gate(
     region: np.ndarray,
     orifice: np.ndarray | None = None,
     down_field: np.ndarray | None = None,
+    report: list | None = None,
 ) -> tuple[np.ndarray, int, int, int]:
     """A blemish is ISOLATED. Drop components that are pieces of something.
 
@@ -347,6 +466,16 @@ def _structure_gate(
     never mirror-symmetric, so opposite-side patches landed flat and mis-toned
     (and, near the eye, copied the other eye's lashes). Diffusion + texture
     grafting needed no such donor and produced clean repairs everywhere.
+
+    `report`, when a list is passed, receives one record per component: the
+    verdict, the numbers behind it, and the component's own mask. Counts alone
+    were enough while the only consumer was a log line, and not enough the
+    moment a person has to see WHICH mark was withheld and decide whether the
+    veto was right — a veto that fires invisibly is indistinguishable from a
+    detector that found nothing. Vetoed records carry the component BEFORE the
+    growth loop: growth is driven by the same ring measure that produced the
+    shading veto, so growing a vetoed component would inflate exactly the mark
+    the engine already judged not to be a mark.
 
     A line-vetoed component gets one second chance: the WET-TRAIL test. Fluids
     on a face — drool, tears, a runny nose — leave a thin BRIGHT strand with
@@ -416,6 +545,38 @@ def _structure_gate(
 
     r_count, r_labels = cv2.connectedComponents(extent, connectivity=8)
     totals = np.bincount(r_labels.ravel(), minlength=max(2, r_count))
+
+    # --- only a THIN ridge may veto -----------------------------------------
+    #
+    # The veto asks "does this structure continue past the component?" and
+    # never asks "is this a LINE at all?". On a small face that question has
+    # only one answer: pores and sensor noise produce morphology responses the
+    # size of real structure, the 3x3 bridge joins them, and the ridge map
+    # percolates into one blob. Measured on 33/321A4934 (face_d 272): the
+    # accusing component held 235,270px against a face whose whole skin area
+    # is ~74,000 — three times the face — and it condemned three of the five
+    # injected marks. A blob that spans a third of the cheek "continues past"
+    # everything.
+    #
+    # What a stray hair, an eyeliner tail and a crease all share is that they
+    # are THIN. So thickness is the admission test: the largest circle that
+    # fits inside the ridge component must be small next to the face. This is
+    # the mirror image of the rule already written into decide() — there,
+    # elongation is not evidence of innocence; here, breadth is not evidence
+    # of guilt.
+    max_ridge_half = max(1.5, face_d * RIDGE_MAX_THICK)
+    min_ridge_len = max(6.0, face_d * RIDGE_MIN_LEN)
+    ridge_thick = cv2.distanceTransform(extent, cv2.DIST_L2, 5)
+    can_veto = np.zeros(max(2, r_count), bool)
+    for rid in range(1, r_count):
+        sel = r_labels == rid
+        if not sel.any():
+            continue
+        half = float(ridge_thick[sel].max())
+        if half > max_ridge_half:
+            continue  # a percolated blob, not a line
+        length = float(sel.sum()) / max(1.0, 2.0 * half + 1.0)
+        can_veto[rid] = length >= min_ridge_len
 
     # The novelty a ring must stay under to count as "the mark ended here":
     # halfway from the region's own baseline to the detection bar. Clean skin
@@ -519,16 +680,30 @@ def _structure_gate(
     line_vetoed = 0
     shading_vetoed = 0
     wet_trails = 0
-    grow = np.ones((7, 7), np.uint8)
+    # face-normalised, like everything else in this function. These three were
+    # absolute (7px reach, 6px engagement, 8px outside) inside a routine whose
+    # every other number scales with the face, so on a 190px face they all bit
+    # about twice as hard relative to the mark they were judging.
+    gk = max(3, int(face_d * 0.025)) | 1
+    grow = np.ones((gk, gk), np.uint8)
+    engaged_floor = max(4, int(face_d * 0.02))
+    outside_floor = max(6, int(face_d * 0.03))
     step = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
     n, labels, _, _ = cv2.connectedComponentsWithStats(repair, connectivity=8)
     for i in range(1, n):
         component = (labels == i).astype(np.uint8)
+        record = {"verdict": "keep", "wet": False, "facts": {}, "mask": component}
+        if report is not None:
+            report.append(record)
 
         rn = ring_novelty(component)
+        record["facts"]["ringBar"] = round(float(ring_bar), 3)
+        if rn is not None:
+            record["facts"]["ringNovelty"] = round(float(rn), 3)
         if rn is not None and rn > ring_bar:
             out[component > 0] = 0
             shading_vetoed += 1
+            record["verdict"] = "shading"
             continue
 
         reach = cv2.dilate(component, grow) > 0
@@ -536,22 +711,31 @@ def _structure_gate(
         # Only structures that actually RUN THROUGH the component can veto it.
         # A neighbouring crease that merely brushes the reach ring must not
         # condemn an isolated mark sitting next to it.
-        engaged = max(6, int(0.05 * component.sum()))
+        engaged = max(engaged_floor, int(0.05 * component.sum()))
         line_hit = False
         for rid in np.nonzero(inside[1:])[0] + 1:
-            if inside[rid] < engaged:
+            if inside[rid] < engaged or not can_veto[rid]:
                 continue
             outside = int(totals[rid] - inside[rid])
-            if outside > max(8, int(0.6 * inside[rid])):
+            if outside > max(outside_floor, int(0.6 * inside[rid])):
                 rescue = wet_trail(rid, component)
                 if rescue is not None:
                     # a fluid trail, not a hair: heal the whole strand
                     out = np.maximum(out, rescue)
                     wet_trails += 1
+                    record["wet"] = True
+                    record["rescue"] = rescue
                     line_hit = False
                     break
                 out[component > 0] = 0
                 line_vetoed += 1
+                record["verdict"] = "line"
+                record["facts"].update(
+                    ridgeInside=int(inside[rid]),
+                    ridgeOutside=int(outside),
+                    ridgeTotal=int(totals[rid]),
+                    ridgeThicknessPx=round(float(ridge_thick[r_labels == rid].max()) * 2.0, 1),
+                )
                 line_hit = True
                 break
         if line_hit:
@@ -576,6 +760,9 @@ def _structure_gate(
             if int(grown.sum()) == int(component.sum()):
                 break
             component = grown
+        record["mask"] = (
+            np.maximum(component, record["rescue"]) if record["wet"] else component
+        )
         out = np.maximum(out, component)
     return out, line_vetoed, shading_vetoed, wet_trails
 
@@ -588,7 +775,7 @@ def process(image_b64: str, params: dict):
 
 
 def confidence(rgb, params: dict):
-    """Return (confidence map 0..1, skin_region, face_d, model) or None."""
+    """Measure this face. -> Detection (unpacks as conf, region, face_d, model)."""
     strength = common.clamp01(params.get("strength", 60))
     skin = masks.get_mask(rgb, "face-skin")
     face_d = float(np.sqrt(skin.sum()))
@@ -612,6 +799,23 @@ def confidence(rgb, params: dict):
     region = cv2.erode(region, np.ones((er, er), np.uint8))
     if region.max() <= 0:
         return None
+
+    # Mole protection lives in the PIGMENT stage, not here.
+    #
+    # It used to be subtracted from the judged region too, and that made the
+    # spot healer refuse any small round dark mark — which is most of what it
+    # exists to remove. Measured: a 3px dark speck was withheld outright
+    # (region 0.00, conf 0.00) on 321A5254 because it is, by every property a
+    # photograph exposes, shaped like a mole.
+    #
+    # The distinction that matters is WHICH OPERATOR. Colour evening runs over
+    # the whole field and would bleach a mole as a silent side effect nobody
+    # asked for, so it keeps the guard (see pigment.even_pigment). Spot healing
+    # is an explicit, local request to remove a mark; refusing it there is the
+    # tool overruling the person using it. Product call, 2026-07-30.
+    #
+    # If a photographer wants a specific mole kept, that is what the manual
+    # brush protects — a decision at the mark, not a blanket rule.
 
     # Where the model may SAMPLE is a different question from where it may HEAL.
     # `region` withholds the creases, the contour band and an erosion margin —
@@ -655,12 +859,10 @@ def confidence(rgb, params: dict):
         neighborhood = cv2.dilate(suspect, np.ones((nr, nr), np.uint8))
         refined = score(skinmodel.build(rgb, region, face_d, support=clean_support))
         conf = np.where(neighborhood > 0, refined, conf)
-    conf = np.maximum(
-        conf,
-        _bright_debris_confidence(
-            model, region, np.maximum(simple_features, hair), face_d, strength
-        ),
+    debris = _bright_debris_confidence(
+        model, region, np.maximum(simple_features, hair), face_d, strength
     )
+    conf = np.maximum(conf, debris)
 
     # Safety net: a blemish is LOCAL. Anything larger than this is skin
     # character the model failed to absorb (a broad shadow, strong blush on an
@@ -678,7 +880,7 @@ def confidence(rgb, params: dict):
     # feather so the correction fades in
     fr = max(3, int(face_d * 0.006)) | 1
     conf = cv2.GaussianBlur(conf, (fr, fr), 0)
-    return conf, region, face_d, model
+    return Detection(conf, region, face_d, model, debris)
 
 
 def _fill_holes(mask: np.ndarray) -> np.ndarray:
@@ -715,7 +917,12 @@ def hysteresis_core(conf: np.ndarray) -> np.ndarray:
     return keep[labels].astype(np.uint8)
 
 
-def decide(conf: np.ndarray, face_d: float, mask: np.ndarray | None = None) -> np.ndarray:
+def decide(
+    conf: np.ndarray,
+    face_d: float,
+    mask: np.ndarray | None = None,
+    size_gate: bool = True,
+) -> np.ndarray:
     """Turn gated tight lesions into solid, slightly grown repair regions.
 
     Thresholding pixel by pixel is what broke every previous attempt: a lesion
@@ -725,6 +932,13 @@ def decide(conf: np.ndarray, face_d: float, mask: np.ndarray | None = None) -> n
 
     `mask` is normally the structure-gated hysteresis core; when omitted the
     raw core is used (diagnostic scripts call it this way).
+
+    `size_gate=False` is for ONE caller: a person looking at the outline of a
+    mark the gate rejected and saying "that is a scab, treat it". The gate is a
+    guard against skin character the model failed to absorb, and it is right
+    often enough to stay the default — but it is a guess about a photograph,
+    and a guess must not outrank the photographer who is looking at the mark.
+    Nothing in the automatic path passes this.
     """
     if mask is None:
         mask = hysteresis_core(conf)
@@ -767,17 +981,517 @@ def decide(conf: np.ndarray, face_d: float, mask: np.ndarray | None = None) -> n
         if not core.any():
             mask[component] = 0
             continue
+        if not size_gate:
+            continue
         radius = float(cv2.distanceTransform(core, cv2.DIST_L2, 3).max())
         if core.sum() > max_area or radius > max_radius:
             mask[component] = 0
     return mask
 
 
+# --------------------------------------------------------------- candidates
+#
+# ONE definition of "what would be healed", shared by the automatic path and by
+# the lab's mark-and-choose pass. The automatic result is now literally "every
+# candidate whose verdict is heal" — not a second implementation that is
+# expected to agree. That distinction is not pedantic here: this module has
+# already had to fix two cases of exactly that drift (the detector reading stage
+# A's output instead of the original, and the wet-trail test re-deriving the
+# fluid detector's checks), and a marking UI that disagrees with the healer by
+# even one component is worse than no marking UI at all — it teaches the
+# photographer to distrust the outline. test_cleanup_marking.py asserts the two
+# paths agree pixel for pixel.
+
+
+def _geom_facts(mask: np.ndarray, conf: np.ndarray, novelty: np.ndarray, face_d: float):
+    """The numbers a person needs to judge one candidate, measured ON it."""
+    solid = mask.astype(np.uint8)
+    m = solid > 0
+    area = int(m.sum())
+    if area == 0:
+        return {"areaPx": 0}
+    half = float(cv2.distanceTransform(solid, cv2.DIST_L2, 3).max())
+    return {
+        "areaPx": area,
+        "thicknessPx": round(2.0 * half, 1),
+        # sqrt(area)/face_d — the same scale-free form every gate here uses, so
+        # "how big is this" means the same thing on a 200px and a 900px face
+        "faceFraction": round(float(np.sqrt(area)) / max(1.0, float(face_d)), 4),
+        "noveltyPeak": round(float(novelty[m].max()), 2),
+        "confidencePeak": round(float(conf[m].max()), 3),
+    }
+
+
+def _forced_repair(conf, face_d, component, size_gate=False):
+    """`decide` for ONE component, computed in a window around it.
+
+    A window, not the whole crop: every operation in `decide` is local (a close
+    at face_d*0.010, a dilate at 0.006), so a margin several times that returns
+    the same pixels for a fraction of the work — and this runs once per rejected
+    candidate on a face that can carry a hundred.
+    """
+    ys, xs = np.nonzero(component)
+    if xs.size == 0:
+        return None
+    pad = max(8, int(face_d * 0.06))
+    y0 = max(0, int(ys.min()) - pad)
+    y1 = min(component.shape[0], int(ys.max()) + pad + 1)
+    x0 = max(0, int(xs.min()) - pad)
+    x1 = min(component.shape[1], int(xs.max()) + pad + 1)
+    sub = decide(
+        conf[y0:y1, x0:x1],
+        face_d,
+        component[y0:y1, x0:x1].astype(np.uint8),
+        size_gate=size_gate,
+    )
+    out = np.zeros(component.shape, np.uint8)
+    out[y0:y1, x0:x1] = sub
+    return out
+
+
+def _candidates(crop, crop_pre, det: Detection, orifice, down_field, strength, fluids):
+    """Every candidate on one face, each with the verdict the engine reached.
+
+    Returns (candidates, repair, counts). `repair` is the automatic mask — the
+    union of the accepted candidates, and the array the healer receives when
+    nobody has marked anything.
+    """
+    conf, region, face_c, model = det.conf, det.region, det.face_d, det.model
+
+    core = hysteresis_core(conf)
+    report: list[dict] = []
+    gated, line_vetoed, shading_vetoed, wet_trails = _structure_gate(
+        crop_pre,
+        core,
+        face_c,
+        model.novelty,
+        _novelty_bar(strength),
+        region,
+        orifice=orifice,
+        down_field=down_field,
+        report=report,
+    )
+    repair = decide(conf, face_c, gated)
+
+    fluid = np.zeros(repair.shape, np.uint8)
+    fluid_found = 0
+    if fluids:
+        # fluids live in the orifice-adjacent band the generic detector cannot
+        # judge — they get their own pass, merged into the same repair mask.
+        #
+        # The fluid pass must be kept off the EYES — and only the eyes.
+        #
+        # It had no anatomy protection at all, and it was the one route that could
+        # still reach one: measured on a 290px face, all 135 pixels that changed
+        # by more than 40 RGB units sat inside the fluid mask on the lower lid — a
+        # 111-unit rewrite of a child's eye. On a baby it nominated BOTH eyes as
+        # fluid candidates and was stopped only by the runs-downward gate at 0.45
+        # against a 0.55 bar.
+        #
+        # The obvious fix — subtract `face-anatomy`, as every other path does —
+        # is WRONG here, and measurably so: anatomy contains the lips, and a
+        # fluid's whole purpose is to start at the mouth. It set lip reachability
+        # to exactly 0.000, i.e. it made drool permanently unremovable in order to
+        # protect an eye. `face-eye-region` withholds the eyes and nothing else.
+        skin_zone = np.clip(
+            masks.get_mask(crop, "face-skin") * masks.get_mask(crop, "face-oval")
+            - masks.get_mask(crop, "face-eye-region"),
+            0.0,
+            1.0,
+        )
+        fluid, fluid_found = _fluid_trails(crop, face_c, orifice, down_field, skin_zone)
+        if fluid_found:
+            repair = np.maximum(repair, fluid)
+
+    # --- attribution --------------------------------------------------------
+    #
+    # Candidates are the connected components of the REAL repair mask, not of
+    # anything reconstructed from the report. Two marks a hair's breadth apart
+    # merge into one component inside `decide`, and they must then be ONE thing
+    # on screen: a person cannot mark half of a merged blob, so offering them as
+    # two would be a control that does not exist.
+    def kind_of(m):
+        if fluid_found and bool(np.any((m > 0) & (fluid > 0))):
+            return "fluid"
+        if bool(np.any((m > 0) & (det.debris > 0.5))):
+            return "debris"
+        return "spot"
+
+    cands: list[Candidate] = []
+    count, labels, _, _ = cv2.connectedComponentsWithStats(repair, connectivity=8)
+    accepted = np.zeros(repair.shape, np.uint8)
+    for i in range(1, count):
+        solid = _fill_holes((labels == i).astype(np.uint8))
+        accepted = np.maximum(accepted, solid)
+        fed = [
+            rec
+            for rec in report
+            if rec["verdict"] == "keep" and bool(np.any((solid > 0) & (rec["mask"] > 0)))
+        ]
+        for rec in fed:
+            rec["claimed"] = True
+        wet = any(rec["wet"] for rec in fed)
+        facts = _geom_facts(solid, conf, model.novelty, face_c)
+        facts["parts"] = len(fed)
+        cands.append(
+            Candidate(
+                kind="fluid" if wet else kind_of(solid),
+                verdict="heal",
+                mask=solid,
+                facts=facts,
+            )
+        )
+
+    # ...and the ones that were found and REFUSED. They are the whole reason a
+    # person needs to see this: a veto that fires invisibly looks exactly like a
+    # detector that found nothing, and the two call for opposite responses.
+    for rec in report:
+        rejected = rec["verdict"] != "keep"
+        if not rejected and rec.get("claimed"):
+            continue
+        # a kept component with nothing left in the repair mask can only have
+        # been dropped by decide()'s size gate — nothing else in that function
+        # removes pixels, and its no-core branch cannot fire on a hysteresis
+        # component (which contains a confident seed by construction)
+        verdict = rec["verdict"] if rejected else "size"
+        forced = _forced_repair(conf, face_c, rec["mask"], size_gate=False)
+        if forced is None or not forced.any():
+            continue
+        forced = _fill_holes(forced)
+        facts = {**rec["facts"], **_geom_facts(forced, conf, model.novelty, face_c)}
+        cands.append(
+            Candidate(kind=kind_of(forced), verdict=verdict, mask=forced, facts=facts)
+        )
+
+    counts = {
+        "lineVetoed": line_vetoed,
+        "shadingVetoed": shading_vetoed,
+        "wetTrails": wet_trails,
+        "fluidTrails": fluid_found,
+    }
+    # The automatic mask IS the union of the accepted candidates, by
+    # construction and not by coincidence. The only difference from `repair` as
+    # decide/_fluid_trails left it is that each blob is hole-filled, which a
+    # repair region has to be anyway (see `decide`: a ragged mask makes
+    # reconstruction sample the blemish in order to repair the blemish). Making
+    # this the returned mask is what turns "the outline you marked is what gets
+    # rebuilt" from a claim into an identity — select every accepted candidate
+    # and you get the automatic result back, bit for bit.
+    return cands, accepted, counts
+
+
+@dataclasses.dataclass
+class FaceScan:
+    """One face, staged and measured.
+
+    `None` from `_scan_face` and a scan with `detection is None` are different
+    outcomes and must not be collapsed: the first means the frame holds nothing
+    this tool can work on, the second means the colour stages already produced a
+    real result that still has to be composited back. Returning the untouched
+    frame in the second case is a bug this module has had — it silently threw
+    the pigment correction away.
+    """
+
+    box: tuple
+    crop: np.ndarray
+    crop_pre: np.ndarray
+    stage_meta: dict
+    detection: Detection | None = None
+    candidates: list = dataclasses.field(default_factory=list)
+    repair: np.ndarray | None = None
+    counts: dict = dataclasses.field(default_factory=dict)
+    quiet: bool = False
+
+
+def _scan_face(rgb, params: dict, candidates: bool = True) -> FaceScan | None:
+    """Stage the correctable field, then detect on the untouched original."""
+    redness, strength, spot_params = _params(params)
+    skin = masks.get_mask(rgb, "face-skin")
+    face_d = float(np.sqrt(skin.sum()))
+    if face_d < MIN_FACE_PX:
+        return None
+
+    box = common.region_box(skin, int(face_d * 0.25), rgb.shape)
+    if box is None:
+        return None
+    x0, y0, x1, y1 = box
+    crop = rgb[y0:y1, x0:x1]
+    # The evidence for spot detection is the UNTOUCHED crop.
+    #
+    # The stages below rewrite `crop`, and the detector used to read their
+    # output. The intent was documented and reasonable — evening the field
+    # first lowers the model's own sigma, so discrete papules should stand
+    # clearer — but measured on the recall suite it does the opposite, badly:
+    # the pigment pass partially bleaches the marks themselves, the detector
+    # then sees a WEAKER deviation, and a mark that would have been rebuilt is
+    # merely faded instead. Recall with detection reading stage A's output vs
+    # reading the original: 321A4934 2/5 -> 4/5, 321A5254 1/5 -> 3/5.
+    #
+    # So the two operators are composed, not chained: detect on the original,
+    # heal on the evened field. The repair mask is spatial, so reconstruction
+    # still samples the corrected neighbourhood — which is what we want.
+    crop_pre = crop.copy()
+
+    # --- stage A: diffuse pigment, BEFORE any spot detection ----------------
+    #
+    # Broad uneven redness is not a set of spots, and asking the reconstruction
+    # path to remove it made it rebuild a quarter of the face. It gets its own
+    # operator (see pigment.py), and it runs first for a second reason that is
+    # not obvious: the detector's bar is a robust sigma of this skin's own
+    # variation, and diffuse erythema inflates that sigma — so a face with a lot
+    # wrong RAISED ITS OWN BAR and saw less. Evening the field first drops the
+    # sigma, and the discrete papules that remain finally stand clear of it.
+    # The two operators are not merely stacked; each makes the other work.
+    pig_meta = {}
+    if redness > 0:
+        face_pc = float(np.sqrt(masks.get_mask(crop, "face-skin").sum()))
+        # `face-oval` is the landmark contour, and it runs noticeably INSIDE the
+        # real skin: measured here it withheld the upper forehead band and both
+        # outer cheeks — 58k px of ordinary, acne-covered skin, and the home of
+        # nearly every mark still surviving at full strength. It exists to keep
+        # RECONSTRUCTION off the ear, which is a mass of ridge and shadow no skin
+        # model can explain. Colour correction has no such failure mode: an ear's
+        # deviation is luminance/structure, which the chroma pass ignores, and
+        # the lift only reaches compact blobs. So the containment is widened for
+        # this stage, while the hairline stays protected by the hair mask.
+        ovr = max(3, int(face_pc * 0.06)) | 1
+        oval_c = cv2.dilate(masks.get_mask(crop, "face-oval"), np.ones((ovr, ovr), np.uint8))
+        skin_c = masks.get_mask(crop, "face-skin") * oval_c
+        hair_c = masks.get_mask(crop, "hair")
+        hpr = max(3, int(face_pc * 0.02)) | 1
+        hair_c = cv2.dilate(hair_c, np.ones((hpr, hpr), np.uint8))
+        # One mask for both halves. `face-pigment-protect` frees exactly the three
+        # pure-geometry parts a colour operator provably cannot damage and keeps
+        # everything else — see the note on that mask kind for what was measured
+        # when the eye region and infraorbital strip were freed instead.
+        pig_judge = np.clip(
+            skin_c - masks.get_mask(crop, "face-pigment-protect") - hair_c, 0.0, 1.0
+        )
+        crop, pig_meta = pigment.even_pigment(crop, pig_judge, face_pc, redness)
+
+    # --- stage B: specular highlights (wet lips) -----------------------------
+    #
+    # Its own stage because it is its own physics: a reflection, not a mark. The
+    # lips are the one surface every other path deliberately withholds, so this
+    # is the only place drool can be reached at all — `_fluid_trails` excludes
+    # them by construction (`orifice == 0`) and the skin detector excludes them
+    # via `face-anatomy`. Measured before this existed: change on a drooling
+    # baby's lips was 0.39 mean / 2.3 max, i.e. nothing.
+    # Two surfaces, two dials, one operator — the physics is identical and the
+    # taste is not. A photographer may want an oily forehead calmed while a
+    # child's lips keep every bit of their shine, or the reverse. They are also
+    # different SCALES: `reduce_specular` derives its gloss radius from the
+    # region's own extent, so a forehead and a lip must not share a call.
+    spec_meta = {}
+    gloss = common.clamp01(params.get("gloss", params.get("strength", 60)))
+    if gloss > 0:
+        lips = masks.get_mask(crop, "face-lips")
+        if lips.max() > 0:
+            crop, spec_meta = specular.reduce_specular(crop, lips, gloss)
+
+    shine_meta = {}
+    shine = common.clamp01(params.get("shine", 0))
+    if shine > 0:
+        skin_s = masks.get_mask(crop, "face-skin") * masks.get_mask(crop, "face-oval")
+        hs = max(3, int(np.sqrt(masks.get_mask(crop, "face-skin").sum()) * 0.02)) | 1
+        surface = np.clip(
+            skin_s
+            - masks.get_mask(crop, "face-pigment-protect")
+            - cv2.dilate(masks.get_mask(crop, "hair"), np.ones((hs, hs), np.uint8)),
+            0.0,
+            1.0,
+        )
+        if surface.max() > 0:
+            crop, sm2 = specular.reduce_specular(crop, surface, shine)
+            shine_meta = {f"skin{k[0].upper()}{k[1:]}": v for k, v in sm2.items()}
+
+    scan = FaceScan(
+        box=box,
+        crop=crop,
+        crop_pre=crop_pre,
+        stage_meta={**pig_meta, **spec_meta, **shine_meta},
+    )
+
+    scan.detection = confidence(crop_pre, spot_params)
+    if scan.detection is None:
+        return scan
+    if float((scan.detection.conf > 0.35).sum()) < 4:
+        scan.quiet = True  # a clean face: the spot half has nothing to do
+        return scan
+
+    # The legacy frequency-separation mode has no repair mask to describe — it
+    # attenuates a band by confidence — so it never pays for the candidate pass.
+    if candidates and str(params.get("mode", "reconstruct")) == "reconstruct":
+        orifice, down_field = _orifice_context(rgb)
+        scan.candidates, scan.repair, scan.counts = _candidates(
+            crop,
+            crop_pre,
+            scan.detection,
+            orifice[y0:y1, x0:x1],
+            down_field[y0:y1, x0:x1],
+            strength,
+            fluids=bool(params.get("fluids", FLUID_TRAILS_ENABLED)),
+        )
+    return scan
+
+
+def _contours(mask: np.ndarray, ox: int, oy: int, w: int, h: int):
+    """Frame-normalised outline of a solid mask.
+
+    Normalised to 0..1 of the frame, not pixels, for one reason that decides
+    whether this feature is honest: what a person marks on a preview has to
+    apply to the FULL-RESOLUTION file, because that is the only version that
+    ever gets delivered. Six decimals is ~0.003px on a 6000px frame, so the
+    round trip back to pixels is exact.
+    """
+    found, _ = cv2.findContours(
+        mask.astype(np.uint8), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
+    )
+    out = []
+    for contour in found:
+        pts = contour.reshape(-1, 2)
+        if len(pts) < 3:
+            continue
+        out.append(
+            [[round((int(x) + ox) / w, 6), round((int(y) + oy) / h, 6)] for x, y in pts]
+        )
+    return out
+
+
+def _selection_mask(shape, polygons) -> np.ndarray:
+    """Rasterise the outlines a person marked.
+
+    `drawContours(FILLED)` is the same primitive `_fill_holes` builds every
+    repair blob with, so filling an outline that came out of `findContours` on
+    such a blob returns that blob exactly — which is what makes "the outline you
+    marked is the region that was rebuilt" a fact about this code and not a
+    hope. test_cleanup_marking.py asserts the round trip.
+    """
+    h, w = shape[:2]
+    out = np.zeros((h, w), np.uint8)
+    polys = []
+    for entry in polygons or []:
+        pts = entry.get("points") if isinstance(entry, dict) else entry
+        if not pts or len(pts) < 3:
+            continue
+        arr = np.empty((len(pts), 1, 2), np.int32)
+        for i, point in enumerate(pts):
+            arr[i, 0, 0] = int(np.rint(float(point[0]) * w))
+            arr[i, 0, 1] = int(np.rint(float(point[1]) * h))
+        polys.append(arr)
+    if polys:
+        cv2.drawContours(out, polys, -1, 1, thickness=cv2.FILLED)
+    return out
+
+
+def _face_boxes(rgb, faces):
+    """One working crop per face, with room for the below-mouth fluid zone."""
+    h, w = rgb.shape[:2]
+    boxes = []
+    for lm in faces:
+        xs = np.array([p.x * w for p in lm])
+        ys = np.array([p.y * h for p in lm])
+        fw = float(np.hypot(
+            (lm[masks.FACE_RIGHT].x - lm[masks.FACE_LEFT].x) * w,
+            (lm[masks.FACE_RIGHT].y - lm[masks.FACE_LEFT].y) * h,
+        ))
+        if fw < 40:
+            continue
+        # margin: chin, forehead and the below-mouth fluid zone included
+        x0 = max(0, int(xs.min() - fw * 0.35))
+        x1 = min(w, int(xs.max() + fw * 0.35))
+        y0 = max(0, int(ys.min() - fw * 0.35))
+        y1 = min(h, int(ys.max() + fw * 0.65))
+        if x1 - x0 < 48 or y1 - y0 < 48:
+            continue
+        boxes.append((x0, y0, x1, y1))
+    return boxes
+
+
+def detect(rgb, params: dict) -> dict:
+    """Every candidate in the frame, outlined and explained — the marking pass.
+
+    Same detector, same gates, same repair geometry as `apply`: this calls the
+    identical helpers, so the outline a person marks IS the region that would be
+    rebuilt. Rejected candidates are included, each with the measurement that
+    rejected it, so a veto can be overruled by the one party entitled to
+    overrule it — the person looking at the photograph.
+    """
+    h, w = rgb.shape[:2]
+    faces = masks._face_landmarks(rgb) or []
+    if len(faces) >= 2:
+        boxes = _face_boxes(rgb, faces)
+    else:
+        boxes = [(0, 0, w, h)]
+
+    items = []
+    notes: dict = {}
+    for face_index, (fx0, fy0, fx1, fy1) in enumerate(boxes):
+        scan = _scan_face(rgb[fy0:fy1, fx0:fx1], params)
+        if scan is None:
+            notes["faceTooSmall"] = notes.get("faceTooSmall", 0) + 1
+            continue
+        if scan.detection is None:
+            notes["noSkinRegion"] = notes.get("noSkinRegion", 0) + 1
+            continue
+        ox = fx0 + scan.box[0]
+        oy = fy0 + scan.box[1]
+        for key, value in scan.counts.items():
+            notes[key] = notes.get(key, 0) + int(value)
+        for index, cand in enumerate(scan.candidates):
+            contours = _contours(cand.mask, ox, oy, w, h)
+            if not contours:
+                continue
+            ys, xs = np.nonzero(cand.mask)
+            items.append({
+                "id": f"{face_index}-{index}",
+                "face": face_index,
+                "kind": cand.kind,
+                "verdict": cand.verdict,
+                "contours": contours,
+                "bbox": [
+                    round((int(xs.min()) + ox) / w, 6),
+                    round((int(ys.min()) + oy) / h, 6),
+                    round((int(xs.max()) + ox) / w, 6),
+                    round((int(ys.max()) + oy) / h, 6),
+                ],
+                "facts": cand.facts,
+            })
+
+    return {
+        "width": w,
+        "height": h,
+        "faces": len(faces),
+        "items": items,
+        "notes": notes,
+    }
+
+
 def apply(rgb, params: dict):
-    """params: { strength: 0..100 }"""
-    strength = common.clamp01(params.get("strength", 60))
-    if strength <= 0:
+    """params: { redness: 0..100, spots: 0..100 }  (`strength` = master fallback)
+
+    Two operators, two dials — see `_params` for why one dial could not work.
+
+    `params["selection"]` switches the spot half from automatic to chosen: it
+    carries the outlines a person marked in the lab (frame-normalised, from
+    `detect`), and exactly those are rebuilt. An EMPTY polygon list is a real
+    answer — "I looked, and none of them" — and is deliberately different from
+    the key being absent, which means "decide for me". The colour half is not
+    affected either way: uneven pigment is a field, not a set of objects, so
+    there is nothing there to mark.
+    """
+    redness, spots, _ = _params(params)
+    selection = params.get("selection")
+    marked = isinstance(selection, dict) and selection.get("polygons") is not None
+    if redness <= 0 and spots <= 0 and not marked:
         return rgb, {"spotsRemoved": 0}
+
+    # A marked selection is rasterised ONCE, against the whole frame, and the
+    # per-face crops then take their slice of it. Doing it here rather than per
+    # crop is what keeps the coordinates trivially correct in the group case:
+    # the polygons are frame-normalised, so they need to meet the frame exactly
+    # once and never again.
+    sel_mask = _selection_mask(rgb.shape, selection.get("polygons")) if marked else None
 
     # A group photo is N faces, not one big one. face_d here is sqrt of the
     # TOTAL skin area — four ~250px children read as one 557px face, and every
@@ -787,58 +1501,89 @@ def apply(rgb, params: dict):
     # composites progressively so overlapping crops keep earlier heals.
     faces = masks._face_landmarks(rgb)
     if len(faces) >= 2:
-        h, w = rgb.shape[:2]
         out = rgb.copy()
         totals = {"spotsRemoved": 0, "correctedPx": 0, "lineVetoed": 0,
-                  "shadingVetoed": 0, "wetTrails": 0, "fluidTrails": 0}
-        for lm in faces:
-            xs = np.array([p.x * w for p in lm])
-            ys = np.array([p.y * h for p in lm])
-            fw = float(np.hypot(
-                (lm[masks.FACE_RIGHT].x - lm[masks.FACE_LEFT].x) * w,
-                (lm[masks.FACE_RIGHT].y - lm[masks.FACE_LEFT].y) * h,
-            ))
-            if fw < 40:
-                continue
-            # margin: chin, forehead and the below-mouth fluid zone included
-            x0 = max(0, int(xs.min() - fw * 0.35))
-            x1 = min(w, int(xs.max() + fw * 0.35))
-            y0 = max(0, int(ys.min() - fw * 0.35))
-            y1 = min(h, int(ys.max() + fw * 0.65))
-            if x1 - x0 < 48 or y1 - y0 < 48:
-                continue
-            healed_sub, m = _apply_one(out[y0:y1, x0:x1], params)
+                  "shadingVetoed": 0, "wetTrails": 0, "fluidTrails": 0,
+                  "pigmentPx": 0, "protectedSpotPx": 0, "selected": 0}
+        for x0, y0, x1, y1 in _face_boxes(rgb, faces):
+            healed_sub, m = _apply_one(
+                out[y0:y1, x0:x1],
+                params,
+                sel_mask=None if sel_mask is None else sel_mask[y0:y1, x0:x1],
+            )
             out[y0:y1, x0:x1] = healed_sub
             for key in totals:
                 totals[key] += int(m.get(key, 0))
         totals["faces"] = len(faces)
+        if sel_mask is None:
+            totals.pop("selected", None)
         return out, totals
 
-    return _apply_one(rgb, params)
+    return _apply_one(rgb, params, sel_mask=sel_mask)
 
 
-def _apply_one(rgb, params: dict):
-    """The single-face pipeline: every threshold scales from THIS face."""
-    strength = common.clamp01(params.get("strength", 60))
-    skin = masks.get_mask(rgb, "face-skin")
-    face_d = float(np.sqrt(skin.sum()))
-    if face_d < MIN_FACE_PX:
+def _params(params: dict):
+    """Split the request into the two operators' own strengths.
+
+    One slider driving both was the wrong control, and it cost the tool its whole
+    result in practice. The two halves have OPPOSITE risk profiles:
+
+      pigment evening  cannot write structure, cannot flatten a crease, passes
+                       test_blush at full strength. Safe at 100.
+      spot healing     recall ~30% and a known missing mid-frequency band, so
+                       what it does repair can still read as a patch. Needs a
+                       conservative hand.
+
+    A single dial therefore has no good setting: measured on the reference acne
+    face, the shipped default of 60 threw away more than half the achievable
+    improvement (marks -17% against -44%) purely to keep the risky half calm.
+
+    `strength` stays supported as a master fallback so every existing recipe and
+    preset keeps working; `redness` and `spots` override it when present.
+    """
+    master = params.get("strength", 60)
+    redness_raw = params.get("redness", master)
+    spots_raw = params.get("spots", master)
+    return (
+        common.clamp01(redness_raw),
+        common.clamp01(spots_raw),
+        {**params, "strength": spots_raw},
+    )
+
+
+def _apply_one(rgb, params: dict, sel_mask=None):
+    """The single-face pipeline: every threshold scales from THIS face.
+
+    `sel_mask` is a crop-aligned 0/1 array when a person marked what to treat.
+    It REPLACES detection's verdict about which pixels to rebuild, and nothing
+    else: the colour stages, the skin model, the donor search and the colour
+    harmonisation are the same code doing the same thing, because none of them
+    is a judgement about what counts as a blemish.
+    """
+    scan = _scan_face(rgb, params, candidates=sel_mask is None)
+    if scan is None:
         return rgb, {"spotsRemoved": 0, "faceTooSmall": 1}
 
-    box = common.region_box(skin, int(face_d * 0.25), rgb.shape)
-    if box is None:
-        return rgb, {"spotsRemoved": 0}
-    x0, y0, x1, y1 = box
-    crop = rgb[y0:y1, x0:x1]
+    x0, y0, x1, y1 = scan.box
+    crop, crop_pre = scan.crop, scan.crop_pre
 
-    got = confidence(crop, params)
-    if got is None:
-        return rgb, {"spotsRemoved": 0}
-    conf, region, face_c, model = got
+    # Stage A already produced a real result, so no later early-exit may return
+    # the untouched frame — that silently threw the colour correction away.
+    def _composited(extra: dict):
+        merged = rgb.copy()
+        merged[y0:y1, x0:x1] = crop
+        return merged, {**extra, **scan.stage_meta}
 
-    area = float((conf > 0.35).sum())
-    if area < 4:
-        return rgb, {"spotsRemoved": 0, "correctedPx": 0}
+    if scan.detection is None:
+        return _composited({"spotsRemoved": 0})
+    conf, region, face_c, model = scan.detection
+
+    # A clean face: nothing for the spot half to do. Kept as an early exit
+    # because it also withholds the fluid pass, which is where that pass has
+    # always sat — a marked selection is the one thing that overrules it, since
+    # someone looked at this face and pointed at something.
+    if scan.quiet and sel_mask is None:
+        return _composited({"spotsRemoved": 0, "correctedPx": 0})
 
     # --- healing -----------------------------------------------------------
     if str(params.get("mode", "reconstruct")) == "reconstruct":
@@ -847,34 +1592,26 @@ def _apply_one(rgb, params: dict):
         # should be under it instead.
         #
         # This gives up the structural blush guarantee that frequency blending
-        # had (low was untouched by construction). The size gate above is what
+        # had (low was untouched by construction). The size gate is what
         # replaces it: we only ever reconstruct marks small enough that the ring
         # feeding the diffusion is the same patch of skin — so local blush is
         # reproduced, not averaged away. test_blush.py holds this honest.
-        core = hysteresis_core(conf)
-        orifice, down_field = _orifice_context(rgb)
-        core, line_vetoed, shading_vetoed, wet_trails = _structure_gate(
-            crop, core, face_c, model.novelty, _novelty_bar(strength), region,
-            orifice=orifice[y0:y1, x0:x1], down_field=down_field[y0:y1, x0:x1],
-        )
-        repair = decide(conf, face_c, core)
-        # fluids live in the orifice-adjacent band the generic detector cannot
-        # judge — they get their own pass, merged into the same healing
-        skin_zone = masks.get_mask(crop, "face-skin") * masks.get_mask(crop, "face-oval")
-        fluid, fluid_found = _fluid_trails(
-            crop, face_c, orifice[y0:y1, x0:x1], down_field[y0:y1, x0:x1], skin_zone
-        )
-        if fluid_found:
-            repair = np.maximum(repair, fluid)
-        if not repair.any():
-            return rgb, {
-                "spotsRemoved": 0,
-                "correctedPx": 0,
-                "lineVetoed": line_vetoed,
-                "shadingVetoed": shading_vetoed,
-                "wetTrails": wet_trails,
-                "fluidTrails": fluid_found,
-            }
+        if sel_mask is not None:
+            # exactly what was marked. `_fill_holes` because a repair region has
+            # to be solid — a ragged mask makes reconstruction sample the blemish
+            # in order to repair the blemish, and the mark survives its own
+            # removal (see `decide`).
+            # `sel_mask` is in the coordinates of the frame THIS call received;
+            # the working crop is a box inside it.
+            repair = _fill_holes((sel_mask[y0:y1, x0:x1] > 0).astype(np.uint8))
+            counts = {"selected": max(0, int(cv2.connectedComponents(repair, 8)[0]) - 1)}
+        else:
+            # already computed by the scan — the automatic mask IS the union of
+            # the candidates it accepted, so there is nothing to recompute here
+            repair = scan.repair
+            counts = scan.counts
+        if repair is None or not repair.any():
+            return _composited({"spotsRemoved": 0, "correctedPx": 0, **counts})
         healed = healing.inpaint_texture(
             crop, repair, (region > 0.35).astype(np.uint8)
         )
@@ -893,27 +1630,23 @@ def _apply_one(rgb, params: dict):
             face_c,
             color_harmonization.HarmonizationConfig.from_params(params),
         )
-        out_crop = harmonized.image
         out = rgb.copy()
-        out[y0:y1, x0:x1] = out_crop
-        n, _, stats, _ = cv2.connectedComponentsWithStats(repair, connectivity=8)
+        out[y0:y1, x0:x1] = harmonized.image
+        n, _, _stats, _ = cv2.connectedComponentsWithStats(repair, connectivity=8)
         return out, {
             "spotsRemoved": max(0, n - 1),
             "correctedPx": int((repair > 0).sum()),
-            "lineVetoed": line_vetoed,
-            "shadingVetoed": shading_vetoed,
-            "wetTrails": wet_trails,
-            "fluidTrails": fluid_found,
+            **counts,
             "colorHarmonization": harmonized.metadata,
+            **scan.stage_meta,
         }
-    else:
-        # low is reassembled untouched -> natural colour cannot be neutralised.
-        # mid is where the blemish lives -> suppressed by confidence.
-        # high is texture -> kept almost entirely, so there is no flat patch.
-        c = conf[..., None]
-        healed_lab = model.low + model.mid * (1.0 - c) + model.high * (1.0 - c * 0.30)
-        healed_lab = np.clip(healed_lab, 0, 255).astype(np.uint8)
-        healed = cv2.cvtColor(healed_lab, cv2.COLOR_LAB2RGB)
+
+    # low is reassembled untouched -> natural colour cannot be neutralised.
+    # mid is where the blemish lives -> suppressed by confidence.
+    # high is texture -> kept almost entirely, so there is no flat patch.
+    c = conf[..., None]
+    healed_lab = model.low + model.mid * (1.0 - c) + model.high * (1.0 - c * 0.30)
+    healed = cv2.cvtColor(np.clip(healed_lab, 0, 255).astype(np.uint8), cv2.COLOR_LAB2RGB)
 
     blend = np.clip(conf, 0.0, 1.0)[..., None]
     out_crop = (crop.astype(np.float32) * (1 - blend) + healed.astype(np.float32) * blend)
@@ -921,7 +1654,10 @@ def _apply_one(rgb, params: dict):
     out = rgb.copy()
     out[y0:y1, x0:x1] = np.clip(out_crop, 0, 255).astype(np.uint8)
 
-    n, _, stats, _ = cv2.connectedComponentsWithStats(
+    n, _, _stats, _ = cv2.connectedComponentsWithStats(
         (conf > 0.35).astype(np.uint8), connectivity=8
     )
-    return out, {"spotsRemoved": max(0, n - 1), "correctedPx": int(area)}
+    return out, {
+        "spotsRemoved": max(0, n - 1),
+        "correctedPx": int((conf > 0.35).sum()),
+    }

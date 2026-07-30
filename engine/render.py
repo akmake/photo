@@ -157,7 +157,15 @@ def render(img, recipe_tools):
             spec = t.get("mask")
             if spec and t["toolId"] in FRAME_ONLY:
                 spec = None  # frame-relative tool: a region mask makes artefacts
-            out, meta = fn(rgb, t.get("params", {}))
+            params = t.get("params", {})
+            # Per-photo state that is not a slider: the outlines a person marked
+            # in the lab's detection view. It rides the recipe entry rather than
+            # `params` because params are numbers by contract (see types.ts), and
+            # it must reach the EXPORT — a selection that only worked in the
+            # preview would be a control that lies about what gets delivered.
+            if t.get("selection") is not None:
+                params = {**params, "selection": t["selection"]}
+            out, meta = fn(rgb, params)
             if spec:
                 m = _region_mask(rgb, spec)[..., None]
                 out = (rgb.astype(np.float32) * (1.0 - m)
@@ -173,6 +181,35 @@ def render(img, recipe_tools):
                 {"tool": t["toolId"], "ms": int((time.time() - t0) * 1000), "meta": meta}
             )
         return common.to_pil(rgb), {"steps": steps}
+    finally:
+        masks.clear_source()
+
+
+def detect_cleanup(img, params, recipe_tools=()):
+    """What `skin-cleanup` would find in this frame, outlined — for the lab.
+
+    The frame it measures is the frame the tool will actually RECEIVE, not the
+    file: `face-retouch` runs at order 8 and `skin-cleanup` at 10, so with both
+    enabled the outlines have to be measured on the retouched frame or they
+    describe a picture that no longer exists by the time the healer runs.
+
+    Masks still come from the pristine original, exactly as in `render` — the
+    tool being marked and the tool being applied must agree about where the face
+    is, and that is the whole reason `set_source` exists.
+    """
+    order = TOOLS["skin-cleanup"][1]
+    prefix = [
+        t
+        for t in recipe_tools
+        if t.get("enabled", True)
+        and t.get("toolId") in TOOLS
+        and TOOLS[t["toolId"]][1] < order
+    ]
+    frame = common.to_np(render(img, prefix)[0]) if prefix else common.to_np(img)
+
+    masks.set_source(common.to_np(img))
+    try:
+        return cleanup.detect(frame, params)
     finally:
         masks.clear_source()
 
