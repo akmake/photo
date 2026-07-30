@@ -1,29 +1,38 @@
 /* Navigation model.
  *
- * Two axes, and they are deliberately different things:
+ * ONE axis in the rail, and it is the BUSINESS: today, projects, clients,
+ * calendar, settings. That is where the photographer is between sessions.
  *
- *  SECTIONS (sidebar)  — where in the business you are. Persistent.
- *  STAGES  (tabs)      — where in ONE project's lifecycle you are. Ordered,
- *                        and a project moves through them left to right.
+ * The work itself — import, cull, edit, album, deliver — does NOT appear here.
+ * It lives inside a project, because it is only ever true of one project at a
+ * time. The old model listed those stages BOTH in the rail and as tabs, so two
+ * routes led to the same screen and no mental model could form. See
+ * docs/UX-SKELETON.md §1.4.
  *
- * The stage list is the product's spine: upload -> cull -> client picks ->
- * EDIT -> album. `gallery-edit` is the stage this application actually
- * performs; the rest describe work that happens around it.
+ * There is deliberately no "tasks" item: a task always belongs to a project or a
+ * client, so it lives in Today's queue and inside the project. A five-item rail
+ * stays readable; a twelve-item one does not.
  */
 
 export type SectionId =
-  | 'home'
+  /* the business axis — what the rail shows */
+  | 'today'
   | 'projects'
+  | 'project'
+  | 'clients'
+  | 'calendar'
+  | 'settings'
+  /* Not rail destinations. Still reachable by hash while the screens that will
+   * absorb them are built — the tools are scheduled last. */
+  | 'home'
   | 'galleries'
   | 'culling'
   | 'editing'
   | 'lab'
   | 'compare'
   | 'albums'
-  | 'clients'
   | 'orders'
-  | 'reports'
-  | 'settings';
+  | 'reports';
 
 export type StageId =
   | 'client-status'
@@ -37,24 +46,17 @@ export interface SectionDef {
   id: SectionId;
   label: string;
   icon: string;
+  /** Pushed to the foot of the rail — settings is not a peer of the work. */
+  foot?: boolean;
 }
 
+/** The rail. Five items, and every one is a place in the business. */
 export const SECTIONS: SectionDef[] = [
-  { id: 'home', label: 'דף הבית', icon: 'home' },
+  { id: 'today', label: 'היום', icon: 'home' },
   { id: 'projects', label: 'פרויקטים', icon: 'folder' },
-  { id: 'galleries', label: 'גלריות', icon: 'gallery' },
-  { id: 'culling', label: 'סינון גלריה', icon: 'filter' },
-  { id: 'editing', label: 'עיבוד גלריה', icon: 'sliders' },
-  // Not part of a project's lifecycle: a bench for testing one tool on one
-  // photo, with the engine's own report of what it did.
-  { id: 'lab', label: 'מעבדה', icon: 'lab' },
-  // Reads an existing edit instead of producing one.
-  { id: 'compare', label: 'קריאת עריכה', icon: 'compare' },
-  { id: 'albums', label: 'עיצוב אלבומים', icon: 'book' },
   { id: 'clients', label: 'לקוחות', icon: 'users' },
-  { id: 'orders', label: 'הזמנות ומוצרים', icon: 'bag' },
-  { id: 'reports', label: 'דוחות', icon: 'chart' },
-  { id: 'settings', label: 'הגדרות', icon: 'gear' },
+  { id: 'calendar', label: 'יומן', icon: 'calendar' },
+  { id: 'settings', label: 'הגדרות', icon: 'gear', foot: true },
 ];
 
 export type StageState = 'done' | 'active' | 'idle';
@@ -65,16 +67,20 @@ export interface StageDef {
   icon: string;
 }
 
+/* The stages of one project. Rendered as the measure rail INSIDE a project —
+ * never in the shell. */
 export const STAGES: StageDef[] = [
   { id: 'client-status', label: 'סטטוס לקוח', icon: 'users' },
-  { id: 'gallery-upload', label: 'העלאת גלריה', icon: 'upload' },
-  { id: 'gallery-cull', label: 'סינון גלריה', icon: 'filter' },
+  { id: 'gallery-upload', label: 'ייבוא', icon: 'upload' },
+  { id: 'gallery-cull', label: 'בחירה', icon: 'filter' },
   { id: 'gallery-picked', label: 'תמונות שנבחרו', icon: 'heart' },
-  { id: 'gallery-edit', label: 'עיבוד גלריה', icon: 'sliders' },
-  { id: 'album-design', label: 'עיצוב אלבום', icon: 'book' },
+  { id: 'gallery-edit', label: 'עריכה', icon: 'sliders' },
+  { id: 'album-design', label: 'אלבום', icon: 'book' },
 ];
 
-/** The stage a sidebar section drops you into, when there is one. */
+/** Legacy hash routes that still drop into a stage. Nothing in the rail maps
+ *  here any more; kept so existing links resolve until the project screen
+ *  absorbs them. */
 export const SECTION_TO_STAGE: Partial<Record<SectionId, StageId>> = {
   galleries: 'gallery-upload',
   culling: 'gallery-cull',

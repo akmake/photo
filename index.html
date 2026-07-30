@@ -1,18 +1,32 @@
 <!doctype html>
 <!--
-  dir="ltr" with lang="he" is deliberate, not a mistake.
+  The document stays dir="ltr" while the NEW shell sets dir="rtl" on its own
+  root. The screens built before the design direction (album, lab, the old
+  studio screens) were laid out against an LTR frame with RTL islands; flipping
+  the document would mirror all of them at once with nothing verified. So the
+  flip travels with the rewrite, screen by screen, instead of landing as one
+  unverifiable change.
 
-  The FRAME is left-to-right: the sidebar sits on the left and the project
-  stages run upload -> cull -> pick -> edit -> album from left to right, because
-  that strip is a process and the design reads it as a timeline. Every block of
-  Hebrew inside the frame sets `direction: rtl` for itself (see shell.css), so
-  text, numbers and punctuation are correct while the layout stays as designed.
+  Fonts: IBM Plex Sans Hebrew (interface) + IBM Plex Mono (filenames, counters,
+  EXIF, every figure that lines up in a column). TODO before packaging —
+  self-host the woff2 files: an installed desktop app must not depend on a CDN
+  to render its own text.
+
+  The title lost "מערכת ההפעלה של הצלמות": the market is general and the copy is
+  masculine now, and the tagline claimed a category that four of twelve sections
+  actually delivered.
 -->
 <html lang="he" dir="ltr">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>TEZA AI — מערכת ההפעלה של הצלמות</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Hebrew:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap"
+      rel="stylesheet"
+    />
+    <title>TEZA</title>
   </head>
   <body>
     <div id="root"></div>

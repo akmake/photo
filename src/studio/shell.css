@@ -1,19 +1,21 @@
-/* The application frame: sidebar, top bar, stage tabs.
+/* The application frame: rail, top bar, content.
  *
- * RTL note — the shell is laid out LTR on purpose while every string inside it
- * is Hebrew. That is what the design calls for and it is not an oversight: the
- * stage strip is a PROCESS (upload -> cull -> pick -> edit -> album) and the
- * mockup runs that process left to right, so the arrow of time and the arrow of
- * reading point in opposite directions. Text blocks are `direction: rtl`
- * individually; the frame is not.
+ * The shell root sets dir="rtl", so the rail lands on the START edge (right)
+ * without a single directional override — the grid's first column simply is the
+ * right one. Everything here uses logical properties for the same reason; the
+ * old sheet flipped chevrons with scaleX(-1) and rotated the toggle 180deg
+ * because the frame was LTR and the content was not.
+ *
+ * Separation is hairline and space. No cards, no shadows: hierarchy comes from
+ * height on the grey ramp (see design/tokens.css).
  */
 
 .shell {
   display: grid;
-  grid-template-columns: var(--sidebar-w) 1fr;
+  grid-template-columns: var(--sidebar-w) minmax(0, 1fr);
   /* The implicit row defaults to `auto`, which grows past the container instead
-   * of being clamped to it — so a tall child (the editor canvas) pushed the
-   * whole frame off screen even though .shell was height:100%. */
+   * of being clamped to it — a tall child (a canvas) would push the whole frame
+   * off screen even though .shell is height:100%. */
   grid-template-rows: minmax(0, 1fr);
   height: 100%;
   overflow: hidden;
@@ -21,110 +23,93 @@
 }
 
 .shell.shell-compact {
-  grid-template-columns: var(--sidebar-compact-w) 1fr;
+  grid-template-columns: var(--sidebar-compact-w) minmax(0, 1fr);
 }
 
-/* ------------------------------------------------------------- sidebar */
+/* ---------------------------------------------------------------- rail */
 
-.sidebar {
+/* THE CHROME SITS AT THE DARK END OF THE RAMP, ALWAYS.
+ *
+ * Two attempts to separate the rail from the page by tuning greys failed for
+ * the same reason: 4% between two light surfaces is not a boundary, it is a
+ * smudge. The frame is the ROOM and the content is the table lit inside it —
+ * so the rail and the top bar take the dark end and the work takes the light
+ * one, whatever surface the screen itself is using. It is the concept applied
+ * literally, and it is the only version of it that can actually be seen.
+ *
+ * These use the raw ramp rather than the semantic tokens on purpose: the chrome
+ * does not follow the content's surface, it frames it.
+ *
+ * The divider goes on the edge that FACES THE WORK — inline-END in an RTL
+ * frame. The first RTL pass kept the LTR `inline-start`, which put the only
+ * separator against the outside of the window, where it divided nothing. */
+.rail {
   display: flex;
+  flex-direction: column;
+  gap: 2px;
   min-height: 0;
   overflow-y: auto;
-  flex-direction: column;
-  background: var(--card);
-  border-inline-end: 1px solid var(--line);
-  padding: 16px 12px 14px;
-  gap: 4px;
+  padding: var(--s3) var(--s2) var(--s3);
+  background: var(--n-12);
+  border-inline-end: 1px solid var(--n-04);
 }
 
-.logo-row {
-  min-height: 52px;
+.rail-head {
   display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 8px;
+  align-items: center;
+  gap: var(--s2);
+  height: 40px;
+  margin-bottom: var(--s4);
+  padding-inline: 4px;
 }
 
-.logo {
-  padding: 2px 8px 16px;
-  direction: rtl;
-  min-width: 0;
-}
-
-.logo-mark {
-  font-size: 27px;
-  font-weight: 800;
-  letter-spacing: 0.5px;
-  color: var(--ink);
-  display: flex;
-  align-items: baseline;
-  gap: 7px;
-  direction: ltr;
-}
-
-.logo-mark em {
-  font-style: italic;
-  font-weight: 600;
-  color: var(--accent);
-  font-size: 24px;
-}
-
-.logo-sub {
-  font-size: 11.5px;
-  color: var(--ink-3);
-  margin-top: 4px;
-}
-
-.sidebar-toggle {
+.mark {
   width: 30px;
   height: 30px;
   flex: 0 0 auto;
   display: grid;
   place-items: center;
-  border: 1px solid var(--line);
-  border-radius: 9px;
-  color: var(--ink-3);
-  background: var(--card);
+  border-radius: var(--r-sm);
+  background: var(--accent);
+  color: var(--on-solid);
+  font-size: var(--t-sm);
+  font-weight: 600;
 }
 
-.sidebar-toggle:hover {
-  color: var(--ink);
-  background: var(--card-2);
+.mark-name {
+  font-size: var(--t-lg);
+  font-weight: 600;
+  color: var(--n-91);
+  letter-spacing: 0.02em; /* Latin only — Hebrew never takes tracking */
 }
 
-.sidebar-toggle svg {
-  transform: rotate(180deg);
-}
-
-.shell-compact .sidebar {
-  padding-inline: 10px;
-}
-
-.shell-compact .logo-row {
-  justify-content: center;
-  flex-direction: column;
-  align-items: center;
-  gap: 4px;
-  margin-bottom: 8px;
-}
-
-.shell-compact .logo {
-  padding: 0;
-}
-
-.shell-compact .logo-mark {
-  width: 34px;
-  height: 34px;
+.rail-toggle {
+  margin-inline-start: auto;
+  width: 24px;
+  height: 24px;
   display: grid;
   place-items: center;
-  border-radius: 10px;
-  background: var(--accent);
-  color: #fff;
-  font-size: 20px;
+  border-radius: var(--r-sm);
+  color: var(--n-55);
 }
 
-.shell-compact .sidebar-toggle svg {
-  transform: none;
+.rail-toggle:hover {
+  color: var(--n-91);
+  background: var(--n-16);
+}
+
+.shell-compact .rail {
+  padding-inline: 6px;
+}
+
+.shell-compact .rail-head {
+  flex-direction: column;
+  height: auto;
+  gap: 6px;
+}
+
+.shell-compact .rail-toggle {
+  margin-inline-start: 0;
 }
 
 .shell-compact .nav-item {
@@ -136,220 +121,130 @@
   display: none;
 }
 
-.storage-compact {
-  border: 1px solid var(--line);
-  background: var(--card-2);
-}
-
 .nav-item {
+  position: relative;
   display: flex;
   align-items: center;
-  gap: 12px;
-  height: 42px;
-  padding: 0 12px;
-  border-radius: 10px;
-  color: var(--ink-2);
-  font-size: 14px;
-  font-weight: 500;
+  gap: var(--s3);
   width: 100%;
+  height: 44px;
+  padding: 0 var(--s3);
+  border-radius: var(--r-sm);
+  color: var(--n-72);
+  font-size: var(--t-md);
   text-align: start;
-  transition: background 0.14s, color 0.14s;
+  transition: color 0.09s ease-out, background 0.09s ease-out;
 }
 
 .nav-item svg {
   flex: 0 0 auto;
-  opacity: 0.85;
+  opacity: 0.9;
 }
 
 .nav-item:hover {
-  background: var(--card-2);
-  color: var(--ink);
+  color: var(--n-91);
+  background: var(--n-16);
 }
 
+/* Active = the item rises to the PAGE surface (you are standing on the content)
+ * plus a 2px copper edge on the side facing that content. Not a filled coloured
+ * pill: a standing block of colour in the corner of the eye competes with the
+ * photograph being judged. */
 .nav-item.on {
-  background: var(--accent-soft);
-  color: var(--accent-ink);
-  font-weight: 700;
+  color: var(--n-91);
+  font-weight: 500;
+  background: var(--n-16);
+}
+
+.nav-item.on:hover {
+  background: var(--n-16);
 }
 
 .nav-item.on svg {
+  color: var(--acc-ink-dark);
   opacity: 1;
 }
 
-.sidebar-foot {
-  margin-top: auto;
-  display: grid;
-  gap: 12px;
-  padding-top: 16px;
-}
-
-.storage {
-  border: 1px solid var(--line);
-  border-radius: var(--r);
-  padding: 14px;
-  background: var(--card-2);
-  direction: rtl;
-}
-
-.storage-head {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--ink-2);
-}
-
-.meter {
-  height: 6px;
-  border-radius: 999px;
-  background: var(--line);
-  margin: 12px 0 8px;
-  overflow: hidden;
-}
-
-.meter > span {
-  display: block;
-  height: 100%;
-  border-radius: 999px;
-  background: var(--accent);
-}
-
-.storage-note {
-  font-size: 12px;
-  color: var(--ink-3);
-}
-
-/* --------------------------------------------------------------- main */
-
-.main {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-  min-height: 0;
-  height: 100%;
-  overflow: hidden;
-}
-
-.topbar {
-  height: var(--topbar-h);
-  flex: 0 0 auto;
-  display: flex;
-  align-items: center;
-  gap: 16px;
-  padding: 0 22px;
-  background: var(--card);
-  border-bottom: 1px solid var(--line);
-}
-
-.back {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  color: var(--ink-2);
-  font-size: 13.5px;
-  border-radius: var(--r-sm);
-  padding: 7px 10px;
-  direction: rtl;
-}
-
-.back:hover {
-  background: var(--card-2);
-  color: var(--ink);
-}
-
-.back svg {
-  transform: scaleX(-1);
-}
-
-.topbar-title {
-  flex: 1;
-  text-align: center;
-  font-size: 18px;
-  font-weight: 700;
-  direction: rtl;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.topbar-right {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.icon-btn {
-  width: 38px;
-  height: 38px;
-  display: grid;
-  place-items: center;
-  border-radius: 50%;
-  color: var(--ink-2);
-  border: 1px solid var(--line);
-  position: relative;
-  background: var(--card);
-}
-
-.icon-btn:hover {
-  background: var(--card-2);
-  color: var(--ink);
-}
-
-.dot {
+.nav-item.on::after {
+  content: '';
   position: absolute;
-  top: -3px;
-  inset-inline-end: -3px;
-  min-width: 17px;
-  height: 17px;
-  padding: 0 4px;
-  border-radius: 999px;
-  background: var(--accent);
-  color: #fff;
-  font-size: 10.5px;
-  font-weight: 700;
-  display: grid;
-  place-items: center;
-  border: 2px solid var(--card);
+  inset-inline-end: -8px;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: var(--acc-mark);
 }
 
-.who {
+.shell-compact .nav-item.on::after {
+  inset-inline-end: -6px;
+}
+
+.rail-foot {
+  margin-top: auto;
+  padding-top: var(--s2);
+  border-top: 1px solid var(--n-22);
+}
+
+/* The top bar was removed; search and the account live in the rail now. */
+
+.rail-search {
   display: flex;
   align-items: center;
-  gap: 9px;
-  padding: 4px 10px 4px 4px;
-  border-radius: 999px;
-  direction: rtl;
-  color: var(--ink-2);
-  font-size: 14px;
-  font-weight: 600;
+  gap: var(--s3);
+  width: 100%;
+  height: 38px;
+  padding: 0 var(--s3);
+  margin-bottom: var(--s3);
+  border: 1px solid var(--n-30);
+  border-radius: var(--r-sm);
+  background: var(--n-08);
+  color: var(--n-55);
+  font-size: var(--t-sm);
 }
 
-.who:hover {
-  background: var(--card-2);
+.rail-search:hover {
+  border-color: var(--n-55);
+  color: var(--n-91);
+}
+
+.rail-search .key {
+  margin-inline-start: auto;
+  font-size: var(--t-xs);
+  color: var(--n-55);
+}
+
+.shell-compact .rail-search {
+  justify-content: center;
+  padding: 0;
+}
+
+.shell-compact .rail-search span {
+  display: none;
 }
 
 .avatar {
-  width: 34px;
-  height: 34px;
-  border-radius: 50%;
-  object-fit: cover;
-  background: var(--accent-soft);
+  width: 24px;
+  height: 24px;
+  flex: 0 0 auto;
   display: grid;
   place-items: center;
-  color: var(--accent-ink);
-  font-weight: 700;
-  font-size: 13px;
-  flex: 0 0 auto;
+  border: 1px solid var(--n-30);
+  border-radius: 50%;
+  color: var(--n-72);
+  font-size: var(--t-xs);
 }
 
-/* --------------------------------------------------------- stage tabs */
+.nav-item.who {
+  color: var(--n-72);
+}
+
+/* --------------------------------------------------- legacy stage tabs */
 
 .stages {
   flex: 0 0 auto;
   display: flex;
-  gap: 4px;
-  padding: 0 22px;
+  gap: var(--s1);
+  padding: 0 var(--s4);
   background: var(--card);
   border-bottom: 1px solid var(--line);
   overflow-x: auto;
@@ -363,15 +258,13 @@
 .stage-tab {
   display: flex;
   align-items: center;
-  gap: 9px;
-  height: 50px;
-  padding: 0 15px;
-  color: var(--ink-2);
-  font-size: 14px;
-  font-weight: 600;
+  gap: var(--s2);
+  height: 38px;
+  padding: 0 var(--s3);
+  color: var(--ink-3);
+  font-size: var(--t-md);
   white-space: nowrap;
-  border-bottom: 2.5px solid transparent;
-  direction: rtl;
+  border-bottom: 2px solid transparent;
 }
 
 .stage-tab:hover {
@@ -379,28 +272,33 @@
 }
 
 .stage-tab.on {
-  color: var(--accent-ink);
-  border-bottom-color: var(--accent);
-}
-
-.stage-tab.on svg {
-  color: var(--accent);
+  color: var(--ink);
+  font-weight: 500;
+  border-bottom-color: var(--acc-mark);
 }
 
 /* ------------------------------------------------------------ content */
+
+.main {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  overflow: hidden;
+}
 
 .content {
   flex: 1 1 auto;
   min-height: 0;
   overflow-y: auto;
-  padding: 20px 22px 30px;
-  direction: rtl;
+  padding: var(--s4);
 }
 
-/* A flex item's height is not a definite length for percentage resolution, so
- * a `height: 100%` child inside it falls back to auto and grows to its content
- * — which is how a 1200px canvas pushed the filmstrip off the screen. Making
- * this a grid with a minmax(0, 1fr) row gives the child a real box to fill. */
+/* A flex item's height is not a definite length for percentage resolution, so a
+ * `height: 100%` child inside it falls back to auto and grows to its content —
+ * which is how a 1200px canvas pushed the filmstrip off the screen. A grid with
+ * a minmax(0, 1fr) row gives the child a real box to fill. */
 .content.flush {
   padding: 0;
   overflow: hidden;
@@ -408,30 +306,30 @@
   grid-template-rows: minmax(0, 1fr);
 }
 
-/* content that is a scrolling document gets a comfortable max width;
-   the editor opts out entirely with .flush */
+/* The sheet fills the scroll area so a screen can lay itself out against the
+ * real height instead of collapsing to its content and leaving half the
+ * viewport empty. Reading width is capped by the screen itself, not here — a
+ * canvas opts out entirely with .flush. */
 .sheet {
   display: grid;
-  gap: 18px;
-  max-width: 1500px;
-  margin: 0 auto;
+  gap: var(--s6);
+  min-height: 100%;
 }
 
 @media (max-width: 1180px) {
   .topbar {
-    padding-inline: 16px;
+    padding-inline: var(--s3);
   }
 
-  .topbar .back span,
-  .who > span:not(.avatar) {
+  .search {
+    min-width: 0;
+  }
+
+  .search > span:first-child {
     display: none;
   }
 
-  .stages {
-    padding-inline: 12px;
-  }
-
-  .stage-tab {
-    padding-inline: 11px;
+  .who > span:not(.avatar) {
+    display: none;
   }
 }

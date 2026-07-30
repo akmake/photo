@@ -8,49 +8,92 @@ import GalleryEdit from './studio/screens/GalleryEdit';
 import Lab from './lab/Lab';
 import Compare from './lab/Compare';
 import AlbumStudio from './album/AlbumStudio';
-import {
-  Clients, Home, STAGE_SCREENS, Simple,
-} from './studio/screens/Screens';
+import Today from './studio/screens/Today';
+import Projects from './studio/screens/Projects';
+import ProjectScreen from './studio/screens/Project';
+import ColorMatch from './studio/screens/ColorMatch';
+import { getProject } from './studio/store';
+import { Clients, STAGE_SCREENS, Simple } from './studio/screens/Screens';
 
-/* The shell owns two independent positions:
- *   section — where in the business (sidebar)
- *   stage   — where in this project's lifecycle (tabs)
+/* The rail carries ONE axis — the business. A project's stages live inside the
+ * project, because they are only ever true of one project at a time.
  *
- * Picking a sidebar section that maps to a stage moves BOTH, so "עיבוד גלריה"
- * in the sidebar and the "עיבוד גלריה" tab land on the same screen instead of
- * being two different routes to the same work.
+ * The `stage` position below is what remains of the old second axis: the
+ * pre-direction screens (editor, album, lab) still hang off it, and they keep
+ * their tab row until the project screen absorbs them. The business screens
+ * never show it. Build order is deliberate — tools last.
  */
-/** `#/section/stage` — so a screen can be linked, reloaded and bookmarked. */
-function readHash(): { section: SectionId; stage: StageId } {
+/* Routes that were replaced. A tab left open on one of them would keep serving
+ * the screen it replaced — which is exactly how a rewrite gets reported as
+ * "nothing changed". A retired route resolves to its successor instead of
+ * quietly still working. */
+const RETIRED: Partial<Record<string, SectionId>> = {
+  home: 'today',
+  galleries: 'projects',
+  culling: 'projects',
+  orders: 'today',
+  reports: 'today',
+};
+
+const LIVE_SECTIONS = new Set<string>([
+  'today', 'projects', 'project', 'clients', 'calendar', 'settings',
+  // pre-direction workspaces, still reachable until the project screen absorbs them
+  'editing', 'albums', 'lab', 'compare',
+]);
+
+/** `#/section/stage`, plus `#/project/<id>` for one job — so any screen can be
+ *  linked, reloaded and bookmarked. */
+function readHash(): { section: SectionId; stage: StageId; id: string; sub: string } {
   // the `#/` is stripped first, so the section is element 0 — not 1
-  const [sec, st] = window.location.hash.replace(/^#\/?/, '').split('/');
-  return {
-    section: (sec as SectionId) || 'home',
-    stage: (st as StageId) || 'client-status',
-  };
+  const [sec, a, b] = window.location.hash.replace(/^#\/?/, '').split('/');
+  const section = RETIRED[sec] ?? (LIVE_SECTIONS.has(sec) ? (sec as SectionId) : 'today');
+  if (section === 'project') {
+    return { section, stage: 'client-status', id: a ?? '', sub: b ?? '' };
+  }
+  return { section, stage: (a as StageId) || 'client-status', id: '', sub: '' };
 }
+
+/** The top bar states where you are, not what the product is called. */
+const SECTION_TITLE: Partial<Record<SectionId, string>> = {
+  today: 'היום',
+  projects: 'פרויקטים',
+  clients: 'לקוחות',
+  calendar: 'יומן',
+  settings: 'הגדרות',
+};
 
 export default function App() {
   const initial = readHash();
   const [section, setSection] = useState<SectionId>(initial.section);
   const [stage, setStage] = useState<StageId>(initial.stage);
+  const [projectId, setProjectId] = useState<string>(initial.id);
+  const [colorMatch, setColorMatch] = useState(initial.sub === 'color');
 
   useEffect(() => {
     const onHash = () => {
       const h = readHash();
       setSection(h.section);
       setStage(h.stage);
+      setProjectId(h.id);
+      setColorMatch(h.sub === 'color');
     };
     window.addEventListener('hashchange', onHash);
     return () => window.removeEventListener('hashchange', onHash);
   }, []);
 
   useEffect(() => {
-    const want = `#/${section}/${stage}`;
+    const want = section === 'project'
+      ? `#/project/${projectId}${colorMatch ? '/color' : ''}`
+      : `#/${section}/${stage}`;
     if (window.location.hash !== want) {
       window.history.replaceState(null, '', want);
     }
-  }, [section, stage]);
+  }, [section, stage, projectId, colorMatch]);
+
+  function openProject(id: string) {
+    setProjectId(id);
+    setSection('project');
+  }
 
   function goSection(s: SectionId) {
     setSection(s);
@@ -66,17 +109,17 @@ export default function App() {
     setSection(back ?? 'projects');
   }
 
-  // A project stage wins over the section when one is selected; the sections
-  // that are not part of a project's lifecycle render on their own.
+  // The business sections render on their own — no stage, no tabs.
   const standalone: Partial<Record<SectionId, () => JSX.Element>> = {
-    home: Home,
+    today: () => <Today onSection={goSection} />,
+    projects: () => <Projects onOpen={openProject} />,
     clients: Clients,
-    orders: () => <Simple title="הזמנות ומוצרים" sub="הדפסות, אלבומים ומשלוחים" />,
-    reports: () => <Simple title="דוחות" sub="הכנסות, עומס עבודה וזמני אספקה" />,
-    settings: () => <Simple title="הגדרות" sub="סטודיו, מיתוג, אחסון ומשתמשים" />,
+    calendar: () => <Simple title="יומן" sub="צילומים קרובים ודדליינים" />,
+    settings: () => <Simple title="הגדרות" sub="חשבון, מנוי, אחסון ותבניות" />,
   };
 
-  const Standalone = standalone[section];
+  const openedProject = section === 'project' ? getProject(projectId) : undefined;
+  const Standalone = openedProject ? undefined : standalone[section];
   // The lab is not a project stage — it opens on its own, full-bleed, and the
   // stage tabs above it stay where they were.
   const isLab = section === 'lab';
@@ -87,7 +130,26 @@ export default function App() {
   let body: JSX.Element;
   let title = PROJECT.title;
 
-  if (isLab) {
+  if (openedProject && colorMatch) {
+    body = <ColorMatch onBack={() => setColorMatch(false)} />;
+    title = `התאמת צבעים · ${openedProject.client}`;
+  } else if (openedProject) {
+    body = (
+      <ProjectScreen
+        project={openedProject}
+        onBack={() => goSection('projects')}
+        onOpenTool={(what) => {
+          if (what === 'color') {
+            setColorMatch(true);
+            return;
+          }
+          setStage(what === 'edit' ? 'gallery-edit' : 'album-design');
+          setSection(what === 'edit' ? 'editing' : 'albums');
+        }}
+      />
+    );
+    title = openedProject.client;
+  } else if (isLab) {
     body = <Lab />;
     title = 'מעבדה';
   } else if (isCompare) {
@@ -95,7 +157,7 @@ export default function App() {
     title = 'קריאת עריכה';
   } else if (Standalone) {
     body = <Standalone />;
-    title = 'TEZA AI';
+    title = SECTION_TITLE[section] ?? 'TEZA';
   } else if (isEditor) {
     body = <GalleryEdit />;
   } else if (isAlbum) {
@@ -110,13 +172,16 @@ export default function App() {
 
   return (
     <Shell
-      section={section}
+      // A project is a place INSIDE projects — the rail stays lit on the list.
+      section={section === 'project' ? 'projects' : section}
       onSection={goSection}
       stage={stage}
       onStage={goStage}
       title={title}
       flush={isEditor || isAlbum || isLab || isCompare}
       bare={isAlbum || isLab || isCompare}
+      // Only the pre-direction project routes still carry the tab row.
+      stages={!Standalone && !openedProject}
     >
       {body}
     </Shell>

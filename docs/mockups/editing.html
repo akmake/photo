@@ -1,0 +1,555 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<title>TEZA — מסך העריכה · מוקאפ</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Hebrew:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+/* ═══ טוקנים — מתוך docs/DESIGN-DIRECTION.md, בלי סטייה ═══ */
+:root{
+  --n-04:#0B0B0B; --n-08:#141414; --n-12:#1E1E1E; --n-16:#262626;
+  --n-22:#2E2E2E; --n-30:#3D3D3D; --n-55:#8A8A8A; --n-72:#B7B7B7; --n-91:#E8E8E8;
+  --acc-fill:#A65E12; --acc-ink:#E39B4E; --acc-mark:#D98324;
+  --ok:#6BBE93; --warn:#D6B95A; --err:#E88C7A;
+
+  --font-ui:'IBM Plex Sans Hebrew','Segoe UI',sans-serif;
+  --font-data:'IBM Plex Mono','Consolas',monospace;
+
+  --t-micro:11px; --t-meta:12px; --t-ui:13px; --t-title:15px;
+  --s1:4px; --s2:8px; --s3:12px; --s4:16px; --s6:24px;
+  --radius:3px;
+  --row:30px; --control:30px;
+  --topbar:48px; --projhead:40px; --measure:52px; --strip:108px;
+  --rail:56px; --inspector:340px;
+}
+
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{
+  background:var(--n-08); color:var(--n-91);
+  font:400 var(--t-ui)/1.45 var(--font-ui);
+  -webkit-font-smoothing:antialiased;
+}
+button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
+.mono{font-family:var(--font-data);font-variant-numeric:tabular-nums}
+.num{font-variant-numeric:tabular-nums}
+
+/* ═══ מעטפת ═══ */
+.app{
+  height:100vh; min-width:1280px;
+  display:grid;
+  grid-template-rows:var(--topbar) var(--projhead) var(--measure) minmax(0,1fr) var(--strip);
+  background:var(--n-08);
+}
+.hair{border-bottom:1px solid var(--n-22)}
+
+/* ═══ פס עליון ═══ */
+.topbar{
+  background:var(--n-12); border-bottom:1px solid var(--n-22);
+  display:flex; align-items:center; gap:var(--s4); padding:0 var(--s4);
+}
+.search{
+  display:flex; align-items:center; gap:var(--s2);
+  height:var(--control); padding:0 var(--s3); min-width:230px;
+  border:1px solid var(--n-22); border-radius:var(--radius);
+  background:var(--n-08); color:var(--n-55); font-size:var(--t-meta);
+}
+.search .k{margin-inline-start:auto;font-size:var(--t-micro);color:var(--n-30)}
+.topbar .where{flex:1;text-align:center;font-size:var(--t-ui);color:var(--n-72)}
+.topbar .sys{display:flex;align-items:center;gap:var(--s3);font-size:var(--t-meta);color:var(--n-55)}
+.task{display:flex;align-items:center;gap:var(--s2);color:var(--n-72)}
+.task .bar{width:56px;height:2px;background:var(--n-30);position:relative}
+.task .bar i{position:absolute;inset-block:0;inset-inline-start:0;width:25%;background:var(--acc-mark)}
+.who{display:flex;align-items:center;gap:var(--s2)}
+.who .av{width:22px;height:22px;border:1px solid var(--n-30);border-radius:50%;
+  display:grid;place-items:center;font-size:var(--t-micro);color:var(--n-72)}
+
+/* ═══ כותרת פרויקט ═══ */
+.projhead{
+  background:var(--n-12); border-bottom:1px solid var(--n-22);
+  display:flex; align-items:center; gap:var(--s4); padding:0 var(--s4);
+  font-size:var(--t-meta); color:var(--n-55);
+}
+.projhead .name{color:var(--n-91);font-size:var(--t-ui);font-weight:500}
+.projhead .sep{color:var(--n-30)}
+.projhead .right{margin-inline-start:auto;display:flex;gap:var(--s4)}
+.ok-dot::before{content:"";display:inline-block;width:5px;height:5px;border-radius:50%;
+  background:var(--ok);margin-inline-end:6px;vertical-align:middle}
+
+/* ═══ פס המידה — אלמנט החתימה ═══ */
+.measure{
+  background:var(--n-12); border-bottom:1px solid var(--n-22);
+  display:flex; align-items:stretch; padding:0 var(--s4);
+}
+.seg{
+  display:flex; flex-direction:column; justify-content:center; gap:2px;
+  min-width:132px; padding:0 var(--s4);
+  border-inline-start:1px solid var(--n-22);
+  border-bottom:2px solid transparent;
+  color:var(--n-55); text-align:start;
+}
+.seg:last-child{border-inline-end:1px solid var(--n-22)}
+.seg .lab{font-size:var(--t-micro);font-weight:500;letter-spacing:0}
+.seg .val{font-family:var(--font-data);font-size:15px;font-variant-numeric:tabular-nums;color:var(--n-72)}
+.seg.on{color:var(--n-91);border-bottom-color:var(--acc-mark)}
+.seg.on .val{color:var(--n-91)}
+.seg.idle .val{color:var(--n-30)}
+.seg:hover:not(.on){color:var(--n-72)}
+
+/* ═══ אזור העבודה ═══ */
+.work{display:grid;grid-template-columns:var(--rail) var(--inspector) minmax(0,1fr);min-height:0}
+
+/* רצועת ניווט מכווצת */
+.rail{
+  background:var(--n-12); border-inline-start:1px solid var(--n-22);
+  display:flex; flex-direction:column; align-items:center; gap:2px; padding:var(--s2) 0;
+}
+.rail .mark{width:26px;height:26px;display:grid;place-items:center;margin-bottom:var(--s3);
+  background:var(--acc-fill);color:#fff;border-radius:var(--radius);font-weight:600;font-size:var(--t-meta)}
+.rail button{
+  width:40px;height:36px;display:grid;place-items:center;color:var(--n-55);
+  border-radius:var(--radius);position:relative;
+}
+.rail button:hover{color:var(--n-91);background:var(--n-16)}
+.rail button.on{color:var(--n-91)}
+.rail button.on::after{content:"";position:absolute;inset-inline-end:-8px;top:8px;bottom:8px;
+  width:2px;background:var(--acc-mark)}
+.rail svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.5;
+  stroke-linecap:round;stroke-linejoin:round}
+
+/* ═══ אינספקטור ═══ */
+.insp{
+  background:var(--n-12); border-inline-start:1px solid var(--n-22);
+  display:flex; flex-direction:column; min-height:0;
+}
+.insp-head{
+  height:38px;display:flex;align-items:center;gap:var(--s2);padding:0 var(--s3);
+  border-bottom:1px solid var(--n-22);
+}
+.insp-head h2{font-size:var(--t-title);font-weight:600}
+.ghost{
+  margin-inline-start:auto;height:24px;padding:0 10px;border:1px solid var(--n-30);
+  border-radius:var(--radius);font-size:var(--t-meta);color:var(--n-72);
+}
+.ghost:hover{color:var(--n-91);border-color:var(--n-55)}
+.ghost:active{background:var(--n-16)}
+
+.styles{
+  height:34px;display:flex;align-items:center;padding:0 var(--s3);gap:var(--s2);
+  border-bottom:1px solid var(--n-22);font-size:var(--t-meta);color:var(--n-55);
+}
+.styles b{color:var(--n-72);font-weight:400}
+.styles .caret{margin-inline-start:auto;color:var(--n-30)}
+
+.tools{flex:1;overflow-y:auto;min-height:0}
+.tools::-webkit-scrollbar{width:9px}
+.tools::-webkit-scrollbar-thumb{background:var(--n-30);border:3px solid var(--n-12)}
+
+.grp{border-bottom:1px solid var(--n-22)}
+.grp-head{
+  width:100%;height:34px;display:flex;align-items:center;gap:var(--s2);
+  padding:0 var(--s3);color:var(--n-91);text-align:start;
+}
+.grp-head:hover{background:var(--n-16)}
+.grp-head .tw{width:9px;color:var(--n-55);font-size:9px}
+.grp-head .nm{font-weight:500}
+.grp-head .sum{margin-inline-start:auto;font-size:var(--t-micro);color:var(--n-55);
+  font-family:var(--font-data);font-variant-numeric:tabular-nums}
+.grp-head .dot{margin-inline-start:auto;width:4px;height:4px;border-radius:50%;background:var(--acc-mark)}
+.grp-head .sum + .dot{margin-inline-start:6px}
+.grp-body{padding:var(--s2) var(--s3) var(--s3)}
+.grp[data-open="false"] .grp-body{display:none}
+
+/* מתג AI */
+.sw{margin-inline-start:auto;width:28px;height:16px;border-radius:9px;background:var(--n-30);
+  position:relative;flex:none}
+.sw i{position:absolute;top:2px;inset-inline-start:2px;width:12px;height:12px;border-radius:50%;
+  background:var(--n-72);transition:inset-inline-start .09s ease-out}
+.sw.on{background:var(--acc-fill)}
+.sw.on i{inset-inline-start:14px;background:#fff}
+
+/* ─── שורת פרמטר — הרכיב המרכזי ─── */
+.param{padding:var(--s1) 0 6px;position:relative}
+.param::before{
+  content:"";position:absolute;inset-inline-start:calc(var(--s3) * -1);top:2px;bottom:6px;
+  width:2px;background:var(--acc-mark);opacity:0;
+}
+.param.mod::before{opacity:1}
+.param .row{height:22px;display:flex;align-items:center;gap:var(--s2)}
+.param label{font-size:var(--t-ui);color:var(--n-72);cursor:pointer;user-select:none}
+.param.mod label{color:var(--n-91)}
+.param .v{
+  margin-inline-start:auto;width:44px;height:20px;flex:none;
+  border:1px solid transparent;border-radius:var(--radius);background:var(--n-08);
+  color:var(--n-91);text-align:center;
+  font-family:var(--font-data);font-size:var(--t-meta);font-variant-numeric:tabular-nums;
+}
+.param .v:focus{outline:none;border-color:var(--acc-mark)}
+input[type=range]{
+  -webkit-appearance:none;appearance:none;width:100%;height:14px;background:none;cursor:pointer;
+}
+input[type=range]::-webkit-slider-runnable-track{height:2px;background:var(--n-30)}
+input[type=range]::-webkit-slider-thumb{
+  -webkit-appearance:none;width:9px;height:14px;margin-top:-6px;
+  background:var(--n-72);border-radius:2px;
+}
+input[type=range]:hover::-webkit-slider-thumb{background:var(--n-91)}
+input[type=range]:focus{outline:none}
+input[type=range]:focus::-webkit-slider-thumb{box-shadow:0 0 0 2px var(--acc-mark)}
+
+/* ─── מצבי אי-זמינות ─── */
+.state{
+  display:flex;align-items:center;gap:6px;padding:0 var(--s3) var(--s2);
+  font-size:var(--t-meta);color:var(--n-55);
+}
+.state.warn{color:var(--warn)}
+.lock{margin-inline-start:auto;color:var(--n-55);font-size:var(--t-meta)}
+.grp.locked .grp-head .nm{color:var(--n-91)}
+
+/* ─── פוטר קבוע ─── */
+.insp-foot{
+  border-top:1px solid var(--n-22);padding:var(--s3);
+  display:flex;gap:var(--s2);align-items:center;
+}
+.btn{
+  height:var(--control);padding:0 var(--s4);border-radius:var(--radius);
+  border:1px solid var(--n-30);color:var(--n-72);font-size:var(--t-ui);
+}
+.btn:hover{color:var(--n-91);border-color:var(--n-55)}
+.btn-primary{
+  flex:1;background:var(--acc-fill);color:#fff;border-color:var(--acc-fill);font-weight:500;
+}
+.btn-primary:hover{background:#B96C18;border-color:#B96C18}
+.btn:focus-visible,.ghost:focus-visible,.grp-head:focus-visible{outline:2px solid var(--acc-mark);outline-offset:1px}
+
+/* ═══ קנבס ═══ */
+.canvas{
+  background:var(--n-08);position:relative;display:grid;place-items:center;
+  padding:var(--s4);min-width:0;overflow:hidden;
+}
+.canvas img{max-width:100%;max-height:100%;object-fit:contain;display:block}
+.cv-meta{
+  position:absolute;inset-block-end:var(--s3);inset-inline-start:var(--s4);
+  font-family:var(--font-data);font-size:var(--t-micro);color:var(--n-55);
+  font-variant-numeric:tabular-nums;
+}
+.cv-tools{
+  position:absolute;inset-block-end:var(--s3);inset-inline-end:var(--s4);
+  display:flex;align-items:center;gap:var(--s4);
+  font-family:var(--font-data);font-size:var(--t-micro);color:var(--n-55);
+}
+.cv-tools button{font-family:var(--font-ui);font-size:var(--t-meta);color:var(--n-55)}
+.cv-tools button:hover{color:var(--n-91)}
+
+/* ═══ סרט תמונות ═══ */
+.strip{background:var(--n-12);border-top:1px solid var(--n-22);display:flex;flex-direction:column;min-height:0}
+.strip-bar{
+  height:28px;display:flex;align-items:center;gap:var(--s4);padding:0 var(--s4);
+  border-bottom:1px solid var(--n-22);font-size:var(--t-meta);
+}
+.filters{display:flex;gap:var(--s4)}
+.filters button{color:var(--n-55);padding-bottom:2px;border-bottom:2px solid transparent}
+.filters button:hover{color:var(--n-91)}
+.filters button.on{color:var(--n-91);border-bottom-color:var(--acc-mark)}
+.strip-bar .count{margin-inline-start:auto;color:var(--n-55);
+  font-family:var(--font-data);font-variant-numeric:tabular-nums;font-size:var(--t-micro)}
+.thumbs{flex:1;display:flex;gap:var(--s1);padding:var(--s2) var(--s4);overflow-x:auto;min-height:0}
+.thumbs::-webkit-scrollbar{height:8px}
+.thumbs::-webkit-scrollbar-thumb{background:var(--n-30)}
+.th{flex:none;width:88px;position:relative;cursor:pointer;background:none;border:0;padding:0}
+.th img{width:100%;height:56px;object-fit:cover;display:block}
+.th .st{display:block;height:2px;background:var(--n-30)}
+.th[data-st=recipe] .st{background:var(--n-72)}
+.th[data-st=done] .st{background:var(--ok)}
+.th[data-st=fail] .st{background:var(--err)}
+.th.on{outline:2px solid var(--acc-mark);outline-offset:0}
+.th:focus-visible{outline:2px solid var(--acc-mark)}
+
+/* ═══ פס ההסבר (מחוץ למוצר) ═══ */
+.notes{
+  max-width:900px;margin:0 auto;padding:56px 24px 80px;color:var(--n-72);line-height:1.6;
+}
+.notes h2{font-size:20px;font-weight:600;color:var(--n-91);margin-bottom:var(--s3)}
+.notes h3{font-size:var(--t-ui);font-weight:600;color:var(--n-91);margin:var(--s6) 0 var(--s2)}
+.notes p{margin-bottom:var(--s2);font-size:var(--t-ui)}
+.notes ul{padding-inline-start:18px;font-size:var(--t-ui)}
+.notes li{margin-bottom:4px}
+.notes .sep{height:1px;background:var(--n-22);margin:0 0 40px}
+.demo-strip{border:1px solid var(--n-22);background:var(--n-12);padding:var(--s2) 0;max-width:340px}
+</style>
+</head>
+<body>
+
+<div class="app">
+
+  <!-- ─────────── פס עליון ─────────── -->
+  <header class="topbar">
+    <div class="search"><span>חיפוש</span><span class="k mono">Ctrl K</span></div>
+    <div class="where">עריכה — משפחת כהן</div>
+    <div class="sys">
+      <span class="task">מרנדר <span class="mono">24/96</span><span class="bar"><i></i></span></span>
+      <span class="who"><span class="av">י</span>יוסי</span>
+    </div>
+  </header>
+
+  <!-- ─────────── כותרת פרויקט ─────────── -->
+  <div class="projhead">
+    <span class="name">משפחת כהן</span>
+    <span class="sep">·</span><span>בת מצווה</span>
+    <span class="sep">·</span><span class="mono">12.05.2026</span>
+    <span class="right">
+      <span class="ok-dot">קבצים זמינים</span>
+      <span>ממתין: —</span>
+    </span>
+  </div>
+
+  <!-- ─────────── פס המידה ─────────── -->
+  <nav class="measure">
+    <button class="seg"><span class="lab">ייבוא</span><span class="val">1,842</span></button>
+    <button class="seg"><span class="lab">בחירה</span><span class="val">380</span></button>
+    <button class="seg on"><span class="lab">עריכה</span><span class="val">24/96</span></button>
+    <button class="seg idle"><span class="lab">אלבום</span><span class="val">—</span></button>
+    <button class="seg idle"><span class="lab">מסירה</span><span class="val">—</span></button>
+  </nav>
+
+  <!-- ─────────── אזור העבודה ─────────── -->
+  <div class="work">
+
+    <!-- רצועת ניווט -->
+    <nav class="rail">
+      <div class="mark">T</div>
+      <button title="היום"><svg viewBox="0 0 24 24"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 10v10h14V10"/></svg></button>
+      <button class="on" title="פרויקטים"><svg viewBox="0 0 24 24"><path d="M3 7h6l2 2h10v10H3z"/></svg></button>
+      <button title="לקוחות"><svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="3"/><path d="M3 20c0-3.3 2.7-6 6-6s6 2.7 6 6"/><path d="M16 5.5a3 3 0 0 1 0 5.6"/></svg></button>
+      <button title="יומן"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16"/><path d="M3 10h18M8 3v4M16 3v4"/></svg></button>
+      <button title="הגדרות" style="margin-top:auto"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M19.1 4.9 17 7M7 17l-2.1 2.1"/></svg></button>
+    </nav>
+
+    <!-- אינספקטור -->
+    <aside class="insp">
+      <div class="insp-head">
+        <h2>מתכון עריכה</h2>
+        <button class="ghost" id="ba">לפני / אחרי</button>
+      </div>
+
+      <div class="styles"><span>סגנון:</span><b>אור טבעי — חוץ</b><span class="caret">▾</span></div>
+
+      <div class="tools">
+
+        <!-- טון וצבע -->
+        <section class="grp" data-open="false">
+          <button class="grp-head"><span class="tw">▸</span><span class="nm">טון וצבע</span>
+            <span class="sum">חשיפה +12 · חום −8</span><span class="dot"></span></button>
+          <div class="grp-body">
+            <div class="param mod"><div class="row"><label for="p1">חשיפה</label>
+              <input class="v" id="p1v" value="12"></div>
+              <input type="range" id="p1" min="-200" max="200" value="12"></div>
+            <div class="param"><div class="row"><label for="p2">ניגודיות</label>
+              <input class="v" id="p2v" value="0"></div>
+              <input type="range" id="p2" min="-100" max="100" value="0"></div>
+            <div class="param mod"><div class="row"><label for="p3">חום</label>
+              <input class="v" id="p3v" value="-8"></div>
+              <input type="range" id="p3" min="-200" max="200" value="-8"></div>
+          </div>
+        </section>
+
+        <!-- ניקוי כתמים — פתוח -->
+        <section class="grp" data-open="true">
+          <button class="grp-head"><span class="tw">▾</span><span class="nm">ניקוי כתמים</span>
+            <span class="sw on"><i></i></span></button>
+          <div class="grp-body">
+            <div class="param mod"><div class="row"><label for="p4">אדמומיות וכתמי צבע</label>
+              <input class="v" id="p4v" value="90"></div>
+              <input type="range" id="p4" min="0" max="100" value="90"></div>
+            <div class="param mod"><div class="row"><label for="p5">ניקוי נקודתי</label>
+              <input class="v" id="p5v" value="25"></div>
+              <input type="range" id="p5" min="0" max="100" value="25"></div>
+          </div>
+        </section>
+
+        <!-- החלקת עור -->
+        <section class="grp" data-open="false">
+          <button class="grp-head"><span class="tw">▸</span><span class="nm">החלקת עור</span>
+            <span class="sw"><i></i></span></button>
+          <div class="grp-body">
+            <div class="param"><div class="row"><label for="p6">עוצמה</label>
+              <input class="v" id="p6v" value="60"></div>
+              <input type="range" id="p6" min="0" max="100" value="60"></div>
+            <div class="param"><div class="row"><label for="p7">שימור טקסטורה</label>
+              <input class="v" id="p7v" value="100"></div>
+              <input type="range" id="p7" min="0" max="100" value="100"></div>
+          </div>
+        </section>
+
+        <!-- נעול בחבילה -->
+        <section class="grp locked" data-open="false" data-lock="1">
+          <button class="grp-head"><span class="tw">▸</span><span class="nm">פיסול אור וצל</span>
+            <span class="lock">🔒</span></button>
+          <div class="state">כלול בחבילת סטודיו</div>
+        </section>
+
+        <section class="grp" data-open="false">
+          <button class="grp-head"><span class="tw">▸</span><span class="nm">מרקם וניגודיות</span></button>
+          <div class="grp-body">
+            <div class="param"><div class="row"><label for="p8">ניגודיות מקומית</label>
+              <input class="v" id="p8v" value="0"></div>
+              <input type="range" id="p8" min="-100" max="100" value="0"></div>
+          </div>
+        </section>
+
+        <section class="grp" data-open="false">
+          <button class="grp-head"><span class="tw">▸</span><span class="nm">חידוד</span></button>
+          <div class="grp-body">
+            <div class="param"><div class="row"><label for="p9">עוצמה</label>
+              <input class="v" id="p9v" value="0"></div>
+              <input type="range" id="p9" min="0" max="100" value="0"></div>
+          </div>
+        </section>
+
+      </div>
+
+      <div class="insp-foot">
+        <button class="btn">איפוס</button>
+        <button class="btn btn-primary">החל על הסט (96)</button>
+      </div>
+    </aside>
+
+    <!-- קנבס -->
+    <main class="canvas">
+      <img id="shot" src="../../public/demo/b.jpg" alt="הצילום הנערך">
+      <div class="cv-meta" id="meta">321A5078.CR2 · 5472×3648 · 210ms</div>
+      <div class="cv-tools"><span>68%</span><button>בדיקה</button></div>
+    </main>
+
+  </div>
+
+  <!-- ─────────── סרט תמונות ─────────── -->
+  <footer class="strip">
+    <div class="strip-bar">
+      <div class="filters">
+        <button class="on">הכול</button><button>ללא מתכון</button>
+        <button>ממתין לרינדור</button><button>נכשל (3)</button>
+      </div>
+      <span class="count">96 בסט · 24 רונדרו</span>
+    </div>
+    <div class="thumbs" id="thumbs"></div>
+  </footer>
+
+</div>
+
+<!-- ═════════ מחוץ למוצר ═════════ -->
+<section class="notes">
+  <div class="sep"></div>
+  <h2>מה זה, ומה כאן אמיתי</h2>
+  <p>מוקאפ סטטי של מסך העריכה, בנוי מהטוקנים ב־<code class="mono">docs/DESIGN-DIRECTION.md</code> בלי סטייה. התמונה היא קובץ אמיתי מהפרויקט; הגופן הוא IBM&nbsp;Plex&nbsp;Sans&nbsp;Hebrew האמיתי.</p>
+
+  <h3>עובד באמת</h3>
+  <ul>
+    <li>גרירת סליידר מעדכנת את המספר, ופס הנחושת נדלק ונכבה לפי חריגה מברירת המחדל.</li>
+    <li>לחיצה על שם פרמטר מאפסת אותו.</li>
+    <li>פתיחה וסגירה של קבוצות; קבוצה סגורה מציגה סיכום.</li>
+    <li>לחיצה על ממוזערת מחליפה את התמונה בקנבס. חצים ← → עוברים בין תמונות.</li>
+  </ul>
+
+  <h3>לא עובד — ובכוונה</h3>
+  <ul>
+    <li><b>אין עיבוד תמונה.</b> הסליידרים לא משנים פיקסל אחד. זה מוקאפ ממשק.</li>
+    <li>"לפני/אחרי", "בדיקה", המסננות והחיפוש — חזותיים בלבד.</li>
+    <li>המונים (24/96, 1,842) הם נתוני הדגמה.</li>
+  </ul>
+
+  <h3>המצב השלישי של אי־זמינות</h3>
+  <p>שני מצבים מוצגים במסך: <b>נעול בחבילה</b> (פיסול אור וצל) ו<b>רגיל</b>. המצב השלישי — כלי תקין שאינו מתאים לתמונה הזאת — לא הוצג למעלה כי בצילום הזה הפנים גדולות והכלי דווקא כן יעבוד. כך הוא נראה:</p>
+  <div class="demo-strip">
+    <div style="height:34px;display:flex;align-items:center;gap:8px;padding:0 12px">
+      <span style="width:9px;color:var(--n-55);font-size:9px">▸</span>
+      <span style="font-weight:500">ניקוי כתמים</span>
+      <span class="sw on" style="margin-inline-start:auto"><i></i></span>
+    </div>
+    <div class="state warn">⚠ הפנים בפריים 96px — מתחת ל־120px שהכלי דורש</div>
+  </div>
+  <p style="margin-top:12px">הכלי נשאר דלוק, הכותרת בניגודיות מלאה, וההסבר נושא את <b>המדידה</b>. אין האפרה — האפרה הייתה אומרת "שבור".</p>
+
+  <h3>מה לבדוק בעין</h3>
+  <ul>
+    <li>האם הכרום באמת יוצא מהדרך של התמונה, או מתחרה בה.</li>
+    <li>האם פס המידה קריא כמכשיר אחד, ולא כשתי שורות.</li>
+    <li>האם 13px בעברית נוח לשעות עבודה, או קטן מדי.</li>
+    <li>האם הנחושת מספיקה כדי לסמן, בלי להופיע יותר מדי.</li>
+    <li>גררו סליידר: הפאנל לא זז לרוחב. זה מה ששדה ברוחב קבוע וספרות טבלאיות קונים.</li>
+  </ul>
+</section>
+
+<script>
+// ─── סרט תמונות ───
+const shots=['b','c','a','b','c','a','b','c','a','b','c','a','b','c','a','b','c','a'];
+const states=['done','done','done','done','recipe','recipe','fail','recipe','none',
+              'none','none','done','recipe','none','fail','none','none','fail'];
+const strip=document.getElementById('thumbs');
+shots.forEach((s,i)=>{
+  const b=document.createElement('button');
+  b.className='th'+(i===0?' on':'');
+  b.dataset.st=states[i];
+  b.dataset.src=`../../public/demo/${s}.jpg`;
+  b.innerHTML=`<img src="../../public/demo/${s}.jpg" alt=""><span class="st"></span>`;
+  strip.appendChild(b);
+});
+const shot=document.getElementById('shot');
+const meta=document.getElementById('meta');
+function pick(el){
+  if(!el)return;
+  strip.querySelectorAll('.th').forEach(t=>t.classList.remove('on'));
+  el.classList.add('on');
+  shot.src=el.dataset.src;
+  const n=[...strip.children].indexOf(el)+1;
+  meta.textContent=`321A${(5077+n).toString()}.CR2 · 5472×3648 · ${190+n*3}ms`;
+  el.scrollIntoView({block:'nearest',inline:'nearest'});
+}
+strip.addEventListener('click',e=>pick(e.target.closest('.th')));
+addEventListener('keydown',e=>{
+  if(e.target.matches('input'))return;
+  if(e.key!=='ArrowLeft'&&e.key!=='ArrowRight')return;
+  e.preventDefault();
+  const all=[...strip.children], cur=all.findIndex(t=>t.classList.contains('on'));
+  // RTL: חץ שמאלה מתקדם
+  pick(all[(cur+(e.key==='ArrowLeft'?1:-1)+all.length)%all.length]);
+});
+
+// ─── קבוצות ───
+document.querySelectorAll('.grp-head').forEach(h=>{
+  h.addEventListener('click',()=>{
+    const g=h.parentElement;
+    if(g.dataset.lock)return;
+    const open=g.dataset.open==='true';
+    g.dataset.open=String(!open);
+    h.querySelector('.tw').textContent=open?'▸':'▾';
+  });
+});
+document.querySelectorAll('.sw').forEach(s=>{
+  s.addEventListener('click',e=>{e.stopPropagation();s.classList.toggle('on')});
+});
+
+// ─── פרמטרים ───
+document.querySelectorAll('.param').forEach(p=>{
+  const range=p.querySelector('input[type=range]');
+  const field=p.querySelector('.v');
+  const def=Number(range.defaultValue);
+  const sync=v=>{
+    range.value=v; field.value=v;
+    p.classList.toggle('mod',Number(v)!==def);
+  };
+  range.addEventListener('input',()=>sync(range.value));
+  field.addEventListener('change',()=>sync(field.value));
+  p.querySelector('label').addEventListener('click',()=>sync(def));
+});
+
+// ─── לפני/אחרי: מוקאפ, ולכן אומר את זה ───
+document.getElementById('ba').addEventListener('pointerdown',function(){
+  this.textContent='אין עיבוד במוקאפ';
+  setTimeout(()=>this.textContent='לפני / אחרי',900);
+});
+</script>
+</body>
+</html>

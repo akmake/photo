@@ -1,0 +1,311 @@
+/* התאמת צבעים.
+ *
+ * The screen sits on the DARK end of the ramp because it exists to judge
+ * colour, and a light surround shifts how the eye reads the pair. Photographs
+ * carry no frame, no radius and no shadow — here more than anywhere.
+ */
+
+.cm {
+  min-height: 100%;
+  background: var(--page);
+  color: var(--ink);
+  margin: calc(var(--s4) * -1);
+  padding: var(--s6) var(--s8) var(--s12);
+  display: grid;
+  align-content: start;
+  gap: var(--s12);
+}
+
+.cm-head h1 {
+  font-size: var(--t-xl);
+  font-weight: 600;
+  margin-top: var(--s2);
+}
+
+.cm-head p {
+  color: var(--ink-3);
+  font-size: var(--t-md);
+  margin-top: 4px;
+}
+
+.cm-back {
+  color: var(--ink-3);
+  font-size: var(--t-sm);
+}
+
+.cm-back:hover {
+  color: var(--ink);
+}
+
+/* ---- step marker: a number on a rule, because these ARE ordered ---- */
+
+.cm-step {
+  display: grid;
+  gap: var(--s4);
+}
+
+.cm-step-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--s3);
+  padding-bottom: var(--s2);
+  border-bottom: 1px solid var(--line-strong);
+}
+
+.cm-n {
+  width: 26px;
+  height: 26px;
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-sm);
+  color: var(--ink-3);
+  font-size: var(--t-sm);
+}
+
+.cm-step-bar h2 {
+  font-size: var(--t-lg);
+  font-weight: 600;
+}
+
+.cm-step-bar p {
+  color: var(--ink-3);
+  font-size: var(--t-sm);
+}
+
+/* ---- the pair ---- */
+
+.cm-pair {
+  max-width: 1180px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--s6);
+  align-items: start;
+}
+
+.cm-slot {
+  display: grid;
+  gap: var(--s2);
+  cursor: pointer;
+}
+
+.cm-slot-label {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s2);
+  font-size: var(--t-md);
+  font-weight: 500;
+}
+
+.cm-slot-label em {
+  font-style: normal;
+  font-weight: 400;
+  font-size: var(--t-sm);
+  color: var(--ink-3);
+}
+
+.cm-slot-frame {
+  /* A capped height, not a raw aspect ratio: on a wide monitor 3:2 across half
+   * the window makes two 600px black rectangles out of an empty state. */
+  height: clamp(220px, 32vh, 380px);
+  background: var(--n-04);
+  border: 1px solid var(--line);
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+}
+
+.cm-slot:hover .cm-slot-frame {
+  border-color: var(--acc-mark);
+}
+
+.cm-slot-frame img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+}
+
+.cm-slot-empty {
+  color: var(--ink-3);
+  font-size: var(--t-sm);
+}
+
+.cm-slot-name {
+  font-size: var(--t-xs);
+  color: var(--ink-3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cm-learn {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: var(--s4);
+}
+
+/* ---- result ---- */
+
+.cm-result {
+  max-width: 1180px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--s6);
+}
+
+.cm-result figure {
+  display: grid;
+  gap: var(--s2);
+}
+
+.cm-result img {
+  width: 100%;
+  display: block;
+  background: var(--n-04);
+}
+
+.cm-result figcaption {
+  font-size: var(--t-sm);
+  color: var(--ink-3);
+}
+
+.cm-numbers {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s12);
+  padding-top: var(--s4);
+  border-top: 1px solid var(--line);
+}
+
+.cm-numbers b {
+  display: block;
+  font-size: var(--t-xl);
+  font-weight: 600;
+  line-height: 1.1;
+}
+
+.cm-numbers span {
+  font-size: var(--t-sm);
+  color: var(--ink-3);
+}
+
+.cm-numbers .good b {
+  color: var(--ok-ink);
+}
+
+.cm-numbers .weak b {
+  color: var(--warn-ink);
+}
+
+.cm-note {
+  color: var(--ink-3);
+  font-size: var(--t-sm);
+  max-width: 76ch;
+}
+
+.cm-error {
+  color: var(--danger-ink);
+  font-size: var(--t-md);
+  padding: var(--s3);
+  border-inline-start: 2px solid var(--danger-ink);
+}
+
+/* ---- folder + batch ---- */
+
+.cm-folder {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--s3);
+}
+
+.cm-field {
+  display: grid;
+  gap: 6px;
+  min-width: 420px;
+}
+
+.cm-field-wide {
+  min-width: 0;
+  max-width: 640px;
+}
+
+.cm-field > span {
+  font-size: var(--t-sm);
+  color: var(--ink-2);
+}
+
+.cm-found {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s2);
+  color: var(--ok-ink);
+  font-size: var(--t-md);
+}
+
+.cm-found b {
+  font-weight: 600;
+}
+
+.cm-run {
+  display: flex;
+  align-items: center;
+  gap: var(--s4);
+  flex-wrap: wrap;
+}
+
+.cm-progress {
+  display: flex;
+  align-items: center;
+  gap: var(--s3);
+  font-size: var(--t-sm);
+  color: var(--ink-2);
+}
+
+/* Items, not a percentage: "24 מתוך 96" tells the photographer whether to make
+ * coffee or leave the house. A bar on its own does not. */
+.cm-bar {
+  width: 240px;
+  height: 2px;
+  background: var(--line-strong);
+}
+
+.cm-bar span {
+  display: block;
+  height: 100%;
+  background: var(--acc-mark);
+  transition: width 0.12s linear;
+}
+
+.cm-failed {
+  color: var(--danger-ink);
+}
+
+.cm-done {
+  color: var(--ok-ink);
+  font-size: var(--t-md);
+}
+
+.cm-fail-list {
+  list-style: none;
+  max-width: 640px;
+}
+
+.cm-fail-list li {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--s4);
+  padding: 6px 0;
+  border-bottom: 1px solid var(--line);
+  font-size: var(--t-sm);
+  color: var(--ink-3);
+}
+
+@media (max-width: 1240px) {
+  .cm-pair,
+  .cm-result {
+    grid-template-columns: 1fr;
+  }
+}

@@ -1,79 +1,169 @@
-/* Design system — derived from the studio-OS mockup.
+/* Design system — "a light table in a dark room" (docs/DESIGN-DIRECTION.md).
  *
- * Light, warm and low-contrast on purpose: the photographer looks at PHOTOS all
- * day, and a dark chrome around a light image (or the reverse) shifts how she
- * judges exposure. Everything here stays out of the way of the picture.
+ * ONE neutral grey ramp, and the app sits at different points on it depending on
+ * the work: the light end is the business half (clients, calendar, delivery),
+ * the dark end is where photographs are judged (cull, edit, album). Same
+ * components, same spacing, same type — only the height on the ramp changes.
+ * That is what keeps four workflows reading as one product.
  *
- * One accent only. Orange marks "in progress / act here"; green marks "done".
- * Nothing else is allowed to be saturated, so a coloured pixel in the UI always
- * means something.
+ * THE GREYS ARE TRUE NEUTRALS (R=G=B) AND THAT IS NOT A STYLE CHOICE. A chrome
+ * with a blue bias (every `slate`/`zinc` palette, and the #1b1c20 this file used
+ * to ship) makes the photograph beside it read warmer than it is; a warm chrome
+ * makes it read colder. The photographer judges white balance against this
+ * surface all day, so the surface may not have an opinion.
+ *
+ * ONE ACCENT: copper — the darkroom safelight, the one colour allowed to be on
+ * in a room where images are judged. It means "act here / this is live" and it
+ * appears in five places only: the active stage segment, the primary action, the
+ * focus ring, a running indicator, and the edge bar of a changed parameter.
+ * Status colours are a separate family and are never used for actions.
+ *
+ * The semantic names below (--page, --card, --ink…) are unchanged on purpose —
+ * every sheet in the app already consumes them, so the direction lands
+ * everywhere at once without a rename sweep.
  */
 
 :root {
-  /* surfaces */
-  --page: #f7f6f3;
-  --card: #ffffff;
-  --card-2: #fbfaf8;
-  --line: #eceae4;
-  --line-strong: #ddd9d0;
+  /* ---------------------------------------------------------------- ramp */
+  /* dark end — the darkroom */
+  --n-04: #0b0b0b;
+  --n-08: #141414;
+  --n-12: #1e1e1e;
+  --n-16: #262626;
+  --n-22: #2e2e2e;
+  --n-30: #3d3d3d;
+  --n-55: #8a8a8a;  /* the lightest muted ink that still clears 4.5:1 on --n-12 */
+  --n-72: #b7b7b7;
+  --n-91: #e8e8e8;
 
-  /* type */
-  --ink: #2b2b2b;
-  --ink-2: #6b6b6b;
-  --ink-3: #9a978f;
+  /* light end — the light table */
+  --l-94: #efefef;
+  --l-97: #f7f7f7;
+  --l-99: #fcfcfc;
+  --l-88: #e0e0e0;
+  --l-78: #c7c7c7;
+  --l-45: #737373;
+  --l-10: #1a1a1a;
 
-  /* the single accent */
-  --accent: #f0812f;
-  --accent-ink: #c25f13;
-  --accent-soft: #fdf1e7;
-  --accent-line: #f8ddc4;
+  /* Neither #fff nor #000 appears anywhere. Pure white beside a photograph is a
+   * glare bomb; pure black swallows the frame's own blacks and makes them
+   * impossible to judge. */
 
-  /* Status colours come in three parts, the same split `--accent` already uses:
+  /* -------------------------------------------------------------- accent */
+  --acc-fill: #a65e12;   /* filled control — carries white text at 4.5:1 */
+  --acc-mark: #d98324;   /* 2px marks, active indicators */
+  --acc-ink-light: #8a4e0f;
+  --acc-ink-dark: #e39b4e;
+
+  /* ------------------------------------------------- surfaces (light end) */
+  /* Three steps of depth, and they are what replaces drop shadows: the chrome
+   * is RECESSED below the page, the page sits in the middle, a panel is raised
+   * above it. The rail used to be --card, 2% off the page colour, which made it
+   * invisible as a region. */
+  --chrome: #eaeaea;
+  --chrome-hover: #f0f0f0;  /* halfway to the page — hover lifts, active arrives */
+  --page: #f4f4f4;
+  --card: #fbfbfb;
+  --card-2: #ffffff;
+  --line: var(--l-88);
+  --line-strong: var(--l-78);
+
+  /* Type ink. MEASURED against --page, not chosen by eye: #737373 came out at
+   * 4.1:1, which fails the 4.5 this system requires of its own secondary text —
+   * and at 12px that is the difference between reading and squinting. */
+  --ink: var(--l-10);
+  --ink-2: #3f3f3f;  /* 9.4:1 */
+  --ink-3: #666666;  /* 5.2:1 */
+
+  /* the single accent, in the shape the app already consumes */
+  --accent: var(--acc-fill);
+  --accent-ink: var(--acc-ink-light);
+  --accent-soft: #f2e7dc;
+  --accent-line: #ddc4a8;
+
+  /* Status colours come in three parts, the same split --accent uses:
    *   --x        the FILL, dark enough to carry white text
    *   --x-ink    TEXT on a page or panel
    *   --x-soft   a tinted background
-   * Collapsing fill and ink into one value is what makes a "green button" and
-   * "green label" impossible to satisfy at once — one of them always fails. */
-  --ok: #347453;
-  --ok-ink: #347453;
-  --ok-soft: #e9f5ee;
-  --warn: #9a6728;
-  --warn-ink: #9a6728;
-  --warn-soft: #fdf4e3;
-  --danger: #b8503c;
-  --danger-ink: #b8503c;
-  --danger-soft: #fbecea;
-  --info: #456b89;
-  --info-ink: #456b89;
-  --info-soft: #ecf3f8;
+   * Four hues, each with one job. There is deliberately NO blue "info" colour:
+   * most "information" in this product is STATE, and state is grey. Five
+   * semantic hues in one interface is the rainbow that makes dashboards read as
+   * generic. --info is kept as a name only, pointed at the neutral ink, so no
+   * sheet breaks — but nothing should be reaching for it. */
+  --ok: #2c6a4b;
+  --ok-ink: #2c6a4b;
+  --ok-soft: #e6efe9;
+  --warn: #7e6410;
+  --warn-ink: #7e6410;
+  --warn-soft: #f3eddb;
+  --danger: #a33a2b;
+  --danger-ink: #a33a2b;
+  --danger-soft: #f4e6e3;
+  --info: var(--l-45);
+  --info-ink: var(--l-45);
+  --info-soft: var(--l-97);
 
-  /* Text sitting on a saturated fill or directly on a photo. Constant in both
-   * surfaces — those backgrounds do not invert, so this must not either. */
+  /* Text sitting on a saturated fill. Constant in both ends of the ramp —
+   * those backgrounds do not invert, so this must not either. */
   --on-solid: #ffffff;
 
-  /* Type scale. Five steps, no half pixels — every size in the product has to
-   * be one of these. Dense professional tools drift into 8-10px text one
-   * component at a time; a closed scale is what stops that. */
-  --t-xs: 11px;   /* badges, meta, legends — the smallest text allowed */
-  --t-sm: 12px;   /* secondary labels, captions */
-  --t-md: 13px;   /* body, controls, buttons */
-  --t-lg: 15px;   /* panel and section titles */
-  --t-xl: 18px;   /* screen titles */
-  --t-2xl: 24px;  /* standalone figures */
+  /* ------------------------------------------------------------- type */
+  /* IBM Plex Sans Hebrew carries Hebrew, Latin and figures in one voice; Plex
+   * Mono gives the Latin-and-numeric world (321A5078.CR2, f/1.4, ISO 6400,
+   * 24/96) a declared status: this is DATA, not prose. In an RTL interface full
+   * of Latin filenames, that distinction is what stops every direction change
+   * from reading as a glitch. */
+  --font: 'IBM Plex Sans Hebrew', 'Segoe UI', system-ui, -apple-system, sans-serif;
+  --font-data: 'IBM Plex Mono', 'Consolas', ui-monospace, monospace;
 
-  /* geometry */
-  --r-sm: 8px;
-  --r: 12px;
-  --r-lg: 16px;
-  --sidebar-w: 224px;
-  --sidebar-compact-w: 76px;
-  --topbar-h: 64px;
+  /* Density is not one number for the whole product. The DARK end is operated —
+   * a slider panel, a filmstrip of 500 frames — and it earns 11–13px the way
+   * Lightroom does. The LIGHT end is READ: a queue, a client, a calendar. The
+   * first version applied the tool's density to the reading screens, and the
+   * result had to be squinted at. These are the reading sizes; the tool panels
+   * step down from --t-sm when they are built. */
+  --t-xs: 13px;   /* units, keyboard hints — the smallest text allowed */
+  --t-sm: 14px;   /* meta, captions, file paths */
+  --t-md: 16px;   /* body, controls, buttons — the base */
+  --t-lg: 20px;   /* panel and section titles */
+  --t-xl: 30px;   /* screen titles */
+  --t-2xl: 40px;  /* a standalone figure that carries meaning */
 
-  --shadow-sm: 0 1px 2px rgba(30, 25, 15, 0.04);
-  --shadow: 0 2px 10px rgba(30, 25, 15, 0.05);
-  --shadow-lg: 0 8px 30px rgba(30, 25, 15, 0.10);
+  /* ------------------------------------------------------- geometry */
+  /* 3px, not 12–16 (a consumer component kit) and not 0 (the "brutalist
+   * broadsheet" that is its own generic signature). 3px reads as instrument. */
+  --r-sm: 3px;
+  --r: 3px;
+  --r-lg: 3px;
 
-  --font: 'Assistant', 'Rubik', 'Segoe UI', system-ui, -apple-system, sans-serif;
+  --sidebar-w: 244px;
+  --sidebar-compact-w: 62px;
+  --topbar-h: 62px;
+  --projhead-h: 40px;
+  --measure-h: 52px;
+  --strip-h: 108px;
+  --inspector-w: 340px;
+
+  /* Reading rows on the light end. The 30px figure belongs to a dense table of
+   * photographs, not to a queue of six things a person has to decide about. */
+  --row-h: 54px;
+  --row-dense-h: 36px;
+  --control-h: 40px;
+
+  /* 4px base. Nothing outside this scale. */
+  --s1: 4px;
+  --s2: 8px;
+  --s3: 12px;
+  --s4: 16px;
+  --s6: 24px;
+  --s8: 32px;
+  --s12: 48px;
+
+  /* Hierarchy is built from hairlines, space and height on the ramp — not from
+   * elevation. Only things that genuinely float get a shadow. */
+  --shadow-sm: none;
+  --shadow: none;
+  --shadow-lg: 0 8px 28px rgba(0, 0, 0, 0.34);
 }
 
 /* A surface must restate `color`, not just the tokens. `color` inherits its
@@ -85,37 +175,38 @@
   background: var(--page);
 }
 
-/* The editor's WORK AREA inverts — canvas, tools and filmstrip — because a
- * photo has to be judged against a neutral surround; a bright frame around it
- * shifts how its exposure reads. The app chrome around it stays light, which
- * is both what the design shows and what Lightroom does. */
+/* The dark end of the ramp: canvas, tools, filmstrip, album. Not a "dark mode"
+ * — a different working height on the same ramp, chosen by the task. */
 [data-surface='studio'] {
-  --page: #1b1c20;
-  --card: #212328;
-  --card-2: #26282e;
-  --line: #32353d;
-  --line-strong: #3f434d;
-  --ink: #ececef;
-  --ink-2: #a6a8b0;
-  --ink-3: #7a7d86;
-  --accent-soft: #3a2a1c;
-  --accent-line: #543c26;
-  --ok-soft: #23342a;
-  --warn-soft: #362c1a;
-  --danger-soft: #3a2422;
-  --info-soft: #1f2c36;
+  --chrome: var(--n-12);
+  --chrome-hover: var(--n-16);
+  --page: var(--n-08);
+  --card: var(--n-12);
+  --card-2: var(--n-16);
+  --line: var(--n-22);
+  --line-strong: var(--n-30);
+  --ink: var(--n-91);
+  --ink-2: var(--n-72);
+  --ink-3: var(--n-55);
 
-  /* Only the INK re-tunes. The fills stay put: they still carry white text,
-   * and lightening them would break every filled button. Text ink darkened for
-   * white turns muddy on a dark surround, so it lightens instead. */
-  --accent-ink: #f0a35e;
-  --ok-ink: #74c495;
-  --warn-ink: #e3b95f;
-  --danger-ink: #ea8270;
-  --info-ink: #85adcb;
-  --ink-3: #93969f; /* the lightest ink that still clears 4.5:1 on --card */
-  --shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
-  --shadow-lg: 0 10px 34px rgba(0, 0, 0, 0.45);
+  --accent-ink: var(--acc-ink-dark);
+  --accent-soft: #33240f;
+  --accent-line: #4d3517;
+
+  /* Only the INK re-tunes. The fills stay put: they still carry white text, and
+   * lightening them would break every filled control. */
+  --ok-ink: #6bbe93;
+  --ok-soft: #1c2b23;
+  --warn-ink: #d6b95a;
+  --warn-soft: #2c2718;
+  --danger-ink: #e88c7a;
+  --danger-soft: #2e1f1c;
+  --info: var(--n-55);
+  --info-ink: var(--n-55);
+  --info-soft: var(--n-16);
+
+  --shadow: none;
+  --shadow-lg: 0 10px 34px rgba(0, 0, 0, 0.5);
 }
 
 * {
@@ -134,9 +225,18 @@ body {
   font-family: var(--font);
   background: var(--page);
   color: var(--ink);
-  font-size: 14px;
-  line-height: 1.5;
+  font-size: var(--t-md);
+  line-height: 1.45;
   -webkit-font-smoothing: antialiased;
+}
+
+/* Hebrew has no true italic and no case. Synthetic slanting deforms the
+ * letterforms, and letter-spacing breaks the reading of a connected script —
+ * so emphasis is carried by weight and ink, never by these. */
+em,
+i {
+  font-style: normal;
+  font-weight: 500;
 }
 
 button {
@@ -154,27 +254,38 @@ select {
   color: inherit;
 }
 
+/* Wherever digits line up — counters, parameter values, tables, timings — they
+ * must not change width as they change value, or the panel jitters while a
+ * slider is dragged. */
+.mono,
+.num {
+  font-variant-numeric: tabular-nums;
+}
+
+.mono {
+  font-family: var(--font-data);
+}
+
 /* ---------------------------------------------------------------- shared */
 
 .card {
   background: var(--card);
   border: 1px solid var(--line);
-  border-radius: var(--r-lg);
-  box-shadow: var(--shadow-sm);
+  border-radius: var(--r);
 }
 
 .card-pad {
-  padding: 20px 22px;
+  padding: var(--s4) var(--s4);
 }
 
 .card-title {
-  font-size: 15px;
-  font-weight: 700;
+  font-size: var(--t-lg);
+  font-weight: 600;
   color: var(--ink);
 }
 
 .card-sub {
-  font-size: 12.5px;
+  font-size: var(--t-sm);
   color: var(--ink-3);
   margin-top: 2px;
 }
@@ -183,41 +294,45 @@ select {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 8px;
-  height: 38px;
-  padding: 0 18px;
+  gap: var(--s2);
+  height: var(--control-h);
+  padding: 0 var(--s4);
   border-radius: var(--r-sm);
-  font-size: 13.5px;
-  font-weight: 600;
-  background: var(--accent-soft);
-  color: var(--accent-ink);
-  border: 1px solid transparent;
-  transition: background 0.15s, border-color 0.15s;
+  font-size: var(--t-md);
+  font-weight: 400;
+  background: transparent;
+  color: var(--ink-2);
+  border: 1px solid var(--line-strong);
+  transition: color 0.09s ease-out, border-color 0.09s ease-out, background 0.09s ease-out;
   white-space: nowrap;
 }
 
 .btn:hover {
-  border-color: var(--accent-line);
+  color: var(--ink);
+  border-color: var(--ink-3);
 }
 
 .btn-primary {
   background: var(--accent);
-  color: #fff;
+  border-color: var(--accent);
+  color: var(--on-solid);
+  font-weight: 500;
 }
 
 .btn-primary:hover {
-  background: var(--accent-ink);
+  background: #b96c18;
+  border-color: #b96c18;
+  color: var(--on-solid);
 }
 
 .btn-ghost {
-  background: transparent;
-  color: var(--ink-2);
-  border: 1px solid var(--line);
+  border-color: transparent;
+  color: var(--ink-3);
 }
 
 .btn-ghost:hover {
-  background: var(--card-2);
-  border-color: var(--line-strong);
+  color: var(--ink);
+  border-color: var(--line);
 }
 
 .btn-wide {
@@ -225,24 +340,32 @@ select {
 }
 
 .btn:disabled {
-  opacity: 0.45;
+  color: var(--ink-3);
+  border-color: var(--line);
   cursor: not-allowed;
+}
+
+/* Keyboard focus is never removed. Copper, 2px, offset — visible at both ends
+ * of the ramp. */
+:where(button, a, input, select, textarea, [tabindex]):focus-visible {
+  outline: 2px solid var(--acc-mark);
+  outline-offset: 1px;
 }
 
 .pill {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  height: 24px;
-  padding: 0 10px;
-  border-radius: 999px;
-  font-size: 12px;
-  font-weight: 600;
+  height: 20px;
+  padding: 0 var(--s2);
+  border-radius: var(--r-sm);
+  font-size: var(--t-sm);
+  font-weight: 400;
 }
 
 .pill-ok {
   background: var(--ok-soft);
-  color: var(--ok);
+  color: var(--ok-ink);
 }
 
 .pill-run {
@@ -251,15 +374,15 @@ select {
 }
 
 .pill-idle {
-  background: var(--card-2);
+  background: transparent;
   color: var(--ink-3);
   border: 1px solid var(--line);
 }
 
 .field {
   width: 100%;
-  height: 40px;
-  padding: 0 14px;
+  height: var(--control-h);
+  padding: 0 var(--s3);
   border-radius: var(--r-sm);
   border: 1px solid var(--line);
   background: var(--card-2);
@@ -268,14 +391,13 @@ select {
 }
 
 .field:focus {
-  border-color: var(--accent-line);
-  background: var(--card);
+  border-color: var(--acc-mark);
 }
 
 textarea.field {
   height: auto;
-  min-height: 92px;
-  padding: 12px 14px;
+  min-height: 84px;
+  padding: var(--s2) var(--s3);
   resize: vertical;
 }
 
@@ -286,19 +408,19 @@ textarea.field {
 .row {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: var(--s2);
 }
 
 .spread {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
+  gap: var(--s3);
 }
 
 .grid {
   display: grid;
-  gap: 18px;
+  gap: var(--s4);
 }
 
 .scroll-y {
@@ -308,11 +430,22 @@ textarea.field {
 }
 
 .scroll-y::-webkit-scrollbar {
-  width: 10px;
+  width: 9px;
 }
 
 .scroll-y::-webkit-scrollbar-thumb {
   background: var(--line-strong);
-  border-radius: 999px;
   border: 3px solid var(--page);
+}
+
+/* The product is an instrument, not a website: motion describes cause and
+ * effect and nothing else, and everything still works without it. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }

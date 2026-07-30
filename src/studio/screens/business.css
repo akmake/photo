@@ -1,0 +1,970 @@
+/* The business screens — Today first.
+ *
+ * The screen is composed, not stretched. Two earlier versions failed on the
+ * same thing: five rows of text were asked to hold a 1400px window, so the
+ * panels either inflated into half-empty boxes or left the bottom two thirds
+ * blank. The fix was content, not spacing — the desk below carries the screen,
+ * and it is made of the photographs this product actually has.
+ *
+ * Separation is hairline and space. Sections are divided by a rule with a
+ * label on it, not by boxes.
+ */
+
+.today {
+  display: grid;
+  align-content: start;
+  gap: var(--s8);
+  width: 100%;
+  max-width: 1440px;   /* the wide monitor gets margin, not stretched rows */
+  margin-inline: auto;
+  padding-bottom: var(--s6);
+}
+
+/* ---------------------------------------------------------------- head */
+
+.today-head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s4);
+  flex-wrap: wrap;
+}
+
+.today-head h1 {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s3);
+  font-size: var(--t-xl);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.today-date {
+  font-size: var(--t-lg);
+  font-weight: 400;
+  color: var(--ink-3);
+}
+
+.today-shoot {
+  margin-inline-start: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s2);
+  font-size: var(--t-sm);
+  color: var(--ink-2);
+}
+
+.today-shoot svg {
+  color: var(--ink-3);
+}
+
+.today-shoot b {
+  font-weight: 500;
+  color: var(--ink);
+}
+
+/* -------------------------------------------------- section rules */
+
+/* A rule with a label on it. The label sits ON the line, which is what makes a
+ * section read as a section without drawing a box around it. */
+.sec-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  padding-bottom: var(--s2);
+  margin-bottom: var(--s1);
+  border-bottom: 1px solid var(--ink-3);
+}
+
+.sec-bar h2 {
+  font-size: var(--t-lg);
+  font-weight: 600;
+}
+
+.sec-n {
+  color: var(--ink-3);
+  font-size: var(--t-sm);
+}
+
+.sec-link {
+  margin-inline-start: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--ink-3);
+  font-size: var(--t-sm);
+}
+
+.sec-link:hover {
+  color: var(--ink);
+}
+
+/* ------------------------------------------------------------- the top */
+
+.today-top {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 340px;
+  gap: var(--s8);
+  align-items: start;
+}
+
+@media (max-width: 1240px) {
+  .today-top {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--s6);
+  }
+}
+
+.queue,
+.up-list {
+  list-style: none;
+}
+
+/* Three parts and no floating columns: what it looks like, what happened, what
+ * to do. The previous grid spread one fact across four columns separated by
+ * empty space, which is why the rows could not be read at a glance. */
+.q-row {
+  display: grid;
+  grid-template-columns: 62px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--s4);
+  width: 100%;
+  padding: var(--s3);
+  border-bottom: 1px solid var(--line);
+  text-align: start;
+  color: var(--ink);
+  position: relative;
+}
+
+.q-thumb {
+  width: 62px;
+  height: 46px;
+  object-fit: cover;
+  display: block;
+  background: var(--l-88);
+}
+
+.q-row:hover {
+  background: var(--card);
+}
+
+/* Urgency is an edge and an order, not six coloured badges. */
+.q-row::before {
+  content: '';
+  position: absolute;
+  inset-inline-start: 0;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: transparent;
+}
+
+.q-row.u-client::before {
+  background: var(--acc-mark);
+}
+
+.q-row.u-money::before {
+  background: var(--warn-ink);
+}
+
+.q-row.u-deadline::before {
+  background: var(--line-strong);
+}
+
+.q-main {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.q-main b {
+  font-weight: 500;
+  font-size: var(--t-md);
+}
+
+.q-sub {
+  color: var(--ink-3);
+  font-size: var(--t-sm);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* The action is always visible. Hiding it until hover meant the row never said
+ * what it was for. */
+.q-action {
+  text-align: end;
+  color: var(--accent-ink);
+  font-size: var(--t-sm);
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.q-row:hover .q-action {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+/* ------------------------------------------------------------ upcoming */
+
+.up-row {
+  display: grid;
+  grid-template-columns: 74px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--s4);
+  width: 100%;
+  padding: var(--s3);
+  border-bottom: 1px solid var(--line);
+  text-align: start;
+  color: var(--ink);
+}
+
+.up-row:hover {
+  background: var(--card);
+}
+
+.up-when {
+  display: grid;
+  gap: 1px;
+}
+
+.up-when b {
+  font-weight: 500;
+  font-size: var(--t-sm);
+}
+
+.up-when span {
+  color: var(--ink-3);
+  font-size: var(--t-sm);
+}
+
+.up-main {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.up-main b {
+  font-weight: 500;
+  font-size: var(--t-sm);
+}
+
+.up-main span {
+  color: var(--ink-3);
+  font-size: var(--t-sm);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.up-time {
+  color: var(--ink-2);
+  font-size: var(--t-sm);
+}
+
+/* =============================================================== the desk
+ * Every active job as a frame from that shoot. This is the content that holds
+ * the screen, and the only content in the product that is photographic. */
+
+.jobs {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(330px, 1fr));
+  gap: var(--s6) var(--s4);
+  padding-top: var(--s4);
+}
+
+.job {
+  display: grid;
+  gap: 3px;
+  text-align: start;
+  color: var(--ink);
+  min-width: 0;
+}
+
+/* No frame, no radius, no shadow on a photograph — anywhere in this product. */
+.job-frame {
+  position: relative;
+  display: block;
+  aspect-ratio: 3 / 2;
+  overflow: hidden;
+  background: var(--l-88);
+  margin-bottom: 6px;
+}
+
+.job-frame img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.job:hover .job-frame::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  outline: 2px solid var(--acc-mark);
+  outline-offset: -2px;
+}
+
+/* The one state that is about someone else's time. */
+.job-wait {
+  position: absolute;
+  inset-block-end: 0;
+  inset-inline-start: 0;
+  padding: 3px 8px;
+  background: var(--acc-fill);
+  color: var(--on-solid);
+  font-size: var(--t-xs);
+  font-weight: 500;
+}
+
+.job-name {
+  font-size: var(--t-lg);
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.job-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--ink-3);
+  font-size: var(--t-sm);
+}
+
+.job-meta i {
+  color: var(--line-strong);
+  font-style: normal;
+}
+
+/* The measure, at card scale: five segments, everything before the current one
+ * filled, the current one copper. The same device the project screen carries
+ * full size — so the shape of a job is legible before it is opened. */
+.job-measure {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 3px;
+  margin-top: 5px;
+}
+
+.job-measure .seg {
+  height: 3px;
+  background: var(--l-88);
+}
+
+.job-measure .seg.done {
+  background: var(--ink-3);
+}
+
+.job-measure .seg.on {
+  background: var(--acc-mark);
+}
+
+.job-counts {
+  margin-top: 4px;
+  color: var(--ink-3);
+  font-size: var(--t-sm);
+}
+
+/* ----------------------------------------------------------- the foot */
+
+.today-foot {
+  display: flex;
+  align-items: center;
+  gap: var(--s4);
+  flex-wrap: wrap;
+  padding-top: var(--s4);
+  border-top: 1px solid var(--line);
+  color: var(--ink-3);
+  font-size: var(--t-sm);
+}
+
+.today-foot b {
+  color: var(--ink);
+  font-weight: 500;
+  font-size: var(--t-md);
+}
+
+.today-foot i {
+  width: 1px;
+  height: 14px;
+  background: var(--line-strong);
+}
+
+.build-note {
+  margin-inline-start: auto;
+  color: var(--ink-3);
+  font-size: var(--t-xs);
+}
+
+/* ============================================================= פרויקטים
+ * The same tile as the desk on Today — one component, two screens. What is new
+ * here is the page chrome: a title that states the count, one primary action,
+ * and filters that are STATES rather than tags. */
+
+.pj {
+  display: grid;
+  align-content: start;
+  gap: var(--s6);
+  width: 100%;
+  max-width: 1440px;
+  margin-inline: auto;
+  padding-bottom: var(--s6);
+}
+
+.pj-head {
+  display: flex;
+  align-items: center;
+  gap: var(--s3);
+}
+
+.pj-head h1 {
+  font-size: var(--t-xl);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.pj-total {
+  color: var(--ink-3);
+  font-size: var(--t-lg);
+}
+
+.pj-new {
+  margin-inline-start: auto;
+}
+
+/* Filters sit on a rule, like every other section marker in the product. The
+ * count belongs ON the filter: "how many are waiting on a client" is the
+ * question, and putting the answer somewhere else makes it two lookups. */
+.pj-filters {
+  display: flex;
+  align-items: center;
+  gap: var(--s6);
+  border-bottom: 1px solid var(--ink-3);
+  padding-bottom: var(--s2);
+}
+
+.pj-filter {
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--s2);
+  padding-bottom: var(--s2);
+  margin-bottom: calc(var(--s2) * -1 - 1px);
+  border-bottom: 2px solid transparent;
+  color: var(--ink-3);
+  font-size: var(--t-md);
+}
+
+.pj-filter span {
+  font-size: var(--t-sm);
+  color: var(--ink-3);
+}
+
+.pj-filter:hover {
+  color: var(--ink);
+}
+
+.pj-filter.on {
+  color: var(--ink);
+  font-weight: 500;
+  border-bottom-color: var(--acc-mark);
+}
+
+.pj-filter.on span {
+  color: var(--ink-2);
+}
+
+.pj-empty {
+  padding: var(--s12) 0;
+  color: var(--ink-3);
+  font-size: var(--t-md);
+}
+
+/* A finished job is stated, not colour-coded away — but quietly: the frame
+ * stays the loudest thing on the tile. */
+.job-done {
+  position: absolute;
+  inset-block-end: 0;
+  inset-inline-start: 0;
+  padding: 4px 10px;
+  background: var(--n-12);
+  color: var(--n-91);
+  font-size: var(--t-xs);
+  font-weight: 500;
+}
+
+/* ======================================================= dialog (rare)
+ * The scrim isolates; the dialog is a plain surface with a hairline. It is not
+ * a floating rounded card — the only shadow in the product belongs to things
+ * that genuinely float, and this is one of the two places that qualifies. */
+
+.scrim {
+  position: fixed;
+  inset: 0;
+  background: rgba(11, 11, 11, 0.55);
+  display: grid;
+  place-items: center;
+  z-index: 100;
+  padding: var(--s6);
+}
+
+.dialog {
+  width: min(680px, 100%);
+  background: var(--card-2);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r);
+  box-shadow: var(--shadow-lg);
+  max-height: 100%;
+  overflow: auto;
+}
+
+.dialog-head {
+  display: flex;
+  align-items: center;
+  padding: var(--s4);
+  border-bottom: 1px solid var(--line);
+}
+
+.dialog-head h2 {
+  font-size: var(--t-lg);
+  font-weight: 600;
+}
+
+.dialog-x {
+  margin-inline-start: auto;
+  width: 30px;
+  height: 30px;
+  border-radius: var(--r-sm);
+  color: var(--ink-3);
+  font-size: var(--t-md);
+}
+
+.dialog-x:hover {
+  color: var(--ink);
+  background: var(--page);
+}
+
+.dialog-body {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--s4);
+  padding: var(--s4);
+}
+
+.fld {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.fld-wide {
+  grid-column: 1 / -1;
+}
+
+.fld > span {
+  font-size: var(--t-sm);
+  color: var(--ink-2);
+  font-weight: 500;
+}
+
+.fld em {
+  font-style: normal;
+  font-size: var(--t-xs);
+  color: var(--ink-3);
+}
+
+.deliver {
+  border: 0;
+}
+
+.checks {
+  display: flex;
+  gap: var(--s6);
+  padding: 6px 0;
+}
+
+.checks label {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s2);
+  font-size: var(--t-md);
+  cursor: pointer;
+}
+
+.checks input {
+  width: 17px;
+  height: 17px;
+  accent-color: var(--acc-fill);
+}
+
+.dialog-foot {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--s2);
+  padding: var(--s4);
+  border-top: 1px solid var(--line);
+}
+
+/* ============================================================ the project */
+
+.prj {
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr);
+  height: 100%;
+  min-height: 0;
+  margin: calc(var(--s4) * -1);
+}
+
+/* identity — never scrolls away */
+.prj-head {
+  display: flex;
+  align-items: center;
+  gap: var(--s3);
+  padding: 0 var(--s4);
+  height: 54px;
+  flex: 0 0 auto;
+  background: var(--card);
+  border-bottom: 1px solid var(--line);
+}
+
+.prj-back {
+  color: var(--ink-3);
+  font-size: var(--t-sm);
+  padding: 6px var(--s2);
+  border-radius: var(--r-sm);
+}
+
+.prj-back:hover {
+  color: var(--ink);
+  background: var(--page);
+}
+
+.prj-head h1 {
+  font-size: var(--t-lg);
+  font-weight: 600;
+}
+
+.prj-dot {
+  color: var(--line-strong);
+}
+
+.prj-event,
+.prj-date {
+  color: var(--ink-2);
+  font-size: var(--t-md);
+}
+
+.prj-state {
+  font-size: var(--t-sm);
+  font-weight: 500;
+  padding: 3px 10px;
+  border-radius: var(--r-sm);
+}
+
+.prj-state.s-waiting {
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+}
+
+.prj-state.s-work {
+  color: var(--ink-2);
+  border: 1px solid var(--line-strong);
+}
+
+.prj-state.s-done {
+  background: var(--ok-soft);
+  color: var(--ok-ink);
+}
+
+.prj-state.s-shoot {
+  color: var(--ink-3);
+  border: 1px solid var(--line);
+}
+
+.prj-files {
+  margin-inline-start: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--ok-ink);
+  font-size: var(--t-sm);
+}
+
+.prj-ctx-toggle {
+  height: 32px;
+  font-size: var(--t-sm);
+}
+
+/* ---- the measure rail: the signature element ---- */
+
+.measure {
+  display: flex;
+  align-items: stretch;
+  background: var(--card);
+  border-bottom: 1px solid var(--line-strong);
+  padding: 0 var(--s4);
+  flex: 0 0 auto;
+}
+
+.ms {
+  display: grid;
+  gap: 2px;
+  align-content: center;
+  min-width: 150px;
+  padding: var(--s2) var(--s4);
+  border-inline-start: 1px solid var(--line);
+  border-bottom: 2px solid transparent;
+  text-align: start;
+  color: var(--ink-3);
+}
+
+.ms:last-child {
+  border-inline-end: 1px solid var(--line);
+}
+
+.ms-label {
+  font-size: var(--t-sm);
+  font-weight: 500;
+}
+
+.ms-value {
+  font-size: var(--t-lg);
+  color: var(--ink-2);
+}
+
+.ms.done {
+  color: var(--ink-2);
+}
+
+.ms.idle .ms-value {
+  color: var(--line-strong);
+}
+
+.ms:hover {
+  color: var(--ink);
+  background: var(--card-2);
+}
+
+.ms.on {
+  color: var(--ink);
+  border-bottom-color: var(--acc-mark);
+}
+
+.ms.on .ms-value {
+  color: var(--ink);
+}
+
+/* ---- workspace ---- */
+
+.prj-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  min-height: 0;
+  overflow: hidden;
+}
+
+.prj-body.with-ctx {
+  grid-template-columns: minmax(0, 1fr) 320px;
+}
+
+.prj-work {
+  overflow-y: auto;
+  padding: var(--s6);
+  min-height: 0;
+}
+
+.stage-head {
+  margin-bottom: var(--s6);
+}
+
+.stage-head h2 {
+  font-size: var(--t-xl);
+  font-weight: 600;
+}
+
+.stage-head p {
+  color: var(--ink-3);
+  font-size: var(--t-md);
+  margin-top: 4px;
+}
+
+.numbers {
+  display: flex;
+  gap: var(--s12);
+  padding-bottom: var(--s6);
+  border-bottom: 1px solid var(--line);
+  margin-bottom: var(--s4);
+}
+
+.numbers b {
+  display: block;
+  font-size: var(--t-2xl);
+  font-weight: 600;
+  line-height: 1.1;
+}
+
+.numbers span {
+  color: var(--ink-3);
+  font-size: var(--t-sm);
+}
+
+.facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: var(--s4) var(--s8);
+  padding-bottom: var(--s6);
+  border-bottom: 1px solid var(--line);
+  margin-bottom: var(--s6);
+}
+
+.facts dt {
+  color: var(--ink-3);
+  font-size: var(--t-sm);
+}
+
+.facts dd {
+  font-size: var(--t-md);
+  margin-top: 2px;
+}
+
+.deliverables h3 {
+  font-size: var(--t-md);
+  font-weight: 600;
+  margin-bottom: var(--s2);
+}
+
+.deliverables ul {
+  list-style: none;
+  display: grid;
+  gap: 6px;
+}
+
+.deliverables li {
+  color: var(--ink-3);
+  font-size: var(--t-md);
+}
+
+.deliverables li::before {
+  content: '○ ';
+  color: var(--line-strong);
+}
+
+.deliverables li.yes {
+  color: var(--ink);
+}
+
+.deliverables li.yes::before {
+  content: '● ';
+  color: var(--acc-mark);
+}
+
+.stage-actions {
+  display: flex;
+  gap: var(--s2);
+  margin-top: var(--s4);
+}
+
+.hint {
+  color: var(--ink-3);
+  font-size: var(--t-sm);
+  max-width: 62ch;
+}
+
+.waiting-line {
+  margin-top: var(--s4);
+  padding: var(--s2) var(--s3);
+  border-inline-start: 2px solid var(--acc-mark);
+  color: var(--ink-2);
+  font-size: var(--t-sm);
+}
+
+/* ---- context panel ---- */
+
+.prj-ctx {
+  overflow-y: auto;
+  min-height: 0;
+  padding: var(--s4);
+  background: var(--card);
+  border-inline-start: 1px solid var(--line);
+  display: grid;
+  gap: var(--s6);
+  align-content: start;
+}
+
+.prj-ctx h3 {
+  font-size: var(--t-sm);
+  font-weight: 600;
+  color: var(--ink-3);
+  padding-bottom: 6px;
+  margin-bottom: var(--s2);
+  border-bottom: 1px solid var(--line);
+}
+
+.ctx-row {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  padding: 5px 0;
+  font-size: var(--t-sm);
+  color: var(--ink-3);
+}
+
+.ctx-row b {
+  margin-inline-start: auto;
+  color: var(--ink);
+  font-weight: 500;
+}
+
+.ctx-row.due b {
+  color: var(--warn-ink);
+}
+
+.ctx-path {
+  font-size: var(--t-xs);
+  color: var(--ink-3);
+  word-break: break-all;
+  padding-bottom: var(--s2);
+}
+
+/* Project activity — the one thing every stage has, so the workspace is never
+ * an empty room. */
+.activity {
+  margin-top: var(--s12);
+  max-width: 780px;
+}
+
+.activity h3 {
+  font-size: var(--t-md);
+  font-weight: 600;
+  padding-bottom: var(--s2);
+  border-bottom: 1px solid var(--ink-3);
+}
+
+.activity ul {
+  list-style: none;
+}
+
+.activity li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: baseline;
+  gap: var(--s4);
+  padding: var(--s3) 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.activity b {
+  font-weight: 500;
+  font-size: var(--t-md);
+}
+
+.activity span {
+  color: var(--ink-3);
+  font-size: var(--t-sm);
+}
+
+.activity .when {
+  min-width: 92px;
+  text-align: end;
+}

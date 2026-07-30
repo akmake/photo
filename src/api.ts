@@ -375,3 +375,55 @@ export async function applyAiTool(
   if (!r.ok) throw new Error(`engine ${r.status}`);
   return r.json();
 }
+
+/** List the image files in a folder on disk.
+ *
+ * The browser cannot enumerate a directory, and a batch screen needs the real
+ * paths: with them the work can be handed to the engine one file at a time,
+ * which is what makes progress reportable in ITEMS ("24 מתוך 96") instead of a
+ * spinner that says nothing about scale. */
+export async function listImages(folder: string): Promise<{
+  folder: string;
+  files: string[];
+  count: number;
+}> {
+  const r = await fetch(`${ENGINE}/list-images`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ folder }),
+  });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j?.error ?? `engine ${r.status}`);
+  return j;
+}
+
+/** Apply a learned colour model to files ON DISK and write the results.
+ *
+ * Called with ONE file at a time on purpose: the endpoint loops happily over
+ * hundreds, but then the screen can only say "working". Per-file calls give a
+ * real counter, a cancel that means something, and a failure list that names
+ * the frames that failed instead of aborting the run. */
+export async function exportColorFiles(
+  files: string[],
+  model: LearnedColorModel,
+  dest: string,
+  quality?: number,
+): Promise<{ written: string[]; errors: { file: string; error: string }[]; count: number }> {
+  const r = await fetch(`${ENGINE}/export-color`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ files, model, dest, format: 'jpeg', quality }),
+  });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j?.error ?? `engine ${r.status}`);
+  return j;
+}
+
+/** A thumbnail served by the engine, straight from the file on disk.
+ *
+ * The renderer cannot read `D:\Shoots\...` — and it must not have to: the whole
+ * product rests on the files staying where the photographer put them. The
+ * engine has disk access, so the engine serves the pixels. */
+export function thumbUrl(path: string, width = 320): string {
+  return `${ENGINE}/thumb?path=${encodeURIComponent(path)}&w=${width}`;
+}

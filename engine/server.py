@@ -6,9 +6,14 @@ leave the machine. Each AI tool is dispatched under /tools/{id}/apply.
 """
 
 import base64
+import io
 import json
+import os
+import urllib.parse
 from concurrent.futures import ThreadPoolExecutor
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+from PIL import Image, ImageOps
 
 import abpn
 import blush
@@ -147,6 +152,9 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
 
     def do_GET(self):
+        if self.path.startswith("/thumb?"):
+            self._thumb()
+            return
         if self.path == "/health":
             self._json(200, {"status": "ok", "tools": [t["id"] for t in TOOLS]})
         elif self.path == "/tools":
@@ -166,6 +174,47 @@ class Handler(BaseHTTPRequestHandler):
             })
         else:
             self._json(404, {"error": "not found"})
+
+    def _thumb(self):
+        """GET /thumb?path=<abs path>&w=<px> -> a JPEG thumbnail.
+
+        The renderer cannot read D:\Shoots\... — a browser has no access to
+        the disk, and the whole point of this product is that the files stay
+        there. So the engine, which does have access, serves the pixels.
+
+        Thumbnails are generated with draft-mode JPEG decoding: reading a 20MP
+        frame in full to show it at 320px costs about twenty times more than
+        letting libjpeg downscale while it decodes, and a folder view asks for
+        hundreds of these at once.
+        """
+        try:
+            query = urllib.parse.urlparse(self.path).query
+            args = urllib.parse.parse_qs(query)
+            path = (args.get("path") or [""])[0]
+            width = int((args.get("w") or ["320"])[0])
+            if not path or not os.path.isfile(path):
+                self._json(404, {"error": "not found"})
+                return
+
+            im = Image.open(path)
+            im.draft("RGB", (width * 2, width * 2))
+            im = ImageOps.exif_transpose(im).convert("RGB")
+            im.thumbnail((width, width), Image.LANCZOS)
+            buf = io.BytesIO()
+            im.save(buf, "JPEG", quality=82)
+            data = buf.getvalue()
+
+            self.send_response(200)
+            self.send_header("Content-Type", "image/jpeg")
+            self.send_header("Content-Length", str(len(data)))
+            self.send_header("Access-Control-Allow-Origin", "*")
+            # The file on disk does not change under a stable path, and a folder
+            # view re-requests the same frames constantly.
+            self.send_header("Cache-Control", "public, max-age=86400")
+            self.end_headers()
+            self.wfile.write(data)
+        except Exception as e:  # noqa: BLE001
+            self._json(500, {"error": str(e)})
 
     def do_POST(self):
         if self.path == "/decode":
@@ -191,6 +240,9 @@ class Handler(BaseHTTPRequestHandler):
             return
         if self.path == "/export-color":
             self._export_color()
+            return
+        if self.path == "/list-images":
+            self._list_images()
             return
         if self.path == "/export":
             self._export()
@@ -358,6 +410,31 @@ class Handler(BaseHTTPRequestHandler):
                     output_image
                 )
             self._json(200, {"image": payload, "meta": meta})
+        except Exception as e:  # noqa: BLE001
+            self._json(500, {"error": str(e)})
+
+    def _list_images(self):
+        """List the image files in a folder.
+
+        Plumbing, not a tool: a browser cannot enumerate a directory, and the
+        engine already has disk access. The batch screens need the real paths
+        so the work can be handed to /export-color file by file — which is what
+        makes progress reportable in ITEMS instead of a spinner.
+        """
+        try:
+            body = self._body()
+            folder = (body.get("folder") or "").strip().strip('"')
+            if not folder or not os.path.isdir(folder):
+                self._json(400, {"error": f"לא נמצאה תיקייה: {folder}"})
+                return
+            exts = {".jpg", ".jpeg", ".png", ".tif", ".tiff", ".webp",
+                    ".cr2", ".cr3", ".nef", ".arw", ".dng", ".raf", ".orf"}
+            names = sorted(
+                n for n in os.listdir(folder)
+                if os.path.splitext(n)[1].lower() in exts
+            )
+            files = [os.path.join(folder, n) for n in names]
+            self._json(200, {"folder": folder, "files": files, "count": len(files)})
         except Exception as e:  # noqa: BLE001
             self._json(500, {"error": str(e)})
 
