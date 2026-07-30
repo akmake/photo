@@ -825,6 +825,18 @@ export default function Lab() {
               >
                 {shownMarks.map((item) => {
                   const chosen = selectedIds.has(item.id);
+                  // A real 31x52px mark on a 3648px frame fitted to the stage is
+                  // 1.9x3.1 SCREEN px — measured, not estimated. The outline is
+                  // exact and completely invisible at the same time, so anything
+                  // under a ring's width gets a locator drawn around it: at fit
+                  // you need to know where the marks ARE, and at 100% you need
+                  // the boundary. The ring's radius is divided by the scale so it
+                  // stays one size on screen and disappears as you zoom in and
+                  // the outline itself becomes legible.
+                  const scale = Math.max(1e-6, fitScale * zoom);
+                  const w = (item.bbox[2] - item.bbox[0]) * marks.width;
+                  const h = (item.bbox[3] - item.bbox[1]) * marks.height;
+                  const tiny = Math.max(w, h) * scale < 16;
                   const d = item.contours
                     .map(
                       (ring) =>
@@ -852,6 +864,15 @@ export default function Lab() {
                         onPointerEnter={() => setHoverMark(item.id)}
                         onPointerLeave={() => setHoverMark(null)}
                       />
+                      {tiny && (
+                        <circle
+                          className={cls}
+                          cx={((item.bbox[0] + item.bbox[2]) / 2) * marks.width}
+                          cy={((item.bbox[1] + item.bbox[3]) / 2) * marks.height}
+                          r={11 / scale}
+                          fill="none"
+                        />
+                      )}
                       <path className={cls} d={d} />
                     </g>
                   );
