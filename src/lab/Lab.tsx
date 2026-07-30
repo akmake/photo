@@ -887,16 +887,28 @@ export default function Lab() {
                         'Z',
                     )
                     .join(' ');
-                  const cls =
-                    `lab-mark ${item.verdict === 'heal' ? 'ok' : 'refused'}` +
-                    `${chosen ? ' on' : ''}${hoverMark === item.id ? ' hot' : ''}`;
+                  // The paint lives on the SHAPE, not in a stylesheet.
+                  //
+                  // Twice now a rule has quietly filled these: once because
+                  // `.on` set a fill, and once because a stale sheet in an open
+                  // tab kept painting the old one. Either way the result is the
+                  // same and it is the worst possible one — a solid blob over
+                  // the exact pixels this view exists to show. A presentation
+                  // attribute travels with the element, so the outline cannot
+                  // become a blob because a stylesheet somewhere disagrees.
+                  const colour = item.verdict === 'heal' ? '#19f5a6' : '#ff4d4d';
+                  const hot = hoverMark === item.id;
                   return (
                     <g key={item.id}>
                       {/* a 5px blob on a 20MP frame is sub-pixel on screen; the
                           fat transparent stroke is what makes it clickable */}
                       <path
-                        className="lab-mark-hit"
+                        className="lab-outline-hit"
                         d={d}
+                        fill="none"
+                        stroke="transparent"
+                        strokeWidth={16}
+                        vectorEffect="non-scaling-stroke"
                         onPointerDown={(e) => {
                           e.stopPropagation();
                           toggleMark(item.id);
@@ -906,22 +918,38 @@ export default function Lab() {
                       />
                       {tiny && (
                         <circle
-                          className={`lab-mark-ring ${
-                            item.verdict === 'heal' ? 'ok' : 'refused'
-                          }`}
                           cx={((item.bbox[0] + item.bbox[2]) / 2) * marks.width}
                           cy={((item.bbox[1] + item.bbox[3]) / 2) * marks.height}
                           r={13 / scale}
+                          fill="none"
+                          stroke={colour}
+                          strokeWidth={1}
+                          strokeDasharray="2 3"
+                          opacity={0.75}
+                          vectorEffect="non-scaling-stroke"
                         />
                       )}
-                      {/* Two strokes on the SAME path, both 1.25px and both on
-                          the boundary: a continuous dark hairline, then the
-                          coloured line over it. That is how a selection outline
-                          stays readable over a forehead, a shadow and hair
-                          without a fill or a glow — neither of which can be used
-                          here, because both cover the mark. */}
-                      <path className="lab-mark-base" d={d} />
-                      <path className={cls} d={d} />
+                      {/* Two strokes on the SAME path, both a hairline and both
+                          on the boundary: a continuous dark line, then the
+                          coloured one over it. That is how an outline stays
+                          readable over a forehead, a shadow and hair without a
+                          fill or a glow — neither of which can be used here,
+                          because both cover the mark. */}
+                      <path
+                        d={d}
+                        fill="none"
+                        stroke="rgba(0,0,0,0.7)"
+                        strokeWidth={hot ? 1.75 : 1.25}
+                        vectorEffect="non-scaling-stroke"
+                      />
+                      <path
+                        d={d}
+                        fill="none"
+                        stroke={colour}
+                        strokeWidth={hot ? 1.75 : 1.25}
+                        strokeDasharray={chosen ? undefined : '3 2.5'}
+                        vectorEffect="non-scaling-stroke"
+                      />
                     </g>
                   );
                 })}
