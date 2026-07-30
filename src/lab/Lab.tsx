@@ -511,6 +511,11 @@ export default function Lab() {
             params: i.params,
             enabled: true,
             ...(i.mask ? { mask: i.mask } : {}),
+            // The marked candidates have to travel WITH the tool, not beside it.
+            // They did not, at first, and the failure was silent in the worst
+            // way: the marking view showed one set of outlines while the render
+            // quietly kept using the engine's own automatic decision.
+            ...(i.selection ? { selection: i.selection } : {}),
           })),
         );
         if (mine !== seq.current) return;
@@ -680,6 +685,38 @@ export default function Lab() {
     [marks, commitMarks],
   );
 
+  /** Put one candidate under the loupe: centred, and zoomed until it is big
+   *  enough to actually judge.
+   *
+   *  This is not a convenience. "Is this dirt or is it her freckle" cannot be
+   *  answered from a mark that is three screen pixels across, and at fit zoom on
+   *  a 20MP frame that is what every mark is. A marking view without this asks
+   *  the photographer to take the outlines on faith, which is the complaint the
+   *  view was built to answer. */
+  const focusMark = useCallback(
+    (item: SpotCandidate) => {
+      if (!marks || fitScale <= 0) return;
+      const w = (item.bbox[2] - item.bbox[0]) * marks.width;
+      const h = (item.bbox[3] - item.bbox[1]) * marks.height;
+      // ~170 screen px of mark: large enough to see its texture, small enough
+      // that the surrounding skin is still in frame for comparison. The floor is
+      // on the mark's size in FRAME pixels — putting it on the product instead
+      // silently pinned every small mark to the same zoom as a large one, which
+      // defeats the whole point for exactly the marks that need it most.
+      const want = 170 / (Math.max(8, Math.max(w, h)) * fitScale);
+      const next = Math.min(MAX_ZOOM, Math.max(1, want));
+      const cx = ((item.bbox[0] + item.bbox[2]) / 2 - 0.5) * marks.width * fitScale;
+      const cy = ((item.bbox[1] + item.bbox[3]) / 2 - 0.5) * marks.height * fitScale;
+      // .lab-zoomer is translate(pan) scale(zoom) about its own centre, and the
+      // image is centred in that box — so cancelling the scaled offset puts the
+      // mark dead centre.
+      setZoom(next);
+      setPan({ x: -next * cx, y: -next * cy });
+      setHoverMark(item.id);
+    },
+    [marks, fitScale],
+  );
+
   /** Hand the decision back to the engine. Different from marking everything it
    *  accepted, even though today they produce the same pixels: this one keeps
    *  following the detector if a slider moves, and that one does not. */
@@ -717,6 +754,9 @@ export default function Lab() {
           params: i.params,
           enabled: true,
           ...(i.mask ? { mask: i.mask } : {}),
+          // the delivered file must be healed where she marked, not where the
+          // detector would have chosen — same reason the preview forwards it
+          ...(i.selection ? { selection: i.selection } : {}),
         })),
         true,
       );
@@ -866,13 +906,21 @@ export default function Lab() {
                       />
                       {tiny && (
                         <circle
-                          className={cls}
+                          className={`lab-mark-ring ${
+                            item.verdict === 'heal' ? 'ok' : 'refused'
+                          }`}
                           cx={((item.bbox[0] + item.bbox[2]) / 2) * marks.width}
                           cy={((item.bbox[1] + item.bbox[3]) / 2) * marks.height}
-                          r={11 / scale}
-                          fill="none"
+                          r={13 / scale}
                         />
                       )}
+                      {/* Two strokes on the SAME path, both 1.25px and both on
+                          the boundary: a continuous dark hairline, then the
+                          coloured line over it. That is how a selection outline
+                          stays readable over a forehead, a shadow and hair
+                          without a fill or a glow — neither of which can be used
+                          here, because both cover the mark. */}
+                      <path className="lab-mark-base" d={d} />
                       <path className={cls} d={d} />
                     </g>
                   );
@@ -1210,7 +1258,7 @@ export default function Lab() {
               {shownMarks.map((item) => {
                 const chosen = selectedIds.has(item.id);
                 return (
-                  <label
+                  <div
                     key={item.id}
                     className={`lab-mark-row ${item.verdict === 'heal' ? 'ok' : 'refused'}${
                       chosen ? ' on' : ''
@@ -1222,15 +1270,22 @@ export default function Lab() {
                       type="checkbox"
                       checked={chosen}
                       onChange={() => toggleMark(item.id)}
+                      title={chosen ? 'מסומן לתיקון' : 'לא מסומן'}
                     />
-                    <span className="lab-mark-kind">{markLabel(item.kind)}</span>
-                    <span className="lab-mark-why">
-                      {markReason(item.verdict, item.facts)}
-                    </span>
+                    <button
+                      className="lab-mark-focus"
+                      onClick={() => focusMark(item)}
+                      title="הגדל אל המוקד הזה"
+                    >
+                      <span className="lab-mark-kind">{markLabel(item.kind)}</span>
+                      <span className="lab-mark-why">
+                        {markReason(item.verdict, item.facts)}
+                      </span>
+                    </button>
                     {item.verdict !== 'heal' && chosen && (
                       <span className="lab-mark-forced">נכפה</span>
                     )}
-                  </label>
+                  </div>
                 );
               })}
             </div>

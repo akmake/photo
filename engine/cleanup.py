@@ -106,6 +106,48 @@ RIDGE_MAX_THICK = 0.02
 # Length is estimated as area / width, which is what a ridge is.
 RIDGE_MIN_LEN = 0.10
 
+# ...but a GROOVE is thicker than a hair, and the thickness bar above was
+# calibrated only on hairs and eyeliner. A nasolabial fold measured 5.6px on a
+# 180px face (3.1%) and 8.2px on a 359px face (2.3%) — both over RIDGE_MAX_THICK,
+# so the fold lost the right to veto and the healer cut it. Measured end to end
+# before this existed: mean change ON the fold against ordinary skin ran 8.6x,
+# 13.3x and 9.3x on three smiling faces.
+#
+# A papule sits in that same thickness range, so raising the bar alone would
+# hand the veto to every blemish. What separates them is ELONGATION, and it is
+# scale-free: for a disc, length/thickness = pi/2 ~ 1.57 at any size; for a line
+# it is its aspect ratio. Measured on real folds: 22.3, 11.3, 15.8.
+#
+# So thickness stays the fast path for hairs, and a thicker component may still
+# veto if it is unmistakably a line. The absolute ceiling remains, because the
+# percolated noise blob this whole admission test exists to reject (235,270px on
+# a 272px face) must never come back.
+RIDGE_MIN_ELONGATION = 6.0
+RIDGE_ABS_MAX_THICK = 0.05
+
+# How much of a detection must lie on a measured crease before the detection is
+# judged to BE that crease. Half: a mark beside a fold overlaps it slightly and
+# must still be healed; a detection whose majority is the fold is the fold.
+CREASE_OVERLAP_DROP = 0.5
+
+# ...and overlap alone is not enough, for the reason RIDGE_MIN_LEN already
+# documents: a mark generates its OWN morphological response, so a detection can
+# sit on a "crease" that is nothing but its own shadow. Measured — with overlap
+# as the only test, the injected dark-speck on 321A5173 was vetoed by its own
+# response and recall fell 4/5 -> 2/5.
+#
+# The second test is the SHAPE OF THE DETECTION, which is the one thing the two
+# cases never share. A blemish lying on a fold is still a blemish: compact,
+# elongation ~1.6. A detection that has traced the fold is long and thin. Same
+# scale-free measure as CREASE_MIN_ELONGATION in pigment.py, now applied to the
+# repair component rather than to the ridge.
+#
+# Tried and rejected first: "the crease must extend several times past the
+# detection". It cannot separate these cases, because a detection that traced
+# the fold is ITSELF long, so the ratio collapses — measured, it let both folds
+# back through (11.2x and 6.6x) while still vetoing the compact speck.
+CREASE_REPAIR_ELONGATION = 3.0
+
 
 
 @dataclasses.dataclass
@@ -565,6 +607,7 @@ def _structure_gate(
     # elongation is not evidence of innocence; here, breadth is not evidence
     # of guilt.
     max_ridge_half = max(1.5, face_d * RIDGE_MAX_THICK)
+    abs_max_half = max(2.0, face_d * RIDGE_ABS_MAX_THICK)
     min_ridge_len = max(6.0, face_d * RIDGE_MIN_LEN)
     ridge_thick = cv2.distanceTransform(extent, cv2.DIST_L2, 5)
     can_veto = np.zeros(max(2, r_count), bool)
@@ -573,9 +616,13 @@ def _structure_gate(
         if not sel.any():
             continue
         half = float(ridge_thick[sel].max())
-        if half > max_ridge_half:
-            continue  # a percolated blob, not a line
+        if half > abs_max_half:
+            continue  # a percolated blob, not a line, at any aspect ratio
         length = float(sel.sum()) / max(1.0, 2.0 * half + 1.0)
+        if half > max_ridge_half:
+            # thicker than a hair — admitted only as an unmistakable line
+            if length / max(1.0, half) < RIDGE_MIN_ELONGATION:
+                continue
         can_veto[rid] = length >= min_ridge_len
 
     # The novelty a ring must stay under to count as "the mark ended here":
@@ -799,6 +846,7 @@ def confidence(rgb, params: dict):
     region = cv2.erode(region, np.ones((er, er), np.uint8))
     if region.max() <= 0:
         return None
+
 
     # Mole protection lives in the PIGMENT stage, not here.
     #
@@ -1073,6 +1121,43 @@ def _candidates(crop, crop_pre, det: Detection, orifice, down_field, strength, f
     )
     repair = decide(conf, face_c, gated)
 
+    # --- a detection that IS a crease is not a mark --------------------------
+    #
+    # `region` already withholds a nasolabial band, but that band is a straight
+    # line from the ala to the mouth corner and a real smile fold is not: it
+    # bows outward over the cheek and keeps running BELOW the corner. Measured
+    # against the fold traced from the image on four faces, the drawn band
+    # covers 0.0%-20.7% of it — 0.0% on the two worst. And there is no landmark
+    # at all for a crow's foot, a forehead line or a dimple; MediaPipe marks
+    # eyes, nose, lips and the oval, and no face model of any topology marks
+    # creases. So the fold is MEASURED (pigment.crease_map) rather than assumed.
+    #
+    # Applied HERE, to the finished repair mask, and not to `region` upstream.
+    # Subtracting it from `region` was tried first and cost recall outright —
+    # 321A5173 fell 4/5 -> 2/5 — because `region` also defines where the skin
+    # model SAMPLES and where erosion bites, so shrinking it moved the detector
+    # rather than just the repair. At this point nothing upstream changes.
+    #
+    # Whole components, never pixels: cutting a component in half leaves the
+    # ragged mask `decide` exists to prevent. A mark that merely touches a
+    # crease is still healed; a "mark" that is mostly the crease is the crease.
+    crease_vetoed = 0
+    if repair.any():
+        crease = pigment.crease_map(crop, region, face_c) > 0.5
+        if crease.any():
+            n_r, l_r = cv2.connectedComponents(repair, connectivity=8)
+            for i in range(1, n_r):
+                sel = l_r == i
+                if float(crease[sel].mean()) <= CREASE_OVERLAP_DROP:
+                    continue
+                comp = sel.astype(np.uint8)
+                area = float(comp.sum())
+                half = float(cv2.distanceTransform(comp, cv2.DIST_L2, 3).max())
+                length = area / max(1.0, 2.0 * half)
+                if length / max(1.0, half) >= CREASE_REPAIR_ELONGATION:
+                    repair[sel] = 0
+                    crease_vetoed += 1
+
     fluid = np.zeros(repair.shape, np.uint8)
     fluid_found = 0
     if fluids:
@@ -1166,6 +1251,7 @@ def _candidates(crop, crop_pre, det: Detection, orifice, down_field, strength, f
     counts = {
         "lineVetoed": line_vetoed,
         "shadingVetoed": shading_vetoed,
+        "creaseVetoed": crease_vetoed,
         "wetTrails": wet_trails,
         "fluidTrails": fluid_found,
     }
@@ -1502,7 +1588,7 @@ def apply(rgb, params: dict):
     faces = masks._face_landmarks(rgb)
     if len(faces) >= 2:
         out = rgb.copy()
-        totals = {"spotsRemoved": 0, "correctedPx": 0, "lineVetoed": 0,
+        totals = {"spotsRemoved": 0, "correctedPx": 0, "lineVetoed": 0, "creaseVetoed": 0,
                   "shadingVetoed": 0, "wetTrails": 0, "fluidTrails": 0,
                   "pigmentPx": 0, "protectedSpotPx": 0, "selected": 0}
         for x0, y0, x1, y1 in _face_boxes(rgb, faces):

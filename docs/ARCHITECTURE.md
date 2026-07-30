@@ -441,8 +441,17 @@ POST /tools/{id}/apply            → { imagePath|image, params } → image  (כ
 POST /render                      → { imagePath, recipe, size } → image  (רינדור-אמת מלא)
 POST /analyze                     → { imagePath } → הצעות (auto-style, מאפיינים שזוהו)
 POST /decode                      → { path | image, maxDim } → תצוגת JPEG   (פענוח RAW)
+POST /cleanup/detect              → { image|path, params, recipe } → { items[] }  (גיאומטריה בלבד)
 POST /export                      → { photos[], recipe|perPhoto, format, dest }  (עתידי)
 ```
+
+**‏`/cleanup/detect` מחזיר גיאומטריה, לא תמונה** — וזו לא אופטימיזציה אלא הדרישה
+עצמה. כל מועמד חוזר כקונטור מדויק מנורמל לפריים (‏0..1) עם ‏`kind`, ‏`verdict`
+והמספרים שהכריעו, כי הצלמת צריכה **ללחוץ** על מוקד ולהחליט לגביו: אף אחד לא יכול
+ללחוץ על פיקסל בתוך *תמונה של* לחיצה. הנרמול לפריים הוא מה שמאפשר לסמן על תצוגה
+ולהחיל על הקובץ המלא — הגרסה היחידה שנמסרת בסוף. אותם קונטורים חוזרים למנוע
+ב-`selection` שעל פריט המרשם, ומרנדרים דרך `drawContours(FILLED)` — אותה פעולה
+ש-`_fill_holes` בונה בה כל מסכת תיקון, ולכן ההחזרה היא זהות ולא קירוב.
 
 **החלטת build-to-keep:** תמונות עוברות ב**נתיב-קובץ מקומי**, לא base64. המנוע קורא מהדיסק (מהיר, חובה ל-RAW/תמונות גדולות). *(ה-base64 ב-POC היה קיצור-דרך — מוחלף כאן.)*
 

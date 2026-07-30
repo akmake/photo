@@ -110,7 +110,9 @@ const FACTS: Record<string, (v: MetaValue) => string> = {
   shadingVetoed: (v) => `אזורי הצללה שדולגו: ${int(v)}`,
   wetTrails: (v) => `נוזלים שזוהו בשער המבנה: ${int(v)}`,
   fluidTrails: (v) => `שבילי נוזל (ריר/דמעה/נזלת): ${int(v)}`,
-  selected: (v) => `תוקנו לפי סימון ידני: ${int(v)} מוקדים`,
+  // Regions, not ticked boxes: two marks that touch are rebuilt as one area, so
+  // this can read lower than the number of marks and that is not a discrepancy.
+  selected: (v) => `לפי סימון ידני — אזורים שנבנו מחדש: ${int(v)} (מוקדים נוגעים מתמזגים)`,
 
   // pigment evening (cleanup.py stage A). `pigmentPx` vs `correctedPx` is the
   // distinction that matters when reading a result: the first is colour that was

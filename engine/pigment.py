@@ -12,16 +12,18 @@ Measured on the reference acne face: 208 real marks by an independent detector,
 of which the discrete-mark path could legitimately claim maybe a third. The rest
 was never a set of spots at all.
 
-So this operator does something categorically different, and its safety comes
-from what it is STRUCTURALLY unable to do:
+So this operator does something categorically different. Its safety ORIGINALLY
+came from what it was structurally unable to do — it edited `a` and `b`, and
+`L` was never written, so it could not blur a pore or flatten a contour as a
+matter of construction rather than tuning.
 
-    it edits `a` and `b`.  `L` is never written.
-
-Lightness is what the eye reads as structure, texture, pore and shadow, so an
-edit that cannot touch `L` cannot produce a plastic face, cannot blur a pore and
-cannot flatten a contour — not as a matter of tuning, but of construction. The
-same argument the frequency-separation era relied on, applied to the axis that
-actually carries a blemish (see `skinmodel.W_A = 1.0`: a mark is pigment).
+That guarantee no longer holds literally: `lift_lightness` writes `L` (see the
+long note there — post-inflammatory hyperpigmentation IS darkness, and colour-
+only correction turned red spots grey). The guarantee was replaced by gates,
+and one of those gates was then measured to be wrong: a crease is a shadowed
+groove, shadowed skin is redder as well as darker, and the colour gate read
+0.98 on a real nasolabial fold. See CREASE_MAX_THICK for the measurement and
+for the shape veto that now carries the structural guarantee instead.
 
 The reference it corrects toward is a local MEDIAN of the person's own skin, so:
   · it is relative — identical behaviour on any skin tone or white balance;
@@ -81,6 +83,81 @@ MAX_LIFT_L = 14.0
 # skinmodel — stays firmly shut.
 GATE_SATURATE = 0.8
 
+# --- the crease veto -------------------------------------------------------
+#
+# This file used to argue that a facial crease was safe from it by construction:
+# "a crease carries no colour excess, and it is a line, so both of that
+# operator's gates reject it" (the same sentence justified removing the
+# nasolabial fold from `face-pigment-protect` in masks.py). The first half of
+# that sentence is false, and it was measured on three faces:
+#
+#     face          a excess on fold / on plain skin   b excess    colourGate
+#     adult male            7.62 / 0.37                14.77/0.45     0.983
+#     child 1770#3          4.64 / 0.29                 5.76/0.27     0.981
+#     toddler 1784          2.15 / 0.18                 3.01/0.21     0.798
+#
+# against knees of 1.33-2.67. A crease is a SHADOWED GROOVE, and shadowed skin
+# is not merely darker — it is redder and yellower, because the light that does
+# return has scattered through a longer subsurface path. So the colour gate,
+# whose whole premise is "darker AND redder means pigment, darker alone means
+# structure", reads 0.98 on a nasolabial fold and opens all the way.
+#
+# Worse, the a/b correction never consulted a shape gate at all: `_blob_gate`
+# guards only the L lift. So the fold was being desaturated with nothing in the
+# way, at 15.8x (a) and 24.4x (b) the rate of ordinary skin.
+#
+# The honest discriminator is the one `_blob_gate` already gets right and which
+# holds regardless of colour: a crease is a LINE, a mark is a BLOB. Lifted here
+# to the whole operator. The two bars are the ones cleanup.py already validated
+# for exactly this judgement (RIDGE_MAX_THICK / RIDGE_MIN_LEN) — a stray hair,
+# an eyeliner tail and a nasolabial fold are all thin AND long; a papule is
+# neither.
+# The primary test is ELONGATION — length over thickness — and it is the only
+# one of the three that needs no reference size at all.
+#
+# Thickness alone cannot do this job, and trying it is what failed first. The
+# 2%-of-face bar borrowed from cleanup.RIDGE_MAX_THICK is calibrated on stray
+# hairs and eyeliner, which really are 1-2px things. A nasolabial fold is a
+# GROOVE: measured 5.6px on a 180px face (3.1%) and 8.2px on a 359px face
+# (2.3%), so both were rejected as "too thick to be a line" while their
+# components ran 125px and 93px long. A papule sits in that same thickness
+# range, so the bar cannot separate them however it is set.
+#
+# Elongation can, and it falls out of geometry rather than tuning. For a disc
+# of radius r: area = pi*r^2, thickness = r, length = area/2r = pi*r/2, so
+# length/thickness = pi/2 ~ 1.57 whatever its size. For a line of length L and
+# half-width t it is L/t, which grows without bound. Measured on the reference
+# folds: 22.3, 11.3 and 15.8 against 1.57 for anything round.
+CREASE_MIN_ELONGATION = 6.0
+# Still bounded in absolute terms: a structure must run a real fraction of the
+# face (a mark's own morphological response is short — the bug that let a
+# blemish veto itself in cleanup.py), and a percolated noise web that spans the
+# cheek is not a crease however elongated its skeleton measures.
+CREASE_MIN_LEN = 0.10  # of face_d
+CREASE_MAX_THICK = 0.05  # of face_d
+# Ranks over ALL judged skin, not over the responding pixels — the lesson
+# already paid for at cleanup.RIDGE_EXTENT_PCT. A morphological blackhat is
+# exactly zero over most of a face, so a median/MAD bar collapses to the
+# absolute floor, and an absolute Lab amplitude is not the same evidence at
+# every resolution.
+#
+# TWO bars, not one, for the reason hysteresis_core already documents: a single
+# bar breaks a crease into fragments wherever its contrast dips, and each
+# fragment is then judged alone and fails the length test. Measured: at a
+# single 97th-percentile bar the girl's fold cleared it on 2.9% of its length
+# and the surviving component was 31px long against a 27px bar — the veto was
+# rejecting the fold for being in pieces, which is the same failure mode
+# _fluid_trails hit on the drool strand.
+#
+# Where the bars sit is measured, not chosen. The median blackhat response
+# along a real fold lands at percentile 98.9 / 98.2 / 93.4 of judged skin on
+# the three reference faces (stable to within 1 point across kernel widths
+# 0.03-0.08 of face_d, so the kernel is not a sensitive choice).
+CREASE_SEED_PCT = 96.0
+CREASE_EXTENT_PCT = 92.0
+CREASE_FLOOR_L = 5.0
+
+
 # A mole is darker than this (Lab L below its local reference) and compact.
 # Nothing at or beyond it is ever corrected, in any channel.
 #
@@ -137,6 +214,84 @@ def protected_spots(
     # the face (10.7 and 10.6, both sitting on a mole).
     grow = max(3, int(face_d * grow_pct)) | 1
     return cv2.dilate(out, np.ones((grow, grow), np.uint8))
+
+
+def crease_map(rgb: np.ndarray, allow: np.ndarray, face_d: float) -> np.ndarray:
+    """Dark structures that are THIN and LONG — the face's own creases.
+
+    Returns a soft 0..1 field to be withheld from every channel this operator
+    writes. Needs no landmarks, so it covers the folds nobody has a landmark
+    for: the melolabial continuation below the mouth corner, crow's feet,
+    forehead lines, neck lines, and a smile fold on a head at any angle.
+
+    Deliberately NOT keyed on colour. Keying it on colour is what failed: see
+    the note on CREASE_MAX_THICK.
+    """
+    if face_d < 1 or allow.max() <= 0:
+        return np.zeros(rgb.shape[:2], np.float32)
+    lab_l = cv2.cvtColor(rgb, cv2.COLOR_RGB2LAB)[..., 0]
+    k = max(5, int(face_d * 0.05)) | 1
+    resp = cv2.morphologyEx(
+        lab_l, cv2.MORPH_BLACKHAT, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (k, k))
+    ).astype(np.float32)
+
+    sample = allow > 0.35
+    if sample.sum() < 256:
+        return np.zeros(rgb.shape[:2], np.float32)
+    seed_bar = max(float(np.percentile(resp[sample], CREASE_SEED_PCT)), CREASE_FLOOR_L)
+    ext_bar = max(
+        float(np.percentile(resp[sample], CREASE_EXTENT_PCT)), CREASE_FLOOR_L * 0.5
+    )
+    # Confined to the judged skin (plus a margin, so a crease running to the
+    # jaw stays whole). Without this the low extent bar percolates through
+    # hair, brows and background into one blob that spans the frame, and the
+    # thickness test then rejects everything — measured: 350k px marked, 0% of
+    # the fold covered.
+    zr = max(3, int(face_d * 0.03)) | 1
+    zone = cv2.dilate(sample.astype(np.uint8), np.ones((zr, zr), np.uint8)) > 0
+    # bridge pixel-scale dropouts so one crease stays one structure where its
+    # contrast dips — the same 3x3 bridge _structure_gate uses
+    bridge = np.ones((3, 3), np.uint8)
+    seed = cv2.dilate(((resp > seed_bar) & zone).astype(np.uint8), bridge)
+    ridge = cv2.dilate(((resp > ext_bar) & zone).astype(np.uint8), bridge)
+    ridge = np.maximum(ridge, seed)
+    # Hysteresis: the low bar describes how far a structure runs, it does not
+    # get to declare one. Only components holding confident evidence survive.
+    if seed.any():
+        nc, nl = cv2.connectedComponents(ridge, connectivity=8)
+        alive = np.zeros(max(2, nc), bool)
+        alive[np.unique(nl[seed > 0])] = True
+        alive[0] = False
+        ridge = alive[nl].astype(np.uint8)
+
+    count, labels, stats, _ = cv2.connectedComponentsWithStats(ridge, connectivity=8)
+    max_thick = max(1.5, face_d * CREASE_MAX_THICK)
+    min_len = max(6.0, face_d * CREASE_MIN_LEN)
+    # One distance transform for the whole map, then a per-label maximum. Doing
+    # it per component instead is O(components x frame) and takes minutes on a
+    # 20MP frame — a ridge map has thousands of components.
+    dist = cv2.distanceTransform(ridge, cv2.DIST_L2, 3)
+    thick = np.zeros(max(2, count), np.float32)
+    np.maximum.at(thick, labels.ravel(), dist.ravel())
+    areas = stats[:, cv2.CC_STAT_AREA].astype(np.float32)
+    length = areas / np.maximum(1.0, thick * 2.0)
+    elongation = length / np.maximum(1.0, thick)
+    keep = (
+        (areas >= 6)
+        & (elongation >= CREASE_MIN_ELONGATION)
+        & (length >= min_len)
+        & (thick <= max_thick)
+    )
+    keep[0] = False
+    if not keep.any():
+        return np.zeros(rgb.shape[:2], np.float32)
+
+    crease = keep[labels].astype(np.uint8)
+    # a crease has soft shoulders; ending the protection on its exact ridge
+    # leaves the operator free to eat the sides and thin the line instead
+    grow = max(3, int(face_d * 0.008)) | 1
+    soft = cv2.dilate(crease, np.ones((grow, grow), np.uint8)).astype(np.float32)
+    return np.clip(cv2.GaussianBlur(soft, (grow, grow), 0), 0.0, 1.0)
 
 
 def _excess(channel: np.ndarray, support: np.ndarray, radius: int) -> np.ndarray:
@@ -222,7 +377,14 @@ def even_pigment(
     support = (judge > 0.35).astype(np.float32)
     radius = max(9, int(face_d * 0.10)) | 1
     protect = protected_spots(rgb, judge, face_d)
-    allow = np.clip(judge, 0.0, 1.0) * (1.0 - protect.astype(np.float32))
+    # The face's own creases, measured from the image. Withheld from BOTH the
+    # chroma correction and the lightness lift — the chroma half never had a
+    # shape gate, and it was the half doing the damage on an adult fold.
+    crease = crease_map(rgb, np.clip(judge, 0.0, 1.0), face_d)
+    keep_structure = 1.0 - crease
+    allow = (
+        np.clip(judge, 0.0, 1.0) * (1.0 - protect.astype(np.float32)) * keep_structure
+    )
     # Only wide enough to hide the correction's own edge. A larger kernel is a
     # low-pass on the correction field itself, which flattens the peak exactly
     # over small marks — the things we are trying to reach.
@@ -231,11 +393,18 @@ def even_pigment(
     if lift_judge is None:
         lift_allow = allow
     else:
-        lift_allow = np.clip(lift_judge, 0.0, 1.0) * (1.0 - protect.astype(np.float32))
+        lift_allow = (
+            np.clip(lift_judge, 0.0, 1.0)
+            * (1.0 - protect.astype(np.float32))
+            * keep_structure
+        )
     lift_confine = (lift_allow > 0.02).astype(np.float32)
 
     out = lab.copy()
-    stats = {"protectedSpotPx": int(protect.sum())}
+    stats = {
+        "protectedSpotPx": int(protect.sum()),
+        "creasePx": int((crease > 0.5).sum()),
+    }
     colour_over = np.zeros(lab.shape[:2], np.float32)
     for channel, cap, name in ((1, max_shift_a, "a"), (2, max_shift_b, "b")):
         excess = _excess(lab[..., channel], support, radius)
