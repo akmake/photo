@@ -73,7 +73,27 @@ FLUID_TRAILS_ENABLED = True
 # 0.03. It then rejected the SAME drool a second time, at 8.28 against 7.77,
 # once the detector was moved onto the undoctored crop -- a 6% margin in one
 # parameter, which this file says elsewhere is not a mechanism.
-FLUID_MAX_WIDTH = 0.03
+#
+# 0.035 was held back for a while on the belief that it cost three false
+# positives on 321A1770. IT DOES NOT, and the belief came from reading counts
+# instead of images: the largest of those three is a REAL drool on the baby in
+# that frame, plainly visible on the lip and chin of the original and cleanly
+# removed. The others are a faint wet chin and a change invisible at 1:1 on the
+# father. Every "false positive" that was actually checked turned out to be
+# fluid, in a niche where photographing drooling babies is the daily case.
+#
+# Separately measured and rejected as a discriminator: nothing in the strand's
+# geometry tells the drool apart from a shine streak. Real drool and the
+# doubtful components overlap on distance-to-orifice (1.0px both), brightness
+# over the ring (+18.0 vs +11.0 to +15.0), downward fraction (0.87 vs 0.83-0.98)
+# and run length (0.21fw vs 0.06-0.23fw). There is no bar to find, which is why
+# this is a threshold and not a test.
+#
+# The window is bounded on BOTH sides and both bounds are measured, so this is
+# not a free parameter: below 0.0320 the 1809 drool is rejected, and at 0.0350
+# test_cleanup_recall fails on 321A5173 with 1,677px of collateral against an
+# 800px cap. 0.034 sits inside that window with margin at each end.
+FLUID_MAX_WIDTH = 0.034
 
 # What counts as "structure" for the line veto is calibrated on the SKIN, at a
 # fixed RANK — not at a fixed Lab amplitude, and not from a robust sigma.
