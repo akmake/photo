@@ -45,6 +45,16 @@ def _instance():
             # letting ORT spawn its own pool on top just thrashes the cache.
             opts.intra_op_num_threads = max(1, (os.cpu_count() or 4) // 2)
             opts.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
+            # The CPU memory arena is a false economy here. BiRefNet-lite's 1024²
+            # activations are large, and ORT's BFCArena keeps every byte it ever
+            # touches resident — then GROWS on the next run. Measured on a 20MP
+            # frame: 6.6GB retained after one call, 11GB after two, versus a peak
+            # of 9GB for the whole pipeline that was really this one arena. With
+            # the arena off the buffers are freed back to the OS between runs:
+            # 590MB resident, and the run is actually ~2x faster without the
+            # allocator churn. We call this at most once per frame, so pooling
+            # buys nothing anyway.
+            opts.enable_cpu_mem_arena = False
             _session = ort.InferenceSession(
                 MODEL, sess_options=opts, providers=["CPUExecutionProvider"]
             )

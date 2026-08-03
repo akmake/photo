@@ -27,6 +27,7 @@ import hairtone
 import skin
 import globals_py
 import hsl
+import pixel_color
 import grade_zones
 import dehaze
 import contour
@@ -51,6 +52,19 @@ TOOLS = {
     "eye-sparkle": (eyes.apply, 23),
     "hair-tones": (hairtone.apply, 24),
     "background-blur": (background.apply, 25),
+    # A LOOK LEARNED FROM A PAIR, carried as a step like any other.
+    #
+    # It sits here — after the face work, before tone-color — because the model
+    # was fitted against a finished edit, so it carries the whole grade: it has
+    # to see retouched skin (or it transfers the look onto blemishes that will
+    # not be there), and everything a photographer turns afterwards has to land
+    # ON TOP of it rather than be swallowed by it.
+    #
+    # `pixel_color.apply(rgb, model)` already satisfies the (rgb, x) ->
+    # (rgb, meta) contract every entry here shares, so nothing about it is
+    # special-cased in the loop — only the second argument is a fitted model
+    # instead of sliders, which is why a step carries `model` (see render()).
+    "pixel-color": (pixel_color.apply, 28),
     "tone-color": (globals_py.tone_color, 30),
     # parametric curves sit between the basic tone panel and the local tools,
     # exactly where a raw pipeline runs its tone curve
@@ -131,7 +145,7 @@ def _region_mask(rgb, spec):
 
 
 def render(img, recipe_tools):
-    """img: PIL image. recipe_tools: [{toolId, params, enabled, mask?}].
+    """img: PIL image. recipe_tools: [{toolId, params, enabled, mask?, model?}].
 
     A tool carrying `mask` is applied through it instead of over the whole
     frame, which is what lets one recipe hold the SAME tool twice with opposite
@@ -165,6 +179,14 @@ def render(img, recipe_tools):
             # preview would be a control that lies about what gets delivered.
             if t.get("selection") is not None:
                 params = {**params, "selection": t["selection"]}
+            # A FITTED MODEL, not sliders. `pixel-color` is calibrated from a
+            # before/after pair and arrives as anchors, deltas and confidences —
+            # it cannot travel in `params`, which is numbers by contract
+            # (types.ts). It rides its own field for the same reason `selection`
+            # does, and for the same reason it must reach the export: a look
+            # that only existed in the preview would be a lie about delivery.
+            if t.get("model") is not None:
+                params = t["model"]
             out, meta = fn(rgb, params)
             if spec:
                 m = _region_mask(rgb, spec)[..., None]

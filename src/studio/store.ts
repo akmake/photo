@@ -10,9 +10,12 @@
  */
 
 import { useSyncExternalStore } from 'react';
+import type { LearnedColorModel, ProjectRecipe, ToolInstance } from '../types';
 
-/** The stages a job moves through. `הכנה` is where the deliverables are chosen,
- *  and those choices decide which of the later stages this project even has. */
+/** The stages a job moves through. Every project carries all of them — a shoot
+ *  that was not sold with an album can still become one, so the album tool is
+ *  reachable from every project. `הכנה` is where the deliverables are chosen;
+ *  those choices drive the checklist, not which stages exist. */
 export const STAGES = [
   { id: 'setup', label: 'הכנה' },
   { id: 'import', label: 'ייבוא' },
@@ -49,8 +52,9 @@ export interface Project {
   at: number;
   counts: string;
   state: ProjectState;
-  /** Chosen in הכנה. A family session has no album, and a project without one
-   *  must not show an album stage it will never use. */
+  /** Chosen in הכנה — whether an album was sold as a deliverable. Drives the
+   *  setup checklist. It no longer hides the album stage: the tool is available
+   *  in every project, sold or not. */
   hasAlbum: boolean;
   hasGallery: boolean;
   /** Counters — the spine of the project header. */
@@ -62,9 +66,10 @@ export interface Project {
   createdAt: string;
 }
 
-/** The stages this particular project has, after its deliverables are applied. */
-export function stagesOf(p: Project) {
-  return STAGES.filter((s) => (s.id === 'album' ? p.hasAlbum : true));
+/** The stages this project shows. Every project gets all of them — the album
+ *  tool must be reachable from every project, whether or not one was sold. */
+export function stagesOf(_p: Project) {
+  return STAGES;
 }
 
 const SEED: Project[] = [
@@ -297,4 +302,126 @@ export function setPhotoStatus(path: string, status: PhotoStatus) {
 
 export function useStatuses(): Record<string, PhotoStatus> {
   return useSyncExternalStore(subscribe, () => statuses, () => statuses);
+}
+
+/* ================================================================ the recipe
+ *
+ * WHAT THE SET LOOKS LIKE NOW — and the reason a tool no longer reopens the
+ * raw files.
+ *
+ * Before this existed, applying a learned colour to a folder wrote 2,000 JPEGs
+ * into `<folder>\TEZA` and then forgot the path the moment the screen closed:
+ * the destination lived in component state, the store had no concept of an
+ * output, and /list-images does not recurse — so the result was invisible to
+ * the product that produced it, and the next tool opened the raws again.
+ *
+ * So the set's state stopped being a place on disk and became a LIST OF WHAT
+ * WAS DONE. Applying to the whole set appends a step here — instantly, with no
+ * files written — and every screen that shows a frame renders through it. There
+ * is nothing to synchronise because there is only one copy of the truth, and
+ * changing step 1 does not cost the work done in steps 2 and 3.
+ *
+ * Files are written once, on delivery, from the original — so a set can be
+ * re-graded any number of times without a single re-encode.
+ */
+
+const RECIPE_KEY = 'teza.recipes.v1';
+
+const EMPTY_RECIPE: ProjectRecipe = { version: 1, base: [], perFrame: {} };
+
+let recipes: Record<string, ProjectRecipe> = loadMap<ProjectRecipe>(RECIPE_KEY);
+
+function saveRecipes() {
+  try {
+    localStorage.setItem(RECIPE_KEY, JSON.stringify(recipes));
+  } catch {
+    /* optional */
+  }
+  listeners.forEach((fn) => fn());
+}
+
+export function recipeOf(projectId: string): ProjectRecipe {
+  return recipes[projectId] ?? EMPTY_RECIPE;
+}
+
+export function useRecipe(projectId: string): ProjectRecipe {
+  return useSyncExternalStore(
+    subscribe,
+    () => recipes[projectId] ?? EMPTY_RECIPE,
+    () => recipes[projectId] ?? EMPTY_RECIPE,
+  );
+}
+
+/** Strip what cannot mean anything on another frame.
+ *
+ *  A brush stroke and a set of marked outlines belong to one face in one photo;
+ *  carrying them into a step that runs on the whole set would apply one frame's
+ *  geometry to every other frame. The rule is already stated in types.ts — this
+ *  is where it is enforced, at the one door into `base`. */
+function shareable(step: ToolInstance): ToolInstance {
+  const { selection: _drop, mask, ...rest } = step;
+  if (!mask) return rest;
+  const { paint: _painted, ...maskRest } = mask;
+  return { ...rest, mask: maskRest };
+}
+
+function write(projectId: string, next: ProjectRecipe) {
+  recipes = { ...recipes, [projectId]: next };
+  saveRecipes();
+}
+
+/** Put a step on the whole set. One entry per tool: applying a look twice
+ *  REPLACES it rather than stacking two grades on top of each other — a set has
+ *  one look, and "keep both" is a variations feature, not a side effect. */
+export function setStep(projectId: string, step: ToolInstance) {
+  const current = recipeOf(projectId);
+  const clean = shareable(step);
+  const exists = current.base.some((t) => t.toolId === clean.toolId);
+  write(projectId, {
+    ...current,
+    version: 1,
+    base: exists
+      ? current.base.map((t) => (t.toolId === clean.toolId ? clean : t))
+      : [...current.base, clean],
+  });
+}
+
+export function removeStep(projectId: string, toolId: string) {
+  const current = recipeOf(projectId);
+  write(projectId, { ...current, base: current.base.filter((t) => t.toolId !== toolId) });
+}
+
+export function toggleStep(projectId: string, toolId: string, enabled: boolean) {
+  const current = recipeOf(projectId);
+  write(projectId, {
+    ...current,
+    base: current.base.map((t) => (t.toolId === toolId ? { ...t, enabled } : t)),
+  });
+}
+
+/** What one frame actually renders through.
+ *
+ *  `perFrame` overrides `base` by toolId, so an exception on three photographs
+ *  never has to restate the twelve steps they share with the rest of the set.
+ *  Frame-only tools run after the shared ones; the engine sorts by pipeline
+ *  order anyway, so this order is for reading, not for correctness. */
+export function effectiveRecipe(projectId: string, path?: string): ToolInstance[] {
+  const { base, perFrame } = recipeOf(projectId);
+  const overrides = path ? perFrame[path] : undefined;
+  if (!overrides?.length) return base;
+  const byId = new Map(overrides.map((t) => [t.toolId, t]));
+  const merged = base.map((t) => byId.get(t.toolId) ?? t);
+  const extra = overrides.filter((t) => !base.some((b) => b.toolId === t.toolId));
+  return [...merged, ...extra];
+}
+
+/** Steps that will actually run — what the engine keys a preview on. An
+ *  all-disabled recipe is the raw frame, and must produce the raw frame's key. */
+export function activeSteps(projectId: string, path?: string): ToolInstance[] {
+  return effectiveRecipe(projectId, path).filter((t) => t.enabled);
+}
+
+/** The learned colour look currently on the set, if there is one. */
+export function colorStep(projectId: string): LearnedColorModel | undefined {
+  return recipeOf(projectId).base.find((t) => t.toolId === 'pixel-color')?.model;
 }

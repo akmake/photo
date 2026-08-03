@@ -10,7 +10,13 @@ import threading
 
 import cv2
 import numpy as np
-import onnxruntime as ort
+
+# onnxruntime is NOT imported at module load: its native DLL takes ~20s to load
+# on this machine (Defender/Authenticode on every load), and depth is only ever
+# needed for depth-of-field and dehaze — often not at all in a session. Importing
+# it here would make that 20s the price of every engine boot. It is imported once,
+# lazily, inside `_session_instance`, so the server starts immediately and the
+# cost is paid on first depth use (or by the background warm-up in server.py).
 
 MODEL_PATH = os.path.join(os.path.dirname(__file__), "models", "midas_small.onnx")
 
@@ -27,6 +33,7 @@ def _session_instance():
     global _session, _input_name, _input_hw
     with _lock:
         if _session is None:
+            import onnxruntime as ort  # lazy — see the note at the top of the file
             _session = ort.InferenceSession(
                 MODEL_PATH, providers=["CPUExecutionProvider"]
             )

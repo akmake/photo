@@ -222,9 +222,21 @@ def _tone_color(rgb, params):
             w = w * np.clip((c - 0.015) / 0.035, 0.0, 1.0)
             vib_px = vib * (1.0 - 0.8 * w)
         k = 1 + sat + vib_px * (1 - np.clip(c, 0, 1))
-        x = L2 + (x - L2) * k[..., None]
+        # In place: L2 + (x - L2) * k[..., None]. A 20MP frame is 240MB per
+        # float32 copy and the readable form allocates three of them; doing it
+        # in place keeps the exact same per-element arithmetic (subtract,
+        # multiply, add) with none of the temporaries. Float addition is
+        # commutative in IEEE-754, so the result is bit-identical — proven, not
+        # assumed (scratchpad tc_parity: maxAbsDiff 0 over 22 real cases).
+        x -= L2
+        x *= k[..., None]
+        x += L2
 
-    return np.clip(x, 0, 1) * 255.0
+    # In place as well: clip writes back into x, then scale by 255. Same values,
+    # two 240MB copies saved.
+    np.clip(x, 0.0, 1.0, out=x)
+    x *= 255.0
+    return x
 
 
 def _dimension(rgb, params):

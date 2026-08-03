@@ -6,8 +6,12 @@
  * fresh every time the screen opens. A cached copy of a folder listing is a
  * copy that goes stale the first time the photographer moves a file in Explorer.
  *
- * The thumbnails come from the engine (GET /thumb), because the browser cannot
- * read D:\Shoots\... and the whole product rests on the files staying there.
+ * The thumbnails come from the engine, because the browser cannot read
+ * D:\Shoots\... and the whole product rests on the files staying there. They
+ * are served through the project's RECIPE (GET /preview), so a folder shows the
+ * set as it currently is rather than as it was imported — that is the whole
+ * point of the recipe: there is no "edited folder" to open, there is a set with
+ * a state, and this is where a photographer sees it.
  *
  * Status defaults to חומר גלם and stays there unless the photographer says
  * otherwise. Most frames in a shoot never need an individual decision; a tool
@@ -15,10 +19,11 @@
  */
 
 import { useCallback, useEffect, useState } from 'react';
-import { listImages, thumbUrl } from '../../api';
+import { listImages, pickFolder } from '../../api';
 import {
   PHOTO_STATUS, addFolder, removeFolder, setPhotoStatus, useFolders, useStatuses,
 } from '../store';
+import { useSetPreview } from '../preview';
 import type { PhotoStatus, ProjectFolder } from '../store';
 import { IcFolderOpen, IcCheckCircle } from '../../design/Icons';
 
@@ -43,9 +48,9 @@ export default function ProjectFiles({
 }) {
   const folders = useFolders(projectId);
   const statuses = useStatuses();
+  const preview = useSetPreview(projectId);
 
   const [loaded, setLoaded] = useState<Record<string, FolderFiles>>({});
-  const [path, setPath] = useState('');
   const [adding, setAdding] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -74,43 +79,41 @@ export default function ProjectFiles({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [folders]);
 
+  /* One button, one dialog, no typing. The engine raises the operating
+   * system's own folder picker — the browser cannot, and asking a photographer
+   * to paste a path is asking them to do the computer's job. */
   const add = useCallback(async () => {
-    const clean = path.trim();
-    if (!clean) return;
     setAdding(true);
     setError(null);
     try {
-      const r = await listImages(clean);
+      const chosen = await pickFolder();
+      if (!chosen) return; // cancelled — an answer, not a failure
+      const r = await listImages(chosen);
+      if (r.count === 0) {
+        setError(`אין תמונות בתיקייה שנבחרה: ${chosen}`);
+        return;
+      }
       const folder = addFolder(projectId, r.folder, r.count);
-      setPath('');
       readFolder(folder);
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'התיקייה לא נמצאה');
+      setError(e instanceof Error ? e.message : 'לא ניתן לפתוח את התיקייה');
     } finally {
       setAdding(false);
     }
-  }, [path, projectId, readFolder]);
+  }, [projectId, readFolder]);
 
   const total = Object.values(loaded).reduce((n, f) => n + f.files.length, 0);
 
   return (
     <div className="pf">
       <div className="pf-add">
-        <label className="cm-field">
-          <span>הוסף תיקייה לפרויקט</span>
-          <input
-            className="field mono"
-            dir="ltr"
-            value={path}
-            placeholder="D:\Shoots\2026-07-24\ceremony"
-            onChange={(e) => setPath(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && add()}
-          />
-        </label>
-        <button className="btn btn-primary" onClick={add} disabled={!path.trim() || adding}>
+        <button className="btn btn-primary" onClick={add} disabled={adding}>
           <IcFolderOpen size={16} />
-          {adding ? 'קורא…' : 'הוסף'}
+          {adding ? 'בוחר…' : 'בחר תיקייה'}
         </button>
+        <span className="pf-add-note">
+          חלון הבחירה של Windows ייפתח. אפשר להוסיף כמה תיקיות לאותו פרויקט.
+        </span>
       </div>
 
       {error && <p className="cm-error">{error}</p>}
@@ -126,7 +129,20 @@ export default function ProjectFiles({
             <IcCheckCircle size={15} />
             <b className="mono">{folders.length}</b> תיקיות ·
             <b className="mono">{total.toLocaleString('he-IL')}</b> תמונות
+            {preview.graded && (
+              <i className="pf-graded">
+                · מוצג עם המראה של הסט (<b className="mono">{preview.steps}</b> שלבים)
+              </i>
+            )}
           </p>
+
+          {/* Never let the screen quietly show raw frames while claiming the
+            * edit — that is the confusion the recipe exists to remove. */}
+          {preview.stale && (
+            <p className="cm-error">
+              המנוע אינו זמין, ולכן מוצגים הקבצים המקוריים ולא הסט הערוך.
+            </p>
+          )}
 
           {folders.map((folder) => {
             const state = loaded[folder.id];
@@ -163,7 +179,7 @@ export default function ProjectFiles({
                     const status = statuses[file] ?? 'raw';
                     return (
                       <figure className={`pf-shot s-${status}`} key={file}>
-                        <img src={thumbUrl(file, 320)} alt="" loading="lazy" />
+                        <img src={preview.url(file, 320)} alt="" loading="lazy" />
                         <figcaption className="mono" dir="ltr">{baseName(file)}</figcaption>
                         <div className="pf-status">
                           {PHOTO_STATUS.map((s) => (

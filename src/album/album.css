@@ -2486,3 +2486,519 @@
 .album-inspector-removals button { flex: 1; }
 .album-control-remove.danger { color: var(--danger-ink); }
 .album-control-remove.danger:disabled { opacity: 0.4; cursor: not-allowed; }
+
+/* ============================================================
+   ציר הזמן של האלבום — the timeline front door (AlbumTimeline)
+   ============================================================ */
+
+/* Full-height flex wrapper — NOT the studio's grid, which would drop the
+   timeline into an auto row and collapse the strip. */
+.album-timeline-shell {
+  height: 100%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--page);
+}
+
+.tl {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--page);
+  color: var(--ink);
+}
+
+.tl-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 20px 24px 12px;
+}
+.tl-head-text h1 {
+  margin: 0;
+  font-size: var(--t-lg);
+  font-weight: 650;
+}
+.tl-head-text p {
+  margin: 4px 0 0;
+  font-size: var(--t-sm);
+  color: var(--ink-3);
+}
+.tl-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.tl-legend {
+  margin: 0;
+  padding: 0 24px 10px;
+  font-size: var(--t-xs);
+  color: var(--ink-3);
+}
+.tl-legend b { color: var(--ink-2); font-weight: 600; }
+
+/* the strip: spreads laid left→right, scrolls horizontally */
+.tl-strip {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  align-items: safe center;
+  gap: 0;
+  padding: 8px 24px 20px;
+  overflow-x: auto;
+  overflow-y: auto;
+}
+.tl-group-wrap { flex-shrink: 0; }
+
+.tl-group-wrap {
+  display: flex;
+  align-items: stretch;
+}
+
+/* one spread */
+.tl-group {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  background: var(--card);
+}
+.tl-group-preview {
+  width: 320px;
+  max-width: 42vw;
+  flex-shrink: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+  display: block;
+  transition: filter 0.12s ease;
+}
+.tl-group-preview:hover { filter: brightness(1.04); }
+
+.tl-group-photos {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  flex-shrink: 0;
+  flex-wrap: wrap;
+}
+.tl-photo-cell { display: flex; align-items: center; }
+.tl-photo {
+  width: 54px;
+  height: 54px;
+  border-radius: var(--r-sm);
+  overflow: hidden;
+  border: 1px solid var(--line);
+  background: var(--card-2);
+  flex-shrink: 0;
+}
+.tl-photo img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.tl-photo-missing {
+  display: grid;
+  place-items: center;
+  height: 100%;
+  color: var(--ink-3);
+}
+
+.tl-group-foot {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: var(--t-xs);
+}
+.tl-group-foot b { color: var(--ink-2); font-weight: 600; }
+.tl-group-foot span { color: var(--ink-3); }
+
+/* split hotspot BETWEEN two photos of the same spread */
+.tl-split {
+  width: 16px;
+  align-self: stretch;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: col-resize;
+}
+.tl-split-line {
+  width: 2px;
+  height: 32px;
+  border-radius: 2px;
+  background: var(--line-strong);
+  opacity: 0.35;
+  transition: opacity 0.12s ease, background 0.12s ease;
+}
+.tl-split:hover .tl-split-line { opacity: 1; background: var(--accent); height: 48px; }
+
+/* the cut divider BETWEEN two spreads — click to merge */
+.tl-cut {
+  width: 34px;
+  align-self: stretch;
+  position: relative;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+  color: var(--ink-3);
+}
+.tl-cut-line {
+  position: absolute;
+  top: 14px;
+  bottom: 14px;
+  width: 2px;
+  border-radius: 2px;
+  background: var(--accent);
+  opacity: 0.5;
+}
+.tl-cut-scissors {
+  position: relative;
+  z-index: 1;
+  font-size: 14px;
+  line-height: 1;
+  background: var(--page);
+  padding: 3px 1px;
+  transition: color 0.12s ease, transform 0.12s ease;
+}
+.tl-cut:hover { color: var(--accent-ink); }
+.tl-cut:hover .tl-cut-scissors { color: var(--accent); transform: scale(1.15); }
+.tl-cut:hover .tl-cut-line { opacity: 1; }
+
+.tl-foot {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 24px 16px;
+  border-top: 1px solid var(--line);
+}
+.tl-foot-hint { font-size: var(--t-xs); color: var(--ink-3); }
+
+/* empty state */
+.tl-blank {
+  margin: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  text-align: center;
+  color: var(--ink-3);
+  max-width: 380px;
+}
+.tl-blank strong { color: var(--ink); font-size: var(--t-md); }
+.tl-blank span { font-size: var(--t-sm); }
+.tl-blank .btn { margin-top: 6px; }
+
+/* --- timeline drag-to-reorder states --- */
+.tl-photo-cell { position: relative; cursor: grab; }
+.tl-photo-cell:active { cursor: grabbing; }
+.tl-photo-cell.dragging { opacity: 0.35; }
+/* insertion marker on the leading (start) edge of the drop target */
+.tl-photo-cell.drop-before .tl-photo {
+  box-shadow: inset 0 0 0 2px var(--accent);
+}
+.tl-photo-cell.drop-before::before {
+  content: '';
+  position: absolute;
+  inset-inline-start: -4px;
+  top: 4px;
+  bottom: 4px;
+  width: 3px;
+  border-radius: 3px;
+  background: var(--accent);
+}
+.tl-group.dragging-active .tl-split { pointer-events: none; opacity: 0.3; }
+
+.tl-end-drop {
+  align-self: stretch;
+  min-width: 40px;
+  border-radius: var(--r-sm);
+  margin-inline-start: 6px;
+  transition: background 0.12s ease;
+}
+.tl-end-drop.drop-before { background: var(--accent-soft); box-shadow: inset 0 0 0 2px var(--accent); }
+
+/* ============================================================
+   יצירת אלבום — the book + strip (AlbumTimeline, v2)
+   ============================================================ */
+.abm {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--page);
+  color: var(--ink);
+}
+
+.abm-spacer { flex: 1; }
+
+/* ---- header: minimal chrome ---- */
+.abm-head {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  height: 56px;
+  flex-shrink: 0;
+  padding: 0 18px;
+  background: var(--card);
+  border-bottom: 1px solid var(--line);
+}
+.abm-back {
+  background: none;
+  border: 0;
+  color: var(--ink-3);
+  font-size: var(--t-sm);
+  cursor: pointer;
+  padding: 6px 4px;
+}
+.abm-back:hover { color: var(--ink); }
+.abm-title { display: flex; align-items: baseline; gap: 10px; }
+.abm-title h1 { margin: 0; font-size: var(--t-md); font-weight: 600; }
+.abm-sub { font-size: var(--t-xs); color: var(--ink-3); }
+.abm-ghost {
+  display: inline-flex; align-items: center; gap: 6px;
+  background: none;
+  border: 1px solid var(--line-strong);
+  color: var(--ink-2);
+  font-size: var(--t-sm);
+  border-radius: var(--r-sm);
+  padding: 7px 12px;
+  cursor: pointer;
+}
+.abm-ghost:hover { color: var(--ink); border-color: var(--ink-3); }
+.abm-build {
+  display: inline-flex; align-items: center; gap: 7px;
+  background: var(--accent);
+  border: 0;
+  color: var(--on-solid);
+  font-size: var(--t-sm);
+  font-weight: 500;
+  border-radius: var(--r-sm);
+  padding: 8px 16px;
+  cursor: pointer;
+}
+.abm-build:hover { filter: brightness(1.06); }
+
+/* ---- the book: big spreads, vertical ---- */
+.abm-book {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 26px 24px 34px;
+}
+.abm-book-col {
+  max-width: 700px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+}
+
+.abm-merge {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 18px 0;
+}
+.abm-merge-line { flex: 1; height: 1px; background: var(--line); }
+.abm-merge-pill {
+  display: inline-flex; align-items: center; gap: 6px;
+  background: none;
+  border: 1px solid var(--line-strong);
+  color: var(--ink-3);
+  font-size: var(--t-xs);
+  border-radius: 999px;
+  padding: 5px 13px;
+  cursor: pointer;
+}
+.abm-merge-pill:hover { color: var(--accent-ink); border-color: var(--accent-line); }
+
+.abm-spread-label {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: 0 0 8px;
+  font-size: var(--t-xs);
+}
+.abm-spread-label b { color: var(--ink-2); font-weight: 600; }
+.abm-spread-label span { color: var(--ink-3); }
+.abm-open {
+  background: none; border: 0;
+  color: var(--accent-ink);
+  font-size: var(--t-xs);
+  cursor: pointer;
+  padding: 2px 4px;
+}
+.abm-open:hover { text-decoration: underline; }
+
+.abm-spread {
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+  transition: filter 0.12s ease;
+}
+.abm-spread:hover { filter: brightness(1.03); }
+
+/* ---- the strip: full sequence, drag + cut ---- */
+.abm-strip {
+  flex-shrink: 0;
+  background: var(--card);
+  border-top: 1px solid var(--line);
+  padding: 11px 16px 13px;
+}
+.abm-strip-head {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin-bottom: 9px;
+}
+.abm-strip-head b { font-size: var(--t-sm); font-weight: 600; }
+.abm-strip-n {
+  font-size: var(--t-xs);
+  color: var(--ink-3);
+  font-variant-numeric: tabular-nums;
+}
+.abm-strip-hint { font-size: var(--t-xs); color: var(--ink-3); }
+
+.abm-film {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  overflow-x: auto;
+  padding-bottom: 4px;
+}
+.abm-film-run { display: flex; align-items: center; flex-shrink: 0; }
+.abm-cell {
+  width: 54px;
+  height: 54px;
+  border-radius: 3px;
+  overflow: hidden;
+  border: 1px solid var(--line-strong);
+  background: var(--card-2);
+  cursor: grab;
+  flex-shrink: 0;
+}
+.abm-cell:active { cursor: grabbing; }
+.abm-cell img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.abm-cell.dragging { opacity: 0.35; }
+.abm-cell.over { box-shadow: inset 0 0 0 2px var(--accent); }
+.abm-cell.spread-start { border-inline-start: 3px solid var(--accent); }
+.abm-cell-missing { display: grid; place-items: center; height: 100%; color: var(--ink-3); }
+
+/* gap between two photos — split (faint) or cut boundary (accent) */
+.abm-gap {
+  align-self: stretch;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+}
+.abm-gap.split { width: 14px; }
+.abm-gap.split span {
+  width: 2px; height: 28px; border-radius: 2px;
+  background: var(--line-strong); opacity: 0.4;
+  transition: opacity 0.12s ease, background 0.12s ease, height 0.12s ease;
+}
+.abm-gap.split:hover span { opacity: 1; background: var(--accent); height: 44px; }
+.abm-gap.cut { width: 20px; }
+.abm-gap.cut span {
+  width: 3px; height: 44px; border-radius: 3px;
+  background: var(--accent); opacity: 0.75;
+}
+.abm-gap.cut:hover span { opacity: 1; }
+
+/* ---- empty ---- */
+.abm-blank {
+  margin: auto;
+  display: flex; flex-direction: column; align-items: center; gap: 10px;
+  text-align: center; color: var(--ink-3); max-width: 400px;
+}
+.abm-blank strong { color: var(--ink); font-size: var(--t-md); }
+.abm-blank span { font-size: var(--t-sm); }
+.abm-blank .btn { margin-top: 6px; }
+
+/* ---- direct-manipulation frame handles (move + resize) ---- */
+.album-frame-move,
+.album-frame-handle {
+  position: absolute;
+  z-index: 6;
+  touch-action: none;
+  box-sizing: border-box;
+}
+.album-frame-move {
+  top: -14px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 32px;
+  height: 16px;
+  border-radius: 8px;
+  background: var(--accent);
+  border: 1px solid rgba(255, 255, 255, .65);
+  cursor: move;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, .35);
+}
+.album-frame-move::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  width: 12px;
+  height: 2px;
+  border-top: 2px solid rgba(255, 255, 255, .9);
+  border-bottom: 2px solid rgba(255, 255, 255, .9);
+  height: 6px;
+}
+.album-frame-handle {
+  width: 13px;
+  height: 13px;
+  background: #fff;
+  border: 1.5px solid var(--accent);
+  border-radius: 3px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, .3);
+}
+.album-frame-handle.nw { top: -7px; left: -7px; cursor: nwse-resize; }
+.album-frame-handle.ne { top: -7px; right: -7px; cursor: nesw-resize; }
+.album-frame-handle.sw { bottom: -7px; left: -7px; cursor: nesw-resize; }
+.album-frame-handle.se { bottom: -7px; right: -7px; cursor: nwse-resize; }
+
+/* ---- frame layer bar (bring to front / send back) + crop mode ---- */
+.album-frame.selected { cursor: move; }
+.album-frame.cropping { cursor: grab; outline: 2px dashed var(--accent); outline-offset: 2px; }
+.album-frame.cropping:active { cursor: grabbing; }
+
+.album-frame-bar {
+  position: absolute;
+  z-index: 7;
+  top: -30px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 2px;
+  padding: 3px;
+  border-radius: 8px;
+  background: var(--n-16, #262626);
+  border: 1px solid var(--line-strong, #3d3d3d);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, .4);
+  white-space: nowrap;
+}
+.album-frame-z {
+  font-size: 11px;
+  color: #e8e8e8;
+  padding: 3px 9px;
+  border-radius: 5px;
+  cursor: pointer;
+  user-select: none;
+}
+.album-frame-z:hover { background: rgba(255, 255, 255, .12); }

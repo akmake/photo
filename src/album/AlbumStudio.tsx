@@ -16,6 +16,7 @@ import { LAYOUT_TEMPLATES, TEMPLATE_PHOTO_COUNTS } from './layoutTemplates';
 import { analyzeAlbumPhoto } from '../api';
 import { exportAlbumForPrint, exportAlbumProof } from './exportEngine';
 import { buildAutomaticAlbum } from './albumFlow';
+import AlbumTimeline from './AlbumTimeline';
 import {
   deleteAlbum, duplicateAlbum, listAlbums, loadAlbum, renameAlbum, saveAlbum, storePhotoBlob,
   type AlbumSummary,
@@ -132,6 +133,10 @@ export default function AlbumStudio() {
   const [selectionMode, setSelectionMode] = useState(false);
   const [albumSelectedIds, setAlbumSelectedIds] = useState<Set<string>>(new Set());
   const [selectedSlotIndex, setSelectedSlotIndex] = useState<number | null>(null);
+  /* Double-click a frame to reposition the PHOTO inside it (pan + zoom); until
+   * then a drag anywhere on the frame moves the frame itself. One frame at a
+   * time is in this mode. */
+  const [cropIndex, setCropIndex] = useState<number | null>(null);
   const [photoFilter, setPhotoFilter] = useState<PhotoTrayFilter>('available');
   const [showGuides, setShowGuides] = useState(true);
   const [panelTab, setPanelTab] = useState<'layouts' | 'design'>('layouts');
@@ -142,7 +147,7 @@ export default function AlbumStudio() {
   const [showProfileEditor, setShowProfileEditor] = useState(false);
   /* `organize` is the album; `design` is one spread. The module opens on the
    * album, because that is the question a photographer actually asks first. */
-  const [mode, setMode] = useState<'organize' | 'design'>('organize');
+  const [mode, setMode] = useState<'timeline' | 'organize' | 'design'>('organize');
   /* Null means the library is showing. An album is a saved thing you come back
    * to, so nothing is open until the photographer picks one. */
   const [activeAlbumId, setActiveAlbumId] = useState<string | null>(null);
@@ -177,6 +182,20 @@ export default function AlbumStudio() {
     startY: number;
     positionX: number;
     positionY: number;
+    before: AlbumProject;
+    moved: boolean;
+  } | null>(null);
+  /* Direct-manipulation of the FRAME itself — move and resize on the canvas,
+   * the way Canva and InDesign do it, so a layout is built by dragging boxes
+   * instead of typing four numbers into sliders. */
+  const frameGesture = useRef<{
+    mode: 'move' | 'nw' | 'ne' | 'sw' | 'se';
+    index: number;
+    startX: number;
+    startY: number;
+    slot: LayoutSlot;
+    baseSlots: LayoutSlot[];
+    rect: DOMRect;
     before: AlbumProject;
     moved: boolean;
   } | null>(null);
@@ -232,7 +251,7 @@ export default function AlbumStudio() {
         case 'ArrowDown': if (mode === 'design') { event.preventDefault(); cycleLayout(1); } break;
         case 'ArrowLeft': event.preventDefault(); setActiveSpread(spreadIndex + 1); break;
         case 'ArrowRight':event.preventDefault(); setActiveSpread(spreadIndex - 1); break;
-        case 'Escape':    setSelectedSlotIndex(null); setSelectedPhotoId(null); break;
+        case 'Escape':    setCropIndex(null); setSelectedSlotIndex(null); setSelectedPhotoId(null); break;
         default: break;
       }
     }
@@ -443,10 +462,12 @@ export default function AlbumStudio() {
     setSelectedSlotIndex(null);
     setSelectedPhotoId(null);
     setAlbumSelectedIds(new Set());
-    setSelectionMode(true);
-    setMode('design');
+    setSelectionMode(false);
+    // Straight to the timeline — add photos, and they pace themselves into
+    // spreads. No empty spread staring back.
+    setMode('timeline');
     setActiveAlbumId(id);
-    setNotice('בחרי את התמונות שייכנסו לאלבום');
+    setNotice('הוסף את התמונות שייכנסו לאלבום');
   }
 
   function closeAlbum() {
@@ -605,26 +626,30 @@ export default function AlbumStudio() {
   }
 
   function addFrame() {
-    const slots = layout.slots;
+    // Base BOTH lists on the layout currently on screen so `customSlots.length`
+    // and `photoIds.length` always match — otherwise the spread silently falls
+    // back to a generated layout and the new frame vanishes. That mismatch was
+    // why adding a second and third frame "did nothing".
+    const slots = layout.slots.map((s) => ({ ...s }));
+    const ids = [...layout.photoIds];
     const next: LayoutSlot = {
       id: `frame-${Date.now()}`,
       // dropped near the middle, offset so a second one does not hide the first
-      x: 0.62 + (slots.length % 3) * 0.06,
-      y: 0.2 + (slots.length % 3) * 0.06,
-      width: 0.4,
-      height: 0.4,
+      x: 0.36 + (slots.length % 4) * 0.05,
+      y: 0.28 + (slots.length % 4) * 0.05,
+      width: 0.3,
+      height: 0.34,
       role: 'support',
       preferred: [],
     };
-    const allSlots = [...slots, next];
     updateSpread({
       layoutId: `custom-${Date.now()}`,
-      customSlots: allSlots,
-      // the empty strings are the empty frames — filtering them collapses the layout
-      photoIds: [...spread.photoIds, ''].slice(0, allSlots.length),
+      customSlots: [...slots, next],
+      photoIds: [...ids, ''],
     });
-    setSelectedSlotIndex(allSlots.length - 1);
-    setNotice('מסגרת נוספה — גררי אותה ושני את גודלה');
+    setSelectedSlotIndex(slots.length);
+    setCropIndex(null);
+    setNotice('מסגרת נוספה — גרור אותה, שנה גודל בפינות, או שים אותה על מסגרת אחרת');
   }
 
   function removeFrame(index: number) {
@@ -636,7 +661,25 @@ export default function AlbumStudio() {
       photoIds: layout.photoIds.filter((_, i) => i !== index),
     });
     setSelectedSlotIndex(null);
+    setCropIndex(null);
     setNotice('המסגרת הוסרה');
+  }
+
+  /* Stacking order IS render order — a later frame paints over an earlier one.
+   * Bringing a frame to the front (or back) is how "a photo on a photo" gets the
+   * layering the photographer means, instead of whichever one happened to be
+   * added last winning. Slot, its photo and its settings move together. */
+  function reorderFrame(to: 'front' | 'back') {
+    if (selectedSlotIndex === null) return;
+    const slots = layout.slots.map((s) => ({ ...s }));
+    const ids = [...layout.photoIds];
+    const [slot] = slots.splice(selectedSlotIndex, 1);
+    const [id] = ids.splice(selectedSlotIndex, 1);
+    if (to === 'front') { slots.push(slot); ids.push(id); } else { slots.unshift(slot); ids.unshift(id); }
+    updateSpread({ customSlots: slots, photoIds: ids });
+    const nextIndex = to === 'front' ? slots.length - 1 : 0;
+    setSelectedSlotIndex(nextIndex);
+    setNotice(to === 'front' ? 'המסגרת הובאה לחזית' : 'המסגרת נשלחה לאחור');
   }
 
   function chooseLayout(nextLayout: GeneratedAlbumLayout) {
@@ -699,7 +742,8 @@ export default function AlbumStudio() {
     if (suppressFrameClick.current) return;
     if (!selectedPhotoId) {
       setSelectedSlotIndex(slotIndex);
-      setNotice('גררי את התמונה במסגרת כדי למקם אותה · גלגלת לזום');
+      setCropIndex(null);
+      setNotice('גרור להזיז · פינות לשינוי גודל · לחיצה כפולה למקם את התמונה');
       return;
     }
     assignPhotoById(slotIndex, selectedPhotoId);
@@ -784,6 +828,81 @@ export default function AlbumStudio() {
       setNotice('מיקום התמונה עודכן');
     }
     panSession.current = null;
+  }
+
+  /* ---- move + resize the frame on the canvas (no sliders) ---- */
+  function beginFrameGesture(
+    event: React.PointerEvent<Element>,
+    slotIndex: number,
+    mode: 'move' | 'nw' | 'ne' | 'sw' | 'se',
+  ) {
+    event.preventDefault();
+    event.stopPropagation();
+    const sheet = (event.currentTarget.closest('.album-spread') as HTMLElement | null);
+    if (!sheet) return;
+    try { event.currentTarget.setPointerCapture(event.pointerId); } catch { /* pointer already released */ }
+    frameGesture.current = {
+      mode,
+      index: slotIndex,
+      startX: event.clientX,
+      startY: event.clientY,
+      slot: { ...layout.slots[slotIndex] },
+      baseSlots: layout.slots.map((s) => ({ ...s })),
+      rect: sheet.getBoundingClientRect(),
+      before: project,
+      moved: false,
+    };
+  }
+
+  function moveFrameGesture(event: React.PointerEvent<Element>) {
+    const g = frameGesture.current;
+    if (!g) return;
+    const clamp = (v: number, a: number, b: number) => Math.max(a, Math.min(b, v));
+    const MIN = 0.06;
+    const dx = (event.clientX - g.startX) / g.rect.width;
+    const dy = (event.clientY - g.startY) / g.rect.height;
+    let { x, y, width, height } = g.slot;
+    if (g.mode === 'move') {
+      x = clamp(g.slot.x + dx, 0, 1 - g.slot.width);
+      y = clamp(g.slot.y + dy, 0, 1 - g.slot.height);
+    } else {
+      const east = g.mode === 'ne' || g.mode === 'se';
+      const south = g.mode === 'se' || g.mode === 'sw';
+      if (east) {
+        width = clamp(g.slot.width + dx, MIN, 1 - g.slot.x);
+      } else {
+        const nx = clamp(g.slot.x + dx, 0, g.slot.x + g.slot.width - MIN);
+        width = g.slot.x + g.slot.width - nx;
+        x = nx;
+      }
+      if (south) {
+        height = clamp(g.slot.height + dy, MIN, 1 - g.slot.y);
+      } else {
+        const ny = clamp(g.slot.y + dy, 0, g.slot.y + g.slot.height - MIN);
+        height = g.slot.y + g.slot.height - ny;
+        y = ny;
+      }
+    }
+    g.moved = true;
+    const nextSlots = g.baseSlots.map((s, i) => (i === g.index ? { ...s, x, y, width, height } : s));
+    setProject((current) => ({
+      ...current,
+      spreads: current.spreads.map((item) => (
+        item.id === spread.id ? { ...item, customSlots: nextSlots } : item
+      )),
+    }));
+  }
+
+  function endFrameGesture() {
+    const g = frameGesture.current;
+    if (g?.moved) {
+      suppressFrameClick.current = true;
+      window.setTimeout(() => { suppressFrameClick.current = false; }, 0);
+      setHistoryPast((items) => [...items.slice(-49), g.before]);
+      setHistoryFuture([]);
+      setNotice(g.mode === 'move' ? 'המסגרת הוזזה' : 'גודל המסגרת עודכן');
+    }
+    frameGesture.current = null;
   }
 
   /** Wheel over the selected frame zooms its photo, the way every canvas tool does. */
@@ -1100,6 +1219,55 @@ export default function AlbumStudio() {
     );
   }
 
+  // The timeline is the front door: full-bleed, its own header, none of the
+  // export/proof chrome that only matters once there is an album to export.
+  if (mode === 'timeline') {
+    return (
+      <div className="album-timeline-shell" data-surface="studio">
+        <AlbumTimeline
+          photos={photos}
+          profile={profile}
+          initialOrder={project.spreads.flatMap((spread) => spread.photoIds)}
+          onAddPhotos={() => fileInput.current?.click()}
+          onCancel={closeAlbum}
+          onBuild={(spreads) => {
+            commitProject((current) => ({
+              ...current,
+              spreads,
+              activeSpreadId: spreads[0]?.id ?? current.activeSpreadId,
+            }));
+            setSelectionMode(false);
+            setSelectedPhotoId(null);
+            setSelectedSlotIndex(null);
+            setMode('organize');
+            setNotice(`נבנתה טיוטה של ${spreads.length} כפולות · אפשר לכוונן ולבטל`);
+          }}
+          onDesignSpread={(spreads, index) => {
+            const target = spreads[index] ?? spreads[0];
+            commitProject((current) => ({
+              ...current,
+              spreads,
+              activeSpreadId: target?.id ?? current.activeSpreadId,
+            }));
+            setSelectionMode(false);
+            setSelectedPhotoId(null);
+            setSelectedSlotIndex(null);
+            setMode('design');
+            setNotice(`נבנתה טיוטה של ${spreads.length} כפולות · פותח את כפולה ${index + 1}`);
+          }}
+        />
+        <input
+          ref={fileInput}
+          type="file"
+          accept="image/*"
+          multiple
+          hidden
+          onChange={(event) => handleFiles(event.target.files)}
+        />
+      </div>
+    );
+  }
+
   return (
     <div className="album-studio" data-surface="studio">
       <header className="album-actionbar">
@@ -1109,6 +1277,14 @@ export default function AlbumStudio() {
             <span>האלבומים</span>
           </button>
           <div className="album-mode-switch" role="group" aria-label="מצב עבודה">
+            {/* Pure entry point — when the timeline is active the studio takes
+                the full-bleed timeline branch above, so this is never "on" here. */}
+            <button
+              onClick={() => setMode('timeline')}
+              title="ציר הזמן — חלוקת התמונות לכפולות"
+            >
+              <IcSparkle size={15} />ציר הזמן
+            </button>
             <button
               className={mode === 'organize' ? 'on' : ''}
               onClick={() => setMode('organize')}
@@ -1403,6 +1579,7 @@ export default function AlbumStudio() {
               <button className="remove-spread" onClick={removeSpread}>מחיקה</button>
             </div>
             <div className="album-canvas-tools">
+              <button onClick={addFrame} title="הוסף מסגרת חדשה — אפשר להניח אחת על השנייה"><IcGallery size={16} />+ מסגרת</button>
               <button onClick={() => fileInput.current?.click()}><IcUpload size={16} />החלף תמונות</button>
               <button><IcGallery size={16} />{layout.photoCount} מסגרות</button>
               <button
@@ -1449,7 +1626,7 @@ export default function AlbumStudio() {
                 return (
                   <button
                     key={slot.id}
-                    className={`album-frame ${slot.role === 'hero' ? 'hero' : ''} ${selectedPhotoId ? 'assignable' : ''} ${selectedSlotIndex === slotIndex ? 'selected' : ''} ${crop?.letterboxed ? 'letterboxed' : ''}`}
+                    className={`album-frame ${slot.role === 'hero' ? 'hero' : ''} ${selectedPhotoId ? 'assignable' : ''} ${selectedSlotIndex === slotIndex ? 'selected' : ''} ${cropIndex === slotIndex ? 'cropping' : ''} ${crop?.letterboxed ? 'letterboxed' : ''}`}
                     style={{
                       left: `${slot.x * 100}%`,
                       top: `${slot.y * 100}%`,
@@ -1461,6 +1638,12 @@ export default function AlbumStudio() {
                       ...(crop?.letterboxed ? { background: spread.background } : null),
                     }}
                     onClick={() => assignPhoto(slotIndex)}
+                    onDoubleClick={() => {
+                      if (!photo) return;
+                      setSelectedSlotIndex(slotIndex);
+                      setCropIndex(slotIndex);
+                      setNotice('גרור למקם את התמונה · גלגלת לזום · לחיצה מחוץ למסגרת לסיום');
+                    }}
                     draggable={Boolean(photo) && selectedSlotIndex !== slotIndex}
                     onDragStart={(event) => {
                       if (photo) beginPhotoDrag(event, photo.id);
@@ -1470,11 +1653,19 @@ export default function AlbumStudio() {
                       event.dataTransfer.dropEffect = 'move';
                     }}
                     onDrop={(event) => dropPhotoOnFrame(event, slotIndex)}
-                    onWheel={(event) => zoomSelectedFrame(event, slotIndex)}
-                    onPointerDown={(event) => beginPan(event, slotIndex, frameSettings)}
-                    onPointerMove={(event) => movePan(event, slot.id)}
-                    onPointerUp={endPan}
-                    onPointerCancel={endPan}
+                    onWheel={(event) => {
+                      if (cropIndex === slotIndex) zoomSelectedFrame(event, slotIndex);
+                    }}
+                    onPointerDown={(event) => {
+                      if (cropIndex === slotIndex && photo) beginPan(event, slotIndex, frameSettings);
+                      else if (selectedSlotIndex === slotIndex) beginFrameGesture(event, slotIndex, 'move');
+                    }}
+                    onPointerMove={(event) => {
+                      if (cropIndex === slotIndex) movePan(event, slot.id);
+                      else moveFrameGesture(event);
+                    }}
+                    onPointerUp={() => { if (cropIndex === slotIndex) endPan(); else endFrameGesture(); }}
+                    onPointerCancel={() => { if (cropIndex === slotIndex) endPan(); else endFrameGesture(); }}
                     aria-label={photo ? `מסגרת עם ${photo.name}` : 'מסגרת ריקה'}
                   >
                     {photo ? (
@@ -1490,6 +1681,36 @@ export default function AlbumStudio() {
                       />
                     ) : (
                       <span className="album-empty-frame"><IcGallery size={22} />בחרי תמונה</span>
+                    )}
+                    {selectedSlotIndex === slotIndex && cropIndex !== slotIndex && (
+                      <>
+                        <span className="album-frame-bar" onPointerDown={(e) => e.stopPropagation()}>
+                          <span
+                            role="button"
+                            tabIndex={0}
+                            className="album-frame-z"
+                            title="שלח לאחור"
+                            onClick={(e) => { e.stopPropagation(); reorderFrame('back'); }}
+                          >לאחור</span>
+                          <span
+                            role="button"
+                            tabIndex={0}
+                            className="album-frame-z"
+                            title="הבא לחזית"
+                            onClick={(e) => { e.stopPropagation(); reorderFrame('front'); }}
+                          >לחזית</span>
+                        </span>
+                        {(['nw', 'ne', 'sw', 'se'] as const).map((h) => (
+                          <span
+                            key={h}
+                            className={`album-frame-handle ${h}`}
+                            onPointerDown={(e) => beginFrameGesture(e, slotIndex, h)}
+                            onPointerMove={moveFrameGesture}
+                            onPointerUp={endFrameGesture}
+                            onPointerCancel={endFrameGesture}
+                          />
+                        ))}
+                      </>
                     )}
                   </button>
                 );

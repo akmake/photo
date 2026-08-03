@@ -10,22 +10,33 @@
  *          Lightroom, Photoshop, a client's retoucher — and it does not live in
  *          the project at all.
  *
- * And once the result is good, "apply to the whole folder" needs no folder
- * picker: the origin frame already named its folder.
+ * And once the result is good, "apply to the set" needs no folder picker and no
+ * destination: it puts the look ON THE PROJECT.
+ *
+ * WHAT THIS SCREEN USED TO DO, AND WHY IT STOPPED. It rendered the folder file
+ * by file into `<folder>\TEZA` — around 55 minutes for a wedding — and then
+ * forgot where it had put them: the destination lived in this component's
+ * state, the store had no concept of an output, and /list-images does not
+ * recurse, so the result was invisible to the product that made it. Open any
+ * tool afterwards and it showed the raw files again.
+ *
+ * Now the fitted model is written to the project's recipe as one step. It is
+ * instantaneous, nothing is written to disk, and every screen that shows a
+ * frame renders through it — so the set simply IS graded from that moment on.
+ * Files are produced once, at delivery, from the originals; a set can be
+ * re-graded any number of times without a single re-encode.
  *
  * This screen judges colour, so it sits at the DARK end of the ramp. A light
  * surround shifts how the eye reads the pair, and answering "did it match" is
  * the only thing this screen is for.
- *
- * Batch runs file by file rather than handing the list over in one call: same
- * work, but the counter is real, cancel means something, and a bad frame is
- * named instead of taking the run down with it.
  */
 
-import { useCallback, useRef, useState } from 'react';
-import { exportColorFiles, learnColorModel, listImages, thumbUrl } from '../../api';
-import type { LearnColorResponse, LearnedColorModel } from '../../api';
+import { useCallback, useState } from 'react';
+import { learnColorModel, thumbUrl } from '../../api';
+import type { LearnColorResponse } from '../../api';
+import type { LearnedColorModel } from '../../types';
 import type { Project } from '../store';
+import { colorStep, setStep } from '../store';
 import ProjectFiles from './ProjectFiles';
 import { IcCheckCircle, IcSparkle } from '../../design/Icons';
 
@@ -58,12 +69,10 @@ export default function ColorMatch({
   const [learned, setLearned] = useState<LearnColorResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const [done, setDone] = useState(0);
-  const [total, setTotal] = useState(0);
-  const [failed, setFailed] = useState<{ file: string; error: string }[]>([]);
-  const [running, setRunning] = useState(false);
-  const [wrote, setWrote] = useState<string | null>(null);
-  const cancelled = useRef(false);
+  /** Set once the look has been put on the project, so the screen can say so
+   *  without pretending a long job just finished. */
+  const [applied, setApplied] = useState(false);
+  const existing = colorStep(project.id);
 
   const learn = useCallback(async () => {
     if (!origin || !edited) return;
@@ -79,36 +88,14 @@ export default function ColorMatch({
     }
   }, [origin, edited]);
 
-  /** No folder picker: the origin frame already named its folder. */
-  const applyToFolder = useCallback(async (model: LearnedColorModel) => {
-    if (!origin) return;
-    setError(null);
-    setRunning(true);
-    setDone(0);
-    setFailed([]);
-    setWrote(null);
-    cancelled.current = false;
-    try {
-      const list = await listImages(origin.folder);
-      setTotal(list.count);
-      const dest = `${origin.folder}\\TEZA`;
-      for (const file of list.files) {
-        if (cancelled.current) break;
-        try {
-          const r = await exportColorFiles([file], model, dest);
-          if (r.errors?.length) setFailed((f) => [...f, ...r.errors]);
-        } catch (e) {
-          setFailed((f) => [...f, { file, error: e instanceof Error ? e.message : 'שגיאה' }]);
-        }
-        setDone((d) => d + 1);
-      }
-      setWrote(dest);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'ההחלה נכשלה');
-    } finally {
-      setRunning(false);
-    }
-  }, [origin]);
+  /* The look becomes a step on the project. No folder picker, no destination,
+   * no batch: there is nothing to render yet, because nothing is being written.
+   * One entry per tool — learning a second time replaces the look rather than
+   * stacking two grades (studio/store.ts::setStep). */
+  const applyToSet = useCallback((model: LearnedColorModel) => {
+    setStep(project.id, { toolId: 'pixel-color', params: {}, enabled: true, model });
+    setApplied(true);
+  }, [project.id]);
 
   const report = learned?.report;
   const gap = report ? Math.round(report.gapClosed * 100) : 0;
@@ -265,53 +252,33 @@ export default function ColorMatch({
               : 'לא נמצא מספיק עור בפריים למודל עור נפרד; נלמד מודל צבע כללי בלבד.'}
           </p>
 
-          {/* ---------- 3. apply — no folder picker ---------- */}
+          {/* ---------- 3. put it on the set ---------- */}
           <div className="cm-apply">
             <div className="cm-apply-where">
-              <span>יוחל על כל התיקייה של תמונת המקור</span>
-              <b className="mono" dir="ltr">{origin.folder}</b>
-              <span>הפלט נכתב לתת־תיקייה <span className="mono" dir="ltr">\TEZA</span>. המקור לא נגע.</span>
+              <span>המראה הזה ייקבע על כל הסט של הפרויקט</span>
+              <b>{project.client}</b>
+              <span>
+                שום קובץ לא נכתב. מכאן והלאה כל מסך מציג את הסט עם המראה הזה, וקבצים
+                נוצרים פעם אחת — במסירה, מהמקור.
+              </span>
             </div>
 
             <div className="cm-run">
-              {!running ? (
-                <button className="btn btn-primary" onClick={() => applyToFolder(learned.model)}>
-                  החל על כל התיקייה
-                </button>
-              ) : (
-                <button className="btn" onClick={() => { cancelled.current = true; }}>עצור</button>
-              )}
-
-              {(running || done > 0) && (
-                <div className="cm-progress">
-                  <div className="cm-bar">
-                    <span style={{ width: total ? `${(done / total) * 100}%` : '0%' }} />
-                  </div>
-                  <span className="mono">
-                    {done.toLocaleString('he-IL')} מתוך {total.toLocaleString('he-IL')}
-                  </span>
-                  {failed.length > 0 && <span className="cm-failed mono">{failed.length} נכשלו</span>}
-                </div>
+              <button className="btn btn-primary" onClick={() => applyToSet(learned.model)}>
+                {existing ? 'החלף את המראה של הסט' : 'קבע על כל הסט'}
+              </button>
+              {existing && !applied && (
+                <span className="cm-note">
+                  לסט כבר יש מראה. קביעה מחליפה אותו — לא מוסיפה אותו מעליו.
+                </span>
               )}
             </div>
 
-            {!running && wrote && (
+            {applied && (
               <p className="cm-done">
                 <IcCheckCircle size={16} />
-                {' '}הסתיים. {(done - failed.length).toLocaleString('he-IL')} קבצים נכתבו אל
-                {' '}<span className="mono" dir="ltr">{wrote}</span>
+                {' '}נקבע. הסט של {project.client} מוצג מעכשיו עם המראה הזה.
               </p>
-            )}
-
-            {failed.length > 0 && (
-              <ul className="cm-fail-list">
-                {failed.slice(0, 8).map((f) => (
-                  <li key={f.file}>
-                    <span className="mono" dir="ltr">{baseName(f.file)}</span>
-                    <span>{f.error}</span>
-                  </li>
-                ))}
-              </ul>
             )}
           </div>
         </section>

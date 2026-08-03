@@ -6,9 +6,13 @@ leave the machine. Each AI tool is dispatched under /tools/{id}/apply.
 """
 
 import base64
+import hashlib
 import io
 import json
 import os
+import subprocess
+import threading
+import time
 import urllib.parse
 from concurrent.futures import ThreadPoolExecutor
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -51,6 +55,142 @@ _WORKER = ThreadPoolExecutor(max_workers=1, thread_name_prefix="engine-image")
 def on_worker(fn, *args, **kwargs):
     """Run image work on the one thread allowed to touch the models."""
     return _WORKER.submit(fn, *args, **kwargs).result()
+
+
+# --------------------------------------------------------------- the proxy cache
+#
+# A project's recipe is non-destructive: nothing is written to disk until the
+# photographer asks for files. That is the whole point — but it means every
+# thumbnail in a folder view is a RENDER, and a set is hundreds of frames.
+# Re-rendering them on every scroll would make the model unusable, so a rendered
+# proxy is cached per (recipe, file, size) and served straight from disk on the
+# second look.
+#
+# The recipe is registered once and addressed by key afterwards, so previews stay
+# GET requests: that keeps <img loading="lazy"> working, which is what stops a
+# 2,000-frame folder from asking for 2,000 renders it will never show.
+
+def _cache_root():
+    base = os.environ.get("LOCALAPPDATA") or os.path.expanduser("~")
+    return os.path.join(base, "TEZA", "cache")
+
+
+_RECIPES = {}
+_RECIPES_LOCK = threading.Lock()
+
+
+def _recipe_hash(recipe):
+    blob = json.dumps(recipe, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha1(blob.encode("utf-8")).hexdigest()[:16]
+
+
+def _recipe_path(key):
+    return os.path.join(_cache_root(), "recipes", f"{key}.json")
+
+
+def _remember_recipe(recipe):
+    """-> key. Persisted, so a preview URL survives an engine restart."""
+    key = _recipe_hash(recipe)
+    with _RECIPES_LOCK:
+        _RECIPES[key] = recipe
+    path = _recipe_path(key)
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w", encoding="utf-8") as fh:
+            json.dump(recipe, fh)
+    except OSError:
+        pass  # the in-memory copy still answers this session
+    return key
+
+
+def _recall_recipe(key):
+    """-> recipe, or None when this engine has never been told what `key` means.
+
+    None is not a failure: the client re-registers and retries. Guessing an
+    empty recipe instead would silently serve the RAW frame under a URL that
+    promises the edit, which is the exact confusion this whole model removes.
+    """
+    with _RECIPES_LOCK:
+        cached = _RECIPES.get(key)
+    if cached is not None:
+        return cached
+    try:
+        with open(_recipe_path(key), "r", encoding="utf-8") as fh:
+            recipe = json.load(fh)
+    except (OSError, ValueError):
+        return None
+    with _RECIPES_LOCK:
+        _RECIPES[key] = recipe
+    return recipe
+
+
+# Bump when anything about how a proxy is produced changes — sizing, quality,
+# the pipeline. The recipe key covers the RECIPE changing and the mtime covers
+# the FILE changing, but neither notices that the engine now draws it
+# differently, and a cache that outlives the code it came from serves
+# yesterday's pixels under today's key. Caught exactly that way: a sizing fix
+# looked like it had not worked, because the stale proxy was still being served.
+_PROXY_VERSION = 2
+
+
+def _proxy_path(key, src_path, width):
+    """Keyed by mtime as well as path: editing the file in another program has
+    to invalidate the proxy, or the set would keep showing yesterday's frame."""
+    try:
+        stamp = os.path.getmtime(src_path)
+    except OSError:
+        stamp = 0
+    ident = hashlib.sha1(
+        f"{_PROXY_VERSION}|{src_path}|{stamp}|{width}".encode("utf-8")
+    ).hexdigest()
+    return os.path.join(_cache_root(), "proxy", key, f"{ident}.jpg")
+
+
+def _fit_size(size, width):
+    """The box a frame lands in at `width`, long edge.
+
+    ONE rule, used by /thumb and /preview alike. They used to size themselves
+    independently — thumbnail() twice for the preview, once for the thumb — and
+    the two roundings disagreed by a pixel (213 vs 214 on the same file). In a
+    grid that is a row of frames that do not line up, and between the raw frame
+    and the graded one it makes an A/B comparison impossible.
+    """
+    w, h = size
+    longest = max(w, h)
+    if longest <= width:
+        return (w, h)
+    scale = width / float(longest)
+    return (max(1, round(w * scale)), max(1, round(h * scale)))
+
+
+def _decode_small(path, width):
+    """Decode small. Reading a 20MP frame to show it at 320px costs about twenty
+    times more, and libjpeg can downscale while it decodes."""
+    im = Image.open(path)
+    im.draft("RGB", (width * 2, width * 2))
+    return ImageOps.exif_transpose(im).convert("RGB")
+
+
+def _render_proxy(path, width, recipe):
+    im = _decode_small(path, width)
+    # Decided BEFORE rendering, from the frame as decoded — so the answer does
+    # not depend on how many times the image was resized on the way here.
+    out_size = _fit_size(im.size, width)
+
+    if recipe:
+        # Rendered a little larger than it is shown: face and subject masks get
+        # unreliable below a few hundred pixels, and a proxy that disagrees with
+        # the delivered file about WHERE a tool landed is worse than a slow one.
+        work = _fit_size(im.size, max(width, 640))
+        if work != im.size:
+            im = im.resize(work, Image.LANCZOS)
+        im, _ = render.render(im, recipe)
+
+    if im.size != out_size:
+        im = im.resize(out_size, Image.LANCZOS)
+    buf = io.BytesIO()
+    im.save(buf, "JPEG", quality=82)
+    return buf.getvalue()
 
 # Tool registry (mirrors the front-end registry; source of truth for the engine).
 TOOLS = [
@@ -155,6 +295,9 @@ class Handler(BaseHTTPRequestHandler):
         if self.path.startswith("/thumb?"):
             self._thumb()
             return
+        if self.path.startswith("/preview?"):
+            self._preview()
+            return
         if self.path == "/health":
             self._json(200, {"status": "ok", "tools": [t["id"] for t in TOOLS]})
         elif self.path == "/tools":
@@ -176,7 +319,7 @@ class Handler(BaseHTTPRequestHandler):
             self._json(404, {"error": "not found"})
 
     def _thumb(self):
-        """GET /thumb?path=<abs path>&w=<px> -> a JPEG thumbnail.
+        r"""GET /thumb?path=<abs path>&w=<px> -> a JPEG thumbnail.
 
         The renderer cannot read D:\Shoots\... — a browser has no access to
         the disk, and the whole point of this product is that the files stay
@@ -196,10 +339,12 @@ class Handler(BaseHTTPRequestHandler):
                 self._json(404, {"error": "not found"})
                 return
 
-            im = Image.open(path)
-            im.draft("RGB", (width * 2, width * 2))
-            im = ImageOps.exif_transpose(im).convert("RGB")
-            im.thumbnail((width, width), Image.LANCZOS)
+            im = _decode_small(path, width)
+            # the same rule /preview uses, so a raw frame and a graded one are
+            # never a pixel apart
+            size = _fit_size(im.size, width)
+            if im.size != size:
+                im = im.resize(size, Image.LANCZOS)
             buf = io.BytesIO()
             im.save(buf, "JPEG", quality=82)
             data = buf.getvalue()
@@ -216,7 +361,64 @@ class Handler(BaseHTTPRequestHandler):
         except Exception as e:  # noqa: BLE001
             self._json(500, {"error": str(e)})
 
+    def _preview(self):
+        r"""GET /preview?path=<abs>&w=<px>&key=<recipe key> -> a rendered JPEG.
+
+        The same job /thumb does, except the frame is shown AS THE PROJECT'S
+        RECIPE LEAVES IT. This is what makes "open the tool and see the edited
+        set" true without a single file being written: there is no edited
+        folder, there is a recipe, and this endpoint is where it becomes pixels.
+
+        409 means the key is unknown to this engine — the client re-registers
+        the recipe and retries. See _recall_recipe for why it is not an empty
+        recipe instead.
+        """
+        try:
+            args = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+            path = (args.get("path") or [""])[0]
+            width = int((args.get("w") or ["320"])[0])
+            key = (args.get("key") or [""])[0]
+            if not path or not os.path.isfile(path):
+                self._json(404, {"error": "not found"})
+                return
+            recipe = _recall_recipe(key) if key else []
+            if recipe is None:
+                self._json(409, {"error": "unknown recipe key"})
+                return
+
+            proxy = _proxy_path(key or "raw", path, width)
+            data = None
+            try:
+                with open(proxy, "rb") as fh:
+                    data = fh.read()
+            except OSError:
+                pass
+
+            if data is None:
+                data = on_worker(_render_proxy, path, width, recipe)
+                try:
+                    os.makedirs(os.path.dirname(proxy), exist_ok=True)
+                    with open(proxy, "wb") as fh:
+                        fh.write(data)
+                except OSError:
+                    pass  # a cache that cannot be written still serves pixels
+
+            self.send_response(200)
+            self.send_header("Content-Type", "image/jpeg")
+            self.send_header("Content-Length", str(len(data)))
+            self.send_header("Access-Control-Allow-Origin", "*")
+            # Safe to cache hard: the key changes whenever the recipe changes,
+            # and the proxy name changes whenever the file does.
+            self.send_header("Cache-Control", "public, max-age=86400")
+            self.end_headers()
+            self.wfile.write(data)
+        except Exception as e:  # noqa: BLE001
+            self._json(500, {"error": str(e)})
+
     def do_POST(self):
+        if self.path == "/recipe-key":
+            self._recipe_key()
+            return
         if self.path == "/decode":
             self._decode()
             return
@@ -278,13 +480,25 @@ class Handler(BaseHTTPRequestHandler):
         return json.loads(self.rfile.read(length))
 
     def _render(self):
-        """Run a whole recipe in one pass. { image|path, recipe:[...] }"""
+        """Run a whole recipe in one pass. { image|path, recipe:[...], w? }
+
+        `w` caps the long edge BEFORE the pipeline runs. Tuning a tool means
+        re-rendering on every slider move, and a 20MP frame re-rendered at full
+        size to be shown in an 1100px panel is the difference between a control
+        that responds and one that does not. Delivery ignores it and renders
+        from the original.
+        """
         try:
             body = self._body()
             if body.get("path"):
                 img = common.load_image(body["path"])
             else:
                 img = common.b64_to_image(body["image"])
+            cap = int(body.get("w") or 0)
+            if cap > 0:
+                size = _fit_size(img.size, cap)
+                if size != img.size:
+                    img = img.resize(size, Image.LANCZOS)
             out, meta = on_worker(render.render, img, body.get("recipe", []))
             # A preview and a file the photographer keeps are not the same
             # picture. Previews stay small; `deliver` asks for the same settings
@@ -446,6 +660,52 @@ class Handler(BaseHTTPRequestHandler):
                     output_image
                 )
             self._json(200, {"image": payload, "meta": meta})
+        except Exception as e:  # noqa: BLE001
+            self._json(500, {"error": str(e)})
+
+    def _pick_folder(self):
+        """Open the real Windows folder dialog and return the path chosen.
+
+        A browser cannot hand out an absolute path — by design, and no amount of
+        UI work changes that. But the engine is a local process on the user's
+        own machine, so IT can raise the native dialog and report the answer.
+        That is the difference between "paste a path" and "choose a folder", and
+        the second one is the only acceptable version.
+
+        The dialog is owned by a TopMost form, or Windows would open it behind
+        the browser and the click would look like it did nothing.
+        """
+        script = (
+            "Add-Type -AssemblyName System.Windows.Forms;"
+            "$owner = New-Object System.Windows.Forms.Form;"
+            "$owner.TopMost = $true;"
+            "$d = New-Object System.Windows.Forms.FolderBrowserDialog;"
+            "$d.Description = 'בחר תיקייה עם תמונות הפרויקט';"
+            "$d.ShowNewFolderButton = $false;"
+            "if ($d.ShowDialog($owner) -eq [System.Windows.Forms.DialogResult]::OK)"
+            " { [Console]::Out.Write($d.SelectedPath) };"
+            "$owner.Dispose()"
+        )
+        try:
+            out = subprocess.run(
+                ["powershell", "-NoProfile", "-STA", "-Command", script],
+                capture_output=True,
+                text=True,
+                timeout=300,
+            )
+            folder = (out.stdout or "").strip()
+            if not folder:
+                self._json(200, {"cancelled": True})
+                return
+            self._json(200, {"folder": folder, "cancelled": False})
+        except Exception as e:  # noqa: BLE001
+            self._json(500, {"error": str(e)})
+
+    def _recipe_key(self):
+        """POST { recipe:[...] } -> { key }. Register a recipe for /preview."""
+        try:
+            body = self._body()
+            self._json(200, {"key": _remember_recipe(body.get("recipe", []))})
         except Exception as e:  # noqa: BLE001
             self._json(500, {"error": str(e)})
 
@@ -624,4 +884,21 @@ if __name__ == "__main__":
             f"({e})"
         )
     print(f"engine listening on http://127.0.0.1:{PORT}")
+
+    # Warm the depth model in the background. onnxruntime's native DLL costs ~20s
+    # to load on this machine, so it is kept out of import (see depth.py) — the
+    # server is up and answering the moment the line above prints. This thread
+    # then pays that cost off the hot path, so the first depth-of-field or dehaze
+    # request finds the session already built instead of stalling on it.
+    def _warm_depth():
+        try:
+            import depth
+            t = time.perf_counter()
+            depth._session_instance()
+            print(f"depth model warm ({time.perf_counter() - t:.1f}s)")
+        except Exception as e:  # a warm-up must never take the server down
+            print(f"depth warm-up skipped: {e}")
+
+    threading.Thread(target=_warm_depth, name="warm-depth", daemon=True).start()
+
     srv.serve_forever()

@@ -67,17 +67,75 @@ export interface SpotSelection {
   polygons: SpotOutline[];
 }
 
+/** A colour look fitted from one before/after pair, as anchors and deltas in
+ *  Lab rather than slider values. It is a MODEL, not parameters: nothing here
+ *  is a number a person turned, and no set of sliders can express it — which is
+ *  why a step carries it in its own field instead of in `params`. */
+export interface LearnedColorModel {
+  version: number;
+  base: Record<string, number>;
+  anchors: number[][];
+  deltas: number[][];
+  confidences: number[];
+  supports: number[];
+  strength: number;
+  // Per-anchor strength, one entry per row of `anchors` -- each learned
+  // colour is calibrated against only the pixels closest to it, instead of
+  // every anchor sharing one photo-wide knob. `strength` above is kept as
+  // their mean, for older engine code/UI that only knows the scalar.
+  // Absent on models fit before this existed; the engine broadcasts
+  // `strength` uniformly in that case.
+  strengths?: number[];
+  sigma: number;
+  subjectProtection: number;
+  lumaCurve: number[];
+  lumaStrength: number;
+  // Present only when the pair had enough real face/body-skin pixels to
+  // trust a second anchor set learned from the skin itself (see
+  // engine/pixel_color.py SKIN_MODEL_ENABLED). Absent on older models.
+  skinAnchors?: number[][];
+  skinDeltas?: number[][];
+  skinConfidences?: number[];
+  skinSupports?: number[];
+  skinStrength?: number;
+  skinStrengths?: number[];
+  skinSigma?: number;
+  skinProtection?: number;
+}
+
 export interface ToolInstance {
   toolId: string;
   params: ParamValues;
   enabled: boolean;
   mask?: ToolMask;
   selection?: SpotSelection;
+  /** A fitted model this step applies instead of sliders — `pixel-color` only.
+   *  Kept out of `params` because params are numbers by contract, and the
+   *  engine dispatches on this field (engine/render.py::render). */
+  model?: LearnedColorModel;
 }
 
 // The recipe: an ordered, non-destructive stack of tools. This is the heart.
 export interface Recipe {
   tools: ToolInstance[];
+}
+
+/** WHAT HAS BEEN DONE TO A PROJECT'S SET — and the reason nothing is written to
+ *  disk until delivery.
+ *
+ *  `base` is the whole set: applying a learned look to a folder appends a step
+ *  here, and every screen that shows a frame renders through it. `perFrame`
+ *  holds the exceptions, keyed by absolute path because the path IS the frame's
+ *  identity (studio/store.ts). Merge rule: a toolId present in `perFrame`
+ *  replaces the one in `base` for that frame; frame-only tools run last.
+ *
+ *  Brush strokes and marked outlines may exist ONLY in `perFrame`: they belong
+ *  to one face in one frame and cannot mean anything on the next (see ToolMask
+ *  and SpotSelection above). */
+export interface ProjectRecipe {
+  version: number;
+  base: ToolInstance[];
+  perFrame: Record<string, ToolInstance[]>;
 }
 
 export interface Photo {

@@ -136,37 +136,11 @@ export interface CompareResponse {
   };
 }
 
-export interface LearnedColorModel {
-  version: number;
-  base: Record<string, number>;
-  anchors: number[][];
-  deltas: number[][];
-  confidences: number[];
-  supports: number[];
-  strength: number;
-  // Per-anchor strength, one entry per row of `anchors` -- each learned
-  // colour is calibrated against only the pixels closest to it, instead of
-  // every anchor sharing one photo-wide knob. `strength` above is kept as
-  // their mean, for older engine code/UI that only knows the scalar.
-  // Absent on models fit before this existed; the engine broadcasts
-  // `strength` uniformly in that case.
-  strengths?: number[];
-  sigma: number;
-  subjectProtection: number;
-  lumaCurve: number[];
-  lumaStrength: number;
-  // Present only when the pair had enough real face/body-skin pixels to
-  // trust a second anchor set learned from the skin itself (see
-  // engine/pixel_color.py SKIN_MODEL_ENABLED). Absent on older models.
-  skinAnchors?: number[][];
-  skinDeltas?: number[][];
-  skinConfidences?: number[];
-  skinSupports?: number[];
-  skinStrength?: number;
-  skinStrengths?: number[];
-  skinSigma?: number;
-  skinProtection?: number;
-}
+/* The learned model moved to types.ts: it is domain, not transport — a project
+ * recipe holds one, and types.ts is where the recipe lives. Re-exported so
+ * every existing importer keeps working. */
+export type { LearnedColorModel } from './types';
+import type { LearnedColorModel, ToolInstance } from './types';
 
 export interface LearnColorResponse {
   model: LearnedColorModel;
@@ -430,4 +404,90 @@ export async function exportColorFiles(
  * engine has disk access, so the engine serves the pixels. */
 export function thumbUrl(path: string, width = 320): string {
   return `${ENGINE}/thumb?path=${encodeURIComponent(path)}&w=${width}`;
+}
+
+/* ------------------------------------------------------- the project's recipe
+ *
+ * A set is never rendered to disk while it is being worked on: what the
+ * photographer sees IS the recipe, applied on the way to the screen. Two calls
+ * make that affordable — the recipe is registered once and addressed by key
+ * afterwards, so a preview stays a plain GET and `<img loading="lazy">` keeps
+ * doing the work of not rendering the 1,900 frames nobody scrolled to.
+ */
+
+/** Tell the engine what a recipe is; get back the key its previews live under.
+ *  The same recipe always produces the same key, so this is cheap to repeat. */
+export async function registerRecipe(recipe: ToolInstance[]): Promise<string> {
+  const r = await fetch(`${ENGINE}/recipe-key`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ recipe }),
+  });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j?.error ?? `engine ${r.status}`);
+  return j.key as string;
+}
+
+/** A frame as the recipe leaves it. An empty key is the raw file — same picture
+ *  /thumb serves, so a project with no recipe yet costs nothing extra. */
+export function previewUrl(path: string, width = 320, key = ''): string {
+  if (!key) return thumbUrl(path, width);
+  return `${ENGINE}/preview?path=${encodeURIComponent(path)}&w=${width}&key=${key}`;
+}
+
+/** Render a recipe over a file ON DISK. The browser cannot read the path, and
+ *  turning a 20MP frame into a data URL just to send it back is a round trip
+ *  the engine does not need — it already has the file. */
+export async function renderRecipeAtPath(
+  path: string,
+  tools: ToolInstance[],
+  /** Cap the long edge before the pipeline runs. A tool being tuned re-renders
+   *  on every slider move; full resolution for an 1100px panel is the
+   *  difference between a control that answers and one that does not. */
+  width?: number,
+  deliver = false,
+): Promise<RenderResult> {
+  const r = await fetch(`${ENGINE}/render`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ path, recipe: tools, deliver, w: width }),
+  });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j?.error ?? `engine ${r.status}`);
+  return j;
+}
+
+/** Write files: the one moment a recipe becomes pixels on disk.
+ *
+ * `perFile` carries the frames that differ from the rest of the set — the
+ * engine applies it per path and falls back to `recipe` for everything else,
+ * which is exactly how base/perFrame is shaped (types.ts::ProjectRecipe). */
+export async function exportFiles(
+  files: string[],
+  recipe: ToolInstance[],
+  dest: string,
+  perFile?: Record<string, ToolInstance[]>,
+  quality?: number,
+): Promise<{ written: string[]; errors: { file: string; error: string }[]; count: number }> {
+  const r = await fetch(`${ENGINE}/export`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ files, recipe, perFile, dest, format: 'jpeg', quality }),
+  });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j?.error ?? `engine ${r.status}`);
+  return j;
+}
+
+/** Open the operating system's own folder dialog and return what was chosen.
+ *
+ * The browser cannot produce an absolute path — that is a deliberate boundary
+ * and no UI work gets around it. The engine is a local process on the same
+ * machine, so it raises the native dialog instead. `null` means the dialog was
+ * cancelled, which is an answer and not a failure. */
+export async function pickFolder(): Promise<string | null> {
+  const r = await fetch(`${ENGINE}/pick-folder`, { method: 'POST' });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j?.error ?? `engine ${r.status}`);
+  return j.cancelled ? null : (j.folder as string);
 }

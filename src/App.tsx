@@ -12,6 +12,7 @@ import Today from './studio/screens/Today';
 import Projects from './studio/screens/Projects';
 import ProjectScreen from './studio/screens/Project';
 import ColorMatch from './studio/screens/ColorMatch';
+import SetWorkbench from './studio/screens/SetWorkbench';
 import { getProject } from './studio/store';
 import { Clients, STAGE_SCREENS, Simple } from './studio/screens/Screens';
 
@@ -68,6 +69,8 @@ export default function App() {
   const [stage, setStage] = useState<StageId>(initial.stage);
   const [projectId, setProjectId] = useState<string>(initial.id);
   const [colorMatch, setColorMatch] = useState(initial.sub === 'color');
+  // The set's workbench — one tool at a time, on top of the recipe so far.
+  const [workbench, setWorkbench] = useState(initial.sub === 'edit');
 
   useEffect(() => {
     const onHash = () => {
@@ -76,19 +79,21 @@ export default function App() {
       setStage(h.stage);
       setProjectId(h.id);
       setColorMatch(h.sub === 'color');
+      setWorkbench(h.sub === 'edit');
     };
     window.addEventListener('hashchange', onHash);
     return () => window.removeEventListener('hashchange', onHash);
   }, []);
 
   useEffect(() => {
+    const sub = colorMatch ? '/color' : workbench ? '/edit' : '';
     const want = section === 'project'
-      ? `#/project/${projectId}${colorMatch ? '/color' : ''}`
+      ? `#/project/${projectId}${sub}`
       : `#/${section}/${stage}`;
     if (window.location.hash !== want) {
       window.history.replaceState(null, '', want);
     }
-  }, [section, stage, projectId, colorMatch]);
+  }, [section, stage, projectId, colorMatch, workbench]);
 
   function openProject(id: string) {
     setProjectId(id);
@@ -133,6 +138,9 @@ export default function App() {
   if (openedProject && colorMatch) {
     body = <ColorMatch project={openedProject} onBack={() => setColorMatch(false)} />;
     title = `התאמת צבעים · ${openedProject.client}`;
+  } else if (openedProject && workbench) {
+    body = <SetWorkbench project={openedProject} onBack={() => setWorkbench(false)} />;
+    title = `עריכה · ${openedProject.client}`;
   } else if (openedProject) {
     body = (
       <ProjectScreen
@@ -144,8 +152,13 @@ export default function App() {
             setColorMatch(true);
             return;
           }
-          setStage(what === 'edit' ? 'gallery-edit' : 'album-design');
-          setSection(what === 'edit' ? 'editing' : 'albums');
+          if (what === 'edit') {
+            // The set's own workbench, not the disconnected gallery editor.
+            setWorkbench(true);
+            return;
+          }
+          setStage('album-design');
+          setSection('albums');
         }}
       />
     );

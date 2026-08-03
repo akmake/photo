@@ -20,6 +20,8 @@ import type { Project as ProjectModel } from '../store';
 import { STATE_LABEL, stagesOf } from '../store';
 import type { StageKey } from '../store';
 import ProjectFiles from './ProjectFiles';
+import SetRecipe from './SetRecipe';
+import DeliverSet from './DeliverSet';
 import {
   IcCalendar, IcCamera, IcCheckCircle, IcFolderOpen, IcLink, IcMail, IcSliders,
   IcSparkle,
@@ -166,24 +168,33 @@ export default function Project({
                   <IcSparkle size={16} />התאמת צבעים מזוג תמונות
                 </button>
                 <button className="btn" onClick={() => onOpenTool('edit')}>
-                  <IcSliders size={16} />מתכון ידני
+                  <IcSliders size={16} />עריכה כלי אחר כלי
                 </button>
               </div>
               <p className="hint">
-                התאמת צבעים לומדת את הצבע שלך מזוג אחד — מקור וערוך — ומחילה אותו על כל
-                התיקייה. המתכון הידני הוא הדרך השנייה: סליידרים על תמונת ייחוס.
+                התאמת צבעים לומדת את הצבע שלך מזוג אחד — מקור וערוך — וקובעת אותו על כל
+                הסט. המתכון הידני הוא הדרך השנייה: סליידרים על תמונת ייחוס.
               </p>
+              <SetRecipe projectId={project.id} />
             </Stage>
           )}
 
           {stage === 'album' && (
             <Stage title="אלבום" sub="כפולות, הגהה ללקוח, ואז דפוס">
-              <Numbers items={[['כפולות', 18], ['גרסאות שנשלחו', 1]]} />
+              {project.hasAlbum ? (
+                <Numbers items={[['כפולות', 18], ['גרסאות שנשלחו', 1]]} />
+              ) : (
+                <p className="hint">
+                  לא נכלל אלבום בהזמנה — אבל אפשר ליצור אחד מתמונות הפרויקט בכל רגע.
+                </p>
+              )}
               <div className="stage-actions">
                 <button className="btn btn-primary" onClick={() => onOpenTool('album')}>
-                  פתח את עיצוב האלבום
+                  {project.hasAlbum ? 'פתח את עיצוב האלבום' : 'צור אלבום מהפרויקט'}
                 </button>
-                <button className="btn"><IcMail size={16} />שלח הגהה</button>
+                {project.hasAlbum && (
+                  <button className="btn"><IcMail size={16} />שלח הגהה</button>
+                )}
               </div>
             </Stage>
           )}
@@ -194,8 +205,8 @@ export default function Project({
               <p className="hint">
                 רק גרסאות תצוגה עולות לרשת. הקבצים המקוריים והמיוצאים נשארים על המחשב.
               </p>
+              <DeliverSet projectId={project.id} />
               <div className="stage-actions">
-                <button className="btn btn-primary"><IcFolderOpen size={16} />ייצא לתיקייה</button>
                 <button className="btn"><IcLink size={16} />שלח קישור ללקוח</button>
               </div>
             </Stage>
