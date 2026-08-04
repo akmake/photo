@@ -366,7 +366,16 @@ TOOLS = [
         "id": "skin",
         "kind": "ai",
         "category": "local-ai",
-        "params": [{"id": "strength", "min": 0, "max": 100, "default": 60}],
+        # All five, not just `strength`. `skin.apply` has always read `scale`,
+        # `evenness`, `texture` and `body` (see skin.py) — only this declaration
+        # omitted them, so /tools under-reported the tool by four controls.
+        "params": [
+            {"id": "strength", "min": 0, "max": 100, "default": 60},
+            {"id": "scale", "min": 0, "max": 100, "default": 50},
+            {"id": "evenness", "min": 0, "max": 100, "default": 50},
+            {"id": "texture", "min": 0, "max": 100, "default": 100},
+            {"id": "body", "min": 0, "max": 100, "default": 0},
+        ],
     },
     {
         "id": "blush",
@@ -393,7 +402,9 @@ TOOLS = [
         "kind": "ai",
         "category": "local-ai",
         "params": [
-            {"id": "strength", "min": 0, "max": 100, "default": 50},
+            # 45, matching the UI. The two drifted to 50/45, so "reset to
+            # default" meant something different depending on which side reset.
+            {"id": "strength", "min": 0, "max": 100, "default": 45},
             {"id": "warmth", "min": -100, "max": 100, "default": 40},
             {"id": "shine", "min": 0, "max": 100, "default": 35},
             {"id": "richness", "min": 0, "max": 100, "default": 40},
@@ -405,6 +416,7 @@ TOOLS = [
         "category": "scene",
         "params": [
             {"id": "amount", "min": 0, "max": 100, "default": 60},
+            {"id": "bokeh", "min": 0, "max": 100, "default": 50},
             {"id": "feather", "min": 0, "max": 100, "default": 40},
         ],
     },

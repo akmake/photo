@@ -36,6 +36,7 @@ import common
 import healing
 import masks
 import pigment
+import shape
 import skinmodel
 import specular
 
@@ -258,16 +259,14 @@ def _bright_debris_confidence(
         component = labels == index
         if float(z[component].max()) < seed_z:
             continue
-        if (
-            stats[index, cv2.CC_STAT_WIDTH] > max_side
-            or stats[index, cv2.CC_STAT_HEIGHT] > max_side
-            or stats[index, cv2.CC_STAT_AREA] > max_area
-        ):
+        if int(stats[index, cv2.CC_STAT_AREA]) > max_area:
             continue
-        radius = float(
-            cv2.distanceTransform(component.astype(np.uint8), cv2.DIST_L2, 3).max()
-        )
-        if radius > max_radius:
+        # The two bounding-box side tests that used to be here were redundant
+        # with the radius test below AND stricter than it in the wrong way: a box
+        # grows with a component's DIAGONAL, so a crumb lying at an angle was
+        # rejected for being tilted. Area bounds how much there is; the distance
+        # transform bounds how fat it is; the box measured neither.
+        if shape.describe(component).thickness_max > 2.0 * max_radius:
             continue
         out[component] = 1.0
 
@@ -431,11 +430,15 @@ def _fluid_trails(
         area = int(stats[i, cv2.CC_STAT_AREA])
         if area < max(16, int(face_d * 0.5)) or area > int(face_d * face_d * 0.01):
             continue
-        length = max(int(stats[i, cv2.CC_STAT_WIDTH]), int(stats[i, cv2.CC_STAT_HEIGHT]))
-        # thin and elongated — a strand, not a patch of shine. 0.03, not less:
-        # a hanging fluid ENDS IN A DROPLET, and the droplet is what a tighter
-        # bar rejected (measured 11.4 vs an 11.0 bar on the 1809 drool)
-        if length < face_d * 0.05 or area / max(1, length) > face_d * FLUID_MAX_WIDTH:
+        # Thin and elongated — a strand, not a patch of shine. Measured with
+        # `shape.describe`, NOT from the bounding box: a strand runs down AND
+        # sideways, so max(box_w, box_h) is shorter than the strand and
+        # `area / that` reports the thinnest object on the face as too wide.
+        # That is what rejected this project's only validated drool, twice.
+        # `thickness_typ` is a median over the distance transform, so it is
+        # blind to orientation and curvature and ignores the droplet at the end.
+        geom = shape.describe(comp)
+        if geom.length < face_d * 0.05 or geom.thickness_typ > face_d * FLUID_MAX_WIDTH:
             continue
         anchor = comp & anchor_zone
         if not anchor.any() or (comp & rim).any():
@@ -945,15 +948,20 @@ def confidence(rgb, params: dict):
     # Safety net: a blemish is LOCAL. Anything larger than this is skin
     # character the model failed to absorb (a broad shadow, strong blush on an
     # unusual face) — never "correct" it.
+    #
+    # Measured as AREA and THICKNESS, matching `decide`. It used to test the
+    # bounding box, which is the error this file documents twice already and
+    # which had simply survived here: a box punishes a mark for being LONG, so a
+    # scratch was discarded at 38x50 while its real area was 396px. `decide` was
+    # fixed; `confidence` was not, and it runs FIRST — so the scratch never
+    # reached the gate that had been corrected.
     max_side = max(8, int(face_d * 0.16))
+    max_area = max_side * max_side * 0.5
+    max_radius = max_side * 0.35
     blobs = (conf > 0.35).astype(np.uint8)
-    n, labels, stats, _ = cv2.connectedComponentsWithStats(blobs, connectivity=8)
-    for i in range(1, n):
-        if (
-            stats[i, cv2.CC_STAT_WIDTH] > max_side
-            or stats[i, cv2.CC_STAT_HEIGHT] > max_side
-        ):
-            conf[labels == i] = 0.0
+    for _, comp, geom in shape.describe_all(blobs):
+        if geom.area > max_area or geom.thickness_max > 2.0 * max_radius:
+            conf[comp] = 0.0
 
     # feather so the correction fades in
     fr = max(3, int(face_d * 0.006)) | 1
@@ -1206,6 +1214,16 @@ def _candidates(crop, crop_pre, det: Detection, orifice, anchor_src, down_field,
                 area = float(comp.sum())
                 half = float(cv2.distanceTransform(comp, cv2.DIST_L2, 3).max())
                 length = area / max(1.0, 2.0 * half)
+                # NOT migrated to `shape.describe`, deliberately. This measure is
+                # already distance-transform based, so it does not carry the
+                # bounding-box bug — but its convention differs (it divides by the
+                # HALF-thickness at the widest point, so its numbers run ~2x
+                # shape's `elongation`, and it is driven by the fattest point
+                # rather than the typical one). CREASE_REPAIR_ELONGATION=3.0 was
+                # calibrated against measured folds (11.2x, 6.6x) and a compact
+                # speck (1.6x) on 321A5173, and re-expressing a measured constant
+                # without those fixtures to re-measure on would be a guess.
+                # Unify when they are available; ~1.5 is the expected equivalent.
                 if length / max(1.0, half) >= CREASE_REPAIR_ELONGATION:
                     repair[sel] = 0
                     crease_vetoed += 1

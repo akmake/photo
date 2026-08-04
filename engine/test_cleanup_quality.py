@@ -199,9 +199,22 @@ def run(src: str, outdir: Path, strength: float, label: str):
     hair_d, hair_max = dmg(hair)
     eye_d, eye_max = dmg(eye)
 
+    # Moles are measured against the PIGMENT stage only, which is the guarantee
+    # that actually exists. Spot healing is allowed to remove a mole: that is an
+    # explicit product decision (cleanup.confidence, 2026-07-30) on the grounds
+    # that a small round dark mark is most of what the healer exists for, and
+    # withholding it there had the tool overruling the person using it.
+    # Measuring moles through a run with `spots` on therefore scored the tool as
+    # broken for obeying its own spec.
+    pigment_only, _ = cleanup.apply(
+        rgb, {"redness": strength, "spots": 0, "gloss": strength}
+    )
+    pig_diff = np.abs(pigment_only.astype(np.float32) - rgb.astype(np.float32)).mean(axis=2)
     mole_rows = []
     for area, xy, m in moles:
-        mole_rows.append(dict(xy=xy, area=area, changed=round(float(diff[m].mean()), 1)))
+        mole_rows.append(dict(xy=xy, area=area,
+                              changed=round(float(pig_diff[m].mean()), 1),
+                              changed_with_healing=round(float(diff[m].mean()), 1)))
 
     metrics = dict(
         label=label, strength=strength, seconds=round(elapsed, 2),
@@ -243,7 +256,10 @@ def run(src: str, outdir: Path, strength: float, label: str):
           f"  over-6: {metrics['tone_err_over_6']}/{len(rows)}")
     print(f"TEXTURE  {tex:.2f}  (1.0 = same as surrounding skin)")
     if mole_rows:
-        print("MOLES    " + "  ".join(f"{m['xy']} d={m['changed']}" for m in mole_rows))
+        print("MOLES    (pigment only — healing may legitimately remove them)")
+        print("         " + "  ".join(
+            f"{m['xy']} d={m['changed']}(+heal {m['changed_with_healing']})"
+            for m in mole_rows))
     if rows[:6]:
         print("worst repairs:")
         for r in rows[:6]:

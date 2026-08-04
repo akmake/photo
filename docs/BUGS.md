@@ -71,6 +71,9 @@ coming back. IDs are permanent and never reused.
 |---|---|---|---|
 | [BUG-001](#bug-001--every-face-tool-is-inert-in-every-preview-the-app-renders) | `OPEN` | High | Every face tool is inert in every preview the app renders |
 | [BUG-002](#bug-002--a-graded-frame-is-re-segmented-for-every-display-width-and-again-for-every-change-of-look) | `FIXED` | High | A graded frame is re-segmented for every display width, and again for every change of look |
+| [BUG-003](#bug-003--the-drool-fluid-trail-is-detected-and-then-thrown-away-by-the-mean-width-gate) | `OPEN` | High | The drool (fluid trail) is detected and then thrown away by the mean-width gate |
+| [BUG-004](#bug-004--skin-cleanup-heals-the-eye-corners-at-full-resolution-invisible-in-preview) | `FIXED` | Medium | skin-cleanup heals the eye corners at full resolution, invisible in preview |
+| [BUG-005](#bug-005--the-mask-cache-serves-stale-masks-after-any-change-to-mask-code) | `FIXED` | High | The mask cache serves stale masks after any change to mask code |
 
 ---
 
@@ -423,6 +426,273 @@ frames, fixed recipe, assert that:
 
 A wall-clock budget test is explicitly **not** wanted: it fails on slow CI for
 reasons unrelated to the defect. Count the model calls instead.
+
+---
+
+## BUG-003 — The drool (fluid trail) is detected and then thrown away by the mean-width gate
+
+**Status:** `OPEN` · found 2026-08-04
+**Severity:** High — the fluid detector's *only* validated true positive is this
+one baby's drool, and it returns 0 on it at delivery resolution. A whole
+subsystem (`cleanup._fluid_trails`, ~120 lines, plus `_orifice_context` and the
+wet-trail rescue in `_structure_gate`) is dead weight on the exact case it was
+written for. The strand ships uncorrected in the delivered frame.
+
+### Symptom
+
+`321A1809.JPG` — four children, the toddler second from left has a wet drool
+strand hanging from the lower lip down the chin, ending in a droplet. Plainly
+visible. `skin-cleanup` heals nothing on it; `fluidTrails` and `wetTrails` are
+both 0.
+
+### Measurement
+
+```bash
+cd engine && ./.venv/Scripts/python.exe _diag_fluid_1809.py
+```
+
+```
+detect() notes: {'lineVetoed': 6, 'shadingVetoed': 4, 'creaseVetoed': 2, 'wetTrails': 0, 'fluidTrails': 0}
+  -> fluidTrails = 0  wetTrails = 0
+
+face_d(working)=259  vertical-bridge=7px  width-gate bar = face_d*0.03 = 7.8px
+strand fragments after bridging: 17
+  frag 1 area= 152 len= 28 meanW= 5.4 y=[135,162] -> ['no-anchor']
+  frag 6 area= 655 len= 54 meanW=12.1 y=[205,258] -> ['WIDTH 12.1>7.8']
+  frag15 area= 449 len= 55 meanW= 8.2 y=[291,345] -> ['WIDTH 8.2>7.8']
+```
+
+`frag 6` is the top of the drool and it **reaches the lip anchor** (no
+`no-anchor` in its reject list); `frag15` is the lower run plus the droplet.
+Both are killed by one rule: mean width. Nothing else rejects them.
+
+The top-level `fluidTrails = 0` is identical on the app path and a direct call —
+see BUG-005's measurement, same frame, `render.detect_cleanup` == `cleanup.detect`.
+
+### Cause
+
+Two failures compound; either alone would sink it.
+
+**a. The strand fragments and the bridge cannot rejoin it.** A drool strand
+glints where it catches light and nearly vanishes between glints, so the tophat
+returns the glints and drops the dim stretches between them. `_fluid_trails`
+already knows this and bridges with a vertical close — `engine/cleanup.py:414`:
+
+```python
+extent, cv2.MORPH_CLOSE, cv2.getStructuringElement(cv2.MORPH_RECT, (1, bridge))
+```
+
+but `bridge = max(3, int(face_d * 0.03)) | 1` is **7px** on this 259px face, and
+the gap between `frag 6` (ends y=258) and `frag15` (starts y=291) is **33px**. So
+the drool never becomes one component; it is judged in pieces.
+
+**b. The mean-width gate rejects a strand that ends in a droplet.**
+`engine/cleanup.py:438`:
+
+```python
+if length < face_d * 0.05 or area / max(1, length) > face_d * FLUID_MAX_WIDTH:
+    continue
+```
+
+`area / length` is *mean* width. A hanging fluid is thin along its length and
+bulges at the terminal droplet, and the droplet's area inflates the mean: 655/54
+= 12.1 and 449/55 = 8.2, both over the 7.8 bar. **This is the third recorded
+time the same gate rejects the same drool.** `FLUID_MAX_WIDTH`'s own comment,
+`engine/cleanup.py:70-76`, already records the first two: *"0.02 rejected the
+real 321A1809 drool (11.4 against an 11.0 bar) and the bar was raised to 0.03. It
+then rejected the SAME drool a second time, at 8.28 against 7.77."* Raising it a
+third time is not a fix — a strand-with-droplet is the wrong shape for a
+mean-width test at any threshold, and a higher bar readmits shine patches.
+
+### Blast radius
+
+- The mean-width descriptor is the *same class of mistake* this module has
+  already corrected twice elsewhere, and says so: `decide()` gates blush by
+  **thickness not bounding-box** (`engine/cleanup.py:1045-1051`), and the ridge
+  veto admits a thick line only by **elongation** (`RIDGE_MIN_ELONGATION`,
+  `engine/cleanup.py:126-133`). Both replaced a scalar that a droplet-or-blob
+  inflates. `_fluid_trails` is the one strand test that never got that treatment.
+- The fragment-then-judge-alone failure is the exact bug `hysteresis_core` was
+  written to fix for lesions (`engine/cleanup.py:972`) and that the seed/extent
+  hysteresis inside `_fluid_trails` (`engine/cleanup.py:404-407`) was meant to
+  fix for strands. It fixes the *contrast* gaps; it does not fix a *spatial* gap
+  wider than the bridge. Found here a third time, in the same file.
+- Only `321A1809` carries a real fluid in the corpus, so this is the whole
+  evidence base. `_orifice_context` (`engine/cleanup.py:283`) deliberately
+  dropped tear-track detection to kill false positives on dry faces; that half
+  works. The drool half does not.
+
+### Options
+
+| | verdict |
+|---|---|
+| Raise `FLUID_MAX_WIDTH` a third time | **No.** 0.02→0.03→? is a parameter, not a mechanism; the file already says so. A higher bar readmits temple/philtrum shine. |
+| Replace `area/length` with **median half-thickness** (distance transform along the component) | **Recommended.** A strand is thin along its length whatever its ends do: the median of the distance-transform ridge stays small while the droplet only lifts the max. Scale-free, same instrument `decide()` already trusts. |
+| Widen `bridge` so glints rejoin across a dim gap | **Needed alongside.** ~7px cannot span a measured 33px gap; a vertical close near `face_d*0.15` would, without merging neighbouring strands sideways (the close is 1-px wide horizontally by construction). Must be re-measured against the dry-face false-positive set. |
+| Detect the strand by following the ridge down from the anchor instead of thresholding | **Deferred.** The principled fix, but a larger rewrite; the two above are measured and local. |
+
+Not yet built. Recorded before touching the fluid code, at the user's request.
+
+### Guard
+
+`engine/test_cleanup_recall.py` injects *synthetic* marks and never exercises the
+real drool — which is why this crosses the whole suite green. The guard is a
+recall case on `321A1809` itself asserting `fluidTrails >= 1` and a residual drop
+on a hand-drawn drool mask, in the shape the recall test already uses for its
+injected marks.
+
+---
+
+## BUG-004 — skin-cleanup heals the eye corners at full resolution, invisible in preview
+
+**Status:** `FIXED` 2026-08-04 (uncommitted) · found 2026-08-04
+**Severity:** Medium — the tool rebuilds eye-corner tissue (the pink caruncle,
+the outer skin fold) as if it were a blemish. It never shows in an editing
+preview because the faces there are under the size floor (BUG-001); it only
+happens at the full resolution the client is delivered.
+
+### Symptom
+
+Run `cleanup.detect` at full resolution on frames with clearly-resolved eyes and
+several candidates sit on the eye corners — some with verdict `heal`, i.e. the
+automatic path rebuilds them. User-reported across more than one frame.
+
+### Measurement
+
+On `321A1809` (four faces), each candidate's centroid distance to the nearest
+eye-corner landmark, in `face_d` units, before the fix:
+
+```
+12 candidates within 0.18*face_d of a corner; TWO were accepted heals ON the corner:
+  face3 (baby)  heal  area=177  outer-canthus  d=0.04
+  face2         heal  area=220  outer-canthus  d=0.06
+```
+
+Radius sweep of the fix (fresh masks, disk cache bypassed):
+
+```
+cap     accepted heals on corner   any corner cand.(d<.10)   real cheek heals
+0.00           2                        8                        12
+0.08           0                        0                        14   <- chosen
+0.12           0                        0                        12   <- eats real marks
+```
+
+### Cause
+
+The eye is protected by the convex hull of its landmark ring plus a 3% dilation
+— `engine/masks.py:354`:
+
+```python
+m = cv2.dilate(m, _kern(fw * 0.030))  # lashes sit outside the ring
+```
+
+The hull's own vertices **are** the corner landmarks, so 3% reaches only ~3%
+past them. The canthus tissue the skin model reads as novelty — reddish
+caruncle, outer fold — lives just beyond that margin, so it is inside the
+heal-eligible `region` and becomes a candidate.
+
+### Fix
+
+Canthus caps: a disc at each of the four corner landmarks, folded into the
+`eye-{side}` part in `anatomy_parts` so it flows into `face-anatomy` (blocks
+detection) and `face-eye-region` (blocks the fluid pass) on every frame.
+`engine/masks.py:57` (`EYE_CORNERS`), `:75` (`EYE_CORNER_CAP = 0.08`, radius set
+by the sweep above), `:362` (the `cv2.circle` in `anatomy_parts`). The tight hull
+is deliberately kept — an outer-*lid* lesion must stay reachable — so this adds a
+corner cap, it does not fatten the whole eye. Invariants held: `marking==apply`
+0px diff, `test_blush` PASS, `test_cleanup_structure` unchanged (its light-strand
+failure is BUG-003's family and identical with the cap off).
+
+### Blast radius
+
+The only production consumer of `face-anatomy` / `face-eye-region` /
+`face-pigment-protect` is `engine/cleanup.py` (`pigment.py` only receives the mask
+as an argument). In every path the change makes eye protection *larger*, i.e.
+one-directionally safer. Validated on one frame (four faces); not swept across
+the corpus.
+
+### Guard
+
+None yet. Wanted: a detection test asserting no `heal` candidate's centroid
+falls within `EYE_CORNER_CAP` of a corner landmark, on a fixed full-res frame.
+
+---
+
+## BUG-005 — The mask cache serves stale masks after any change to mask code
+
+**Status:** `FIXED` 2026-08-04 (uncommitted) · found 2026-08-04
+**Severity:** High — silent and cross-cutting. After any edit to how a mask is
+computed, every already-seen frame keeps getting the *old* mask, in the app and
+in tests, with no error. It cost a live debugging session: the BUG-004 fix
+"did nothing" in the app while a fresh script showed it working, on the *same
+image*, for no visible reason — the classic "here it works, there it doesn't".
+
+### Symptom
+
+Edit mask code, run the tool in the app on a frame it has rendered before, and
+the behaviour is the pre-edit behaviour. A script that computes masks fresh
+disagrees with the app on the identical file.
+
+### Measurement
+
+Same frame, same params, through both entry points, after clearing the stale
+cache:
+
+```bash
+cd engine && ./.venv/Scripts/python.exe -c "..."   # render.detect_cleanup vs cleanup.detect
+```
+
+```
+APP  path (render.detect_cleanup): faces=4 items=26 notes={... fluidTrails: 0}
+MINE direct (cleanup.detect):      faces=4 items=26 notes={... fluidTrails: 0}
+```
+
+Identical once fresh — proving the code paths never differed. The only variable
+was the cache: 257 stale mask files under `%LOCALAPPDATA%/TEZA/cache/masks`,
+written by an earlier version of `masks.py`, still being served.
+
+### Cause
+
+Both caches key on the **image only**, with no code identity.
+`engine/masks.py`, before the fix:
+
+```python
+def _cache_key(rgb, kind):        # in-memory
+    ... return (kind, rgb.shape, blake2b(thumb).digest())
+def _disk_path(small, kind):      # on disk
+    ... return join(_disk_dir(), f"{digest}-{kind}.npy")
+```
+
+A mask is a pure function of `(image, mask-code)`, but only the image is in the
+key. Grading does not move a mask, which is the correct insight BUG-002 built the
+cache on — but *editing the mask function* does change it, and nothing expressed
+that.
+
+### Fix
+
+Fold a content hash of `masks.py`'s own source into both keys —
+`engine/masks.py:460` (`_MASK_CODE_VERSION`), `:481` (`_cache_key`), `:497`
+(`_disk_path`, filename `{digest}-{version}-{kind}.npy`). Any edit to the file
+moves the hash, so old entries stop matching and are recomputed; old files are
+orphaned, not served. Automatic — it cannot be forgotten the way a hand-bumped
+number is. Cost: a comment edit also invalidates, so the first render of each
+frame after any `masks.py` change pays the ~11.8s segmentation once (BUG-002's
+number). Verified: token present in both keys, cold and warm runs return
+identical results (26/26 items), versioned files written.
+
+### Blast radius
+
+The same image-only keying was noted in BUG-002 for the model caches
+(`birefnet.py`, `regions.py`, `depth.py`). Those cache **model** outputs, which
+do not change when *mask* code changes, so they are unaffected by this class —
+but each has its own "stale after the model or its pre/post code changes"
+exposure, **UNMEASURED — hypothesis**, and none carries a code-version token
+either. If one is ever edited, the same silent staleness applies.
+
+### Guard
+
+The token is itself the guard for masks. A cheap unit assertion would pin it:
+changing `anatomy_parts` (or any mask function) changes `_MASK_CODE_VERSION`.
 
 ---
 

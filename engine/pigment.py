@@ -40,6 +40,7 @@ from __future__ import annotations
 import cv2
 import numpy as np
 
+import shape
 import skinmodel
 
 # Lab units — the most the correction may ever move a pixel.
@@ -194,15 +195,17 @@ def protected_spots(
     strong = cv2.morphologyEx(strong, cv2.MORPH_OPEN, np.ones((3, 3), np.uint8))
     out = np.zeros_like(strong)
     limit = max(6.0, face_d * 0.055)
-    count, labels, stats, _ = cv2.connectedComponentsWithStats(strong, 8)
-    for i in range(1, count):
-        area = int(stats[i, cv2.CC_STAT_AREA])
-        w = int(stats[i, cv2.CC_STAT_WIDTH])
-        h = int(stats[i, cv2.CC_STAT_HEIGHT])
-        # compact: a mole, not a shadow band or a stray dark hair
-        if area < 8 or max(w, h) > limit or max(w, h) > 3.2 * max(1, min(w, h)):
+    # Compact: a mole, not a shadow band or a stray dark hair.
+    #
+    # Measured with `shape.describe`, not from a bounding box. The box version
+    # here failed in the direction that matters most: a box grows with the
+    # DIAGONAL, so an ordinary mole lying at an angle read as elongated and lost
+    # its protection — the gate meant to keep the tool off someone's face was
+    # itself orientation-dependent. (Fifth site in this pipeline with that bug.)
+    for _, comp, geom in shape.describe_all(strong):
+        if geom.area < 8 or geom.thickness_max > limit or geom.elongation > 3.2:
             continue
-        out[labels == i] = 1
+        out[comp] = 1
     # A protected spot keeps its own soft rim, or the correction stops on a line
     # around it and draws a halo instead.
     #

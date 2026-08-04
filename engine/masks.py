@@ -442,6 +442,27 @@ def anatomy_parts(rgb: np.ndarray, lm) -> "OrderedDict[str, np.ndarray]":
 _CACHE: "OrderedDict[tuple, np.ndarray]" = OrderedDict()
 _CACHE_MAX = 24
 
+# Cache invalidation when the mask CODE changes.
+#
+# Both caches below key on the IMAGE only. So after any edit to how a mask is
+# computed, a stale mask keeps being served for every already-seen frame — in
+# the app AND in tests — with no error and no warning. That silent staleness
+# once cost a whole debugging session: an eye-corner fix "did nothing" because
+# the disk still held the pre-fix anatomy mask, and the app and a fresh script
+# disagreed on the SAME image for no visible reason.
+#
+# The key must therefore carry a token that moves when this file's logic moves.
+# A content hash of the module source is automatic — it cannot be forgotten the
+# way a hand-bumped version number is. It over-invalidates on a comment edit,
+# but recomputation is cheap next to shipping a wrong mask, and mask code is not
+# edited often. Old on-disk files simply stop matching and are recomputed.
+try:
+    _MASK_CODE_VERSION = hashlib.blake2b(
+        open(__file__, "rb").read(), digest_size=6
+    ).hexdigest()
+except OSError:  # source unreadable (frozen/zipped) — degrade to per-process
+    _MASK_CODE_VERSION = "src"
+
 # When a whole recipe is rendered, every tool receives the OUTPUT of the
 # previous one — so masks would be recomputed for each step. Masks describe
 # *where things are*, and retouching does not move them, so they are computed
@@ -460,7 +481,8 @@ def clear_source() -> None:
 def _cache_key(rgb: np.ndarray, kind: str) -> tuple:
     # hash a small thumbnail: cheap, and identical frames hit the cache
     thumb = cv2.resize(rgb, (64, 64), interpolation=cv2.INTER_AREA)
-    return (kind, rgb.shape, hashlib.blake2b(thumb.tobytes(), digest_size=16).digest())
+    return (kind, _MASK_CODE_VERSION, rgb.shape,
+            hashlib.blake2b(thumb.tobytes(), digest_size=16).digest())
 
 
 def _disk_dir() -> str:
@@ -483,7 +505,9 @@ def _disk_path(small: np.ndarray, kind: str) -> str:
     digest = hashlib.blake2b(
         np.ascontiguousarray(small).tobytes(), digest_size=16
     ).hexdigest()
-    return os.path.join(_disk_dir(), f"{digest}-{kind}.npy")
+    # `_MASK_CODE_VERSION` in the filename: a mask computed by older code stops
+    # matching instead of being served stale. See the note by that constant.
+    return os.path.join(_disk_dir(), f"{digest}-{_MASK_CODE_VERSION}-{kind}.npy")
 
 
 def get_mask(rgb: np.ndarray, kind: str) -> np.ndarray:
