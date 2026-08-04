@@ -854,6 +854,128 @@ def process(image_b64: str, params: dict):
     return common.image_to_b64(common.to_pil(out)), meta
 
 
+# --- the structural prior --------------------------------------------------
+#
+# Every false positive this tool has been patched for sat at a BOUNDARY — just
+# outside whatever mask protected the structure inside it. The eye hull and the
+# lower-lid ridge below it. The lip hull and the philtrum above it. The nose and
+# the alar crease beside it. The hair mask and the beard edge outside it.
+#
+# And every patch was the same patch: dilate that one mask a little further.
+# `EYE_CORNER_CAP = 0.08`, the 3% eye dilation for lashes, the 3.5% hair
+# dilation, the 3% erosion of `region` — four constants, one idea, four places.
+# None of them worked for long, and BUG-004's own sweep says why: at 0.08 the
+# corner cleared, at 0.10 and 0.12 the tool "starts eating real marks". A hard
+# edge cannot win, because a structure's influence does not STOP at the mask
+# boundary — it DECAYS across it. Widening the mask moves the residue band
+# outward and takes open skin with it.
+#
+# So the binary is the bug. A structure's influence is a field, and the bar has
+# to be a field too: not "inside forbidden, outside free", but *the more of your
+# deviation something else already explains, the more evidence you must bring*.
+# One function, three terms, each measurable on the 23-image bench:
+#
+#   geometry  — proximity to any protected structure, decaying outward
+#   specular  — brighter than the skin's own field without gaining colour, i.e.
+#               a highlight: wet lip, oily nose, the shine on a lid ridge
+#   pigment   — a CREDIT, not a lift: deviation that is chromatic is the one
+#               signature anatomy and lighting do not forge, so it buys the bar
+#               back down
+#
+# Measured on 88 accepted heals across the set: the anatomy false positives are
+# bright and colourless (5117 dL=+7 and +9 with da=-2), real marks are dark
+# and/or red (4934 dL=-18 da=+3; 1791 dL=-10 da=+4). That separation is what
+# the specular lift and the pigment credit encode. It is also why a plain
+# magnitude floor was tried and thrown away — the anatomy is STRONGER, not
+# weaker, than the marks it drowns out.
+STRUCT_LIFT = 2.2  # sigmas of extra evidence demanded right at a structure
+STRUCT_REACH = 0.045  # decay length, in face widths
+SPECULAR_LIFT = 1.8  # ... and for a colourless highlight
+PIGMENT_CREDIT = 1.2  # sigmas forgiven for a fully red-shifted deviation
+PIGMENT_FULL = 2.0  # a* z-score that earns the whole credit
+BRIGHT_FULL = 3.0  # L* z-score at which a highlight is charged in full
+
+
+def _robust_sigma(v: np.ndarray) -> float:
+    """Same estimator skinmodel uses: MAD, so the marks cannot inflate it."""
+    med = float(np.median(v))
+    mad = float(np.median(np.abs(v - med)))
+    return max(1e-3, mad * 1.4826)
+
+
+def _structural_lift(model, structures, region, face_d):
+    """Extra evidence, in sigmas, demanded of a pixel by what already explains it.
+
+    Returned as an array to SUBTRACT from novelty before scoring, so a mark that
+    is genuinely strong still gets through next to a feature — the point is to
+    charge for the explanation, not to wall the area off. Walling it off is what
+    `region` already does for the places a repair must never touch.
+    """
+    usable = region > 0.5
+    if usable.sum() < 64:
+        return np.zeros(model.novelty.shape, np.float32)
+
+    # 1. geometry — distance from the nearest protected structure, decaying out
+    outside = (structures <= 0).astype(np.uint8)
+    dist = cv2.distanceTransform(outside, cv2.DIST_L2, 5)
+    near = np.exp(-dist / max(1.0, face_d * STRUCT_REACH))
+    lift = STRUCT_LIFT * near
+
+    # 2. specular — the mid band brighter than the field, and NOT redder for it.
+    #
+    #    The direction is the whole point, and getting it wrong is what made the
+    #    first version of this function do nothing: chroma as a MAGNITUDE
+    #    (`hypot(a, b)`) is large for a highlight too — a specular patch moves
+    #    away from skin colour just as far as a papule moves toward it — so the
+    #    credit below refunded exactly the lift charged here and both verified
+    #    false positives on 321A5117 survived untouched.
+    #
+    #    Measured, per candidate, in this skin's own sigmas (`_gt_lift.py`):
+    #
+    #      321A5117  the two verified FPs   z_bright +5.00 / +3.91   z_red -2.36 / -1.63
+    #      321A1791  the real marks         z_bright  ~0             z_red +1.6 .. +2.7
+    #
+    #    Bright and less red is light. Redder is pigment. That is the axis.
+    #
+    #    And it is charged THROUGH `near`, not beside it. Bright-and-colourless
+    #    describes a highlight, but it equally describes a crumb, a flake, a
+    #    fleck of dry skin — real objects the tool exists to remove. Measured
+    #    when the two terms were merely added: `bright-crumb` on 321A5254 went
+    #    from `part` (residual 7.7 of 15.6) to a flat MISS. What separates them
+    #    is not the pixels, it is the geography — a highlight needs a structure
+    #    to make it, a crumb sits wherever it landed. So lighting is allowed to
+    #    explain a deviation only where there is something there to do the
+    #    explaining, and open cheek stays open.
+    mid = model.mid
+    sigma_l = _robust_sigma(mid[..., 0][usable])
+    sigma_a = _robust_sigma(mid[..., 1][usable])
+    z_bright = np.clip(mid[..., 0] / sigma_l, 0.0, None)
+    z_red = mid[..., 1] / sigma_a  # SIGNED: negative is a highlight, not a mark
+    pigment = np.clip(z_red / PIGMENT_FULL, 0.0, 1.0)
+    lift += (
+        SPECULAR_LIFT
+        * np.clip(z_bright / BRIGHT_FULL, 0.0, 1.0)
+        * (1.0 - pigment)
+        * near
+    )
+
+    # 3. pigment credit — a red shift is the one signature neither geometry nor
+    #    lighting forges, so it buys the bar back down. But it buys it down on
+    #    OPEN SKIN only: `(1 - near)`.
+    #
+    #    Letting the credit refund the geometry lift is not a compromise between
+    #    two pieces of evidence, it is one argument answering a different one —
+    #    "this is pigment, not a highlight" does not address "you are standing on
+    #    the brow". Measured when it could: 321A5235 went 3 heals -> 4, the whole
+    #    set's only regression, and all four sat on the brow tail and the lip
+    #    corner, which are genuinely a little redder than open cheek.
+    #
+    #    So: near a structure, position decides; out on open skin, colour does.
+    lift -= PIGMENT_CREDIT * pigment * (1.0 - near)
+
+    return (np.clip(lift, 0.0, None) * region).astype(np.float32)
+
+
 def confidence(rgb, params: dict):
     """Measure this face. -> Detection (unpacks as conf, region, face_d, model)."""
     strength = common.clamp01(params.get("strength", 60))
@@ -913,8 +1035,15 @@ def confidence(rgb, params: dict):
     lo = _novelty_bar(strength)
     hi = lo + 1.6
 
+    # The bar is no longer one number for the whole face — see `_structural_lift`.
+    # It is raised wherever the face's own geometry or the light already explains
+    # the deviation, and lowered where the deviation is chromatic. Computed from
+    # the model that is being scored, so the refinement pass below gets its own.
+    structures = np.maximum(features, hair)
+
     def score(m: skinmodel.SkinModel) -> np.ndarray:
-        c = np.clip((m.novelty - lo) / (hi - lo), 0.0, 1.0)
+        bar = lo + _structural_lift(m, structures, region, face_d)
+        c = np.clip((m.novelty - bar) / (hi - lo), 0.0, 1.0)
         c = c * c * (3 - 2 * c)  # smoothstep: no hard edges
         return c * region
 
@@ -1368,6 +1497,11 @@ class FaceScan:
     repair: np.ndarray | None = None
     counts: dict = dataclasses.field(default_factory=dict)
     quiet: bool = False
+    # The spot dial was set to zero. Distinct from `quiet` (nothing to find) and
+    # from `detection is None` (nothing to find it on) — this one is a decision
+    # the person made, and it has to be reported as such rather than as an
+    # absence of dirt.
+    spots_off: bool = False
 
 
 def _scan_face(rgb, params: dict, candidates: bool = True) -> FaceScan | None:
@@ -1478,6 +1612,21 @@ def _scan_face(rgb, params: dict, candidates: bool = True) -> FaceScan | None:
         crop_pre=crop_pre,
         stage_meta={**pig_meta, **spec_meta, **shine_meta},
     )
+
+    # Zero on the dial means OFF. It did not, and nothing said so: the bar is
+    # `_novelty_bar(strength)` = 4.5 sigma at zero — finite, not infinite — so
+    # the spot half went on finding and rebuilding marks with the slider all the
+    # way down. Measured across the 23-frame set: 54 accepted heals at
+    # `spots=0`, against 87 at the shipped default of 25.
+    #
+    # Gated HERE, in the shared scan, so `detect` and `apply` cannot disagree
+    # about it — the marking-parity invariant is the reason this file has a
+    # single scan in the first place. The colour and gloss halves are untouched:
+    # they have their own dials, and turning off spot healing is not a request
+    # to stop evening pigment.
+    if common.clamp01(spot_params.get("strength", 60)) <= 0:
+        scan.spots_off = True
+        return scan
 
     scan.detection = confidence(crop_pre, spot_params)
     if scan.detection is None:
@@ -1599,6 +1748,9 @@ def detect(rgb, params: dict) -> dict:
         if scan is None:
             notes["faceTooSmall"] = notes.get("faceTooSmall", 0) + 1
             continue
+        if scan.spots_off:
+            notes["spotsOff"] = notes.get("spotsOff", 0) + 1
+            continue
         if scan.detection is None:
             notes["noSkinRegion"] = notes.get("noSkinRegion", 0) + 1
             continue
@@ -1679,7 +1831,7 @@ def apply(rgb, params: dict):
         totals = {"spotsRemoved": 0, "correctedPx": 0, "lineVetoed": 0, "creaseVetoed": 0,
                   "shadingVetoed": 0, "wetTrails": 0, "fluidTrails": 0,
                   "pigmentPx": 0, "protectedSpotPx": 0, "selected": 0,
-                  "faceTooSmall": 0}
+                  "faceTooSmall": 0, "spotsOff": 0}
         for x0, y0, x1, y1 in _face_boxes(rgb, faces):
             healed_sub, m = _apply_one(
                 out[y0:y1, x0:x1],
@@ -1694,7 +1846,13 @@ def apply(rgb, params: dict):
             totals.pop("selected", None)
         return out, totals
 
-    return _apply_one(rgb, params, sel_mask=sel_mask)
+    # `faces` on the single-face path too. The group path already reported it,
+    # and the lab needs the DENOMINATOR in both: "1 face skipped" and "1 of 4
+    # skipped" are different sentences, and without a total the front end can
+    # only say the harsher one.
+    out, meta = _apply_one(rgb, params, sel_mask=sel_mask)
+    meta.setdefault("faces", len(faces))
+    return out, meta
 
 
 def _params(params: dict):
@@ -1752,6 +1910,8 @@ def _apply_one(rgb, params: dict, sel_mask=None):
         merged[y0:y1, x0:x1] = crop
         return merged, {**extra, **scan.stage_meta}
 
+    if scan.spots_off:
+        return _composited({"spotsRemoved": 0, "spotsOff": 1})
     if scan.detection is None:
         return _composited({"spotsRemoved": 0})
     conf, region, face_c, model = scan.detection

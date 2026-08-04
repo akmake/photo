@@ -74,6 +74,8 @@ coming back. IDs are permanent and never reused.
 | [BUG-003](#bug-003--the-drool-fluid-trail-is-detected-and-then-thrown-away-by-the-mean-width-gate) | `OPEN` | High | The drool (fluid trail) is detected and then thrown away by the mean-width gate |
 | [BUG-004](#bug-004--skin-cleanup-heals-the-eye-corners-at-full-resolution-invisible-in-preview) | `FIXED` | Medium | skin-cleanup heals the eye corners at full resolution, invisible in preview |
 | [BUG-005](#bug-005--the-mask-cache-serves-stale-masks-after-any-change-to-mask-code) | `FIXED` | High | The mask cache serves stale masks after any change to mask code |
+| [BUG-006](#bug-006--facial-hair-is-face-skin-to-every-operator-so-repairs-paste-beard-onto-cheek-and-cheek-into-beard) | `OPEN` | High | Facial hair is `face-skin` to every operator, so repairs paste beard onto cheek and cheek into beard |
+| [BUG-007](#bug-007--face-lips-contains-the-teeth-so-lip-gloss-reduction-recolours-them) | `FIXED` | Medium | `face-lips` contains the teeth, so lip-gloss reduction recolours them |
 
 ---
 
@@ -693,6 +695,186 @@ either. If one is ever edited, the same silent staleness applies.
 
 The token is itself the guard for masks. A cheap unit assertion would pin it:
 changing `anatomy_parts` (or any mask function) changes `_MASK_CODE_VERSION`.
+
+---
+
+## BUG-006 — Facial hair is `face-skin` to every operator, so repairs paste beard onto cheek and cheek into beard
+
+**Status:** `OPEN` · found 2026-08-04 · cause confirmed, no fix — two attempts
+measured and rejected, both removed
+**Severity:** High — the repair writes hair texture onto a man's cheek and skin
+tone into his beard, at full delivery resolution. It is not a weak effect that a
+slider can restrain; it is the wrong material in the wrong place, and every
+bearded subject in the set reproduces it.
+
+### Symptom
+
+User-reported, on `321A5078`: *"there is an area that is actually the adult's
+real cheek and the system took it for dirt and pasted beard there."* Confirmed
+in both directions on that frame — beard spreading over the cheek beside the
+moustache, and skin smeared into the beard below the lower lip.
+
+### Measurement
+
+Beard extent and how the engine classifies it. "beard-like" = `L* < 95`, inside
+`face-oval`, below the nose tip:
+
+```
+321A5078, face0 (bearded man, landmark width 179px)
+  beard-like pixels                       10,434
+     covered by the `hair` mask                0%
+     counted as `face-skin`                  100%
+```
+
+What the tool changed on that face, at the shipped default
+(`redness 90 / spots 25`), largest connected clusters of `|delta| > 6`:
+
+| area | peak delta | where | direction |
+|---|---|---|---|
+| 786px | 48 | cheek strip beside the moustache | beard pasted **onto skin** |
+| 318px | 58 | below the lower lip, inside the beard | skin smeared **into beard** |
+| 127px | 24 | left mouth corner, moustache edge | lightened |
+
+Reproduce: `engine/_gt_bench.py` for the marks, then the change map — apply at
+the default, take `|after - before|`, and label components over 6.
+
+### Cause
+
+Two masks decide what may be healed and where donors may be taken from, and
+neither knows about facial hair.
+
+`engine/cleanup.py:999` — the heal-eligible region:
+
+```python
+region = np.clip(skin - features - hair, 0.0, 1.0) * masks.get_mask(rgb, "face-oval")
+```
+
+`hair` here is the segmenter's class (`engine/cleanup.py:991`), which returned
+**0%** of the beard above. So `region` contains the whole beard, the detector
+reads its darkness as an enormous deviation from the skin model, and the beard
+boundary becomes a candidate.
+
+Then `engine/healing.py:131-146` picks the donor. Legality is a mask test
+(`donor_allowed`, `donor_forbidden`) against that same `region`, so a beard
+patch is a **legal** donor; similarity is only a soft score:
+
+```python
+score = colour_error + texture_error * 0.10 + distance * 0.003
+```
+
+`colour_error` is measured on the boundary `ring` alone. Two patches whose rings
+agree can have completely different interiors — which is exactly a target
+straddling the beard line and a donor sitting inside the beard.
+
+### Blast radius
+
+Checked, and it is not alone. Every consumer that treats `face-skin` as "skin"
+inherits it: the pigment stage (`cleanup._scan_face`, stage A), the specular
+stage, and `skinmodel.build`'s support sample, which is drawing a "normal skin"
+distribution that includes 10k pixels of beard. The structural prior added the
+same day (`cleanup._structural_lift`) keys on `face-anatomy ∪ hair` and
+therefore has **no signal at all** on a beard — it cannot help here until
+something declares facial hair. `abpn` (face-retouch) runs on its own face crop
+with no hair term either, **UNMEASURED — hypothesis** for that tool.
+
+### Options
+
+| option | verdict | why |
+|---|---|---|
+| Derive a `face-hair` mask from lightness (darker than this face's skin by k sigmas, connected mass above a size floor) | **rejected, measured** | Symmetric statistics collapse on a bimodal face: median 149, MAD sigma 59, so the bar `med - 3σ` came out at **-29** and nothing qualified. Sigma-clipping did not help — the first pass's sigma keeps both modes as inliers. |
+| Same, but one-sided from the bright mode (65th percentile, spread from pixels above it) | **rejected, measured** | Still wrong in both directions: `321A5015` (bearded man) **0px**, `321A5117` (clean girl, no facial hair) **27,419px**. Lightness alone cannot separate beard from head hair falling on the cheek, from shadow, from dark background inside the oval. |
+| Use the segmenter's `hair` class with a larger dilation | rejected | It returns 0% of this beard. Dilating zero is zero. |
+| **Guard the donor instead of segmenting the hair** | **not built — the recommended direction** | Require a donor patch's *interior* to resemble the target's, not just its ring, and reject across a strong lightness discontinuity. Fixes both directions of the observed damage, needs no hair segmentation, and generalises to head hair, clothing and background — anything that is not the material being repaired. |
+
+### Guard
+
+None exists. A test would inject a synthetic dark band across a cheek (a
+stand-in for a beard edge), heal a mark beside it, and assert that no repaired
+pixel takes its value from the far side of the band. That test is worth writing
+before the fix, because it is the fix's acceptance criterion.
+
+---
+
+## BUG-007 — `face-lips` contains the teeth, so lip-gloss reduction recolours them
+
+**Status:** `FIXED` 2026-08-04 (uncommitted) · found 2026-08-04
+**Severity:** Medium — teeth come back darker and pinker on any open-mouth
+frame. User-reported before it was measured, which is the definition of visible.
+
+### Symptom
+
+*"Why did the man's teeth turn pink?"* — on `321A5078`, comparing the delivered
+result to the original.
+
+### Measurement
+
+The mouth interior, taken as the polygon of the inner lip ring (960px on this
+face). Every mask that names a face part covers **100%** of it:
+
+```
+face-pigment-protect  100%      face-features  100%
+face-lips             100%      face-anatomy   100%
+```
+
+So the spot healer and the pigment stage are correctly blocked — and the one
+operator that is *supposed* to work inside `face-lips` is not:
+
+| params | mouth px changed | max delta | dL* | da* |
+|---|---|---|---|---|
+| `redness 90, spots 25` (shipped default) | **424** | 16.0 | **-3.49** | **+1.83** |
+| `redness 90, spots 25, gloss 0` | 6 | 1.3 | +0.02 | -0.02 |
+| `redness 0, spots 0, gloss 60` | 0 | 0.0 | +0.00 | +0.00 |
+| `redness 0, spots 25, gloss 0` | 0 | 0.0 | +0.00 | +0.00 |
+
+Darker and redder — pink. Note row 3: gloss alone does nothing here. It needs
+stage A to have run first, so this is the pigment stage rewriting the crop and
+`reduce_specular` then acting on the rewritten pixels.
+
+### Cause
+
+`engine/masks.py:644` built the mask as the convex hull of the OUTER lip ring:
+
+```python
+pts = np.array([[lm[i].x * w, lm[i].y * h] for i in LIPS], np.int32)
+cv2.fillPoly(m, [cv2.convexHull(pts)], 255)
+```
+
+Its own comment says "the lip vermilion on its own", and for a closed mouth that
+is true. For an open mouth the hull spans the aperture as well, so the mask
+contains teeth, gums and tongue. `engine/cleanup.py:1589` hands exactly this
+mask to `specular.reduce_specular`, whose job is to pull the shine out of a wet
+surface — and teeth are the brightest, glossiest thing inside it.
+
+### Fix
+
+`LIPS_INNER` (`engine/masks.py:87`), the inner lip ring, filled and subtracted
+from the hull. Not a hull itself: the aperture is genuinely concave on an open
+mouth, and on a closed mouth the ring collapses to a line, so the subtraction
+removes nothing and the mask is unchanged in the common case.
+
+Measured after:
+
+```
+mouth interior:  424px -> 47px changed,  max 16.0 -> 2.7,  dL -3.49 -> +0.02,  da +1.83 -> -0.02
+lip vermilion:   4,577px still in the mask, 658px changed   (gloss still works)
+spotsRemoved:    4, unchanged        test_cleanup_marking:  PASS, 0px differ
+```
+
+### Blast radius
+
+Checked. `face-lips` has exactly one consumer, `engine/cleanup.py:1589`, so the
+change cannot reach anything else. The general pattern — *a mask named for a
+structure that actually contains the cavity behind it* — was checked against the
+other kinds: `face-eye-region` and `face-features` use hulls too, but they exist
+to PROTECT, where over-covering is the safe direction. `face-lips` is the only
+kind built for an operator to work **inside**, and therefore the only one where
+over-covering is damage.
+
+### Guard
+
+An assertion that `face-lips` and the inner-ring polygon do not intersect on an
+open-mouth frame. Cheap, and it is the exact invariant that was violated.
+
 
 ---
 

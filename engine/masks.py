@@ -77,6 +77,17 @@ LIPS = [
     61, 146, 91, 181, 84, 17, 314, 405, 321, 375, 291,
     409, 270, 269, 267, 0, 37, 39, 40, 185,
 ]
+# The mouth APERTURE — the inner rim, where the lips stop and teeth, gums and
+# tongue begin. `LIPS` above is the outer ring, and a convex hull of it swallows
+# the opening whole: on an open mouth that is not "the lips", it is the lips
+# plus everything behind them. Measured on 321A5078 (a laughing man, 179px face):
+# 960px of teeth and gums sat inside `face-lips`, and the lip-gloss reduction
+# treated them as lip surface — teeth came out dL -3.49 / da +1.83, i.e. darker
+# and redder. Pink teeth, from an operator that was never asked to touch them.
+LIPS_INNER = [
+    78, 191, 80, 81, 82, 13, 312, 311, 310, 415, 308,
+    324, 318, 402, 317, 14, 87, 178, 88, 95,
+]
 NOSE = [1, 2, 98, 97, 326, 327, 4, 45, 275, 220, 440]
 LEFT_CHEEK_CENTER = 50
 RIGHT_CHEEK_CENTER = 280
@@ -642,6 +653,16 @@ def _compute_mask(rgb: np.ndarray, kind: str) -> np.ndarray:
         for lm in faces:
             pts = np.array([[lm[i].x * w, lm[i].y * h] for i in LIPS], np.int32)
             cv2.fillPoly(m, [cv2.convexHull(pts)], 255)
+            # ... and take the mouth opening back out. The hull is the right
+            # shape for a closed mouth and the wrong one for an open mouth,
+            # where it also contains teeth, gums and tongue — none of which are
+            # a lip and none of which anyone asked this mask to reach. NOT a
+            # hull: the aperture is genuinely concave when the mouth is open,
+            # and on a closed mouth the ring collapses to a line, so this
+            # subtracts almost nothing and the mask is unchanged.
+            inner = np.array([[lm[i].x * w, lm[i].y * h] for i in LIPS_INNER],
+                             np.int32)
+            cv2.fillPoly(m, [inner], 0)
         k = max(3, int(min(h, w) * 0.002)) | 1
         return cv2.GaussianBlur(m, (k, k), 0).astype(np.float32) / 255.0
 

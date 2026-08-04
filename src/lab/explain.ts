@@ -36,9 +36,32 @@ const int = (v: MetaValue) => num(v).toLocaleString('he-IL');
 const px = (v: MetaValue) => `${Math.round(num(v))}px`;
 
 /* A tool reported a condition that stopped it. These win over everything else:
- * the value is the reason the frame came back untouched. */
-const BLOCKERS: Record<string, (v: MetaValue) => string> = {
-  faceTooSmall: () => 'הפנים קטנות מדי בפריים — הכלי דילג ולא נגע בפיקסל אחד',
+ * the value is the reason the frame came back untouched.
+ *
+ * They get the WHOLE meta, not just their own value, because "stopped" is not
+ * always all-or-nothing. In a group photo the engine skips the faces under its
+ * size floor and works on the rest — on 321A5078 that is three of five — and
+ * the old wording ("did not touch a single pixel") was then simply false while
+ * five spots had in fact been healed. A blocker that overstates itself teaches
+ * the same distrust as a tool that says nothing. */
+const BLOCKERS: Record<string, (v: MetaValue, meta: Meta) => string> = {
+  faceTooSmall: (v, meta) => {
+    const skipped = num(v);
+    const total = num(meta.faces);
+    return total > skipped && skipped > 0
+      ? `${int(skipped)} מתוך ${int(total)} הפנים בפריים קטנות מדי — הכלי דילג עליהן ועבד על השאר`
+      : 'הפנים קטנות מדי בפריים — הכלי דילג ולא נגע בפיקסל אחד';
+  },
+  // Not a failure: someone set the dial to zero. Worth a headline anyway,
+  // because "no marks were removed" and "you asked for none to be" look
+  // identical in the result and are opposite in what to do next.
+  spotsOff: (v, meta) => {
+    const off = num(v);
+    const total = num(meta.faces);
+    return total > off && off > 0
+      ? `ניקוי נקודתי כבוי (0) על ${int(off)} מתוך ${int(total)} הפנים — תיקון הצבע והברק פעלו כרגיל`
+      : 'ניקוי נקודתי כבוי (0) — תיקון הצבע והברק פעלו כרגיל';
+  },
   irisTooSmall: (v) => `הקשתית קטנה מדי (${v} עיניים) — הכלי דילג`,
   noFace: () => 'לא זוהו פנים — הכלי דילג',
   noHair: () => 'לא זוהה שיער — הכלי דילג',
@@ -250,7 +273,7 @@ export function explainStep(
   // 1. an explicit blocker
   for (const [key, tell] of Object.entries(BLOCKERS)) {
     if (isSet(meta[key])) {
-      return { ...base, verdict: 'warn', headline: tell(meta[key]) };
+      return { ...base, verdict: 'warn', headline: tell(meta[key], meta) };
     }
   }
 
