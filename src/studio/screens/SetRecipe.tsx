@@ -16,7 +16,9 @@
 
 import { TOOLS } from '../../toolRegistry';
 import type { ToolInstance } from '../../types';
-import { removeStep, toggleStep, useRecipe } from '../store';
+import {
+  batchRecipe, effectiveRecipe, frameSteps, removeFrameStep, removeStep, toggleStep, useRecipe,
+} from '../store';
 import { IcSparkle } from '../../design/Icons';
 
 /** The engine owns tools the front-end registry has never heard of —
@@ -40,16 +42,43 @@ function stepDetail(step: ToolInstance): string {
   return entries.map(([k, v]) => `${k} ${v}`).join(' · ');
 }
 
-export default function SetRecipe({ projectId }: { projectId: string }) {
+export default function SetRecipe({
+  projectId,
+  batchId = null,
+  frame,
+}: {
+  projectId: string;
+  /** The layer being shown. null is the project's base — the content tools
+   *  every batch shares. A batch id shows base PLUS its own light, so
+   *  the list reads as what those frames actually render through. */
+  batchId?: string | null;
+  /** One photograph. Shows the WHOLE stack it renders through — base, its
+   *  batch, and its own exceptions — because that is what the workbench is
+   *  tuning on top of. Without this the list showed the shared layers only, so
+   *  a step saved to this frame vanished the moment it was saved. */
+  frame?: string | null;
+}) {
   const recipe = useRecipe(projectId);
   const frames = Object.keys(recipe.perFrame).length;
+  // `recipe` is the store's identity for these steps.
+  const steps = frame ? effectiveRecipe(projectId, frame) : batchRecipe(projectId, batchId);
+  const own = new Set(
+    (frame
+      ? frameSteps(projectId, frame)
+      : batchId ? recipe.perBatch[batchId] ?? [] : recipe.base
+    ).map((t) => t.toolId),
+  );
 
-  if (!recipe.base.length) {
+  if (!steps.length) {
     return (
       <section className="setr">
         <h3>מה נעשה לסט</h3>
         <p className="setr-empty">
-          עוד לא נקבע כלום. מה שנקבע כאן חל על כל התמונות בסט, ואפשר לכבות אותו בכל רגע.
+          {frame
+            ? 'התמונה הזאת עדיין לא עברה כלום — לא בסיס, לא מקבץ, ולא כלי משלה.'
+            : batchId
+              ? 'עוד לא נקבע כלום למקבץ הזה. מה שייקבע כאן יחול רק על התמונות שלו.'
+              : 'עוד לא נקבע כלום. מה שנקבע כאן חל על כל התמונות בסט, ואפשר לכבות אותו בכל רגע.'}
         </p>
       </section>
     );
@@ -58,12 +87,12 @@ export default function SetRecipe({ projectId }: { projectId: string }) {
   return (
     <section className="setr">
       <h3>
-        מה נעשה לסט
-        <span className="setr-n mono">{recipe.base.length}</span>
+        {frame ? 'מה נעשה לתמונה' : 'מה נעשה לסט'}
+        <span className="setr-n mono">{steps.length}</span>
       </h3>
 
       <ul className="setr-list">
-        {recipe.base.map((step, i) => (
+        {steps.map((step, i) => (
           <li key={step.toolId} className={`setr-row ${step.enabled ? '' : 'off'}`}>
             <span className="setr-i mono">{i + 1}</span>
             <span className="setr-main">
@@ -77,17 +106,30 @@ export default function SetRecipe({ projectId }: { projectId: string }) {
               <input
                 type="checkbox"
                 checked={step.enabled}
-                onChange={(e) => toggleStep(projectId, step.toolId, e.target.checked)}
+                onChange={(e) => toggleStep(projectId, step.toolId, e.target.checked, batchId)}
               />
               פעיל
             </label>
-            <button
-              className="setr-drop"
-              onClick={() => removeStep(projectId, step.toolId)}
-              aria-label={`הסר ${stepLabel(step.toolId)}`}
-            >
-              הסר
-            </button>
+            {/* A step inherited from the base is shown here because these frames
+              * really do render through it — but it is not this layer's to
+              * remove, and a button that silently edits a wider layer is how a
+              * batch ends up changing the whole project. */}
+            {own.has(step.toolId) ? (
+              <button
+                className="setr-drop"
+                onClick={() => (frame
+                  ? removeFrameStep(projectId, frame, step.toolId)
+                  : removeStep(projectId, step.toolId, batchId))}
+                aria-label={`הסר ${stepLabel(step.toolId)}`}
+              >
+                הסר
+              </button>
+            ) : (
+              /* Inherited: these frames really do render through it, but it is
+               * not this layer's to remove — a button that silently edits a
+               * wider layer is how one photograph changes a whole project. */
+              <span className="setr-from">{frame ? 'מהסט' : 'מהבסיס'}</span>
+            )}
           </li>
         ))}
       </ul>

@@ -28,29 +28,45 @@ import numpy as np
 import common
 import masks
 
-WEIGHTS = os.path.join(os.path.dirname(__file__), "models", "pytorch_model.pt")
+WEIGHTS = os.path.join(os.path.dirname(__file__), "models", "abpn_unet.onnx")
+# The PyTorch checkpoint this was exported from. Kept only so the parity
+# harness and a re-export can find it; the engine never loads it.
+TORCH_WEIGHTS = os.path.join(os.path.dirname(__file__), "models", "pytorch_model.pt")
 TILE = 512  # the resolution the network was trained at
 MIN_FACE_PX = 100  # the model's documented lower bound
 
 _lock = threading.Lock()
-_net = None
+_session = None
 
 
 def available() -> bool:
     return os.path.exists(WEIGHTS)
 
 
-def _net_instance():
-    global _net
+def _session_instance():
+    """The exported UNet, on onnxruntime.
+
+    This used to be a torch module. torch cost ~2-3GB installed on Windows to
+    press play on a 51MB graph, and onnxruntime was already in the process for
+    BiRefNet and MiDaS. The export is gated by test_onnx_parity.py, which
+    replays the exact tensors the torch net saw: measured worst deltas were
+    4.1e-06 at the network and 1/255 on the finished image, with no pixel
+    moving more than one level. See export_onnx.py.
+    """
+    global _session
     with _lock:
-        if _net is None:
-            import torch  # imported lazily: the engine still runs without it
+        if _session is None:
+            import onnxruntime as ort
 
-            import abpn_net
-
-            torch.set_num_threads(max(1, (os.cpu_count() or 4) // 2))
-            _net = abpn_net.load(WEIGHTS, "cpu")
-    return _net
+            opts = ort.SessionOptions()
+            # Same budget the torch path used. The engine already serialises
+            # image work onto one worker thread (server.py), so taking every
+            # core here would only fight the rest of the pipeline.
+            opts.intra_op_num_threads = max(1, (os.cpu_count() or 4) // 2)
+            _session = ort.InferenceSession(
+                WEIGHTS, opts, providers=["CPUExecutionProvider"]
+            )
+    return _session
 
 
 def _infer(crop_rgb: np.ndarray, degree: float) -> np.ndarray:
@@ -61,22 +77,26 @@ def _infer(crop_rgb: np.ndarray, degree: float) -> np.ndarray:
     source using a soft-light style curve. Treating the raw output as an image
     produces a blurred, artefacted mess (which is exactly what happened before
     reading Alibaba's own wrapper).
-    """
-    import torch
-    import torch.nn.functional as F
 
+    The two resizes were `F.interpolate(..., align_corners=False)` and are now
+    `cv2.INTER_LINEAR`, which is the same half-pixel-centre convention — near
+    equal, not bit-equal. That substitution is inside what the tool-level gate
+    in test_onnx_parity.py measures, which is the reason the gate re-runs
+    apply() end to end instead of stopping at the network.
+    """
     h, w = crop_rgb.shape[:2]
     # the model expects input normalised to [-1, 1]
     x01 = crop_rgb.astype(np.float32) / 255.0
-    x = torch.from_numpy(x01 * 2.0 - 1.0).permute(2, 0, 1)[None]
+    x = x01 * 2.0 - 1.0
 
-    with torch.no_grad():
-        small = F.interpolate(x, (TILE, TILE), mode="bilinear", align_corners=False)
-        mg = _net_instance()(small)
-        mg = ((mg - 0.5) * degree + 0.5).clamp(0.0, 1.0)
-        mg = F.interpolate(mg, (h, w), mode="bilinear", align_corners=False)
+    small = cv2.resize(x, (TILE, TILE), interpolation=cv2.INTER_LINEAR)
+    small = np.ascontiguousarray(small.transpose(2, 0, 1)[None])
 
-    m = mg[0].permute(1, 2, 0).numpy()
+    sess = _session_instance()
+    mg = sess.run(None, {sess.get_inputs()[0].name: small})[0]
+    mg = np.clip((mg - 0.5) * degree + 0.5, 0.0, 1.0)
+
+    m = cv2.resize(mg[0].transpose(1, 2, 0), (w, h), interpolation=cv2.INTER_LINEAR)
     # published blend: mg == 0.5 is identity, >0.5 lifts, <0.5 deepens
     pred = (1.0 - 2.0 * m) * x01 * x01 + 2.0 * m * x01
     return np.clip(pred, 0.0, 1.0) * 255.0

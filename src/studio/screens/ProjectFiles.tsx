@@ -1,214 +1,202 @@
-/* התיקיות של הפרויקט, והתמונות שבתוכן.
+/* ייבוא — the moment the shoot becomes the project's own.
  *
- * A project points at folders on disk — often several (ceremony, party, second
- * shooter) — and nothing is ever copied. The list of folders and each frame's
- * status are all this screen owns; what exists is whatever is on the disk, read
- * fresh every time the screen opens. A cached copy of a folder listing is a
- * copy that goes stale the first time the photographer moves a file in Explorer.
+ * Importing COPIES. The photographs are read off the card or the folder the
+ * photographer points at and written into `<project>/תמונות גלם/`, and the
+ * source is never touched. That is not a detail: the common source is a memory
+ * card, and a card gets formatted. A product whose model is "we point at where
+ * your files happen to be" loses the whole job the first time that happens.
  *
- * The thumbnails come from the engine, because the browser cannot read
- * D:\Shoots\... and the whole product rests on the files staying there. They
- * are served through the project's RECIPE (GET /preview), so a folder shows the
- * set as it currently is rather than as it was imported — that is the whole
- * point of the recipe: there is no "edited folder" to open, there is a set with
- * a state, and this is where a photographer sees it.
+ * The copy runs one file at a time, on purpose. The endpoint would loop over
+ * three hundred happily, but then the screen could only say "working" — and 300
+ * RAW frames is minutes. A counter in ITEMS is the difference between waiting
+ * and deciding the program has hung.
  *
- * Status defaults to חומר גלם and stays there unless the photographer says
- * otherwise. Most frames in a shoot never need an individual decision; a tool
- * that demands one on 1,800 files is inventing work.
+ * Re-importing the same card is a normal accident, not an error: a frame whose
+ * name AND size already match is skipped and reported as such.
  */
 
 import { useCallback, useEffect, useState } from 'react';
-import { listImages, pickFolder } from '../../api';
+import { importFrame, initProject, listImages, pickFolder } from '../../api';
 import {
-  PHOTO_STATUS, addFolder, removeFolder, setPhotoStatus, useFolders, useStatuses,
+  PHOTO_STATUS, folderNameOf, getWorkspaceRoot, reloadFrames, setPhotoStatus,
+  setWorkspaceRoot, updateProject, useProjectFiles, useStatuses,
 } from '../store';
+import type { Project } from '../store';
 import { useSetPreview } from '../preview';
-import type { PhotoStatus, ProjectFolder } from '../store';
+import type { PhotoStatus } from '../store';
 import { IcFolderOpen, IcCheckCircle } from '../../design/Icons';
 
-interface FolderFiles {
-  folder: ProjectFolder;
-  files: string[];
-  error?: string;
-  loading: boolean;
-}
-
-function baseName(p: string) {
-  return p.split(/[\\/]/).pop() ?? p;
-}
-
-export default function ProjectFiles({
-  projectId,
-  onPickOriginal,
-}: {
-  projectId: string;
-  /** Hand a frame to the colour-match screen as the "before" of the pair. */
-  onPickOriginal?: (path: string, folderPath: string) => void;
-}) {
-  const folders = useFolders(projectId);
-  const statuses = useStatuses();
+export default function ProjectFiles({ project }: { project: Project }) {
+  const projectId = project.id;
+  const { frames, ready } = useProjectFiles(projectId);
+  const statuses = useStatuses(projectId);
   const preview = useSetPreview(projectId);
 
-  const [loaded, setLoaded] = useState<Record<string, FolderFiles>>({});
-  const [adding, setAdding] = useState(false);
+  const [root, setRoot] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [done, setDone] = useState(0);
+  const [total, setTotal] = useState(0);
+  const [skipped, setSkipped] = useState(0);
   const [error, setError] = useState<string | null>(null);
 
-  const readFolder = useCallback(async (folder: ProjectFolder) => {
-    setLoaded((m) => ({ ...m, [folder.id]: { folder, files: [], loading: true } }));
-    try {
-      const r = await listImages(folder.path);
-      setLoaded((m) => ({ ...m, [folder.id]: { folder, files: r.files, loading: false } }));
-    } catch (e) {
-      setLoaded((m) => ({
-        ...m,
-        [folder.id]: {
-          folder,
-          files: [],
-          loading: false,
-          error: e instanceof Error ? e.message : 'לא ניתן לקרוא את התיקייה',
-        },
-      }));
-    }
+  useEffect(() => {
+    getWorkspaceRoot().then(setRoot).catch(() => setError('המנוע אינו זמין'));
   }, []);
 
+  /* Render the set ahead of the scroll. The engine takes it LIFO, so whatever
+   * the photographer opens next still jumps the queue. */
   useEffect(() => {
-    folders.forEach((f) => {
-      if (!loaded[f.id]) readFolder(f);
-    });
+    if (frames.length) preview.warm(frames.map((f) => f.path));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [folders]);
+  }, [frames.length, preview.graded]);
 
-  /* One button, one dialog, no typing. The engine raises the operating
-   * system's own folder picker — the browser cannot, and asking a photographer
-   * to paste a path is asking them to do the computer's job. */
-  const add = useCallback(async () => {
-    setAdding(true);
+  /* Asked ONCE for the installation. A photographer keeps their shoots in one
+   * place; asking per project would be asking the same question 200 times. */
+  const chooseRoot = useCallback(async () => {
     setError(null);
     try {
       const chosen = await pickFolder();
-      if (!chosen) return; // cancelled — an answer, not a failure
-      const r = await listImages(chosen);
-      if (r.count === 0) {
-        setError(`אין תמונות בתיקייה שנבחרה: ${chosen}`);
+      if (chosen) setRoot(await setWorkspaceRoot(chosen));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'לא ניתן להגדיר את התיקייה');
+    }
+  }, []);
+
+  const runImport = useCallback(async () => {
+    setError(null);
+    try {
+      const source = await pickFolder();
+      if (!source) return; // cancelled — an answer, not a failure
+      const listed = await listImages(source);
+      if (!listed.count) {
+        setError(`אין תמונות בתיקייה שנבחרה: ${source}`);
         return;
       }
-      const folder = addFolder(projectId, r.folder, r.count);
-      readFolder(folder);
+
+      setBusy(true);
+      setDone(0);
+      setSkipped(0);
+      setTotal(listed.count);
+
+      const home = project.home ?? (await initProject(folderNameOf(project))).home;
+      if (!project.home) updateProject(projectId, { home });
+      const rawDir = `${home}\\תמונות גלם`;
+
+      let already = 0;
+      for (const file of listed.files) {
+        try {
+          const r = await importFrame(file, rawDir);
+          if (r.skipped) already += 1;
+        } catch {
+          /* one unreadable frame must not take the card down with it */
+        }
+        setDone((n) => n + 1);
+        setSkipped(already);
+      }
+      await reloadFrames(projectId);
+      if (project.at < 1) updateProject(projectId, { at: 1, state: 'work' });
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'לא ניתן לפתוח את התיקייה');
+      setError(e instanceof Error ? e.message : 'הייבוא נכשל');
     } finally {
-      setAdding(false);
+      setBusy(false);
     }
-  }, [projectId, readFolder]);
+  }, [project, projectId]);
 
-  const total = Object.values(loaded).reduce((n, f) => n + f.files.length, 0);
-
+  /* ONE action. The folder this button opens is the folder the photographs are
+   * IN — the only folder the photographer is thinking about when they arrive
+   * here. Where the project itself gets saved has a sensible default and is
+   * stated below, not asked before. */
   return (
     <div className="pf">
       <div className="pf-add">
-        <button className="btn btn-primary" onClick={add} disabled={adding}>
+        <button className="btn btn-primary" onClick={runImport} disabled={busy}>
           <IcFolderOpen size={16} />
-          {adding ? 'בוחר…' : 'בחר תיקייה'}
+          {busy ? 'מייבא…' : 'ייבא תמונות'}
         </button>
         <span className="pf-add-note">
-          חלון הבחירה של Windows ייפתח. אפשר להוסיף כמה תיקיות לאותו פרויקט.
+          בחר את התיקייה או הכרטיס שבהם התמונות. הן יועתקו אל הפרויקט — המקור לא
+          ייגע, אפשר לפרמט את הכרטיס אחר כך.
         </span>
       </div>
 
+      <p className="pf-home">
+        <span>{project.home ? 'הפרויקט נשמר ב־' : 'הפרויקטים נשמרים ב־'}</span>
+        <b className="mono" dir="ltr">{project.home ?? root ?? '…'}</b>
+        {!project.home && (
+          <button className="pf-where" onClick={chooseRoot} disabled={busy}>
+            שנה מיקום
+          </button>
+        )}
+      </p>
+
+      {busy && (
+        <div className="dlv-progress">
+          <div className="dlv-bar">
+            <span style={{ width: total ? `${(done / total) * 100}%` : '0%' }} />
+          </div>
+          <span className="mono">
+            {done.toLocaleString('he-IL')} מתוך {total.toLocaleString('he-IL')}
+          </span>
+          {skipped > 0 && <span className="mono">· {skipped} כבר היו כאן</span>}
+        </div>
+      )}
+
       {error && <p className="cm-error">{error}</p>}
 
-      {folders.length === 0 ? (
+      {!ready && <p className="pf-note">קורא את התיקייה…</p>}
+
+      {ready && frames.length === 0 && !busy ? (
         <p className="pf-empty">
-          לפרויקט אין עדיין תיקיות. הדבק נתיב לתיקייה על המחשב — התמונות נשארות שם,
-          המערכת רק מצביעה עליהן.
+          עוד לא יובאו תמונות. הצבע על התיקייה או על הכרטיס — הקבצים יועתקו אל
+          תיקיית הפרויקט, והמקור יישאר כפי שהוא.
         </p>
       ) : (
-        <>
-          <p className="pf-total">
-            <IcCheckCircle size={15} />
-            <b className="mono">{folders.length}</b> תיקיות ·
-            <b className="mono">{total.toLocaleString('he-IL')}</b> תמונות
-            {preview.graded && (
-              <i className="pf-graded">
-                · מוצג עם המראה של הסט (<b className="mono">{preview.steps}</b> שלבים)
-              </i>
-            )}
-          </p>
-
-          {/* Never let the screen quietly show raw frames while claiming the
-            * edit — that is the confusion the recipe exists to remove. */}
-          {preview.stale && (
-            <p className="cm-error">
-              המנוע אינו זמין, ולכן מוצגים הקבצים המקוריים ולא הסט הערוך.
+        frames.length > 0 && (
+          <>
+            <p className="pf-total">
+              <IcCheckCircle size={15} />
+              <b className="mono">{frames.length.toLocaleString('he-IL')}</b> תמונות בפרויקט
+              {preview.graded && (
+                <i className="pf-graded">
+                  · מוצג עם המראה של הסט
+                </i>
+              )}
             </p>
-          )}
 
-          {folders.map((folder) => {
-            const state = loaded[folder.id];
-            const files = state?.files ?? [];
-            const counts = files.reduce(
-              (acc, f) => {
-                const s = statuses[f] ?? 'raw';
-                acc[s] += 1;
-                return acc;
-              },
-              { raw: 0, working: 0, ready: 0 } as Record<PhotoStatus, number>,
-            );
+            {/* Never let the screen quietly show raw frames while claiming the
+              * edit — that is the confusion the recipe exists to remove. */}
+            {preview.stale && (
+              <p className="cm-error">
+                המנוע אינו זמין, ולכן מוצגים הקבצים המקוריים ולא הסט הערוך.
+              </p>
+            )}
 
-            return (
-              <section className="pf-folder" key={folder.id}>
-                <div className="pf-folder-bar">
-                  <h3>{folder.name}</h3>
-                  <span className="pf-path mono" dir="ltr">{folder.path}</span>
-                  <span className="pf-counts mono">
-                    {files.length.toLocaleString('he-IL')}
-                    {counts.working > 0 && <i className="c-working"> · {counts.working} בטיפול</i>}
-                    {counts.ready > 0 && <i className="c-ready"> · {counts.ready} מוכנות</i>}
-                  </span>
-                  <button className="pf-drop" onClick={() => removeFolder(projectId, folder.id)}>
-                    הסר
-                  </button>
-                </div>
-
-                {state?.loading && <p className="pf-note">קורא את התיקייה…</p>}
-                {state?.error && <p className="cm-error">{state.error}</p>}
-
-                <div className="pf-grid">
-                  {files.map((file) => {
-                    const status = statuses[file] ?? 'raw';
-                    return (
-                      <figure className={`pf-shot s-${status}`} key={file}>
-                        <img src={preview.url(file, 320)} alt="" loading="lazy" />
-                        <figcaption className="mono" dir="ltr">{baseName(file)}</figcaption>
-                        <div className="pf-status">
-                          {PHOTO_STATUS.map((s) => (
-                            <button
-                              key={s.id}
-                              className={s.id === status ? 'on' : ''}
-                              onClick={() => setPhotoStatus(file, s.id)}
-                              title={s.label}
-                            >
-                              {s.label}
-                            </button>
-                          ))}
-                        </div>
-                        {onPickOriginal && (
-                          <button
-                            className="pf-use"
-                            onClick={() => onPickOriginal(file, folder.path)}
-                          >
-                            בחר כמקור
-                          </button>
-                        )}
-                      </figure>
-                    );
-                  })}
-                </div>
-              </section>
-            );
-          })}
-        </>
+            <div className="pf-grid">
+              {frames.map((frame) => {
+                const status = (statuses[frame.name] as PhotoStatus) ?? 'raw';
+                return (
+                  <figure className={`pf-shot s-${status}`} key={frame.path}>
+                    <img src={preview.url(frame.path, 320)} alt="" loading="lazy" />
+                    {preview.pending(frame.path) && <i className="pf-pending">המראה נטען…</i>}
+                    <figcaption className="mono" dir="ltr">{frame.name}</figcaption>
+                    <div className="pf-status">
+                      {PHOTO_STATUS.map((s) => (
+                        <button
+                          key={s.id}
+                          className={s.id === status ? 'on' : ''}
+                          onClick={() => setPhotoStatus(projectId, frame.name, s.id)}
+                          title={s.label}
+                        >
+                          {s.label}
+                        </button>
+                      ))}
+                    </div>
+                  </figure>
+                );
+              })}
+            </div>
+          </>
+        )
       )}
     </div>
   );

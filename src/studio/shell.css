@@ -26,6 +26,13 @@
   grid-template-columns: var(--sidebar-compact-w) minmax(0, 1fr);
 }
 
+/* No rail at all — an editing workspace. One column, and the workspace decides
+ * what to do with the edge the rail used to hold. */
+.shell.shell-norail,
+.shell.shell-norail.shell-compact {
+  grid-template-columns: minmax(0, 1fr);
+}
+
 /* ---------------------------------------------------------------- rail */
 
 /* THE CHROME SITS AT THE DARK END OF THE RAMP, ALWAYS.
@@ -314,6 +321,28 @@
   display: grid;
   gap: var(--s6);
   min-height: 100%;
+}
+
+/* The gap while a lazily-loaded workspace (album, lab, editor) is fetched.
+ *
+ * It starts fully transparent and only fades in after a beat: a workspace that
+ * arrives in 40ms would otherwise flash a loading line on every visit, which
+ * reads as slower than saying nothing. Past that beat the wait is real and the
+ * screen should admit it rather than sit blank. */
+.screen-wait {
+  display: grid;
+  place-items: center;
+  min-height: 40vh;
+  color: var(--ink-3);
+  font-size: 0.9rem;
+  opacity: 0;
+  animation: screen-wait-in 0.2s ease-out 0.3s forwards;
+}
+
+@keyframes screen-wait-in {
+  to {
+    opacity: 1;
+  }
 }
 
 @media (max-width: 1180px) {

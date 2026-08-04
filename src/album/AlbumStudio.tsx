@@ -28,6 +28,13 @@ import PreflightPanel from './PreflightPanel';
 import OrganizeView from './OrganizeView';
 import AlbumLibrary from './AlbumLibrary';
 import { runAlbumPreflight, type PreflightIssue } from './preflightEngine';
+// 3,000 lines of album styling, loaded with the album and not before. This file
+// is the ONLY way into the album folder from outside it, so importing the sheet
+// here covers every album component. The sheet carries no global or element
+// selectors — .album-*, .library-*, .organize-*, .review-*, .cover-*,
+// .preflight-*, .tl-*, .abm-* — and all of those classes are used only by files
+// under src/album, so arriving late changes nothing anywhere else.
+import './album.css';
 
 const DEMO_PHOTOS_BASE: AlbumPhoto[] = [
   { id: 'p1', name: 'רגע עם הסוס', url: '/demo/b.jpg', orientation: 'landscape', widthPx: 1600, heightPx: 1067, focalPoint: { x: 0.58, y: 0.45 } },

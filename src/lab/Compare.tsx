@@ -9,6 +9,9 @@
 import { useCallback, useRef, useState } from 'react';
 import { compareImages, learnColorModel } from '../api';
 import type { CompareResponse, CompareRegion, LearnColorResponse } from '../api';
+// .cmp-* lives in the lab sheet; this screen is lazily loaded too, so it brings
+// its own styling rather than leaning on a global import.
+import './lab.css';
 
 const KIND_LABEL: Record<string, string> = {
   added: 'נוסף',

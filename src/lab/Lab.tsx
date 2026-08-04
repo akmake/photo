@@ -25,6 +25,11 @@ import { renderRecipe, checkEngine, detectSpots } from '../api';
 import type { RenderStep, SpotCandidate, SpotDetection } from '../api';
 import { explainStep, isScaleBlocked, markLabel, markReason } from './explain';
 import type { StepReport } from './explain';
+// Travels with the screen, not with the app: the lab is lazily loaded and its
+// sheet has no business in the first paint. Every selector is .lab-* / .cmp-*.
+import './lab.css';
+import { Histogram, computeDiff, loadImage } from '../design/Metering';
+import type { Delta } from '../design/Metering';
 
 /** Only used when "מהיר" is switched on — and it is off by default, because at
  *  this size the face tools stop working. */
@@ -32,7 +37,6 @@ const FAST_PREVIEW = 1600;
 const DEBOUNCE_MS = 260;
 /** The diff is a diagnostic overlay, not a deliverable; capping it keeps a
  *  20MP frame from allocating 160MB of pixel buffers on every render. */
-const DIFF_CAP = 2400;
 /** Multiplier on the fitted size. A 3648px frame fitted into ~900px of stage
  *  sits at ~0.25, so 80x is roughly 2000% — enough to inspect single pixels. */
 const MAX_ZOOM = 80;
@@ -56,12 +60,6 @@ interface Loaded {
   ph: number;
 }
 
-interface Delta {
-  mean: number;
-  max: number;
-  p3: number;
-}
-
 function emptyRecipe(): Recipe {
   const r = defaultRecipe();
   return { tools: r.tools.map((t) => ({ ...t, enabled: false })) };
@@ -76,15 +74,6 @@ function readFile(file: File): Promise<string> {
   });
 }
 
-function loadImage(src: string): Promise<HTMLImageElement> {
-  return new Promise((resolve, reject) => {
-    const i = new Image();
-    i.onload = () => resolve(i);
-    i.onerror = () => reject(new Error('decode failed'));
-    i.src = src;
-  });
-}
-
 async function downscale(dataUrl: string): Promise<Omit<Loaded, 'name' | 'full'>> {
   const img = await loadImage(dataUrl);
   const scale = Math.min(1, FAST_PREVIEW / Math.max(img.width, img.height));
@@ -95,62 +84,6 @@ async function downscale(dataUrl: string): Promise<Omit<Loaded, 'name' | 'full'>
   c.height = ph;
   c.getContext('2d')!.drawImage(img, 0, 0, pw, ph);
   return { preview: c.toDataURL('image/jpeg', 0.95), w: img.width, h: img.height, pw, ph };
-}
-
-/** |a - b| amplified into `canvas`, plus the numbers behind it. */
-async function computeDiff(
-  aSrc: string,
-  bSrc: string,
-  canvas: HTMLCanvasElement,
-  gain: number,
-): Promise<Delta | null> {
-  const [a, b] = await Promise.all([loadImage(aSrc), loadImage(bSrc)]);
-  if (a.naturalWidth !== b.naturalWidth || a.naturalHeight !== b.naturalHeight) return null;
-
-  const s = Math.min(1, DIFF_CAP / Math.max(a.naturalWidth, a.naturalHeight));
-  const w = Math.max(1, Math.round(a.naturalWidth * s));
-  const h = Math.max(1, Math.round(a.naturalHeight * s));
-
-  const grab = (im: HTMLImageElement) => {
-    const c = document.createElement('canvas');
-    c.width = w;
-    c.height = h;
-    const ctx = c.getContext('2d', { willReadFrequently: true })!;
-    ctx.drawImage(im, 0, 0, w, h);
-    return ctx.getImageData(0, 0, w, h).data;
-  };
-
-  const pa = grab(a);
-  const pb = grab(b);
-
-  canvas.width = w;
-  canvas.height = h;
-  const ctx = canvas.getContext('2d')!;
-  const outImg = ctx.createImageData(w, h);
-  const out = outImg.data;
-
-  let sum = 0;
-  let max = 0;
-  let over3 = 0;
-  const n = w * h;
-  for (let i = 0; i < n; i++) {
-    const j = i * 4;
-    const dr = Math.abs(pa[j] - pb[j]);
-    const dg = Math.abs(pa[j + 1] - pb[j + 1]);
-    const db = Math.abs(pa[j + 2] - pb[j + 2]);
-    const d = dr > dg ? (dr > db ? dr : db) : dg > db ? dg : db;
-    sum += (dr + dg + db) / 3;
-    if (d > max) max = d;
-    if (d > 3) over3++;
-    const v = d * gain;
-    const c = v > 255 ? 255 : v;
-    out[j] = c;
-    out[j + 1] = c;
-    out[j + 2] = c;
-    out[j + 3] = 255;
-  }
-  ctx.putImageData(outImg, 0, 0);
-  return { mean: sum / n, max, p3: (over3 / n) * 100 };
 }
 
 function paramNote(toolId: string, params: Record<string, number>): string {
@@ -1388,72 +1321,6 @@ export default function Lab() {
 /** Live histogram of whatever is on screen — luminance filled, R/G/B as thin
  *  lines. Sqrt-scaled: a linear y-axis makes every portrait histogram look
  *  like one spike at the midtones and nothing else. */
-function Histogram({ src }: { src: string }) {
-  const ref = useRef<HTMLCanvasElement>(null);
-
-  useEffect(() => {
-    if (!src) return;
-    let alive = true;
-    loadImage(src).then((im) => {
-      const canvas = ref.current;
-      if (!alive || !canvas) return;
-      const s = Math.min(1, 480 / Math.max(im.naturalWidth, im.naturalHeight));
-      const c = document.createElement('canvas');
-      c.width = Math.max(1, Math.round(im.naturalWidth * s));
-      c.height = Math.max(1, Math.round(im.naturalHeight * s));
-      const cx = c.getContext('2d', { willReadFrequently: true })!;
-      cx.drawImage(im, 0, 0, c.width, c.height);
-      const px = cx.getImageData(0, 0, c.width, c.height).data;
-
-      const hist = [new Uint32Array(256), new Uint32Array(256), new Uint32Array(256), new Uint32Array(256)];
-      for (let i = 0; i < px.length; i += 4) {
-        hist[0][px[i]]++;
-        hist[1][px[i + 1]]++;
-        hist[2][px[i + 2]]++;
-        hist[3][Math.round(0.2126 * px[i] + 0.7152 * px[i + 1] + 0.0722 * px[i + 2])]++;
-      }
-      let peak = 0;
-      for (const h of hist) for (let v = 0; v < 256; v++) if (h[v] > peak) peak = h[v];
-      if (peak === 0) return;
-
-      const W = canvas.width;
-      const H = canvas.height;
-      const g = canvas.getContext('2d')!;
-      g.clearRect(0, 0, W, H);
-      const y = (n: number) => H - Math.sqrt(n / peak) * (H - 2);
-
-      // luminance: filled
-      g.beginPath();
-      g.moveTo(0, H);
-      for (let v = 0; v < 256; v++) g.lineTo((v / 255) * W, y(hist[3][v]));
-      g.lineTo(W, H);
-      g.closePath();
-      g.fillStyle = 'rgba(255,255,255,0.30)';
-      g.fill();
-
-      // channels: thin lines
-      const colors = ['rgba(255,90,80,0.9)', 'rgba(90,220,110,0.9)', 'rgba(90,150,255,0.9)'];
-      for (let ch = 0; ch < 3; ch++) {
-        g.beginPath();
-        for (let v = 0; v < 256; v++) {
-          const X = (v / 255) * W;
-          const Y = y(hist[ch][v]);
-          if (v === 0) g.moveTo(X, Y);
-          else g.lineTo(X, Y);
-        }
-        g.strokeStyle = colors[ch];
-        g.lineWidth = 1;
-        g.stroke();
-      }
-    });
-    return () => {
-      alive = false;
-    };
-  }, [src]);
-
-  return <canvas ref={ref} className="lab-hist" width={232} height={74} />;
-}
-
 function EngineBadge({ ok }: { ok: boolean | null }) {
   if (ok === null) return null;
   if (ok) return <div className="lab-engine ok">המנוע מחובר · 127.0.0.1:8756</div>;

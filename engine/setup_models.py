@@ -1,7 +1,16 @@
-"""Download the MediaPipe model files the engine needs.
+"""Fetch the model files the engine needs, and derive the ones we export.
 
-Models are not committed to git (binary, ~20MB). Run once after install:
+Models are not committed to git (binary, ~1GB). Run once after install:
     .venv/Scripts/python setup_models.py
+
+Two kinds of file live in models/:
+
+  DOWNLOADED  published weights, fetched as-is from upstream.
+  DERIVED     graphs we export from those weights so the engine can run them
+              on onnxruntime instead of torch. Generated here on a developer
+              machine; in a packaged build they are bundled prebuilt, because
+              the whole point is that the shipped app has no torch to run the
+              export with.
 """
 
 import os
@@ -24,7 +33,8 @@ MODELS = {
     "midas_small.onnx": (
         "https://github.com/isl-org/MiDaS/releases/download/v2_1/model-small.onnx"
     ),
-    # learned skin retouching (DAMO ABPN U-Net, Apache 2.0)
+    # learned skin retouching (DAMO ABPN U-Net, Apache 2.0). The engine does not
+    # load this file — it loads abpn_unet.onnx, exported from it below.
     "pytorch_model.pt": (
         "https://www.modelscope.cn/api/v1/models/damo/"
         "cv_unet_skin_retouching_torch/repo?Revision=master&FilePath=pytorch_model.pt"
@@ -38,6 +48,33 @@ MODELS = {
     ),
 }
 
+# name -> (source file it is exported from, export_onnx model id)
+DERIVED = {
+    "abpn_unet.onnx": ("pytorch_model.pt", "abpn"),
+}
+
+
+def _derive(name, source, model_id):
+    """Export a graph from downloaded weights. Needs torch; dev machines have it.
+
+    A failure here is loud on purpose. The old behaviour when a model file was
+    absent was for the tool to return `{"error": "weights missing"}` into a meta
+    dict nobody reads — i.e. the tool silently does nothing. Setup is the last
+    place that can still say so out loud.
+    """
+    import export_onnx
+
+    print(f"exporting {name} from {source} ...")
+    try:
+        export_onnx.export_abpn(17)
+    except ImportError as e:
+        raise SystemExit(
+            f"cannot export {name}: {e}\n"
+            "torch is a BUILD dependency for this step (see requirements.txt).\n"
+            "In a packaged build this file is bundled prebuilt and this step is skipped."
+        ) from e
+
+
 if __name__ == "__main__":
     os.makedirs(MODELS_DIR, exist_ok=True)
     for name, url in MODELS.items():
@@ -48,4 +85,15 @@ if __name__ == "__main__":
         print(f"downloading {name} ...")
         urllib.request.urlretrieve(url, dest)
         print(f"  {os.path.getsize(dest) / 1e6:.1f} MB")
+
+    for name, (source, model_id) in DERIVED.items():
+        dest = os.path.join(MODELS_DIR, name)
+        if os.path.exists(dest):
+            print(f"skip {name} (already present)")
+            continue
+        if not os.path.exists(os.path.join(MODELS_DIR, source)):
+            raise SystemExit(f"cannot export {name}: {source} was not downloaded")
+        _derive(name, source, model_id)
+        print(f"  {os.path.getsize(dest) / 1e6:.1f} MB")
+
     print("done")

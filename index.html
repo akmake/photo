@@ -12,6 +12,13 @@
   self-host the woff2 files: an installed desktop app must not depend on a CDN
   to render its own text.
 
+  Until then the sheet is loaded NON-BLOCKING (preload + rel-swap on load). As a
+  plain <link rel="stylesheet"> it was render-blocking: the browser painted
+  nothing at all until fonts.googleapis.com answered, so a slow DNS lookup or a
+  throttled CDN turned into seconds of white screen on every single load. The
+  fallback stack in design/tokens.css (Segoe UI / Consolas) carries the first
+  paint, and Plex swaps in when it arrives.
+
   The title lost "מערכת ההפעלה של הצלמות": the market is general and the copy is
   masculine now, and the tagline claimed a category that four of twelve sections
   actually delivered.
@@ -24,8 +31,16 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
       href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Hebrew:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap"
-      rel="stylesheet"
+      rel="preload"
+      as="style"
+      onload="this.onload=null;this.rel='stylesheet'"
     />
+    <noscript>
+      <link
+        href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Hebrew:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap"
+        rel="stylesheet"
+      />
+    </noscript>
     <title>TEZA</title>
   </head>
   <body>

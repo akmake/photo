@@ -140,6 +140,7 @@ export function Shell({
   flush,
   bare,
   stages,
+  rail = true,
   children,
 }: {
   section: SectionId;
@@ -151,6 +152,10 @@ export function Shell({
   bare?: boolean;
   /** Render the legacy stage tabs. The business screens never do. */
   stages?: boolean;
+  /** The business rail. Off inside an editing workspace: while a photograph is
+   *  being worked on there is no reason to jump to the calendar, and the strip
+   *  of screen it occupies is worth more as the set being edited. */
+  rail?: boolean;
   children: ReactNode;
 }) {
   const [navPreference, setNavPreference] = useState<boolean | null>(() => {
@@ -191,14 +196,16 @@ export function Shell({
   return (
     <div
       dir="rtl"
-      className={`shell ${compact ? 'shell-compact' : ''} ${flush ? 'shell-workspace' : ''}`}
+      className={`shell ${compact ? 'shell-compact' : ''} ${flush ? 'shell-workspace' : ''} ${rail ? '' : 'shell-norail'}`}
     >
+      {rail && (
       <NavRail
         section={section}
         onSection={onSection}
         compact={compact}
         onCompact={toggleCompact}
       />
+      )}
       <div className="main">
         {stages && !bare && <StageTabs stage={stage} onStage={onStage} />}
         <div className={`content ${flush ? 'flush' : ''}`}>

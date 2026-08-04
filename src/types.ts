@@ -120,14 +120,38 @@ export interface Recipe {
   tools: ToolInstance[];
 }
 
-/** WHAT HAS BEEN DONE TO A PROJECT'S SET — and the reason nothing is written to
- *  disk until delivery.
+/** A stretch of the shoot that shares one LIGHT.
  *
- *  `base` is the whole set: applying a learned look to a folder appends a step
- *  here, and every screen that shows a frame renders through it. `perFrame`
- *  holds the exceptions, keyed by absolute path because the path IS the frame's
- *  identity (studio/store.ts). Merge rule: a toolId present in `perFrame`
- *  replaces the one in `base` for that frame; frame-only tools run last.
+ *  Not a folder and not a physical thing: a batch is an assignment carried
+ *  on each frame, so re-assigning a photograph is a click rather than a file
+ *  move — and no path stored in a recipe, a status or a painted mask is
+ *  invalidated by changing your mind.
+ *
+ *  It exists because a single grade over a whole wedding is a lie. Outside at
+ *  16:00 and the dance floor at 23:00 are two different light sources, and the
+ *  colour learned from one has no business on the other. */
+export interface Batch {
+  id: string;
+  name: string;
+  /** the order the photographer put them in, not the order they were made */
+  order: number;
+}
+
+/** WHAT HAS BEEN DONE TO A PROJECT'S SET.
+ *
+ *  Three layers, and which layer a tool belongs on is not a matter of taste:
+ *
+ *    base          the whole project — tools driven by CONTENT. Cleanup, skin,
+ *                  noise, sharpening. The same face wants the same treatment
+ *                  outdoors and indoors.
+ *    perBatch  tools driven by LIGHT. The learned colour, white balance,
+ *                  exposure, grading. Keyed by Batch.id.
+ *    perFrame      the one photograph that breaks the rule. Keyed by frame
+ *                  NAME, because project.json travels with the folder and a
+ *                  drive letter is not identity.
+ *
+ *  Merge rule: a toolId present in a narrower layer REPLACES the wider one for
+ *  that frame; tools that exist only in a narrower layer run too.
  *
  *  Brush strokes and marked outlines may exist ONLY in `perFrame`: they belong
  *  to one face in one frame and cannot mean anything on the next (see ToolMask
@@ -135,6 +159,7 @@ export interface Recipe {
 export interface ProjectRecipe {
   version: number;
   base: ToolInstance[];
+  perBatch: Record<string, ToolInstance[]>;
   perFrame: Record<string, ToolInstance[]>;
 }
 

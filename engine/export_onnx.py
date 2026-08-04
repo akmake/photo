@@ -1,0 +1,123 @@
+"""Export the learned models from PyTorch to ONNX, so torch stops shipping.
+
+torch is ~2-3GB installed on Windows and we use it to press play on finished
+weight files. onnxruntime (~50MB) already runs BiRefNet and MiDaS. Exporting
+the remaining nets lets `requirements.txt` drop torch, timm, and the
+install-from-github line for MobileSAM.
+
+    python export_onnx.py abpn        # models/pytorch_model.pt -> abpn_unet.onnx
+
+This script is a BUILD tool, not a runtime one: it needs torch, runs on a
+developer machine, and its output is committed to models/ the same way the
+downloaded weights are. Nothing in the shipped engine imports it.
+
+Exporting is the easy half. The graph can load, run, return an image, and be
+subtly wrong — a fused BatchNorm rounding differently, a bilinear resize landing
+a pixel off. So this script only smoke-tests the export; the real gate is
+
+    python test_onnx_parity.py check
+
+which replays the exact tensors torch saw and measures the delta at both the
+network and the finished-image level. Do not treat an export as done until that
+passes. See docs/BUGS.md for what a silent difference costs.
+"""
+
+import argparse
+import os
+import sys
+
+import numpy as np
+
+MODELS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "models")
+
+# The network is only ever called on a TILE x TILE crop — abpn._infer resizes to
+# 512 before the call and back afterwards — so the graph is exported at a fixed
+# 1x3x512x512. Static shapes let onnxruntime plan memory and fuse ahead of time,
+# and a dynamic axis here would buy nothing: no caller can use it.
+ABPN_TILE = 512
+
+
+def export_abpn(opset: int) -> str:
+    import torch
+
+    import abpn
+    import abpn_net
+
+    # abpn.WEIGHTS is the ONNX file we are about to write; the checkpoint we
+    # read from is TORCH_WEIGHTS, which the engine itself never opens.
+    src = abpn.TORCH_WEIGHTS
+    if not os.path.exists(src):
+        sys.exit(f"weights missing: {src}\nrun setup_models.py first")
+
+    dst = os.path.join(MODELS, "abpn_unet.onnx")
+    net = abpn_net.load(src, "cpu")          # load_state_dict(strict=True) inside
+    dummy = torch.randn(1, 3, ABPN_TILE, ABPN_TILE)
+
+    print(f"  source  {src}")
+    print(f"  target  {dst}")
+    print(f"  input   {tuple(dummy.shape)}  opset {opset}")
+
+    torch.onnx.export(
+        net,
+        dummy,
+        dst,
+        input_names=["input"],
+        output_names=["output"],
+        opset_version=opset,
+        do_constant_folding=True,
+        dynamo=False,  # the TorchScript exporter: no onnxscript dependency
+    )
+    return dst
+
+
+def smoke(dst: str, shape, runs: int = 3):
+    """Same tensors through both engines. Catches a broken export, not a subtle one.
+
+    Random input on purpose: real face crops occupy a narrow slice of the input
+    space, and a graph can be wrong in a region no photograph reaches. This is
+    a wider net than the parity reference, and a much coarser one.
+    """
+    import torch
+
+    import abpn
+    import abpn_net
+
+    import onnxruntime as ort
+
+    net = abpn_net.load(abpn.TORCH_WEIGHTS, "cpu")
+    sess = ort.InferenceSession(dst, providers=["CPUExecutionProvider"])
+    in_name = sess.get_inputs()[0].name
+    out_name = sess.get_outputs()[0].name
+
+    worst = 0.0
+    rng = np.random.default_rng(0)
+    for i in range(runs):
+        x = rng.standard_normal(shape, dtype=np.float32)
+        with torch.no_grad():
+            want = net(torch.from_numpy(x)).numpy()
+        got = sess.run([out_name], {in_name: x})[0]
+        d = float(np.abs(got - want).max())
+        worst = max(worst, d)
+        print(f"  random {i + 1}/{runs}   max |delta| {d:.3e}")
+
+    size_mb = os.path.getsize(dst) / (1 << 20)
+    print(f"\n  {os.path.basename(dst)}  {size_mb:.1f} MB")
+    print(f"  worst random-input delta: {worst:.3e}")
+    return worst
+
+
+def main():
+    p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    p.add_argument("model", choices=("abpn",))
+    p.add_argument("--opset", type=int, default=17)
+    args = p.parse_args()
+
+    print(f"exporting {args.model}")
+    dst = export_abpn(args.opset)
+    print("\nsmoke test - random tensors through both engines")
+    smoke(dst, (1, 3, ABPN_TILE, ABPN_TILE))
+    print("\nNow run the real gate:  python test_onnx_parity.py check")
+
+
+if __name__ == "__main__":
+    main()

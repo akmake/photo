@@ -1,8 +1,39 @@
+# --- runtime: what the shipped sidecar actually imports ---------------------
 numpy
 pillow
-mediapipe
-rawpy
-onnxruntime
+mediapipe          # face landmarks + selfie segmentation; also pulls in opencv,
+                   # which masks.py/abpn.py/regions.py import directly as cv2
+rawpy              # libraw: RAW decode. The one dependency with no JS analogue.
+onnxruntime        # birefnet, midas, and now abpn_unet (see export_onnx.py)
+
+# --- still runtime, and the reason torch has not left yet --------------------
+#
+# torch is ~2-3GB installed on Windows and exists here for ONE consumer:
+# regions.py loads MobileSAM through the `mobile_sam` package for pixel_color's
+# material anchors. abpn.py used to be the other consumer and no longer is --
+# it runs on onnxruntime, gated by test_onnx_parity.py (measured: 4.1e-06 at
+# the network, worst 1/255 on the finished image).
+#
+# Exporting MobileSAM is what lets both lines below go, and with them the
+# install-from-github, which needs git on the build machine and breaks if the
+# upstream repo moves.
+#
+# CAREFUL: regions.py:130-133 swallows the load failure and returns zero
+# regions. Dropping torch before the export lands would not raise -- pixel_color
+# would quietly lose its material anchors. Export first, measure, then delete.
 torch
-timm
 mobile_sam @ git+https://github.com/ChaoningZhang/MobileSAM.git
+
+# --- build only: not imported by the engine ---------------------------------
+#
+# Needed by export_onnx.py, which setup_models.py calls to derive
+# models/abpn_unet.onnx from the downloaded checkpoint. A packaged build ships
+# the exported graph and never runs this.
+#
+# Once torch is runtime-free these move to a requirements-dev.txt, together
+# with torch itself -- splitting the file now would be a lie, since the block
+# above still ships.
+onnx               # torch.onnx.export's serialiser
+#
+# timm was listed here and is imported by nothing in engine/ -- removed
+# 2026-08-03 after grepping the tree.

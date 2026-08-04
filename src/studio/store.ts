@@ -1,16 +1,34 @@
-/* The project store.
+/* The project store — and the line down the middle of it.
  *
- * Small on purpose: a module-level list, a listener set, and localStorage. It
- * exists because "פרויקט חדש" has to actually create something and survive a
- * reload — a button that opens a form and then forgets is worse than no button.
+ * There are two kinds of knowledge in this product, and they do not live in the
+ * same place:
  *
- * This is the seam where MongoDB lands later (docs/PRODUCT-UX.md §3.7: the
- * database holds knowledge ABOUT the work, the disk holds the work). Nothing
- * here touches image files.
+ *   THE BUSINESS   clients, money, dates, which jobs are open. It crosses
+ *                  projects, belongs to no folder, and lives here in
+ *                  localStorage today and MongoDB later.
+ *
+ *   THE FILES      batches, which frame is in which, statuses, the recipe.
+ *                  It is ABOUT a specific set of photographs, so it lives in
+ *                  `project.json` INSIDE the project's folder — copy the folder
+ *                  to another machine and the work comes with it; uninstall the
+ *                  software and nothing is lost.
+ *
+ * The disk half used to live in localStorage too, which meant the files were on
+ * D:\ and everything anyone knew about them was in a browser profile. Clearing
+ * the browser threw away the batches, the grades and the statuses of every
+ * job on the machine while leaving every photograph untouched.
+ *
+ * Reads are synchronous against an in-memory mirror; writes update the mirror,
+ * notify, and persist on a short debounce. A screen must never wait on a disk
+ * round trip to render a list it already has.
  */
 
-import { useSyncExternalStore } from 'react';
-import type { LearnedColorModel, ProjectRecipe, ToolInstance } from '../types';
+import { useEffect, useMemo, useState, useSyncExternalStore } from 'react';
+import {
+  initProject, projectFrames, projectState, workspaceRoot,
+} from '../api';
+import type { Frame, ProjectMemory } from '../api';
+import type { LearnedColorModel, ProjectRecipe, Batch, ToolInstance } from '../types';
 
 /** The stages a job moves through. Every project carries all of them — a shoot
  *  that was not sold with an album can still become one, so the album tool is
@@ -19,6 +37,7 @@ import type { LearnedColorModel, ProjectRecipe, ToolInstance } from '../types';
 export const STAGES = [
   { id: 'setup', label: 'הכנה' },
   { id: 'import', label: 'ייבוא' },
+  { id: 'batches', label: 'מקבצים' },
   { id: 'select', label: 'בחירה' },
   { id: 'edit', label: 'עריכה' },
   { id: 'album', label: 'אלבום' },
@@ -64,6 +83,9 @@ export interface Project {
   rendered: number;
   waitingSince?: string;
   createdAt: string;
+  /** The project's folder on disk: `<root>/<name>/`. Absent until the first
+   *  import creates it — a project can exist before its shoot has happened. */
+  home?: string;
 }
 
 /** The stages this project shows. Every project gets all of them — the album
@@ -72,36 +94,28 @@ export function stagesOf(_p: Project) {
   return STAGES;
 }
 
-const SEED: Project[] = [
-  { id: 'p1', client: 'משפחת לוי', event: 'צילומי משפחה', date: '24.07', location: 'פארק הירקון', price: 3200, paid: 1600, thumb: '/demo/b.jpg', pos: '50% 40%', at: 3, counts: '96 בסט · 24 נערכו', state: 'work', hasAlbum: false, hasGallery: true, imported: 380, kept: 380, picked: 96, rendered: 24, createdAt: '2026-07-24' },
-  { id: 'p2', client: 'רון ומאיה', event: 'חתונה', date: '12.07', location: 'אחוזת הכפר', price: 12500, paid: 6000, thumb: '/demo/c.jpg', pos: '40% 30%', at: 4, counts: '18 כפולות · גרסה 1', state: 'waiting', hasAlbum: true, hasGallery: true, imported: 2140, kept: 1180, picked: 240, rendered: 240, waitingSince: '28.07', createdAt: '2026-07-12' },
-  { id: 'p3', client: 'בר מצווה איתי כהן', event: 'אירוע', date: '21.07', location: 'היכל התרבות', price: 5400, paid: 2000, thumb: '/demo/a.jpg', pos: '50% 25%', at: 2, counts: '412 אחרי סינון', state: 'work', hasAlbum: true, hasGallery: true, imported: 1290, kept: 412, picked: 0, rendered: 0, createdAt: '2026-07-21' },
-  { id: 'p4', client: 'משפחת ברק', event: 'ניו בורן', date: '18.07', location: 'סטודיו', price: 2400, paid: 2400, thumb: '/demo/b.jpg', pos: '30% 55%', at: 5, counts: '214 קבצים מוכנים', state: 'work', hasAlbum: false, hasGallery: true, imported: 640, kept: 320, picked: 214, rendered: 214, createdAt: '2026-07-18' },
-  { id: 'p5', client: 'משפחת אלון', event: 'בוק תדמית', date: '09.07', location: 'תל אביב', price: 4100, paid: 0, thumb: '/demo/a.jpg', pos: '60% 45%', at: 2, counts: '208 אחרי סינון', state: 'waiting', hasAlbum: false, hasGallery: true, imported: 520, kept: 208, picked: 0, rendered: 0, waitingSince: '25.07', createdAt: '2026-07-09' },
-  { id: 'p6', client: 'ליאת ואורי', event: 'חתונה', date: '31.07', location: 'גני התערוכה', price: 14000, paid: 4000, thumb: '/demo/c.jpg', pos: '55% 35%', at: 0, counts: 'הצילום מחר', state: 'shoot', hasAlbum: true, hasGallery: true, imported: 0, kept: 0, picked: 0, rendered: 0, createdAt: '2026-06-02' },
-  { id: 'p7', client: 'משפחת נחום', event: 'צילומי משפחה', date: '02.08', location: 'הבית', price: 2800, paid: 0, thumb: '/demo/b.jpg', pos: '45% 60%', at: 0, counts: 'טרם יובא', state: 'shoot', hasAlbum: false, hasGallery: true, imported: 0, kept: 0, picked: 0, rendered: 0, createdAt: '2026-07-10' },
-  { id: 'p8', client: 'דנה שגב', event: 'הריון', date: '15.07', location: 'סטודיו', price: 1900, paid: 1900, thumb: '/demo/c.jpg', pos: '35% 50%', at: 3, counts: '64 בסט · 64 נערכו', state: 'work', hasAlbum: false, hasGallery: true, imported: 210, kept: 140, picked: 64, rendered: 64, createdAt: '2026-07-15' },
-  { id: 'p9', client: 'סטודיו א.ד', event: 'צילומי מוצר', date: '02.07', location: 'סטודיו', price: 2400, paid: 0, thumb: '/demo/a.jpg', pos: '50% 70%', at: 5, counts: 'נמסר · ₪2,400 פתוח', state: 'done', hasAlbum: false, hasGallery: false, imported: 180, kept: 96, picked: 96, rendered: 96, createdAt: '2026-07-02' },
-  { id: 'p10', client: 'משפחת גל', event: 'בת מצווה', date: '28.06', location: 'אולמי הגן', price: 6800, paid: 6800, thumb: '/demo/b.jpg', pos: '65% 30%', at: 5, counts: 'נמסר · אלבום הודפס', state: 'done', hasAlbum: true, hasGallery: true, imported: 1420, kept: 720, picked: 180, rendered: 180, createdAt: '2026-06-28' },
-  { id: 'p11', client: 'עידן ושירה', event: 'חתונה', date: '14.06', location: 'יקב בנימינה', price: 13200, paid: 13200, thumb: '/demo/c.jpg', pos: '25% 40%', at: 5, counts: 'נמסר · 640 קבצים', state: 'done', hasAlbum: true, hasGallery: true, imported: 2860, kept: 1540, picked: 640, rendered: 640, createdAt: '2026-06-14' },
-  { id: 'p12', client: 'משפחת רוזן', event: 'צילומי משפחה', date: '30.05', location: 'חוף פולג', price: 2600, paid: 2600, thumb: '/demo/a.jpg', pos: '40% 65%', at: 5, counts: 'נמסר', state: 'done', hasAlbum: false, hasGallery: true, imported: 410, kept: 240, picked: 88, rendered: 88, createdAt: '2026-05-30' },
-];
-
-const KEY = 'teza.projects.v1';
+/* The business starts EMPTY. There is no seed data: a project exists because the
+ * photographer created it, and every counter it carries is real. The key is v2
+ * so any demo seed persisted under v1 is left behind on first load. */
+const KEY = 'teza.projects.v2';
 
 function load(): Project[] {
   try {
     const raw = localStorage.getItem(KEY);
-    if (!raw) return SEED;
+    if (!raw) return [];
     const parsed = JSON.parse(raw) as Project[];
-    return Array.isArray(parsed) && parsed.length ? parsed : SEED;
+    return Array.isArray(parsed) ? parsed : [];
   } catch {
-    return SEED;
+    return [];
   }
 }
 
 let projects: Project[] = load();
 const listeners = new Set<() => void>();
+
+function notify() {
+  listeners.forEach((fn) => fn());
+}
 
 function commit(next: Project[]) {
   projects = next;
@@ -110,7 +124,7 @@ function commit(next: Project[]) {
   } catch {
     // storage is optional; the session still works without it
   }
-  listeners.forEach((fn) => fn());
+  notify();
 }
 
 function subscribe(fn: () => void) {
@@ -126,6 +140,10 @@ export function getProject(id: string): Project | undefined {
   return projects.find((p) => p.id === id);
 }
 
+export function updateProject(id: string, patch: Partial<Project>) {
+  commit(projects.map((p) => (p.id === id ? { ...p, ...patch } : p)));
+}
+
 export interface NewProjectInput {
   client: string;
   event: string;
@@ -136,14 +154,11 @@ export interface NewProjectInput {
   hasAlbum: boolean;
 }
 
-const FRAMES = ['/demo/b.jpg', '/demo/c.jpg', '/demo/a.jpg'];
-const CROPS = ['50% 40%', '40% 30%', '55% 45%', '35% 55%', '60% 35%'];
-
 /** Creates the project and returns it, so the caller can walk straight into it.
- *  A new job starts in הכנה with every counter at zero — there is nothing to
- *  invent, and inventing it is how a screen starts lying. */
+ *  A new job starts in הכנה with every counter at zero and no cover frame — there
+ *  is nothing to invent, and inventing it is how a screen starts lying. A cover
+ *  appears once the shoot's files are imported. */
 export function createProject(input: NewProjectInput): Project {
-  const n = projects.length + 1;
   const project: Project = {
     id: `p${Date.now().toString(36)}`,
     client: input.client.trim(),
@@ -152,8 +167,8 @@ export function createProject(input: NewProjectInput): Project {
     location: input.location?.trim() || undefined,
     price: input.price,
     paid: 0,
-    thumb: FRAMES[n % FRAMES.length],
-    pos: CROPS[n % CROPS.length],
+    thumb: '',
+    pos: '50% 50%',
     at: 0,
     counts: 'טרם יובא',
     state: 'shoot',
@@ -169,6 +184,13 @@ export function createProject(input: NewProjectInput): Project {
   return project;
 }
 
+/** The folder name a project claims on disk. Client and event, because that is
+ *  how a photographer looks for a job in Explorer six months later — not by an
+ *  id that means nothing outside this program. */
+export function folderNameOf(p: Project): string {
+  return [p.client, p.event, p.date].filter(Boolean).join(' — ');
+}
+
 /** Every distinct client already on file — a returning client is the most
  *  valuable thing in the business, and typing their name again is how the
  *  history gets split in two. */
@@ -176,17 +198,69 @@ export function knownClients(): string[] {
   return [...new Set(projects.map((p) => p.client))].sort((a, b) => a.localeCompare(b, 'he'));
 }
 
-/* ============================================================ folders & photos
+/** One client, rolled up from every project that carries their name. This is
+ *  DERIVED, never stored: the client screen used to run on a separate demo
+ *  array, which is how the same client could read one way in לקוחות and another
+ *  in פרויקטים. There is one source of truth — the projects — and a client is
+ *  what you get when you group them. */
+export interface ClientSummary {
+  name: string;
+  count: number;
+  /** Non-done projects — the ones still needing the photographer. */
+  active: number;
+  /** Total agreed across all their projects — how much this client is worth. */
+  scope: number;
+  paid: number;
+  /** What they still owe. The number the business is actually run on. */
+  open: number;
+  lastEvent: string;
+  lastDate: string;
+  /** Most recent project, so the row opens somewhere real instead of nowhere. */
+  latestId: string;
+}
+
+export function clientSummaries(list: Project[] = projects): ClientSummary[] {
+  const byName = new Map<string, Project[]>();
+  for (const p of list) {
+    const arr = byName.get(p.client);
+    if (arr) arr.push(p);
+    else byName.set(p.client, [p]);
+  }
+
+  const out: ClientSummary[] = [];
+  for (const [name, ps] of byName) {
+    const recent = [...ps].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+    const scope = ps.reduce((n, p) => n + (p.price ?? 0), 0);
+    const paid = ps.reduce((n, p) => n + (p.paid ?? 0), 0);
+    out.push({
+      name,
+      count: ps.length,
+      active: ps.filter((p) => p.state !== 'done').length,
+      scope,
+      paid,
+      open: scope - paid,
+      lastEvent: recent[0].event,
+      lastDate: recent[0].date,
+      latestId: recent[0].id,
+    });
+  }
+
+  // Money first: who owes the most, then who is worth the most. Operating the
+  // business means the client with an open balance is the one you want on top.
+  return out.sort((a, b) => b.open - a.open || b.scope - a.scope);
+}
+
+export function useClientSummaries(): ClientSummary[] {
+  const list = useProjects();
+  return useMemo(() => clientSummaries(list), [list]);
+}
+
+/* ============================================================ the disk half
  *
- * A project points at FOLDERS on disk — often more than one (ceremony, party,
- * second shooter). The photographs themselves are never copied anywhere: the
- * folder list and each frame's status are the only things this store keeps, and
- * the disk stays the source of truth for what actually exists.
- *
- * Status defaults to "חומר גלם". That is not a placeholder for "unprocessed" —
- * most frames in a shoot never need an individual decision, and forcing the
- * photographer to clear a to-do on 1,800 files would be the tool inventing work.
- * Marking בטיפול / מוכן is opt-in, per frame.
+ * From here down, everything is ABOUT a folder of photographs and therefore
+ * lives in that folder. The mirror below is a cache of `project.json`, not a
+ * second copy of the truth: the disk wins on load, and every mutation is on its
+ * way back to the disk before the next render finishes.
  */
 
 export type PhotoStatus = 'raw' | 'working' | 'ready';
@@ -197,167 +271,298 @@ export const PHOTO_STATUS: { id: PhotoStatus; label: string }[] = [
   { id: 'ready', label: 'מוכן' },
 ];
 
-export interface ProjectFolder {
-  id: string;
-  path: string;
-  name: string;
-  count: number;
+export type { Frame };
+
+/** A frame's key in project.json. The absolute path is what every engine call
+ *  needs, but it is NOT identity: the folder is built to travel, and a drive
+ *  letter that changes must not orphan a batch. */
+export function frameKey(pathOrName: string): string {
+  return pathOrName.split(/[\\/]/).pop() ?? pathOrName;
 }
 
-export interface Photo {
-  /** The absolute path IS the identity. It is stable, unique, and it is what
-   *  every engine call needs anyway — a generated id would only be a second
-   *  name for the same thing, and one more thing to keep in sync. */
-  id: string;
-  path: string;
-  name: string;
-  folderId: string;
-  status: PhotoStatus;
+const EMPTY_STATE: ProjectMemory = {
+  version: 1,
+  batches: [],
+  assign: {},
+  statuses: {},
+  recipe: { version: 1, base: [], perBatch: {}, perFrame: {} },
+};
+
+const states: Record<string, ProjectMemory> = {};
+const framesByProject: Record<string, Frame[]> = {};
+const loading = new Set<string>();
+const saveTimers: Record<string, ReturnType<typeof setTimeout>> = {};
+
+/** Where the projects live. One answer for the installation, cached here so a
+ *  screen can ask without a round trip after the first time. */
+let root: string | null = null;
+let rootAsked = false;
+
+export async function getWorkspaceRoot(): Promise<string | null> {
+  if (!rootAsked) {
+    root = await workspaceRoot().catch(() => null);
+    rootAsked = true;
+  }
+  return root;
 }
 
-const FOLDERS_KEY = 'teza.folders.v1';
-const STATUS_KEY = 'teza.photo-status.v1';
+export async function setWorkspaceRoot(folder: string): Promise<string | null> {
+  root = await workspaceRoot(folder);
+  rootAsked = true;
+  notify();
+  return root;
+}
 
-function loadMap<T>(key: string): Record<string, T> {
+export function knownRoot(): string | null {
+  return root;
+}
+
+function stateOf(projectId: string): ProjectMemory {
+  return states[projectId] ?? EMPTY_STATE;
+}
+
+/** Persist on a debounce. Marking forty photographs into a batch is forty
+ *  mutations in a second; forty writes of the same file is how a save ends up
+ *  racing itself. */
+function save(projectId: string) {
+  const project = getProject(projectId);
+  if (!project?.home) return;
+  clearTimeout(saveTimers[projectId]);
+  saveTimers[projectId] = setTimeout(() => {
+    projectState(project.home!, states[projectId]).catch(() => {
+      /* the mirror still serves this session; the next mutation retries */
+    });
+  }, 400);
+}
+
+function write(projectId: string, next: ProjectMemory) {
+  states[projectId] = next;
+  notify();
+  save(projectId);
+}
+
+/** Open a project's folder: create it if needed, read its memory, list its
+ *  frames. Safe to call repeatedly — the guard makes a re-render cheap. */
+export async function openProject(projectId: string): Promise<void> {
+  const project = getProject(projectId);
+  if (!project || loading.has(projectId)) return;
+  loading.add(projectId);
   try {
-    return JSON.parse(localStorage.getItem(key) ?? '{}') as Record<string, T>;
-  } catch {
-    return {};
+    let home = project.home;
+    if (!home) {
+      if (!(await getWorkspaceRoot())) return; // no root chosen yet — the UI asks
+      home = (await initProject(folderNameOf(project))).home;
+      updateProject(projectId, { home });
+    }
+    states[projectId] = await projectState(home);
+    const { frames } = await projectFrames(home);
+    framesByProject[projectId] = frames;
+    notify();
+  } finally {
+    loading.delete(projectId);
   }
 }
 
-let folders: Record<string, ProjectFolder[]> = loadMap<ProjectFolder[]>(FOLDERS_KEY);
-let statuses: Record<string, PhotoStatus> = loadMap<PhotoStatus>(STATUS_KEY);
-
-function saveFolders() {
-  try {
-    localStorage.setItem(FOLDERS_KEY, JSON.stringify(folders));
-  } catch {
-    /* optional */
-  }
-  listeners.forEach((fn) => fn());
+/** Re-read the folder. The disk is the authority on what EXISTS, so anything
+ *  that changes it — an import, an apply — ends here rather than patching a
+ *  list in memory and hoping the two agree. */
+export async function reloadFrames(projectId: string): Promise<void> {
+  const home = getProject(projectId)?.home;
+  if (!home) return;
+  const { frames } = await projectFrames(home);
+  framesByProject[projectId] = frames;
+  updateProject(projectId, { imported: frames.length });
+  notify();
 }
 
-function saveStatuses() {
-  try {
-    localStorage.setItem(STATUS_KEY, JSON.stringify(statuses));
-  } catch {
-    /* optional */
-  }
-  listeners.forEach((fn) => fn());
+const NO_FRAMES: Frame[] = [];
+
+export function framesOf(projectId: string): Frame[] {
+  return framesByProject[projectId] ?? NO_FRAMES;
 }
 
-export function foldersOf(projectId: string): ProjectFolder[] {
-  return folders[projectId] ?? [];
-}
-
-export function useFolders(projectId: string): ProjectFolder[] {
-  return useSyncExternalStore(
+/** The set, loaded on first use. `ready` is false only while the very first
+ *  read is in flight — long enough to say "reading the folder", never long
+ *  enough to justify a skeleton. */
+export function useProjectFiles(projectId: string): { frames: Frame[]; ready: boolean } {
+  const frames = useSyncExternalStore(
     subscribe,
-    () => folders[projectId] ?? EMPTY_FOLDERS,
-    () => folders[projectId] ?? EMPTY_FOLDERS,
+    () => framesByProject[projectId] ?? NO_FRAMES,
+    () => framesByProject[projectId] ?? NO_FRAMES,
+  );
+  const [ready, setReady] = useState(() => projectId in framesByProject);
+  useEffect(() => {
+    let alive = true;
+    setReady(projectId in framesByProject);
+    openProject(projectId).finally(() => {
+      if (alive) setReady(true);
+    });
+    return () => {
+      alive = false;
+    };
+  }, [projectId]);
+  return { frames, ready };
+}
+
+/* -------------------------------------------------------------- batches */
+
+export type { Batch };
+
+export function batchesOf(projectId: string): Batch[] {
+  return [...stateOf(projectId).batches].sort((a, b) => a.order - b.order);
+}
+
+export function useBatches(projectId: string): Batch[] {
+  const state = useSyncExternalStore(
+    subscribe,
+    () => stateOf(projectId),
+    () => stateOf(projectId),
+  );
+  return useMemo(
+    () => [...state.batches].sort((a, b) => a.order - b.order),
+    [state],
   );
 }
 
-const EMPTY_FOLDERS: ProjectFolder[] = [];
-
-export function addFolder(projectId: string, path: string, count: number): ProjectFolder {
-  const clean = path.trim().replace(/[\/]+$/, '');
-  const name = clean.split(/[\/]/).filter(Boolean).pop() ?? clean;
-  const existing = (folders[projectId] ?? []).find((f) => f.path === clean);
-  const folder: ProjectFolder = existing
-    ? { ...existing, count }
-    : { id: `f${Date.now().toString(36)}`, path: clean, name, count };
-  folders = {
-    ...folders,
-    [projectId]: existing
-      ? (folders[projectId] ?? []).map((f) => (f.path === clean ? folder : f))
-      : [...(folders[projectId] ?? []), folder],
+/** Create a batch and put frames in it in ONE move.
+ *
+ *  This is the whole interaction: mark a run of photographs, name it, and it
+ *  leaves the pool. Splitting it into "make a batch" and then "put things
+ *  in it" would be two screens for one thought. */
+export function addBatch(projectId: string, name: string, frames: string[] = []): Batch {
+  const current = stateOf(projectId);
+  const batch: Batch = {
+    id: `s${Date.now().toString(36)}`,
+    name: name.trim() || 'ללא שם',
+    order: current.batches.length,
   };
-  saveFolders();
-  return folder;
+  const assign = { ...current.assign };
+  for (const f of frames) assign[frameKey(f)] = batch.id;
+  write(projectId, { ...current, batches: [...current.batches, batch], assign });
+  return batch;
 }
 
-export function removeFolder(projectId: string, folderId: string) {
-  folders = {
-    ...folders,
-    [projectId]: (folders[projectId] ?? []).filter((f) => f.id !== folderId),
-  };
-  saveFolders();
+export function renameBatch(projectId: string, id: string, name: string) {
+  const current = stateOf(projectId);
+  write(projectId, {
+    ...current,
+    batches: current.batches.map((s) => (s.id === id ? { ...s, name } : s)),
+  });
 }
 
-export function statusOf(path: string): PhotoStatus {
-  return statuses[path] ?? 'raw';
-}
-
-export function setPhotoStatus(path: string, status: PhotoStatus) {
-  if (status === 'raw') {
-    const { [path]: _drop, ...rest } = statuses;
-    statuses = rest;
-  } else {
-    statuses = { ...statuses, [path]: status };
+/** Remove a batch. Its frames go back to the pool rather than anywhere
+ *  else, and its grade goes with it — a look that belonged to a light that no
+ *  longer has a name is a step nobody can find to switch off. */
+export function removeBatch(projectId: string, id: string) {
+  const current = stateOf(projectId);
+  const assign: Record<string, string> = {};
+  for (const [name, sid] of Object.entries(current.assign)) {
+    if (sid !== id) assign[name] = sid;
   }
-  saveStatuses();
+  const { [id]: _dropped, ...perBatch } = current.recipe.perBatch;
+  write(projectId, {
+    ...current,
+    batches: current.batches.filter((s) => s.id !== id),
+    assign,
+    recipe: { ...current.recipe, perBatch },
+  });
 }
 
-export function useStatuses(): Record<string, PhotoStatus> {
-  return useSyncExternalStore(subscribe, () => statuses, () => statuses);
+/** Put frames in a batch, or back in the pool with `null`. */
+export function assignFrames(projectId: string, frames: string[], batchId: string | null) {
+  const current = stateOf(projectId);
+  const assign = { ...current.assign };
+  for (const f of frames) {
+    const key = frameKey(f);
+    if (batchId) assign[key] = batchId;
+    else delete assign[key];
+  }
+  write(projectId, { ...current, assign });
+}
+
+export function batchOfFrame(projectId: string, frame: string): string | undefined {
+  return stateOf(projectId).assign[frameKey(frame)];
+}
+
+/** The frames still waiting to be told what they are.
+ *
+ *  This is what the marking screen shows, and it is the reason the screen
+ *  works: it shrinks. "Finished" is a pool with nothing in it, which needs no
+ *  counter to read — and no photograph can end up in two batches, because
+ *  a frame that has been named has left. */
+export function unassignedFrames(projectId: string): Frame[] {
+  const { assign } = stateOf(projectId);
+  return framesOf(projectId).filter((f) => !assign[f.name]);
+}
+
+export function framesInBatch(projectId: string, batchId: string): Frame[] {
+  const { assign } = stateOf(projectId);
+  return framesOf(projectId).filter((f) => assign[f.name] === batchId);
+}
+
+/* ---------------------------------------------------------------- statuses */
+
+export function statusOf(projectId: string, frame: string): PhotoStatus {
+  return (stateOf(projectId).statuses[frameKey(frame)] as PhotoStatus) ?? 'raw';
+}
+
+export function setPhotoStatus(projectId: string, frame: string, status: PhotoStatus) {
+  const current = stateOf(projectId);
+  const statuses = { ...current.statuses };
+  if (status === 'raw') delete statuses[frameKey(frame)];
+  else statuses[frameKey(frame)] = status;
+  write(projectId, { ...current, statuses });
+}
+
+export function useStatuses(projectId: string): Record<string, string> {
+  const state = useSyncExternalStore(
+    subscribe,
+    () => stateOf(projectId),
+    () => stateOf(projectId),
+  );
+  return state.statuses;
 }
 
 /* ================================================================ the recipe
  *
- * WHAT THE SET LOOKS LIKE NOW — and the reason a tool no longer reopens the
- * raw files.
+ * WHAT THE SET LOOKS LIKE NOW — three layers deep, and the depth is the point.
  *
- * Before this existed, applying a learned colour to a folder wrote 2,000 JPEGs
- * into `<folder>\TEZA` and then forgot the path the moment the screen closed:
- * the destination lived in component state, the store had no concept of an
- * output, and /list-images does not recurse — so the result was invisible to
- * the product that produced it, and the next tool opened the raws again.
+ * `base` is the project: tools driven by CONTENT — cleanup, skin, noise,
+ * sharpening. The same face wants the same treatment wherever it was standing.
  *
- * So the set's state stopped being a place on disk and became a LIST OF WHAT
- * WAS DONE. Applying to the whole set appends a step here — instantly, with no
- * files written — and every screen that shows a frame renders through it. There
- * is nothing to synchronise because there is only one copy of the truth, and
- * changing step 1 does not cost the work done in steps 2 and 3.
+ * `perBatch` is the light: the learned colour, white balance, exposure,
+ * grading. One grade over a whole wedding is a lie, and this is where that stops
+ * being one.
  *
- * Files are written once, on delivery, from the original — so a set can be
- * re-graded any number of times without a single re-encode.
+ * `perFrame` is the exception — the single photograph that breaks the rule.
+ *
+ * Nothing here writes a file. Switching a step off is instant and costs nothing,
+ * because the only thing that ever gets written is `תמונות`, and that happens
+ * when the photographer applies — from the RAW, through the whole stack, never
+ * on top of the previous output.
  */
 
-const RECIPE_KEY = 'teza.recipes.v1';
-
-const EMPTY_RECIPE: ProjectRecipe = { version: 1, base: [], perFrame: {} };
-
-let recipes: Record<string, ProjectRecipe> = loadMap<ProjectRecipe>(RECIPE_KEY);
-
-function saveRecipes() {
-  try {
-    localStorage.setItem(RECIPE_KEY, JSON.stringify(recipes));
-  } catch {
-    /* optional */
-  }
-  listeners.forEach((fn) => fn());
-}
+const EMPTY_RECIPE: ProjectRecipe = { version: 1, base: [], perBatch: {}, perFrame: {} };
 
 export function recipeOf(projectId: string): ProjectRecipe {
-  return recipes[projectId] ?? EMPTY_RECIPE;
+  return (stateOf(projectId).recipe as ProjectRecipe) ?? EMPTY_RECIPE;
 }
 
 export function useRecipe(projectId: string): ProjectRecipe {
-  return useSyncExternalStore(
+  const state = useSyncExternalStore(
     subscribe,
-    () => recipes[projectId] ?? EMPTY_RECIPE,
-    () => recipes[projectId] ?? EMPTY_RECIPE,
+    () => stateOf(projectId),
+    () => stateOf(projectId),
   );
+  return (state.recipe as ProjectRecipe) ?? EMPTY_RECIPE;
 }
 
 /** Strip what cannot mean anything on another frame.
  *
  *  A brush stroke and a set of marked outlines belong to one face in one photo;
- *  carrying them into a step that runs on the whole set would apply one frame's
- *  geometry to every other frame. The rule is already stated in types.ts — this
- *  is where it is enforced, at the one door into `base`. */
+ *  carrying them into a step that runs on a whole batch would apply one
+ *  frame's geometry to every other frame. The rule is stated in types.ts — this
+ *  is where it is enforced, at the one door into the shared layers. */
 function shareable(step: ToolInstance): ToolInstance {
   const { selection: _drop, mask, ...rest } = step;
   if (!mask) return rest;
@@ -365,63 +570,155 @@ function shareable(step: ToolInstance): ToolInstance {
   return { ...rest, mask: maskRest };
 }
 
-function write(projectId: string, next: ProjectRecipe) {
-  recipes = { ...recipes, [projectId]: next };
-  saveRecipes();
+function upsert(list: ToolInstance[], step: ToolInstance): ToolInstance[] {
+  return list.some((t) => t.toolId === step.toolId)
+    ? list.map((t) => (t.toolId === step.toolId ? step : t))
+    : [...list, step];
 }
 
-/** Put a step on the whole set. One entry per tool: applying a look twice
- *  REPLACES it rather than stacking two grades on top of each other — a set has
- *  one look, and "keep both" is a variations feature, not a side effect. */
-export function setStep(projectId: string, step: ToolInstance) {
-  const current = recipeOf(projectId);
-  const clean = shareable(step);
-  const exists = current.base.some((t) => t.toolId === clean.toolId);
-  write(projectId, {
-    ...current,
-    version: 1,
-    base: exists
-      ? current.base.map((t) => (t.toolId === clean.toolId ? clean : t))
-      : [...current.base, clean],
-  });
-}
-
-export function removeStep(projectId: string, toolId: string) {
-  const current = recipeOf(projectId);
-  write(projectId, { ...current, base: current.base.filter((t) => t.toolId !== toolId) });
-}
-
-export function toggleStep(projectId: string, toolId: string, enabled: boolean) {
-  const current = recipeOf(projectId);
-  write(projectId, {
-    ...current,
-    base: current.base.map((t) => (t.toolId === toolId ? { ...t, enabled } : t)),
-  });
-}
-
-/** What one frame actually renders through.
+/** Put a step on a layer. One entry per tool per layer: applying a look twice
+ *  REPLACES it rather than stacking two grades — a set has one look, and "keep
+ *  both" is a variations feature, not a side effect.
  *
- *  `perFrame` overrides `base` by toolId, so an exception on three photographs
- *  never has to restate the twelve steps they share with the rest of the set.
- *  Frame-only tools run after the shared ones; the engine sorts by pipeline
- *  order anyway, so this order is for reading, not for correctness. */
-export function effectiveRecipe(projectId: string, path?: string): ToolInstance[] {
-  const { base, perFrame } = recipeOf(projectId);
-  const overrides = path ? perFrame[path] : undefined;
-  if (!overrides?.length) return base;
-  const byId = new Map(overrides.map((t) => [t.toolId, t]));
-  const merged = base.map((t) => byId.get(t.toolId) ?? t);
-  const extra = overrides.filter((t) => !base.some((b) => b.toolId === t.toolId));
+ *  `batchId` chooses the layer. Passing one is what makes the dance floor
+ *  and the garden two different grades instead of an argument. */
+export function setStep(projectId: string, step: ToolInstance, batchId?: string | null) {
+  const current = stateOf(projectId);
+  const recipe = current.recipe as ProjectRecipe;
+  const clean = shareable(step);
+  const next: ProjectRecipe = batchId
+    ? {
+      ...recipe,
+      perBatch: {
+        ...recipe.perBatch,
+        [batchId]: upsert(recipe.perBatch[batchId] ?? [], clean),
+      },
+    }
+    : { ...recipe, base: upsert(recipe.base, clean) };
+  write(projectId, { ...current, recipe: next });
+}
+
+export function removeStep(projectId: string, toolId: string, batchId?: string | null) {
+  const current = stateOf(projectId);
+  const recipe = current.recipe as ProjectRecipe;
+  const next: ProjectRecipe = batchId
+    ? {
+      ...recipe,
+      perBatch: {
+        ...recipe.perBatch,
+        [batchId]: (recipe.perBatch[batchId] ?? []).filter((t) => t.toolId !== toolId),
+      },
+    }
+    : { ...recipe, base: recipe.base.filter((t) => t.toolId !== toolId) };
+  write(projectId, { ...current, recipe: next });
+}
+
+export function toggleStep(
+  projectId: string,
+  toolId: string,
+  enabled: boolean,
+  batchId?: string | null,
+) {
+  const current = stateOf(projectId);
+  const recipe = current.recipe as ProjectRecipe;
+  const flip = (list: ToolInstance[]) =>
+    list.map((t) => (t.toolId === toolId ? { ...t, enabled } : t));
+  const next: ProjectRecipe = batchId
+    ? {
+      ...recipe,
+      perBatch: {
+        ...recipe.perBatch,
+        [batchId]: flip(recipe.perBatch[batchId] ?? []),
+      },
+    }
+    : { ...recipe, base: flip(recipe.base) };
+  write(projectId, { ...current, recipe: next });
+}
+
+/* ---- the frame layer ----
+ *
+ * One photograph, on its own. This is where the tool-by-tool workbench writes:
+ * retouching is judged frame by frame, and a skin setting that flatters one
+ * face is not a setting, it is a guess about every other face in the batch.
+ *
+ * Unlike the shared layers, THIS one may carry a brush stroke and a set of
+ * marked spots — they belong to one face in one photograph, which is exactly
+ * what this layer is. `shareable()` is deliberately not applied here. */
+
+export function setFrameStep(projectId: string, frame: string, step: ToolInstance) {
+  const current = stateOf(projectId);
+  const recipe = current.recipe as ProjectRecipe;
+  const key = frameKey(frame);
+  write(projectId, {
+    ...current,
+    recipe: {
+      ...recipe,
+      perFrame: { ...recipe.perFrame, [key]: upsert(recipe.perFrame[key] ?? [], step) },
+    },
+  });
+}
+
+export function removeFrameStep(projectId: string, frame: string, toolId: string) {
+  const current = stateOf(projectId);
+  const recipe = current.recipe as ProjectRecipe;
+  const key = frameKey(frame);
+  const left = (recipe.perFrame[key] ?? []).filter((t) => t.toolId !== toolId);
+  const perFrame = { ...recipe.perFrame };
+  // An empty exception list is not an exception. Leaving `{}` behind would make
+  // "how many frames differ from the set" count frames that no longer do.
+  if (left.length) perFrame[key] = left;
+  else delete perFrame[key];
+  write(projectId, { ...current, recipe: { ...recipe, perFrame } });
+}
+
+/** What this ONE frame carries of its own, ignoring what it inherits. */
+export function frameSteps(projectId: string, frame: string): ToolInstance[] {
+  return recipeOf(projectId).perFrame[frameKey(frame)] ?? [];
+}
+
+function merge(wide: ToolInstance[], narrow: ToolInstance[]): ToolInstance[] {
+  if (!narrow.length) return wide;
+  const byId = new Map(narrow.map((t) => [t.toolId, t]));
+  const merged = wide.map((t) => byId.get(t.toolId) ?? t);
+  const extra = narrow.filter((t) => !wide.some((b) => b.toolId === t.toolId));
   return [...merged, ...extra];
+}
+
+/** What one frame actually renders through: base, then its batch, then its
+ *  own exception. Each layer overrides by toolId, so an exception on three
+ *  photographs never has to restate the twelve steps they share with the rest
+ *  of the set. The engine sorts by pipeline order anyway, so this order is for
+ *  reading, not for correctness. */
+export function effectiveRecipe(projectId: string, frame?: string): ToolInstance[] {
+  const recipe = recipeOf(projectId);
+  let out = recipe.base;
+  if (frame) {
+    const batch = batchOfFrame(projectId, frame);
+    if (batch) out = merge(out, recipe.perBatch[batch] ?? []);
+    out = merge(out, recipe.perFrame[frameKey(frame)] ?? []);
+  }
+  return out;
+}
+
+/** What a whole batch renders through — base plus its own light. The set
+ *  view keys its previews on this, and `apply` writes files from it. */
+export function batchRecipe(projectId: string, batchId?: string | null): ToolInstance[] {
+  const recipe = recipeOf(projectId);
+  if (!batchId) return recipe.base;
+  return merge(recipe.base, recipe.perBatch[batchId] ?? []);
 }
 
 /** Steps that will actually run — what the engine keys a preview on. An
  *  all-disabled recipe is the raw frame, and must produce the raw frame's key. */
-export function activeSteps(projectId: string, path?: string): ToolInstance[] {
-  return effectiveRecipe(projectId, path).filter((t) => t.enabled);
+export function activeSteps(projectId: string, frame?: string): ToolInstance[] {
+  return effectiveRecipe(projectId, frame).filter((t) => t.enabled);
 }
 
-/** The learned colour look currently on the set, if there is one. */
-export function colorStep(projectId: string): LearnedColorModel | undefined {
-  return recipeOf(projectId).base.find((t) => t.toolId === 'pixel-color')?.model;
+/** The learned colour look on a batch — or on the project when no batch
+ *  is given. */
+export function colorStep(
+  projectId: string,
+  batchId?: string | null,
+): LearnedColorModel | undefined {
+  return batchRecipe(projectId, batchId).find((t) => t.toolId === 'pixel-color')?.model;
 }

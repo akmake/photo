@@ -51,6 +51,28 @@ LEFT_LOWER_LID = [33, 7, 163, 144, 145, 153, 154, 155, 133]
 RIGHT_LOWER_LID = [263, 249, 390, 373, 374, 380, 381, 382, 362]
 LEFT_EYEBROW = [46, 53, 52, 65, 55, 70, 63, 105, 66, 107]
 RIGHT_EYEBROW = [276, 283, 282, 295, 285, 300, 293, 334, 296, 336]
+# The two corners of each eye (outer canthus, inner canthus). The landmark ring
+# above is tight to the sclera opening; the canthus tissue — the reddish inner
+# caruncle and the small skin fold at the outer corner — sits just OUTSIDE it.
+EYE_CORNERS = {"l": (33, 133), "r": (263, 362)}
+# Radius of the canthus protection cap, as a fraction of face width. Measured on
+# 321A1809 (four faces): with the eye protected only by its hull + 3%, twelve
+# detections landed within 0.18*face_d of a corner and TWO were accepted heals
+# sitting on the corner itself (a baby's outer canthus at 0.04*face_d, a child's
+# at 0.06). A disc here protects exactly that tissue without fattening the lid
+# centre — the tight hull is deliberately kept (see anatomy_parts) so an outer-
+# lid lesion stays reachable.
+#
+# Radius swept on those four faces (fresh masks, disk cache bypassed):
+#   cap     corner heals   any corner cand.(d<.10)   real cheek heals
+#   0.00        2                 8                       12
+#   0.06        0                 3                       13
+#   0.08        0                 0                       14
+#   0.10        0                 0                       13   <- starts eating
+#   0.12        0                 0                       12      real marks
+# 0.08 clears every near-corner detection AND keeps the most real heals; larger
+# only costs recall. Not a value fitted to one mark — it is the knee of the curve.
+EYE_CORNER_CAP = 0.08
 LIPS = [
     61, 146, 91, 181, 84, 17, 314, 405, 321, 375, 291,
     409, 270, 269, 267, 0, 37, 39, 40, 185,
@@ -329,7 +351,16 @@ def anatomy_parts(rgb: np.ndarray, lm) -> "OrderedDict[str, np.ndarray]":
     ):
         m = blank()
         cv2.fillConvexPoly(m, cv2.convexHull(np.array([pt(i) for i in eye], np.int32)), 255)
-        parts[f"eye-{side}"] = cv2.dilate(m, _kern(fw * 0.030))  # lashes sit outside the ring
+        m = cv2.dilate(m, _kern(fw * 0.030))  # lashes sit outside the ring
+        # Canthus caps at both corners. The hull's own vertices ARE the corner
+        # landmarks, so the 3% margin reaches only ~3% past them — and the corner
+        # tissue the skin model keeps flagging (caruncle, outer skin fold) lives
+        # just beyond that. A disc centred on each corner covers it. See
+        # EYE_CORNER_CAP for the measurement that set the radius.
+        for cid in EYE_CORNERS[side]:
+            cx, cy = pt(cid)
+            cv2.circle(m, (cx, cy), max(2, int(fw * EYE_CORNER_CAP)), 255, -1)
+        parts[f"eye-{side}"] = m
 
         m = blank()
         cv2.fillConvexPoly(m, cv2.convexHull(np.array([pt(i) for i in brow], np.int32)), 255)
@@ -432,12 +463,45 @@ def _cache_key(rgb: np.ndarray, kind: str) -> tuple:
     return (kind, rgb.shape, hashlib.blake2b(thumb.tobytes(), digest_size=16).digest())
 
 
+def _disk_dir() -> str:
+    base = (
+        os.environ.get("TEZA_HOME")
+        or os.environ.get("LOCALAPPDATA")
+        or os.path.expanduser("~")
+    )
+    return os.path.join(base, "TEZA", "cache", "masks")
+
+
+def _disk_path(small: np.ndarray, kind: str) -> str:
+    """Keyed on the PICTURE, never on the recipe.
+
+    A mask says where the subject, the skin and the fabric are. Grading the
+    frame does not move them, so a look that changes must not cost the
+    segmentation again — that was the difference between re-grading a set in a
+    moment and re-grading it in minutes.
+    """
+    digest = hashlib.blake2b(
+        np.ascontiguousarray(small).tobytes(), digest_size=16
+    ).hexdigest()
+    return os.path.join(_disk_dir(), f"{digest}-{kind}.npy")
+
+
 def get_mask(rgb: np.ndarray, kind: str) -> np.ndarray:
     """Return a float32 mask in 0..1 with the same H,W as the image.
 
     Masks are computed at PROC_MAX_DIM and upscaled: they carry no fine detail,
     so running segmentation maths on a 20MP frame is wasted work. Results are
     cached because a tool chain asks for the same masks repeatedly.
+
+    TWO caches, and the second one is why a set stops costing minutes. The
+    in-memory one serves the same frame inside one render; the DISK one serves
+    it across widths, across recipes and across restarts. Measured on a frame
+    with a learned colour on it: 11.8s to segment, 0.1s once the masks exist.
+    The strip, the picker and the contact sheet were each paying the 11.8s.
+
+    What is written to disk is the SMALL mask, before the upscale — a fraction
+    of the bytes, and it goes back through the identical upscale on the way
+    out, so a cached frame and a freshly computed one produce the same array.
     """
     src = getattr(_source, "rgb", None)
     if src is not None and src.shape == rgb.shape:
@@ -450,8 +514,25 @@ def get_mask(rgb: np.ndarray, kind: str) -> np.ndarray:
         return hit
 
     small = common.downscale(rgb)
-    mask = _compute_mask(small, kind)
-    mask = np.clip(common.upscale_to(mask, rgb.shape), 0.0, 1.0)
+
+    on_disk = _disk_path(small, kind)
+    computed = None
+    try:
+        computed = np.load(on_disk)
+    except Exception:  # noqa: BLE001 — a bad cache file is not a failure
+        computed = None
+
+    if computed is None or computed.shape[:2] != small.shape[:2]:
+        computed = _compute_mask(small, kind)
+        try:
+            os.makedirs(os.path.dirname(on_disk), exist_ok=True)
+            tmp = on_disk + ".tmp"
+            np.save(tmp, computed.astype(np.float32))
+            os.replace(tmp, on_disk)
+        except OSError:
+            pass  # a cache that cannot be written still serves pixels
+
+    mask = np.clip(common.upscale_to(computed, rgb.shape), 0.0, 1.0)
 
     _CACHE[key] = mask
     if len(_CACHE) > _CACHE_MAX:

@@ -297,6 +297,15 @@
   display: block;
 }
 
+/* A job with no imported files yet: a neutral plate, not a broken image. */
+.job-frame-empty {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: var(--ink-3);
+}
+
 .job:hover .job-frame::after {
   content: '';
   position: absolute;
@@ -481,6 +490,41 @@
   font-size: var(--t-md);
 }
 
+/* A section with nothing in it yet — one honest line, not a blank hole. */
+.sec-empty {
+  padding: var(--s6) 0;
+  color: var(--ink-3);
+  font-size: var(--t-sm);
+}
+
+/* The whole-screen empty state: the studio has no projects at all. Composed,
+ * centred, and it carries the one action that starts everything. */
+.pj-blank,
+.today-blank {
+  display: grid;
+  justify-items: start;
+  gap: var(--s3);
+  max-width: 46ch;
+  padding: var(--s12) 0;
+}
+
+.pj-blank h2,
+.today-blank h2 {
+  font-size: var(--t-lg);
+  font-weight: 600;
+}
+
+.pj-blank p,
+.today-blank p {
+  color: var(--ink-3);
+  font-size: var(--t-md);
+}
+
+.pj-blank .btn,
+.today-blank .btn {
+  margin-top: var(--s3);
+}
+
 /* A finished job is stated, not colour-coded away — but quietly: the frame
  * stays the loudest thing on the tile. */
 .job-done {
@@ -604,6 +648,160 @@
   gap: var(--s2);
   padding: var(--s4);
   border-top: 1px solid var(--line);
+}
+
+/* ====================================================== coming-soon placeholder
+ * For sections whose real screen is still ahead. Honest and quiet — a title, a
+ * line, and the room around them, in the product's own language. */
+
+.soon {
+  display: grid;
+  align-content: start;
+  gap: var(--s3);
+  width: 100%;
+  max-width: 1440px;
+  margin-inline: auto;
+}
+
+.soon h1 {
+  font-size: var(--t-xl);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.soon-sub {
+  color: var(--ink-2);
+  font-size: var(--t-md);
+}
+
+.soon-note {
+  margin-top: var(--s6);
+  padding-top: var(--s4);
+  border-top: 1px solid var(--line);
+  color: var(--ink-3);
+  font-size: var(--t-sm);
+}
+
+/* ============================================================ לקוחות
+ * The client ledger. Same page chrome as פרויקטים (.pj / .pj-head /
+ * .pj-filters), a hairline row per client — no table, no status pills, no stat
+ * cards. Money is set in the data face and the open balance is the one figure
+ * allowed to carry a colour. */
+
+.cl-list {
+  list-style: none;
+  display: grid;
+}
+
+.cl-row {
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--s4);
+  width: 100%;
+  padding: var(--s3) var(--s2);
+  border-bottom: 1px solid var(--line);
+  text-align: start;
+  color: var(--ink);
+}
+
+.cl-row:hover {
+  background: var(--card);
+}
+
+.cl-avatar {
+  width: 44px;
+  height: 44px;
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--chrome);
+  border: 1px solid var(--line);
+  color: var(--ink-2);
+  font-size: var(--t-lg);
+  font-weight: 500;
+}
+
+.cl-main {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.cl-main b {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  font-size: var(--t-lg);
+  font-weight: 500;
+}
+
+.cl-tag {
+  font-style: normal;
+  font-size: var(--t-xs);
+  font-weight: 500;
+  color: var(--accent-ink);
+  background: var(--accent-soft);
+  border: 1px solid var(--accent-line);
+  padding: 1px 6px;
+  border-radius: var(--r-sm);
+}
+
+.cl-sub {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--ink-3);
+  font-size: var(--t-sm);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cl-sub i {
+  font-style: normal;
+  color: var(--line-strong);
+}
+
+.cl-active {
+  color: var(--accent-ink);
+}
+
+.cl-money {
+  display: flex;
+  gap: var(--s8);
+  text-align: end;
+}
+
+.cl-fig {
+  display: grid;
+  gap: 1px;
+  min-width: 72px;
+}
+
+.cl-fig b {
+  font-size: var(--t-md);
+  font-weight: 500;
+}
+
+.cl-fig span {
+  font-size: var(--t-xs);
+  color: var(--ink-3);
+}
+
+.cl-fig.due b {
+  color: var(--warn-ink);
+}
+
+@media (max-width: 720px) {
+  .cl-money {
+    gap: var(--s4);
+  }
+
+  .cl-fig {
+    min-width: 0;
+  }
 }
 
 /* ============================================================ the project */
@@ -753,6 +951,163 @@
 
 .ms.on .ms-value {
   color: var(--ink);
+}
+
+/* סקירה — the home of the job. It reports overall progress as its own count, so
+ * it belongs in the instrument rather than sitting beside it. */
+.ms-home {
+  min-width: 120px;
+  border-inline-start: 0;
+  border-inline-end: 1px solid var(--line-strong);
+}
+
+/* The stage the job is STANDING on, marked wherever you happen to be looking —
+ * a copper dot on the label. Distinct from .on, which is what you are viewing. */
+.ms.current .ms-label::before {
+  content: '';
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--acc-mark);
+  margin-inline-end: 6px;
+  vertical-align: middle;
+}
+
+/* ---- the overview: the job cockpit ---- */
+
+.ov {
+  overflow-y: auto;
+  min-height: 0;
+  padding: var(--s6);
+}
+
+.ov-inner {
+  display: grid;
+  align-content: start;
+  gap: var(--s8);
+  width: 100%;
+  max-width: 1180px;
+  margin-inline: auto;
+}
+
+/* הצעד הבא — the one raised, copper-edged element on the light end. This is
+ * where the boldness is spent: a single act-here directive, and nothing else on
+ * the screen competes with it. */
+.ov-move {
+  position: relative;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-inline-start: 2px solid var(--acc-mark);
+  border-radius: var(--r);
+  padding: var(--s6);
+  display: grid;
+  gap: var(--s2);
+}
+
+.ov-move.tone-done {
+  border-inline-start-color: var(--ok);
+}
+
+.ov-eyebrow {
+  font-size: var(--t-sm);
+  font-weight: 500;
+  color: var(--accent-ink);
+}
+
+.ov-move.tone-done .ov-eyebrow {
+  color: var(--ok-ink);
+}
+
+.ov-move h2 {
+  font-size: var(--t-xl);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.ov-move p {
+  color: var(--ink-3);
+  font-size: var(--t-md);
+}
+
+.ov-move-actions {
+  display: flex;
+  gap: var(--s2);
+  margin-top: var(--s3);
+}
+
+/* the business band — hairline sections, no boxes, divided by space */
+.ov-band {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--s8);
+}
+
+@media (max-width: 980px) {
+  .ov-band {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--s6);
+  }
+}
+
+.ov-sec h3 {
+  font-size: var(--t-sm);
+  font-weight: 600;
+  color: var(--ink-3);
+  padding-bottom: var(--s2);
+  border-bottom: 1px solid var(--ink-3);
+  margin-bottom: var(--s3);
+}
+
+/* the open balance is the one business number that earns size */
+.ov-open {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s2);
+  margin-bottom: var(--s3);
+}
+
+.ov-open b {
+  font-size: var(--t-2xl);
+  font-weight: 600;
+  line-height: 1;
+}
+
+.ov-open.due b {
+  color: var(--warn-ink);
+}
+
+.ov-open span {
+  color: var(--ink-3);
+  font-size: var(--t-sm);
+}
+
+.ov-defs {
+  display: grid;
+}
+
+.ov-defs > div {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--s3);
+  padding: var(--s2) 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.ov-defs dt {
+  color: var(--ink-3);
+  font-size: var(--t-sm);
+}
+
+.ov-defs dd {
+  font-size: var(--t-md);
+  font-weight: 500;
+}
+
+/* Activity sits inside the overview grid, so its own top margin is not wanted. */
+.ov-inner .activity {
+  margin-top: 0;
 }
 
 /* ---- workspace ---- */

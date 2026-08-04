@@ -13,6 +13,7 @@ Kept deliberately dependency-light: plain onnxruntime on the same session the
 rest of the engine uses, no timm, no transformers, no trust_remote_code.
 """
 
+import hashlib
 import os
 import threading
 
@@ -68,13 +69,55 @@ def _prep(rgb: np.ndarray) -> np.ndarray:
     return np.ascontiguousarray(x.transpose(2, 0, 1)[None])
 
 
+def _cache_path(x: np.ndarray) -> str:
+    """Keyed on the model INPUT, so it is keyed on the picture and nothing else.
+
+    Hashing the prepared tensor rather than the source frame means two requests
+    that differ only in how they got here — a different display width, a
+    different recipe — land on the same entry, which is the whole point: the
+    subject does not move when the grade changes.
+    """
+    base = (
+        os.environ.get("TEZA_HOME")
+        or os.environ.get("LOCALAPPDATA")
+        or os.path.expanduser("~")
+    )
+    digest = hashlib.blake2b(x.tobytes(), digest_size=16).hexdigest()
+    return os.path.join(base, "TEZA", "cache", "subject", f"{digest}.npy")
+
+
 def subject_alpha(rgb: np.ndarray) -> np.ndarray:
-    """(H, W) float32 alpha in 0..1. Raises if the model is missing."""
+    """(H, W) float32 alpha in 0..1. Raises if the model is missing.
+
+    THE SINGLE MOST EXPENSIVE THING IN A GRADED PREVIEW. Profiled at 6.4s of
+    onnxruntime per frame, against 241ms for the colour maths the preview is
+    actually there to show — and it was paid again for every width and every
+    time the look changed, because nothing above this line knew it could be
+    reused. It is cached at the model's own 1024px output, before the upscale
+    and the edge refinement, so a cached frame goes through exactly the same
+    arithmetic on the way out as a freshly inferred one.
+    """
     if not available():
         raise FileNotFoundError(f"BiRefNet weights not found at {MODEL}")
 
-    sess = _instance()
-    out = sess.run(None, {"input_image": _prep(rgb)})[0]
+    x = _prep(rgb)
+    cached_at = _cache_path(x)
+    out = None
+    try:
+        out = np.load(cached_at)
+    except Exception:  # noqa: BLE001 — a bad cache file is not a failure
+        out = None
+
+    if out is None:
+        sess = _instance()
+        out = sess.run(None, {"input_image": x})[0]
+        try:
+            os.makedirs(os.path.dirname(cached_at), exist_ok=True)
+            tmp = cached_at + ".tmp"
+            np.save(tmp, out)
+            os.replace(tmp, cached_at)
+        except OSError:
+            pass  # a cache that cannot be written still serves pixels
 
     alpha = np.squeeze(out).astype(np.float32)
     if alpha.min() < 0.0 or alpha.max() > 1.0:  # some exports emit logits

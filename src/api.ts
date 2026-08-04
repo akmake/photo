@@ -429,10 +429,50 @@ export async function registerRecipe(recipe: ToolInstance[]): Promise<string> {
 }
 
 /** A frame as the recipe leaves it. An empty key is the raw file — same picture
- *  /thumb serves, so a project with no recipe yet costs nothing extra. */
-export function previewUrl(path: string, width = 320, key = ''): string {
+ *  /thumb serves, so a project with no recipe yet costs nothing extra.
+ *
+ *  `fast` asks the engine to answer immediately: if the graded frame is not
+ *  rendered yet it returns the RAW one, marked, and queues the real render.
+ *  Callers that pass it MUST show that the frame is not the edit yet — see
+ *  useSetPreview, which is the only place that decides. */
+export function previewUrl(path: string, width = 320, key = '', fast = false): string {
   if (!key) return thumbUrl(path, width);
-  return `${ENGINE}/preview?path=${encodeURIComponent(path)}&w=${width}&key=${key}`;
+  const base = `${ENGINE}/preview?path=${encodeURIComponent(path)}&w=${width}&key=${key}`;
+  return fast ? `${base}&fast=1` : base;
+}
+
+/** Which of these frames are already rendered.
+ *
+ *  Asked for a screenful at a time: a browser cannot read a response header off
+ *  an `<img>`, so readiness has to be a separate question, and asking it per
+ *  element would be one request per thumbnail. */
+export async function previewReady(
+  key: string,
+  paths: string[],
+  width?: number,
+): Promise<{ ready: Record<string, boolean>; pending: number }> {
+  const r = await fetch(`${ENGINE}/preview/ready`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ key, paths, w: width }),
+  });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j?.error ?? `engine ${r.status}`);
+  return j;
+}
+
+/** Render these frames before anyone asks for them. Fire and forget: the queue
+ *  is the engine's problem, and a failure here must never block a screen. */
+export async function warmPreviews(key: string, paths: string[]): Promise<void> {
+  try {
+    await fetch(`${ENGINE}/preview/warm`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ key, paths }),
+    });
+  } catch {
+    /* warming is an optimisation, never a requirement */
+  }
 }
 
 /** Render a recipe over a file ON DISK. The browser cannot read the path, and
@@ -477,6 +517,112 @@ export async function exportFiles(
   const j = await r.json().catch(() => ({}));
   if (!r.ok) throw new Error(j?.error ?? `engine ${r.status}`);
   return j;
+}
+
+/* ------------------------------------------------------ the project's folder
+ *
+ * A project is a folder on disk (engine/workspace.py), and the browser can
+ * neither create one, copy into it, nor read a JSON out of it. Every call here
+ * is that boundary — the engine is a local process with disk access, so it does
+ * the filesystem work and reports back.
+ */
+
+/** One frame of the set, as the disk has it. */
+export interface Frame {
+  /** the RAW file — the truth, never written to after import */
+  path: string;
+  name: string;
+  /** capture time, epoch seconds; EXIF where readable, mtime otherwise */
+  shot: number;
+  /** true once a rendered version exists in תמונות */
+  edited: boolean;
+  /** the file to SHOW: the edited copy when there is one, else the raw */
+  shown: string;
+}
+
+export interface ProjectPaths {
+  home: string;
+  raw: string;
+  edited: string;
+  state?: string;
+}
+
+/** Everything project.json remembers — the project's MEMORY. Keyed by frame
+ *  NAME, not absolute path: the folder is meant to travel, and a drive letter
+ *  is not identity. */
+export interface ProjectMemory {
+  version: number;
+  batches: { id: string; name: string; order: number }[];
+  assign: Record<string, string>;
+  statuses: Record<string, string>;
+  recipe: {
+    version: number;
+    base: ToolInstance[];
+    perBatch: Record<string, ToolInstance[]>;
+    perFrame: Record<string, ToolInstance[]>;
+  };
+}
+
+async function post<T>(path: string, body: unknown): Promise<T> {
+  const r = await fetch(`${ENGINE}${path}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body ?? {}),
+  });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j?.error ?? `engine ${r.status}`);
+  return j as T;
+}
+
+/** Where projects live. Asked once for the installation, then remembered —
+ *  no folder argument reads it, passing one sets it. */
+export async function workspaceRoot(folder?: string): Promise<string | null> {
+  const j = await post<{ root: string | null }>('/workspace', folder ? { folder } : {});
+  return j.root;
+}
+
+/** Create or adopt `<root>/<name>/`. Safe to call on every open: adopting an
+ *  existing project must not be a different path through the code. */
+export async function initProject(name: string, root?: string): Promise<ProjectPaths> {
+  return post<ProjectPaths>('/project/init', { name, root });
+}
+
+/** Copy ONE frame into the project. One per call so the screen can count in
+ *  items — a card of 300 RAW frames is minutes, and a bar that moves is the
+ *  difference between waiting and force-quitting. */
+export async function importFrame(
+  src: string,
+  rawDir: string,
+): Promise<{ file: string; skipped: boolean }> {
+  return post('/project/import', { src, rawDir });
+}
+
+/** The set as the disk has it, in capture order. Read fresh every time: the
+ *  disk is the authority on what exists. */
+export async function projectFrames(home: string): Promise<{
+  frames: Frame[];
+  raw: string;
+  edited: string;
+}> {
+  return post('/project/frames', { home });
+}
+
+/** Read (no `state`) or write project.json. Always returns what is now on
+ *  disk, so a save and a reload cannot disagree. */
+export async function projectState(home: string, state?: ProjectMemory): Promise<ProjectMemory> {
+  return post('/project/state', state ? { home, state } : { home });
+}
+
+/** Render one frame from the RAW through the whole recipe and REPLACE its file
+ *  in תמונות. Never renders on top of the previous output — that is what keeps
+ *  a fifth tool from being the fifth JPEG generation. */
+export async function applyToFrame(
+  src: string,
+  editedDir: string,
+  recipe: ToolInstance[],
+  quality?: number,
+): Promise<{ file: string }> {
+  return post('/project/apply', { src, editedDir, recipe, quality });
 }
 
 /** Open the operating system's own folder dialog and return what was chosen.

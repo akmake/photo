@@ -10,9 +10,10 @@
  */
 
 import { useMemo, useState } from 'react';
-import { STATE_LABEL, stagesOf, useProjects } from '../store';
-import type { Project, ProjectState } from '../store';
+import { useProjects } from '../store';
+import type { ProjectState } from '../store';
 import NewProject from './NewProject';
+import JobTile from './JobTile';
 import { IcFolderOpen } from '../../design/Icons';
 
 type Filter = 'all' | ProjectState;
@@ -63,34 +64,21 @@ export default function Projects({ onOpen }: { onOpen: (id: string) => void }) {
         ))}
       </nav>
 
-      {shown.length === 0 ? (
+      {PROJECTS.length === 0 ? (
+        <div className="pj-blank">
+          <h2>אין עדיין פרויקטים</h2>
+          <p>כל עבודה מתחילה כאן — לקוח, אירוע ותאריך. הקבצים מגיעים אחר כך.</p>
+          <button className="btn btn-primary" onClick={() => setCreating(true)}>
+            <IcFolderOpen size={17} />
+            צור פרויקט ראשון
+          </button>
+        </div>
+      ) : shown.length === 0 ? (
         <p className="pj-empty">אין פרויקטים במצב הזה.</p>
       ) : (
         <div className="jobs">
           {shown.map((p) => (
-            <button key={p.id} className="job" onClick={() => onOpen(p.id)}>
-              <span className="job-frame">
-                <img src={p.thumb} alt="" style={{ objectPosition: p.pos }} loading="lazy" />
-                {p.state === 'waiting' && <span className="job-wait">{STATE_LABEL.waiting}</span>}
-                {p.state === 'done' && <span className="job-done">{STATE_LABEL.done}</span>}
-              </span>
-              <span className="job-name">{p.client}</span>
-              <span className="job-meta">
-                {p.event}
-                <i>·</i>
-                <span className="mono">{p.date}</span>
-              </span>
-              <span className="job-measure" aria-hidden="true">
-                {stagesOf(p).map((s2, i) => (
-                  <span
-                    key={s2.id}
-                    className={`seg ${i < p.at ? 'done' : ''} ${i === p.at && p.state !== 'done' ? 'on' : ''}`}
-                    title={s2.label}
-                  />
-                ))}
-              </span>
-              <span className="job-counts">{p.counts}</span>
-            </button>
+            <JobTile key={p.id} project={p} onOpen={onOpen} />
           ))}
         </div>
       )}

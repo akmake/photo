@@ -352,10 +352,71 @@
   word-break: break-all;
 }
 
+/* ---- choosing which light this look belongs to ----
+ *
+ * A row of the project's batches. This is the first decision on the screen
+ * because it governs every one after it: which frames may serve as the origin
+ * of the pair, and which frames the learned look lands on. It used to be
+ * inherited silently from whichever screen opened the tool, which meant the
+ * answer could be wrong with nothing on screen saying so. */
+
+.cm-scope {
+  display: flex;
+  gap: var(--s2);
+  flex-wrap: wrap;
+}
+
+.cm-scope-pick {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s2);
+  border: 1px solid var(--line);
+  background: none;
+  font: inherit;
+  font-size: var(--t-sm);
+  color: var(--ink-3);
+  padding: var(--s2) var(--s3);
+  cursor: pointer;
+  transition: border-color 90ms linear, color 90ms linear;
+}
+
+.cm-scope-pick:hover { border-color: var(--line-strong); color: var(--ink-2); }
+
+.cm-scope-pick b { font-weight: 500; color: var(--ink-2); }
+
+.cm-scope-pick.on {
+  border-color: var(--acc-mark);
+  color: var(--ink);
+}
+
+.cm-scope-pick.on b { color: var(--ink); }
+
+/* A batch that already carries a look — so replacing one is never a surprise. */
+.cm-scope-has {
+  font-style: normal;
+  font-size: var(--t-xs);
+  color: var(--ok-ink);
+}
+
+.cm-apply-n {
+  font-style: normal;
+  font-size: var(--t-sm);
+  font-weight: 400;
+  color: var(--ink-3);
+  margin-inline-start: var(--s2);
+}
+
 /* ==================================================== שולחן העבודה של הסט
  * One tool at a time. Dark end of the ramp: the frame is being judged. */
 
 .wb {
+  /* LIGHT. The editing workspace sits on the light end with the rest of the
+   * product, so moving from the project into a tool is not a change of world.
+   *
+   * The one thing that does NOT go light is the well the photograph sits in:
+   * a picture judged against white reads darker and more saturated than it is,
+   * the same error black makes in the other direction. The well stays a
+   * neutral grey — light enough to belong here, neutral enough to judge on. */
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
   height: 100%;
@@ -385,16 +446,21 @@
 }
 
 .wb-body {
+  position: relative;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 360px;
+  /* strip · canvas · tools */
+  grid-template-columns: 128px minmax(0, 1fr) 360px;
   min-height: 0;
 }
 
-@media (max-width: 1180px) {
-  .wb-body {
-    grid-template-columns: minmax(0, 1fr);
-  }
-}
+.wb-body.no-strip { grid-template-columns: minmax(0, 1fr) 360px; }
+
+/* Shut by the handle. The column collapses to nothing; the canvas takes the
+ * room. Reopening is always one button away, under the frame. */
+.wb-body.panel-shut { grid-template-columns: 128px minmax(0, 1fr) 0; }
+.wb-body.panel-shut.no-strip { grid-template-columns: minmax(0, 1fr) 0; }
+.wb-body.panel-shut .wb-panel { display: none; }
+
 
 .wb-canvas {
   display: grid;
@@ -404,21 +470,28 @@
   gap: var(--s3);
 }
 
-/* No frame, no radius, no shadow on a photograph. */
+/* No frame, no radius, no shadow on a photograph. The neutral the eye adapts
+ * to — not white, not black. */
 .wb-frame {
+  /* `stretch`, not `center`. With `center` the image is sized by its CONTENT,
+   * so `height: 100%` has no definite containing block to resolve against and
+   * falls back to the intrinsic aspect ratio — measured: a 1112x789 well
+   * rendering the picture 1112x1669, overflowing by 211%. Stretching gives the
+   * item the area's real size, and `object-fit` does the letterboxing. */
   display: grid;
-  place-items: center;
+  place-items: stretch;
   min-height: 0;
-  background: var(--n-04);
+  min-width: 0;
+  background: #8c8c8c;
   overflow: hidden;
 }
 
-.wb-frame img {
-  max-width: 100%;
-  max-height: 100%;
-  object-fit: contain;
-  display: block;
-}
+/* Sizing lives on `.wb-zoomer img` — the only image in here is inside the
+ * zoomer, and two rules competing over the same element is how the last
+ * sizing bug hid. */
+
+/* The waiting line is not a picture — it stays centred. */
+.wb-frame > span { place-self: center; }
 
 .wb-wait,
 .wb-busy {
@@ -458,6 +531,57 @@
   min-height: 0;
   background: var(--card);
   border-inline-start: 1px solid var(--line);
+}
+
+/* The handle inside the panel, for shutting it from where your eye already is. */
+.wb-panel-x {
+  justify-self: start;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: var(--t-sm);
+  color: var(--ink-3);
+  cursor: pointer;
+  padding: 0;
+}
+
+.wb-panel-x:hover { color: var(--ink); }
+
+.wb-panel-toggle { margin-inline-start: auto; }
+
+/* Which light this frame sits in — stated, never assumed. */
+.wb-batch {
+  font-size: var(--t-xs);
+  color: var(--ink-2);
+  border: 1px solid var(--line);
+  padding: 1px 8px;
+}
+
+.wb-to-batch { color: var(--ink-2); }
+/* THE BUG THIS REPLACES: below 1180px the rule here dropped the panel's COLUMN
+ * outright. The aside then stacked underneath the canvas inside a
+ * fixed-height box, so both were squeezed — the panel to an unusable strip —
+ * and there was no control anywhere to get it back. A layout must never reach
+ * a state the user cannot leave.
+ *
+ * Narrow now means the panel FLOATS over the canvas instead of fighting it for
+ * height, and the same handle opens and closes it. */
+@media (max-width: 1180px) {
+  .wb-body,
+  .wb-body.no-strip,
+  .wb-body.panel-shut { grid-template-columns: 96px minmax(0, 1fr); }
+  .wb-body.no-strip { grid-template-columns: minmax(0, 1fr); }
+
+  .wb-panel {
+    position: absolute;
+    inset-block: 0;
+    inset-inline-start: 0;
+    width: min(360px, 88vw);
+    z-index: 5;
+    background: var(--chrome);
+    border-inline-end: 1px solid var(--line);
+    box-shadow: var(--shadow-lg);
+  }
 }
 
 .wb-pick section {
@@ -575,4 +699,478 @@
   color: var(--ink-3);
   font-size: var(--t-sm);
   max-width: 46ch;
+}
+
+/* ============================================== כל התמונות, לפני ואחרי
+ *
+ * The check the single pair cannot give: what the learned look does to every
+ * OTHER frame in the batch. Dark surround, because this is a colour judgement
+ * and a light one shifts how the eye reads a pair.
+ *
+ * Pairs are butted together with a single hairline between them — no gap, no
+ * frame, no shadow. Two versions of one photograph have to be compared across
+ * an edge, and any gap between them becomes a third colour the eye adapts to. */
+
+.ba-scrim {
+  align-items: stretch;
+  justify-content: stretch;
+  padding: var(--s5);
+}
+
+.ba {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  width: 100%;
+  min-height: 0;
+  background: var(--page);
+  color: var(--ink);
+  border: 1px solid var(--line);
+}
+
+.ba-head {
+  position: relative;
+  display: grid;
+  gap: 2px;
+  padding: var(--s4) var(--s5);
+  border-bottom: 1px solid var(--line);
+}
+
+.ba-head h2 {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s2);
+  font-size: var(--t-lg);
+  font-weight: 500;
+}
+
+.ba-n { font-size: var(--t-sm); color: var(--ink-3); }
+
+.ba-head p {
+  font-size: var(--t-sm);
+  color: var(--ink-3);
+}
+
+.ba-body {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
+  gap: var(--s4);
+  padding: var(--s5);
+  align-content: start;
+}
+
+.ba-pair {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  cursor: zoom-in;
+}
+
+.ba-pair figcaption {
+  grid-column: 1 / -1;
+  padding-top: 6px;
+  font-size: var(--t-xs);
+  color: var(--ink-3);
+}
+
+.ba-shot {
+  position: relative;
+  display: grid;
+  place-items: center;
+  min-height: 90px;
+  background: var(--n-10, #111);
+  overflow: hidden;
+}
+
+/* The hairline the eye compares across — the only thing between the two. */
+.ba-pair .ba-shot:last-of-type { border-inline-start: 1px solid var(--line); }
+
+.ba-shot img {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.ba-shot > span {
+  position: absolute;
+  inset-block-end: 0;
+  inset-inline-start: 0;
+  padding: 2px 7px;
+  font-size: var(--t-xs);
+  color: #fff;
+  background: rgba(0, 0, 0, 0.55);
+}
+
+.ba-wait {
+  position: static !important;
+  background: none !important;
+  color: var(--ink-3) !important;
+  font-size: var(--t-xs);
+}
+
+/* ---- one pair, big enough to actually judge ---- */
+
+.ba-zoom-scrim { padding: var(--s4); }
+
+.ba-zoom {
+  position: relative;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  max-width: 100%;
+  max-height: 100%;
+  background: var(--page);
+  border: 1px solid var(--line);
+}
+
+.ba-zoom .ba-shot:last-of-type { border-inline-start: 1px solid var(--line); }
+
+.ba-zoom img {
+  max-height: calc(100vh - var(--s4) * 4);
+  width: auto;
+  max-width: 100%;
+  object-fit: contain;
+}
+
+/* ---- "this batch already has a look" ----
+ *
+ * At the TOP of the screen and impossible to walk past, because the mistake it
+ * prevents is unrecoverable: a second fit REPLACES the first, and the first
+ * cannot be got back. A corner toast is where a warning goes when nobody minds
+ * it being missed.
+ *
+ * It is a caution, not an alarm — the state it describes is normal and usually
+ * good news. Copper edge, no red: red is for something that went wrong, and
+ * nothing has. */
+
+.cm-known {
+  display: grid;
+  gap: var(--s3);
+  padding: var(--s4) var(--s5);
+  margin-bottom: var(--s5);
+  border: 1px solid var(--acc-mark);
+  border-inline-start-width: 3px;
+}
+
+.cm-known-what {
+  display: grid;
+  gap: 4px;
+  font-size: var(--t-sm);
+  color: var(--ink-3);
+}
+
+.cm-known-what > b {
+  font-size: var(--t-lg);
+  font-weight: 500;
+  color: var(--ink);
+}
+
+.cm-known-what b { color: var(--ink-2); font-weight: 500; }
+
+.cm-known-warn { color: var(--warn-ink, var(--ink-2)); }
+
+.cm-known-do {
+  display: flex;
+  gap: var(--s2);
+  flex-wrap: wrap;
+}
+
+.cm-known-else {
+  font-size: var(--t-xs);
+  color: var(--ink-3);
+}
+
+/* ---------------------------------------------- the strip (slide panel)
+ *
+ * Where the business rail used to be. While a photograph is open there is no
+ * reason to jump to the calendar, and that strip of screen is worth far more
+ * as the rest of the set: moving to the next frame is the thing you do most in
+ * here, and it was costing a dialog every time. */
+
+.wb-strip {
+  display: grid;
+  align-content: start;
+  gap: 2px;
+  padding: var(--s2);
+  background: var(--chrome);
+  border-inline-end: 1px solid var(--line);
+  min-height: 0;
+}
+
+.wb-slide {
+  position: relative;
+  display: block;
+  width: 100%;
+  aspect-ratio: 3 / 2;
+  border: 0;
+  padding: 0;
+  background: var(--n-30, #444);
+  cursor: pointer;
+  outline: 2px solid transparent;
+  outline-offset: -2px;
+  opacity: 0.72;
+  transition: opacity 90ms linear, outline-color 90ms linear;
+}
+
+.wb-slide:hover { opacity: 1; }
+
+.wb-slide.on {
+  opacity: 1;
+  outline-color: var(--acc-mark);
+}
+
+.wb-slide img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+/* The number is the same affordance a slide panel gives: position in the set,
+ * readable without counting. */
+.wb-slide-n {
+  position: absolute;
+  inset-block-start: 2px;
+  inset-inline-start: 4px;
+  font-size: 10px;
+  color: #fff;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
+  z-index: 1;
+}
+
+/* This frame carries edits of its own. */
+.wb-slide-dot {
+  position: absolute;
+  inset-block-end: 4px;
+  inset-inline-end: 4px;
+  width: 6px;
+  height: 6px;
+  background: var(--acc-mark);
+  border-radius: 50%;
+}
+
+/* ---- the way out ---- */
+
+.wb-done { margin-inline-start: auto; }
+
+@media (max-width: 1180px) {
+  .wb-slide-n { display: none; }
+}
+
+/* ------------------------------------------------- zoom, pan, and the split
+ *
+ * `.wb-frame` is the window; `.wb-zoomer` is what moves inside it. The
+ * transform lives on the wrapper rather than the image so that the "before"
+ * layer rides the SAME transform — two separately positioned images drift
+ * apart the moment the frame is panned, and a comparison that does not line up
+ * is worse than no comparison. */
+
+.wb-frame { position: relative; }
+
+.wb-frame.grab { cursor: grab; }
+.wb-frame.grab:active { cursor: grabbing; }
+
+.wb-zoomer {
+  /* ABSOLUTE, filling the well.
+   *
+   * It was a stretched grid item that ALSO declared width/height: 100%. Inside
+   * a grid whose track height comes from stretching, that percentage has no
+   * definite base to resolve against, so it computed to `auto`, the images fell
+   * back to their natural size, and the frame rendered enormous. `inset: 0`
+   * against a positioned parent is a definite box with nothing to infer. */
+  position: absolute;
+  inset: 0;
+  will-change: transform;
+}
+
+.wb-zoomer img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+
+/* Pixels, not a smoothed guess, once past 1:1. Judging sharpening through the
+ * browser's interpolation is judging the browser. */
+.wb-zoomer img { image-rendering: auto; }
+
+.wb-before { pointer-events: none; }
+
+.wb-split-line {
+  position: absolute;
+  inset-block: 0;
+  width: 1px;
+  background: #fff;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.45);
+  pointer-events: none;
+  z-index: 3;
+}
+
+/* A scrubber along the BOTTOM EDGE, not an invisible sheet over the picture.
+ *
+ * The first version covered the whole frame so that the divider would be easy
+ * to grab — and in doing so it swallowed every pointer event the zoom and pan
+ * need. A control that disables the thing it sits on top of is not a control.
+ * It lives on the edge, out of the way of both the image and the drag. */
+.wb-split-grip {
+  position: absolute;
+  inset-block-end: 0;
+  inset-inline: 0;
+  width: 100%;
+  height: 26px;
+  z-index: 4;
+  margin: 0;
+  cursor: ew-resize;
+  background: linear-gradient(to top, rgba(0, 0, 0, 0.35), transparent);
+  -webkit-appearance: none;
+  appearance: none;
+  /* The page is RTL, so a range input runs right-to-left by default — the thumb
+   * would sit at the opposite end from the edge it controls, because the clip
+   * it drives is physical. Pinned LTR so the handle is always over its own
+   * divider. */
+  direction: ltr;
+}
+
+.wb-split-grip::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 14px;
+  height: 22px;
+  background: #fff;
+  border: 1px solid rgba(0, 0, 0, 0.5);
+  cursor: ew-resize;
+}
+
+.wb-split-tag {
+  position: absolute;
+  inset-block-start: 8px;
+  z-index: 3;
+  font-size: var(--t-xs);
+  color: #fff;
+  background: rgba(0, 0, 0, 0.55);
+  padding: 2px 8px;
+  pointer-events: none;
+}
+
+/* PHYSICAL sides, matching the physical clip-path. In RTL the logical
+ * properties would swap these two labels onto the wrong halves — the caption
+ * would say "before" over the edited pixels. */
+.wb-split-tag.before { left: 8px; }
+.wb-split-tag.after { right: 8px; }
+
+.wb-zoom {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s2);
+  margin-inline-start: var(--s2);
+}
+
+.wb-zoom b { color: var(--ink-3); font-weight: 400; min-width: 4ch; }
+
+.btn.on {
+  border-color: var(--acc-mark);
+  color: var(--ink);
+}
+
+/* --------------------------------------------------------- the instruments */
+
+.wb-diff {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  pointer-events: none;
+}
+
+.wb-hist {
+  position: absolute;
+  inset-block-end: 10px;
+  inset-inline-end: 10px;
+  z-index: 5;
+  background: rgba(0, 0, 0, 0.55);
+  pointer-events: none;
+}
+
+.wb-gain {
+  font: inherit;
+  font-size: var(--t-sm);
+  background: var(--card);
+  color: var(--ink);
+  border: 1px solid var(--line);
+  padding: 3px 6px;
+}
+
+.wb-report {
+  display: grid;
+  gap: var(--s2);
+  padding-top: var(--s3);
+  border-top: 1px solid var(--line);
+}
+
+.wb-report h3 {
+  font-size: var(--t-sm);
+  font-weight: 600;
+  color: var(--ink-3);
+}
+
+/* The headline number. Three states, and the first one is the whole reason
+ * this exists: "nothing moved" must not look like "this is subtle". */
+.wb-delta { font-size: var(--t-sm); }
+.wb-delta.zero { color: var(--danger-ink); }
+.wb-delta.tiny { color: var(--warn-ink); }
+.wb-delta.real { color: var(--ok-ink); }
+
+.wb-blocked {
+  font-size: var(--t-xs);
+  color: var(--warn-ink);
+  border-inline-start: 2px solid var(--warn-ink);
+  padding-inline-start: var(--s2);
+}
+
+.wb-steps { list-style: none; display: grid; gap: 1px; }
+
+.wb-step-head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s2);
+  width: 100%;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: var(--t-xs);
+  color: var(--ink-3);
+  text-align: start;
+  padding: 4px 0;
+  cursor: pointer;
+  border-bottom: 1px solid var(--line);
+}
+
+.wb-step-head b { font-weight: 500; color: var(--ink-2); }
+.wb-step-ms { margin-inline-start: auto; opacity: 0.7; }
+
+.wb-step.idle .wb-step-verdict { color: var(--danger-ink); }
+.wb-step.warn .wb-step-verdict { color: var(--warn-ink); }
+.wb-step.ok .wb-step-verdict { color: var(--ok-ink); }
+
+.wb-step-body { padding: var(--s2) 0; }
+
+.wb-facts {
+  list-style: none;
+  display: grid;
+  gap: 2px;
+  font-size: var(--t-xs);
+  color: var(--ink-3);
+}
+
+.wb-raw {
+  margin-top: var(--s2);
+  max-height: 180px;
+  overflow: auto;
+  font-size: 10px;
+  line-height: 1.45;
+  color: var(--ink-3);
+  background: var(--card-2);
+  padding: var(--s2);
+  white-space: pre-wrap;
+  word-break: break-all;
 }

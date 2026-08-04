@@ -12,8 +12,8 @@
  */
 
 import { useCallback, useRef, useState } from 'react';
-import { exportFiles, listImages, pickFolder } from '../../api';
-import { activeSteps, foldersOf, recipeOf } from '../store';
+import { exportFiles, pickFolder } from '../../api';
+import { effectiveRecipe, framesOf, recipeOf } from '../store';
 import { IcCheckCircle, IcFolderOpen } from '../../design/Icons';
 
 function baseName(p: string) {
@@ -30,9 +30,9 @@ export default function DeliverSet({ projectId }: { projectId: string }) {
   const [error, setError] = useState<string | null>(null);
   const cancelled = useRef(false);
 
-  const steps = activeSteps(projectId);
   const { perFrame } = recipeOf(projectId);
   const exceptions = Object.keys(perFrame).length;
+  const frames = framesOf(projectId);
 
   const choose = useCallback(async () => {
     setError(null);
@@ -53,28 +53,24 @@ export default function DeliverSet({ projectId }: { projectId: string }) {
     setWrote(null);
     cancelled.current = false;
     try {
-      // Read the folders fresh: the disk is the source of truth for what
-      // exists, and a cached listing goes stale the first time a file moves.
-      const all: string[] = [];
-      for (const folder of foldersOf(projectId)) {
-        const r = await listImages(folder.path);
-        all.push(...r.files);
-      }
-      setTotal(all.length);
+      setTotal(frames.length);
 
-      for (const file of all) {
+      /* Delivered from the RAW through each frame's OWN effective recipe —
+       * base, then its situation's light, then its own exception. Sending one
+       * recipe for the whole set would deliver the dance floor carrying the
+       * garden's colour, which is the exact mistake situations exist to
+       * prevent. */
+      for (const frame of frames) {
         if (cancelled.current) break;
         try {
-          const override = perFrame[file];
-          const r = await exportFiles(
-            [file],
-            steps,
-            dest,
-            override ? { [file]: override.filter((t) => t.enabled) } : undefined,
-          );
+          const own = effectiveRecipe(projectId, frame.name).filter((t) => t.enabled);
+          const r = await exportFiles([frame.path], own, dest);
           if (r.errors?.length) setFailed((f) => [...f, ...r.errors]);
         } catch (e) {
-          setFailed((f) => [...f, { file, error: e instanceof Error ? e.message : 'שגיאה' }]);
+          setFailed((f) => [
+            ...f,
+            { file: frame.name, error: e instanceof Error ? e.message : 'שגיאה' },
+          ]);
         }
         setDone((d) => d + 1);
       }
@@ -84,14 +80,14 @@ export default function DeliverSet({ projectId }: { projectId: string }) {
     } finally {
       setRunning(false);
     }
-  }, [dest, perFrame, projectId, steps]);
+  }, [dest, frames, projectId]);
 
   return (
     <section className="dlv">
       <div className="dlv-what">
         <span>ייכתבו קבצים חדשים לפי מצב הסט</span>
-        <b className="mono">{steps.length}</b>
-        <span>שלבים פעילים{exceptions > 0 && <> · <b className="mono">{exceptions}</b> חריגות</>}</span>
+        <b className="mono">{frames.length.toLocaleString('he-IL')}</b>
+        <span>תמונות{exceptions > 0 && <> · <b className="mono">{exceptions}</b> חריגות</>}</span>
       </div>
 
       <div className="dlv-where">

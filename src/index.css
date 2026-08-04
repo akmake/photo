@@ -3,14 +3,25 @@
  *
  * This replaced a single dark-theme stylesheet. The old one styled the editor
  * only; the app now has a shell around it, and both surfaces are driven from
- * one token set (see design/tokens.css and the [data-surface] switch). */
+ * one token set (see design/tokens.css and the [data-surface] switch).
+ *
+ * ONLY what the first paint needs lives here. album.css (3,000 lines) and
+ * lab.css travel with their own lazily-loaded screens instead — see
+ * album/AlbumStudio.tsx and lab/Lab.tsx. Both are fully prefixed (.album-*,
+ * .lab-*, .cmp-*) with no global or element selectors, so nothing outside those
+ * screens changes when they arrive late.
+ *
+ * editor.css is NOT split out despite being editor-only: it defines .ms, which
+ * business.css also defines for the project measure rail, and it currently wins
+ * by load order. Splitting it would silently restyle the rail. That collision
+ * should be resolved before the sheet moves. */
 
 @import './design/tokens.css';
 @import './studio/shell.css';
 @import './studio/screens/business.css';
+/* colormatch.css stays global: .cm-* is used by ProjectFiles and DeliverSet,
+ * which render inside the project screen, not only in ColorMatch. */
 @import './studio/screens/colormatch.css';
 @import './studio/screens/files.css';
 @import './studio/screens/screens.css';
 @import './studio/screens/editor.css';
-@import './lab/lab.css';
-@import './album/album.css';

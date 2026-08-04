@@ -37,6 +37,8 @@ import recipe_fit
 import pixel_color
 import album_analysis
 import album_export
+import workspace
+import storage_locations
 
 PORT = 8756
 
@@ -55,6 +57,101 @@ _WORKER = ThreadPoolExecutor(max_workers=1, thread_name_prefix="engine-image")
 def on_worker(fn, *args, **kwargs):
     """Run image work on the one thread allowed to touch the models."""
     return _WORKER.submit(fn, *args, **kwargs).result()
+
+
+# ------------------------------------------------------------- the warm queue
+#
+# The first graded view of a frame costs ~15s, nearly all of it segmentation
+# (docs/BUGS.md BUG-002). The caches make that a once-per-photograph cost, but
+# it was still being paid while the photographer waited for it.
+#
+# So it is paid in advance instead: applying a look, or opening a batch, hands
+# the set to this queue and it renders ahead of where the eye is.
+#
+# It submits to the SAME single worker, deliberately. Rendering two frames at
+# once was measured SLOWER than one after another — 7 frames took 82s in
+# parallel against 48s sequentially — so a second lane would cost the
+# interactive request it was meant to protect.
+#
+# LIFO, not FIFO: what the photographer just asked for matters more than what
+# they asked for a minute ago, and a queue that answers in the order requests
+# arrived makes the newest click wait longest.
+_WARM_LOCK = threading.Lock()
+_WARM_STACK = []          # (key, path, width) — most recent last
+_WARM_SEEN = set()        # de-dupe; a set re-opened twice must not queue twice
+_WARM_THREAD = None
+
+
+class _Interactive:
+    """How many requests a person is currently waiting on."""
+
+    def __init__(self):
+        self._n = 0
+        self._lock = threading.Lock()
+
+    @property
+    def value(self):
+        return self._n
+
+    def __enter__(self):
+        with self._lock:
+            self._n += 1
+        return self
+
+    def __exit__(self, *exc):
+        with self._lock:
+            self._n -= 1
+        return False
+
+
+_INTERACTIVE = _Interactive()
+
+
+def _warm_loop():
+    while True:
+        # BACK OFF WHILE SOMEONE IS WAITING. There is one worker, so a warm job
+        # already running makes the next interactive render wait up to ~12s
+        # behind it. Warming exists to remove waiting, so it must never be the
+        # thing being waited for.
+        if _INTERACTIVE.value:
+            time.sleep(0.2)
+            continue
+        with _WARM_LOCK:
+            job = _WARM_STACK.pop() if _WARM_STACK else None
+        if job is None:
+            time.sleep(0.35)
+            continue
+        key, path, width = job
+        try:
+            recipe = _recall_recipe(key) if key else []
+            if recipe is None or not os.path.isfile(path):
+                continue
+            target = _proxy_path(key or "raw", path, width)
+            if os.path.exists(target):
+                continue
+            data = on_worker(_render_proxy, path, width, recipe)
+            _store_proxy(target, data)
+        except Exception:  # noqa: BLE001 — warming must never take the engine down
+            pass
+
+
+def warm(key, paths, width=None):
+    """Queue frames to be rendered before anyone asks for them."""
+    global _WARM_THREAD
+    width = width or _PROXY_CANON
+    with _WARM_LOCK:
+        for p in paths:
+            token = (key, p, width)
+            if token in _WARM_SEEN:
+                continue
+            _WARM_SEEN.add(token)
+            _WARM_STACK.append(token)
+        if _WARM_THREAD is None:
+            _WARM_THREAD = threading.Thread(
+                target=_warm_loop, name="engine-warm", daemon=True
+            )
+            _WARM_THREAD.start()
+        return len(_WARM_STACK)
 
 
 # --------------------------------------------------------------- the proxy cache
@@ -130,7 +227,27 @@ def _recall_recipe(key):
 # differently, and a cache that outlives the code it came from serves
 # yesterday's pixels under today's key. Caught exactly that way: a sizing fix
 # looked like it had not worked, because the stale proxy was still being served.
-_PROXY_VERSION = 2
+_PROXY_VERSION = 3
+
+# THE ONE SIZE A GRADED FRAME IS EVER RENDERED AT.
+#
+# Rendering is not proportional to the output size — it is dominated by a fixed
+# per-frame cost. `pixel-color` needs subject, skin and material masks to know
+# what to protect, and those come from MobileSAM and MediaPipe: measured at
+# ~11-12s for a frame it has not seen, against 241ms for the colour maths
+# itself. The masks depend on the PICTURE, not on how big it is being shown.
+#
+# So a width-keyed cache made the product pay that ~12s once per width. The
+# strip asks for 200, the picker 320, the contact sheet 520 — three full
+# segmentations of the same photograph, ~36s a frame, and seven frames took the
+# minutes that were reported.
+#
+# Now: render once at this width, cache THAT, and derive every requested size
+# from it by resizing — which costs single-digit milliseconds. 640 because it is
+# the floor the masks are already computed at (see _render_proxy) and it covers
+# every grid and strip in the product; anything larger is a rarity and is
+# rendered on demand at its own size.
+_PROXY_CANON = 640
 
 
 def _proxy_path(key, src_path, width):
@@ -144,6 +261,34 @@ def _proxy_path(key, src_path, width):
         f"{_PROXY_VERSION}|{src_path}|{stamp}|{width}".encode("utf-8")
     ).hexdigest()
     return os.path.join(_cache_root(), "proxy", key, f"{ident}.jpg")
+
+
+def _read_proxy(p):
+    try:
+        with open(p, "rb") as fh:
+            return fh.read()
+    except OSError:
+        return None
+
+
+def _store_proxy(p, blob):
+    try:
+        os.makedirs(os.path.dirname(p), exist_ok=True)
+        with open(p, "wb") as fh:
+            fh.write(blob)
+    except OSError:
+        pass  # a cache that cannot be written still serves pixels
+
+
+def _shrink(data, width):
+    """Re-size an already-rendered proxy. Milliseconds, and no masks."""
+    im = Image.open(io.BytesIO(data))
+    size = _fit_size(im.size, width)
+    if size != im.size:
+        im = im.convert("RGB").resize(size, Image.LANCZOS)
+    buf = io.BytesIO()
+    im.convert("RGB").save(buf, "JPEG", quality=82)
+    return buf.getvalue()
 
 
 def _fit_size(size, width):
@@ -386,27 +531,80 @@ class Handler(BaseHTTPRequestHandler):
                 self._json(409, {"error": "unknown recipe key"})
                 return
 
-            proxy = _proxy_path(key or "raw", path, width)
-            data = None
-            try:
-                with open(proxy, "rb") as fh:
-                    data = fh.read()
-            except OSError:
-                pass
+            read, store = _read_proxy, _store_proxy
+            data = read(_proxy_path(key or "raw", path, width))
+            graded = data is not None
+
+            # `fast` — answer NOW with whatever is true, and say which it is.
+            #
+            # A grid of 300 frames must not be 300 blocking 15-second renders.
+            # With fast=1 a frame that is not rendered yet comes back as the RAW
+            # file immediately, marked X-Teza-Graded: 0, and is queued to be
+            # rendered. The client shows it as pending and re-requests when the
+            # real one exists.
+            #
+            # The marking is not optional. Serving an ungraded frame under a URL
+            # that promises the edit, with nothing saying so, is exactly the
+            # confusion the recipe model exists to remove — so the header is the
+            # contract, and the UI is required to show it.
+            # Warming renders at the canonical width, so a frame can be fully
+            # graded and still have no entry at the width being asked for.
+            # Deriving from the canonical costs milliseconds — checking for it
+            # here is the difference between a needless raw flash and none.
+            if data is None and width <= _PROXY_CANON:
+                canon = read(_proxy_path(key or "raw", path, _PROXY_CANON))
+                if canon is not None:
+                    data = canon if width == _PROXY_CANON else _shrink(canon, width)
+                    store(_proxy_path(key or "raw", path, width), data)
+                    graded = True
+
+            if data is None and args.get("fast") and recipe:
+                warm(key, [path])
+                self.send_response(200)
+                self.send_header("Content-Type", "image/jpeg")
+                self.send_header("Access-Control-Allow-Origin", "*")
+                self.send_header("X-Teza-Graded", "0")
+                self.send_header("Access-Control-Expose-Headers", "X-Teza-Graded")
+                # Never cached: the next request for this URL must be able to
+                # come back graded.
+                self.send_header("Cache-Control", "no-store")
+                # OFF the worker, deliberately. An empty recipe touches no
+                # model — `_render_proxy` is a decode and a resize — so the
+                # thread-safety reason the worker exists does not apply, and
+                # going through it would queue this reply behind a 12s warm
+                # render. Measured before this line: 35s for seven frames to
+                # show anything at all.
+                raw_bytes = _render_proxy(path, width, [])
+                self.send_header("Content-Length", str(len(raw_bytes)))
+                self.end_headers()
+                self.wfile.write(raw_bytes)
+                return
 
             if data is None:
-                data = on_worker(_render_proxy, path, width, recipe)
-                try:
-                    os.makedirs(os.path.dirname(proxy), exist_ok=True)
-                    with open(proxy, "wb") as fh:
-                        fh.write(data)
-                except OSError:
-                    pass  # a cache that cannot be written still serves pixels
+                # EVERY size below the canonical one is derived from a SINGLE
+                # render. Rendering is dominated by per-frame segmentation
+                # (~12s), not by output size, so rendering per width paid that
+                # cost once per width — three times over for the strip, the
+                # picker and the contact sheet. See _PROXY_CANON.
+                if width <= _PROXY_CANON:
+                    canon_at = _proxy_path(key or "raw", path, _PROXY_CANON)
+                    canon = read(canon_at)
+                    if canon is None:
+                        with _INTERACTIVE:
+                            canon = on_worker(_render_proxy, path, _PROXY_CANON, recipe)
+                        store(canon_at, canon)
+                    data = canon if width == _PROXY_CANON else _shrink(canon, width)
+                else:
+                    with _INTERACTIVE:
+                        data = on_worker(_render_proxy, path, width, recipe)
+                store(_proxy_path(key or "raw", path, width), data)
 
             self.send_response(200)
             self.send_header("Content-Type", "image/jpeg")
             self.send_header("Content-Length", str(len(data)))
             self.send_header("Access-Control-Allow-Origin", "*")
+            self.send_header("X-Teza-Graded", "1" if (graded or recipe) else "0")
+            self.send_header("Access-Control-Expose-Headers", "X-Teza-Graded")
             # Safe to cache hard: the key changes whenever the recipe changes,
             # and the proxy name changes whenever the file does.
             self.send_header("Cache-Control", "public, max-age=86400")
@@ -415,9 +613,51 @@ class Handler(BaseHTTPRequestHandler):
         except Exception as e:  # noqa: BLE001
             self._json(500, {"error": str(e)})
 
+    def _preview_ready(self):
+        """Which of these frames are rendered — so the client can stop guessing.
+
+        Reading a header off an <img> is not possible, so readiness is asked for
+        in one call for a whole screenful rather than inferred per element.
+        """
+        try:
+            body = self._body()
+            key = body.get("key") or ""
+            paths = body.get("paths") or []
+            width = int(body.get("w") or _PROXY_CANON)
+            ready = {}
+            for p in paths:
+                target = _proxy_path(key or "raw", p, width)
+                canon = _proxy_path(key or "raw", p, _PROXY_CANON)
+                ready[p] = os.path.exists(target) or os.path.exists(canon)
+            with _WARM_LOCK:
+                pending = len(_WARM_STACK)
+            self._json(200, {"ready": ready, "pending": pending})
+        except Exception as e:  # noqa: BLE001
+            self._json(500, {"error": str(e)})
+
+    def _preview_warm(self):
+        """Render these frames ahead of being asked for them."""
+        try:
+            body = self._body()
+            key = body.get("key") or ""
+            paths = body.get("paths") or []
+            if not key:
+                self._json(200, {"queued": 0})
+                return
+            queued = warm(key, paths)
+            self._json(200, {"queued": queued})
+        except Exception as e:  # noqa: BLE001
+            self._json(500, {"error": str(e)})
+
     def do_POST(self):
         if self.path == "/recipe-key":
             self._recipe_key()
+            return
+        if self.path == "/preview/ready":
+            self._preview_ready()
+            return
+        if self.path == "/preview/warm":
+            self._preview_warm()
             return
         if self.path == "/decode":
             self._decode()
@@ -443,8 +683,32 @@ class Handler(BaseHTTPRequestHandler):
         if self.path == "/export-color":
             self._export_color()
             return
+        if self.path == "/pick-folder":
+            self._pick_folder()
+            return
+        if self.path == "/storage-locations":
+            self._storage_locations()
+            return
         if self.path == "/list-images":
             self._list_images()
+            return
+        if self.path == "/workspace":
+            self._workspace()
+            return
+        if self.path == "/project/init":
+            self._project_init()
+            return
+        if self.path == "/project/import":
+            self._project_import()
+            return
+        if self.path == "/project/frames":
+            self._project_frames()
+            return
+        if self.path == "/project/state":
+            self._project_state()
+            return
+        if self.path == "/project/apply":
+            self._project_apply()
             return
         if self.path == "/export":
             self._export()
@@ -672,20 +936,104 @@ class Handler(BaseHTTPRequestHandler):
         That is the difference between "paste a path" and "choose a folder", and
         the second one is the only acceptable version.
 
+        This is the Vista-style picker (IFileOpenDialog + FOS_PICKFOLDERS) — the
+        same window Explorer itself uses — not System.Windows.Forms.FolderBrowserDialog,
+        whose tree view predates XP and has no search, no Quick access, no preview.
+
         The dialog is owned by a TopMost form, or Windows would open it behind
         the browser and the click would look like it did nothing.
         """
-        script = (
-            "Add-Type -AssemblyName System.Windows.Forms;"
-            "$owner = New-Object System.Windows.Forms.Form;"
-            "$owner.TopMost = $true;"
-            "$d = New-Object System.Windows.Forms.FolderBrowserDialog;"
-            "$d.Description = 'בחר תיקייה עם תמונות הפרויקט';"
-            "$d.ShowNewFolderButton = $false;"
-            "if ($d.ShowDialog($owner) -eq [System.Windows.Forms.DialogResult]::OK)"
-            " { [Console]::Out.Write($d.SelectedPath) };"
-            "$owner.Dispose()"
-        )
+        script = r"""
+Add-Type -AssemblyName System.Windows.Forms
+Add-Type -TypeDefinition @"
+using System;
+using System.Runtime.InteropServices;
+
+namespace TezaDialog {
+    [ComImport]
+    [Guid("DC1C5A9C-E88A-4dde-A5A1-60F82A20AEF7")]
+    internal class FileOpenDialogRCW { }
+
+    [ComImport]
+    [Guid("d57c7288-d4ad-4768-be02-9d969532d960")]
+    [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    internal interface IFileOpenDialog
+    {
+        [PreserveSig] int Show(IntPtr parent);
+        void SetFileTypes(uint cFileTypes, IntPtr rgFilterSpec);
+        void SetFileTypeIndex(uint iFileType);
+        void GetFileTypeIndex(out uint piFileType);
+        void Advise([MarshalAs(UnmanagedType.Interface)] object pfde, out uint pdwCookie);
+        void Unadvise(uint dwCookie);
+        void SetOptions(uint fos);
+        void GetOptions(out uint pfos);
+        void SetDefaultFolder([MarshalAs(UnmanagedType.Interface)] IShellItem psi);
+        void SetFolder([MarshalAs(UnmanagedType.Interface)] IShellItem psi);
+        void GetFolder([MarshalAs(UnmanagedType.Interface)] out IShellItem ppsi);
+        void GetCurrentSelection([MarshalAs(UnmanagedType.Interface)] out IShellItem ppsi);
+        void SetFileName([MarshalAs(UnmanagedType.LPWStr)] string pszName);
+        void GetFileName([MarshalAs(UnmanagedType.LPWStr)] out string pszName);
+        void SetTitle([MarshalAs(UnmanagedType.LPWStr)] string pszTitle);
+        void SetOkButtonLabel([MarshalAs(UnmanagedType.LPWStr)] string pszText);
+        void SetFileNameLabel([MarshalAs(UnmanagedType.LPWStr)] string pszLabel);
+        void GetResult([MarshalAs(UnmanagedType.Interface)] out IShellItem ppsi);
+        void AddPlace([MarshalAs(UnmanagedType.Interface)] IShellItem psi, uint alignment);
+        void SetDefaultExtension([MarshalAs(UnmanagedType.LPWStr)] string pszDefaultExtension);
+        void Close(int hr);
+        void SetClientGuid(ref Guid guid);
+        void ClearClientData();
+        void SetFilter([MarshalAs(UnmanagedType.Interface)] object pFilter);
+        void GetResults([MarshalAs(UnmanagedType.Interface)] out object ppenum);
+        void GetSelectedItems([MarshalAs(UnmanagedType.Interface)] out object ppsai);
+    }
+
+    [ComImport]
+    [Guid("43826D1E-E718-42EE-BC55-A1E261C37BFE")]
+    [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    internal interface IShellItem
+    {
+        void BindToHandler(IntPtr pbc, ref Guid bhid, ref Guid riid, out IntPtr ppv);
+        void GetParent([MarshalAs(UnmanagedType.Interface)] out IShellItem ppsi);
+        void GetDisplayName(uint sigdnName, out IntPtr ppszName);
+        void GetAttributes(uint sfgaoMask, out uint psfgaoAttribs);
+        void Compare([MarshalAs(UnmanagedType.Interface)] IShellItem psi, uint hint, out int piOrder);
+    }
+
+    public static class ModernFolderBrowser
+    {
+        public static string Show(string title, IntPtr owner)
+        {
+            const uint FOS_PICKFOLDERS = 0x20;
+            const uint FOS_FORCEFILESYSTEM = 0x40;
+            const uint FOS_NOVALIDATE = 0x100;
+            const uint FOS_NOTESTFILECREATE = 0x10000;
+            const uint FOS_DONTADDTORECENT = 0x2000000;
+            const uint SIGDN_FILESYSPATH = 0x80058000;
+
+            var dialog = (IFileOpenDialog)new FileOpenDialogRCW();
+            dialog.SetOptions(FOS_PICKFOLDERS | FOS_FORCEFILESYSTEM | FOS_NOVALIDATE | FOS_NOTESTFILECREATE | FOS_DONTADDTORECENT);
+            if (!string.IsNullOrEmpty(title)) dialog.SetTitle(title);
+            int hr = dialog.Show(owner);
+            if (hr != 0) return null;
+            IShellItem item;
+            dialog.GetResult(out item);
+            IntPtr pszPath;
+            item.GetDisplayName(SIGDN_FILESYSPATH, out pszPath);
+            string path = Marshal.PtrToStringUni(pszPath);
+            Marshal.FreeCoTaskMem(pszPath);
+            return path;
+        }
+    }
+}
+"@
+
+$owner = New-Object System.Windows.Forms.Form
+$owner.TopMost = $true
+$ownerHandle = $owner.Handle
+$path = [TezaDialog.ModernFolderBrowser]::Show('בחר תיקייה עם תמונות הפרויקט', $ownerHandle)
+$owner.Dispose()
+if ($path) { [Console]::Out.Write($path) }
+"""
         try:
             out = subprocess.run(
                 ["powershell", "-NoProfile", "-STA", "-Command", script],
@@ -731,6 +1079,116 @@ class Handler(BaseHTTPRequestHandler):
             )
             files = [os.path.join(folder, n) for n in names]
             self._json(200, {"folder": folder, "files": files, "count": len(files)})
+        except Exception as e:  # noqa: BLE001
+            self._json(500, {"error": str(e)})
+
+    # ------------------------------------------------------------ the project
+    #
+    # A project is a folder (workspace.py). These endpoints are the only way the
+    # front end touches it: the browser cannot create a directory, copy a file,
+    # or read a JSON off D:\ — and the whole model rests on it being able to.
+
+    def _workspace(self):
+        """Read or set the projects root. { folder? } -> { root }
+
+        No folder in the body is a READ. Sending one is the one-time answer to
+        "where do projects live", and it is remembered for the installation —
+        asking per project would be asking the same question 200 times.
+        """
+        try:
+            body = self._body()
+            folder = body.get("folder")
+            root = workspace.set_root(folder) if folder else workspace.get_root()
+            self._json(200, {"root": root})
+        except ValueError as e:
+            self._json(400, {"error": str(e)})
+        except Exception as e:  # noqa: BLE001
+            self._json(500, {"error": str(e)})
+
+    def _project_init(self):
+        """Create or adopt <root>/<name>/. { name, root? } -> paths
+
+        Idempotent: opening a project that already exists must not be a
+        different path through the code from creating one, or the second
+        session behaves differently from the first.
+        """
+        try:
+            body = self._body()
+            self._json(200, workspace.init_project(body.get("name", ""), body.get("root")))
+        except ValueError as e:
+            self._json(400, {"error": str(e)})
+        except Exception as e:  # noqa: BLE001
+            self._json(500, {"error": str(e)})
+
+    def _project_import(self):
+        """Copy ONE frame into the project. { src, rawDir } -> { file, skipped }
+
+        One per call so the screen counts in items. 300 RAW frames off a card
+        is minutes of copying, and a bar that moves is the difference between
+        waiting and force-quitting.
+        """
+        try:
+            body = self._body()
+            self._json(200, workspace.import_file(body["src"], body["rawDir"]))
+        except ValueError as e:
+            self._json(400, {"error": str(e)})
+        except Exception as e:  # noqa: BLE001
+            self._json(500, {"error": str(e)})
+
+    def _project_frames(self):
+        """The set, in capture order. { home } -> { frames, raw, edited }
+
+        Read fresh every time and never cached: the disk is the authority on
+        what exists, and a cached listing is wrong the first time a file is
+        moved in Explorer. Each frame reports the file to SHOW — the edited
+        copy when there is one, the raw when there is not.
+        """
+        try:
+            body = self._body()
+            p = workspace.paths(body["home"])
+            frames = workspace.list_frames(p["raw"], p["edited"])
+            self._json(200, {"frames": frames, "raw": p["raw"], "edited": p["edited"]})
+        except Exception as e:  # noqa: BLE001
+            self._json(500, {"error": str(e)})
+
+    def _project_state(self):
+        """Read or write project.json. { home, state? } -> state
+
+        No `state` in the body is a read. This is the project's memory and it
+        lives INSIDE the project folder on purpose: copy the folder and the
+        batches, assignments and recipe come with it.
+        """
+        try:
+            body = self._body()
+            home = body["home"]
+            if body.get("state") is not None:
+                workspace.write_state(home, body["state"])
+            self._json(200, workspace.read_state(home))
+        except Exception as e:  # noqa: BLE001
+            self._json(500, {"error": str(e)})
+
+    def _project_apply(self):
+        """Render one frame from the RAW and replace its file in `תמונות`.
+
+        { src, editedDir, recipe, quality? } -> { file }
+
+        The replacement is computed from the raw through the WHOLE current
+        recipe — never from the file already sitting there. That is the one
+        decision that keeps a fifth tool from being the fifth JPEG generation,
+        and keeps any step removable after the fact. The output overwrites in
+        place: one current version per frame, no version folders.
+        """
+        try:
+            body = self._body()
+            out_path, _ = on_worker(
+                render.export,
+                body["src"],
+                body.get("recipe", []),
+                body["editedDir"],
+                "jpeg",
+                int(body.get("quality", render.DEFAULT_QUALITY)),
+            )
+            self._json(200, {"file": out_path})
         except Exception as e:  # noqa: BLE001
             self._json(500, {"error": str(e)})
 

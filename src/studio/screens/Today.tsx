@@ -1,186 +1,145 @@
-/* "היום" — the landing screen.
+/* "היום" — the landing screen, derived entirely from the project store.
  *
- * WHAT WENT WRONG THE FIRST TWO TIMES, and why this is a different screen and
- * not a restyle of the last one:
+ * It carries three things, and all of them are read from the real projects — no
+ * demo arrays, so what shows here can never disagree with פרויקטים:
  *
- * A queue of five sentences cannot hold a 1400px screen. Stretched to fill, it
- * produced two enormous half-empty boxes; left unstretched, it left the bottom
- * two thirds of the window blank. Either way the screen read as broken, and no
- * amount of spacing or contrast was going to fix a composition with nothing in
- * it.
+ *   דורש ממך משהו   the urgency queue — a client waiting, money owed
+ *   על השולחן        the desk: every active job as a frame from that shoot
+ *   הקרוב ביותר       the next shoots, by date
  *
- * So the screen carries THE WORK ITSELF. Below the short "needs you" strip sits
- * the desk: every active job as a frame from that shoot, its stage, and its
- * counts. That is what a photographer opens the application to see, it is the
- * only content there is enough of to hold the space, and it is made of
- * photographs — which is the one material this product has and a generic admin
- * panel does not.
- *
- * Order in the queue is by real urgency, not recency: a waiting CLIENT outranks
- * money, money outranks a deadline.
+ * When there is nothing yet, the screen says so and points at the one action
+ * that starts everything — creating a project. A landing screen that lies about
+ * having work is worse than one that admits the studio is empty.
  */
 
+import { useMemo } from 'react';
 import type { SectionId } from '../nav';
-import { IcCamera, IcCalendar } from '../../design/Icons';
+import { STAGES, useProjects } from '../store';
+import type { Project } from '../store';
+import JobTile from './JobTile';
+import { IcCamera, IcCalendar, IcFolderOpen } from '../../design/Icons';
 
-type Urgency = 'client' | 'money' | 'deadline';
+const EDIT_AT = STAGES.findIndex((s) => s.id === 'edit');
 
-interface QueueItem {
-  /** What happened. One short sentence, and it is the loudest thing in the row. */
+function openOf(p: Project): number {
+  return p.price ? p.price - (p.paid ?? 0) : 0;
+}
+
+/** dd.mm → a sortable key. Good enough to order the coming shoots. */
+function dateKey(d: string): number {
+  const [dd, mm] = d.split('.').map(Number);
+  return (mm || 0) * 100 + (dd || 0);
+}
+
+type Urgency = 'client' | 'money';
+
+interface QItem {
+  id: string;
+  urgency: Urgency;
   verb: string;
-  /** Everything else on ONE muted line: who, how many, when. Spreading these
-   *  across separate columns is what made the rows unreadable — the eye had to
-   *  cross two empty gaps to assemble a single fact. */
   line: string;
   action: string;
   thumb: string;
-  urgency: Urgency;
+  pos: string;
 }
 
-const QUEUE: QueueItem[] = [
-  {
-    verb: 'משפחת לוי סיימו לבחור 96 תמונות',
-    line: 'צילומי משפחה · מתוך 380 · לפני שעה',
-    action: 'התחל לערוך',
-    thumb: '/demo/b.jpg',
-    urgency: 'client',
-  },
-  {
-    verb: 'רון ומאיה ביקשו 4 תיקונים באלבום',
-    line: 'חתונה · גרסה 1 · אתמול 21:40',
-    action: 'פתח את הכפולה',
-    thumb: '/demo/c.jpg',
-    urgency: 'client',
-  },
-  {
-    verb: 'הגלריה של איתי כהן מוכנה ולא נשלחה',
-    line: 'בר מצווה · 412 תמונות · ממתין 3 ימים',
-    action: 'שלח ללקוח',
-    thumb: '/demo/a.jpg',
-    urgency: 'client',
-  },
-  {
-    verb: 'סטודיו א.ד חייבים ₪2,400',
-    line: 'צילומי מוצר · נמסר לפני 21 יום',
-    action: 'פתח את הלקוח',
-    thumb: '/demo/c.jpg',
-    urgency: 'money',
-  },
-  {
-    verb: 'הרינדור של משפחת ברק הסתיים · 3 נכשלו',
-    line: 'ניו בורן · 214 קבצים · הבוקר 07:12',
-    action: 'פתח את המסירה',
-    thumb: '/demo/b.jpg',
-    urgency: 'deadline',
-  },
-];
+/** The queue is derived from real signals only: a client whose turn it is, and
+ *  money owed on a delivered job. Clients outrank money. */
+function buildQueue(projects: Project[]): QItem[] {
+  const client: QItem[] = [];
+  const money: QItem[] = [];
 
-/* A project's stages, as the measure the whole product uses. `at` is the stage
- * the job is standing on; everything before it is done. */
-const STAGE_LABELS = ['ייבוא', 'בחירה', 'עריכה', 'אלבום', 'מסירה'];
+  for (const p of projects) {
+    if (p.state === 'waiting') {
+      const onAlbum = p.at >= 4;
+      client.push({
+        id: p.id,
+        urgency: 'client',
+        thumb: p.thumb,
+        pos: p.pos,
+        verb: onAlbum ? `${p.client} בודקים את הגהת האלבום` : `${p.client} בוחרים תמונות מהגלריה`,
+        line: [p.event, p.waitingSince && `נשלח ${p.waitingSince}`].filter(Boolean).join(' · '),
+        action: onAlbum ? 'פתח את האלבום' : 'פתח את הבחירה',
+      });
+    }
+  }
 
-interface Job {
-  client: string;
-  event: string;
-  date: string;
-  thumb: string;
-  at: number;
-  counts: string;
-  waiting?: string;
+  for (const p of projects) {
+    const open = openOf(p);
+    if (p.state === 'done' && open > 0) {
+      money.push({
+        id: p.id,
+        urgency: 'money',
+        thumb: p.thumb,
+        pos: p.pos,
+        verb: `${p.client} — ₪${open.toLocaleString('he-IL')} פתוחים לגבייה`,
+        line: `${p.event} · נמסר`,
+        action: 'פתח את הפרויקט',
+      });
+    }
+  }
+
+  return [...client, ...money];
 }
 
-const JOBS: Job[] = [
-  {
-    client: 'משפחת לוי',
-    event: 'צילומי משפחה',
-    date: '24.07',
-    thumb: '/demo/b.jpg',
-    at: 2,
-    counts: '96 בסט · 24 נערכו',
-  },
-  {
-    client: 'רון ומאיה',
-    event: 'חתונה',
-    date: '12.07',
-    thumb: '/demo/c.jpg',
-    at: 3,
-    counts: '18 כפולות · גרסה 1',
-    waiting: 'ממתין ללקוח',
-  },
-  {
-    client: 'בר מצווה איתי כהן',
-    event: 'אירוע',
-    date: '21.07',
-    thumb: '/demo/a.jpg',
-    at: 1,
-    counts: '412 אחרי סינון',
-  },
-  {
-    client: 'משפחת ברק',
-    event: 'ניו בורן',
-    date: '18.07',
-    thumb: '/demo/b.jpg',
-    at: 4,
-    counts: '214 קבצים מוכנים',
-  },
-  {
-    client: 'סטודיו א.ד',
-    event: 'צילומי מוצר',
-    date: '02.07',
-    thumb: '/demo/c.jpg',
-    at: 4,
-    counts: 'נמסר · ₪2,400 פתוח',
-  },
-  {
-    client: 'ליאת ואורי',
-    event: 'חתונה',
-    date: '31.07',
-    thumb: '/demo/a.jpg',
-    at: 0,
-    counts: 'הצילום מחר',
-  },
-  {
-    client: 'משפחת נחום',
-    event: 'צילומי משפחה',
-    date: '02.08',
-    thumb: '/demo/b.jpg',
-    at: 0,
-    counts: 'טרם יובא',
-  },
-  {
-    client: 'דנה שגב',
-    event: 'הריון',
-    date: '15.07',
-    thumb: '/demo/c.jpg',
-    at: 2,
-    counts: '64 בסט · 64 נערכו',
-  },
-  {
-    client: 'משפחת אלון',
-    event: 'בוק תדמית',
-    date: '09.07',
-    thumb: '/demo/a.jpg',
-    at: 1,
-    counts: '208 אחרי סינון',
-    waiting: 'ממתין ללקוח',
-  },
-];
+export default function Today({
+  onSection,
+  onOpen,
+}: {
+  onSection: (s: SectionId) => void;
+  onOpen: (id: string) => void;
+}) {
+  const projects = useProjects();
 
-export default function Today({ onSection }: { onSection: (s: SectionId) => void }) {
   const now = new Date();
   const day = now.toLocaleDateString('he-IL', { weekday: 'long' });
   const date = now.toLocaleDateString('he-IL', { day: 'numeric', month: 'long' });
 
+  const { queue, active, upcoming, stats, nextShoot } = useMemo(() => {
+    const queue = buildQueue(projects);
+    const active = projects.filter((p) => p.state !== 'done');
+    const upcoming = projects
+      .filter((p) => p.state === 'shoot')
+      .sort((a, b) => dateKey(a.date) - dateKey(b.date));
+    const stats = {
+      active: active.length,
+      waiting: projects.filter((p) => p.state === 'waiting').length,
+      editing: projects.filter((p) => p.state === 'work' && p.at === EDIT_AT).length,
+      toCollect: projects.reduce((n, p) => n + openOf(p), 0),
+    };
+    return { queue, active, upcoming, stats, nextShoot: upcoming[0] };
+  }, [projects]);
+
+  // Nothing in the studio yet — say so, and point at the one action that starts
+  // everything. Every other section is derived from projects, so they are all
+  // empty too until the first one exists.
+  if (projects.length === 0) {
+    return (
+      <div className="today">
+        <header className="today-head">
+          <h1>{day}<span className="today-date">{date}</span></h1>
+        </header>
+        <div className="today-blank">
+          <h2>השולחן ריק</h2>
+          <p>עוד אין פרויקטים. כל עבודה מתחילה בלקוח, אירוע ותאריך — הקבצים מגיעים אחר כך.</p>
+          <button className="btn btn-primary" onClick={() => onSection('projects')}>
+            <IcFolderOpen size={17} />
+            צור פרויקט ראשון
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="today">
       <header className="today-head">
-        <h1>
-          {day}
-          <span className="today-date">{date}</span>
-        </h1>
+        <h1>{day}<span className="today-date">{date}</span></h1>
         <div className="today-shoot">
           <IcCamera size={15} />
-          <span>אין צילום היום · הבא <b>מחר 17:00</b></span>
+          {nextShoot
+            ? <span>הצילום הבא · <b>{nextShoot.client}</b> <span className="mono">{nextShoot.date}</span></span>
+            : <span>אין צילום מתוכנן</span>}
         </div>
       </header>
 
@@ -188,22 +147,28 @@ export default function Today({ onSection }: { onSection: (s: SectionId) => void
         <section aria-label="דורש ממך משהו">
           <div className="sec-bar">
             <h2>דורש ממך משהו</h2>
-            <span className="sec-n mono">{QUEUE.length}</span>
+            <span className="sec-n mono">{queue.length}</span>
           </div>
-          <ul className="queue">
-            {QUEUE.map((item) => (
-              <li key={item.verb}>
-                <button className={`q-row u-${item.urgency}`} onClick={() => onSection('projects')}>
-                  <img className="q-thumb" src={item.thumb} alt="" loading="lazy" />
-                  <span className="q-main">
-                    <b>{item.verb}</b>
-                    <span className="q-sub">{item.line}</span>
-                  </span>
-                  <span className="q-action">{item.action}</span>
-                </button>
-              </li>
-            ))}
-          </ul>
+          {queue.length === 0 ? (
+            <p className="sec-empty">אין משימות דחופות. שום לקוח לא ממתין ואין חוב פתוח.</p>
+          ) : (
+            <ul className="queue">
+              {queue.map((item) => (
+                <li key={item.id + item.urgency}>
+                  <button className={`q-row u-${item.urgency}`} onClick={() => onOpen(item.id)}>
+                    {item.thumb
+                      ? <img className="q-thumb" src={item.thumb} alt="" style={{ objectPosition: item.pos }} loading="lazy" />
+                      : <span className="q-thumb q-thumb-empty" aria-hidden="true" />}
+                    <span className="q-main">
+                      <b>{item.verb}</b>
+                      <span className="q-sub">{item.line}</span>
+                    </span>
+                    <span className="q-action">{item.action}</span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
         </section>
 
         <aside aria-label="צילומים קרובים">
@@ -214,86 +179,54 @@ export default function Today({ onSection }: { onSection: (s: SectionId) => void
               היומן
             </button>
           </div>
-          <ul className="up-list">
-            <li>
-              <button className="up-row" onClick={() => onSection('calendar')}>
-                <span className="up-when"><b>מחר</b><span className="mono">31.07</span></span>
-                <span className="up-main"><b>ליאת ואורי</b><span>חתונה · גני התערוכה</span></span>
-                <span className="up-time mono">17:00</span>
-              </button>
-            </li>
-            <li>
-              <button className="up-row" onClick={() => onSection('calendar')}>
-                <span className="up-when"><b>שישי</b><span className="mono">02.08</span></span>
-                <span className="up-main"><b>משפחת נחום</b><span>משפחה · הבית</span></span>
-                <span className="up-time mono">08:30</span>
-              </button>
-            </li>
-            <li>
-              <button className="up-row" onClick={() => onSection('calendar')}>
-                <span className="up-when"><b>ראשון</b><span className="mono">04.08</span></span>
-                <span className="up-main"><b>סטודיו א.ד</b><span>מוצר · סטודיו</span></span>
-                <span className="up-time mono">11:00</span>
-              </button>
-            </li>
-            <li>
-              <button className="up-row" onClick={() => onSection('calendar')}>
-                <span className="up-when"><b>רביעי</b><span className="mono">07.08</span></span>
-                <span className="up-main"><b>איתי כהן</b><span>בר מצווה</span></span>
-                <span className="up-time mono">18:00</span>
-              </button>
-            </li>
-          </ul>
+          {upcoming.length === 0 ? (
+            <p className="sec-empty">אין צילומים מתוכננים.</p>
+          ) : (
+            <ul className="up-list">
+              {upcoming.map((p) => (
+                <li key={p.id}>
+                  <button className="up-row" onClick={() => onOpen(p.id)}>
+                    <span className="up-when"><b className="mono">{p.date}</b></span>
+                    <span className="up-main">
+                      <b>{p.client}</b>
+                      <span>{[p.event, p.location].filter(Boolean).join(' · ')}</span>
+                    </span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
         </aside>
       </div>
 
-      {/* The desk. This is what actually holds the screen. */}
       <section className="desk" aria-label="העבודות שעל השולחן">
         <div className="sec-bar">
           <h2>על השולחן</h2>
-          <span className="sec-n mono">{JOBS.length}</span>
+          <span className="sec-n mono">{active.length}</span>
           <button className="sec-link" onClick={() => onSection('projects')}>
             כל הפרויקטים
           </button>
         </div>
 
-        <div className="jobs">
-          {JOBS.map((job) => (
-            <button key={job.client} className="job" onClick={() => onSection('projects')}>
-              <span className="job-frame">
-                <img src={job.thumb} alt="" loading="lazy" />
-                {job.waiting && <span className="job-wait">{job.waiting}</span>}
-              </span>
-              <span className="job-name">{job.client}</span>
-              <span className="job-meta">
-                {job.event}
-                <i>·</i>
-                <span className="mono">{job.date}</span>
-              </span>
-              <span className="job-measure" aria-hidden="true">
-                {STAGE_LABELS.map((label, i) => (
-                  <span
-                    key={label}
-                    className={`seg ${i < job.at ? 'done' : ''} ${i === job.at ? 'on' : ''}`}
-                    title={label}
-                  />
-                ))}
-              </span>
-              <span className="job-counts mono">{job.counts}</span>
-            </button>
-          ))}
-        </div>
+        {active.length === 0 ? (
+          <p className="sec-empty">אין עבודות פעילות כרגע.</p>
+        ) : (
+          <div className="jobs">
+            {active.map((p) => (
+              <JobTile key={p.id} project={p} onOpen={onOpen} />
+            ))}
+          </div>
+        )}
       </section>
 
       <footer className="today-foot">
-        <span><b className="mono">5</b> פרויקטים פעילים</span>
+        <span><b className="mono">{stats.active}</b> פרויקטים פעילים</span>
         <i />
-        <span><b className="mono">2</b> ממתינים ללקוח</span>
+        <span><b className="mono">{stats.waiting}</b> ממתינים ללקוח</span>
         <i />
-        <span><b className="mono">1</b> בעריכה</span>
+        <span><b className="mono">{stats.editing}</b> בעריכה</span>
         <i />
-        <span><b className="mono">₪7,800</b> לגבייה</span>
-        <span className="build-note">נתוני דמה</span>
+        <span><b className="mono">₪{stats.toCollect.toLocaleString('he-IL')}</b> לגבייה</span>
       </footer>
     </div>
   );
