@@ -1091,7 +1091,14 @@ $owner.TopMost = $true
 $ownerHandle = $owner.Handle
 $path = [TezaDialog.ModernFolderBrowser]::Show('בחר תיקייה עם תמונות הפרויקט', $ownerHandle)
 $owner.Dispose()
-if ($path) { [Console]::Out.Write($path) }
+# BASE64, not the path itself. PowerShell writes stdout through the console
+# code page and Python reads it back through the system one; neither is UTF-8
+# on a Hebrew Windows, so "D:\צילומים\חתונה" came back as "D:\??????\?????" —
+# a path that does not exist. The import then failed on a folder the
+# photographer had just pointed at. Base64 is ASCII, so it survives both.
+if ($path) {
+  [Console]::Out.Write([Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes($path)))
+}
 """
         try:
             out = subprocess.run(
@@ -1100,10 +1107,21 @@ if ($path) { [Console]::Out.Write($path) }
                 text=True,
                 timeout=300,
             )
-            folder = (out.stdout or "").strip()
-            if not folder:
+            encoded = (out.stdout or "").strip()
+            if not encoded:
+                # A CRASH IS NOT A CANCELLATION. Both produce empty stdout, and
+                # reporting the crash as "the photographer changed their mind"
+                # is what made a broken import look like a dead button: the
+                # caller returns quietly on a cancel, by design.
+                if out.returncode != 0 or (out.stderr or "").strip():
+                    self._json(500, {
+                        "error": "חלון בחירת התיקייה נכשל: "
+                                 + ((out.stderr or "").strip().splitlines() or ["?"])[0]
+                    })
+                    return
                 self._json(200, {"cancelled": True})
                 return
+            folder = base64.b64decode(encoded).decode("utf-8")
             self._json(200, {"folder": folder, "cancelled": False})
         except Exception as e:  # noqa: BLE001
             self._json(500, {"error": str(e)})
