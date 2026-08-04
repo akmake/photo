@@ -392,7 +392,19 @@ def even_pigment(
     # low-pass on the correction field itself, which flattens the peak exactly
     # over small marks — the things we are trying to reach.
     fr = max(3, int(face_d * 0.004)) | 1
-    confine = (allow > 0.02).astype(np.float32)
+    # Re-weight by the protection itself, not by a binary "is it non-zero".
+    #
+    # The old form was `allow > 0.02`, which on a FEATHERED mask means "anywhere
+    # the protection has not yet reached exactly zero" — so the blurred
+    # correction was free to run all the way out through the feather. Measured
+    # on three faces after every other eye leak was closed: 100% of the pixels
+    # still changing by more than 5 levels inside face-eye-region were inside
+    # face-anatomy, and disabling this operator alone dropped the worst of them
+    # from 11.0 and 12.0 levels to 2.0 and 6.0.
+    #
+    # Multiplying by `allow` costs nothing in the interior, where it is 1.0, and
+    # tapers the correction across the feather exactly as the mask intends.
+    confine = allow
     if lift_judge is None:
         lift_allow = allow
     else:
@@ -401,7 +413,7 @@ def even_pigment(
             * (1.0 - protect.astype(np.float32))
             * keep_structure
         )
-    lift_confine = (lift_allow > 0.02).astype(np.float32)
+    lift_confine = lift_allow
 
     out = lab.copy()
     stats = {

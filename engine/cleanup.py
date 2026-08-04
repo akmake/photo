@@ -74,7 +74,27 @@ FLUID_TRAILS_ENABLED = True
 # 0.03. It then rejected the SAME drool a second time, at 8.28 against 7.77,
 # once the detector was moved onto the undoctored crop -- a 6% margin in one
 # parameter, which this file says elsewhere is not a mechanism.
-FLUID_MAX_WIDTH = 0.03
+#
+# 0.035 was held back for a while on the belief that it cost three false
+# positives on 321A1770. IT DOES NOT, and the belief came from reading counts
+# instead of images: the largest of those three is a REAL drool on the baby in
+# that frame, plainly visible on the lip and chin of the original and cleanly
+# removed. The others are a faint wet chin and a change invisible at 1:1 on the
+# father. Every "false positive" that was actually checked turned out to be
+# fluid, in a niche where photographing drooling babies is the daily case.
+#
+# Separately measured and rejected as a discriminator: nothing in the strand's
+# geometry tells the drool apart from a shine streak. Real drool and the
+# doubtful components overlap on distance-to-orifice (1.0px both), brightness
+# over the ring (+18.0 vs +11.0 to +15.0), downward fraction (0.87 vs 0.83-0.98)
+# and run length (0.21fw vs 0.06-0.23fw). There is no bar to find, which is why
+# this is a threshold and not a test.
+#
+# The window is bounded on BOTH sides and both bounds are measured, so this is
+# not a free parameter: below 0.0320 the 1809 drool is rejected, and at 0.0350
+# test_cleanup_recall fails on 321A5173 with 1,677px of collateral against an
+# 800px cap. 0.034 sits inside that window with margin at each end.
+FLUID_MAX_WIDTH = 0.034
 
 # What counts as "structure" for the line veto is calibrated on the SKIN, at a
 # fixed RANK — not at a fixed Lab amplitude, and not from a robust sigma.
@@ -1504,7 +1524,7 @@ class FaceScan:
     spots_off: bool = False
 
 
-def _scan_face(rgb, params: dict, candidates: bool = True) -> FaceScan | None:
+def _scan_face(rgb, params: dict, candidates: bool = True, frame_eye=None) -> FaceScan | None:
     """Stage the correctable field, then detect on the untouched original."""
     redness, strength, spot_params = _params(params)
     skin = masks.get_mask(rgb, "face-skin")
@@ -1568,6 +1588,34 @@ def _scan_face(rgb, params: dict, candidates: bool = True) -> FaceScan | None:
         pig_judge = np.clip(
             skin_c - masks.get_mask(crop, "face-pigment-protect") - hair_c, 0.0, 1.0
         )
+        # The eye is a NO-GO ZONE, not a correction boundary, and the difference
+        # decides whether it may be feathered.
+        #
+        # A feather is right where a correction meets open skin: it hides the
+        # edge of the operator's own work. It is wrong around an eye, because
+        # "60% protected" then means "40% of the correction still lands on the
+        # lid rim". Measured after every other leak into the eye was closed:
+        # 100% of the pixels still moving by more than 5 levels sat inside
+        # face-anatomy, at protection 0.50-0.86 — squarely in the feather — and
+        # 40% of the correction there was still 11-12 levels.
+        #
+        # The delta is blurred BEFORE it is confined (see even_pigment), so a
+        # hard stop here is still smooth on the inside. Same rule as the repair
+        # mask a few stages down: smooth inside, hard stop at the border.
+        #
+        # And the mask is taken from the FRAME when the caller has one, not
+        # recomputed on this crop. The same kind, computed on a crop, does not
+        # agree with itself: MediaPipe re-detects on the smaller image and the
+        # region lands a few pixels off. Measured on a four-face frame, 2,078
+        # pixels were protected by the frame mask and NOT by the union of the
+        # crop masks — and 53 of the 62 pixels still changing near an eye were
+        # exactly those. A protection mask that moves when you crop is not a
+        # protection mask.
+        eye_guard = (
+            frame_eye[y0:y1, x0:x1] if frame_eye is not None
+            else masks.get_mask(crop, "face-eye-region")
+        )
+        pig_judge *= (eye_guard <= 0.35).astype(np.float32)
         crop, pig_meta = pigment.even_pigment(crop, pig_judge, face_pc, redness)
 
     # --- stage B: specular highlights (wet lips) -----------------------------
@@ -1832,11 +1880,17 @@ def apply(rgb, params: dict):
                   "shadingVetoed": 0, "wetTrails": 0, "fluidTrails": 0,
                   "pigmentPx": 0, "protectedSpotPx": 0, "selected": 0,
                   "faceTooSmall": 0, "spotsOff": 0}
+        # Protection masks belong to the FRAME. Computing them once here and
+        # slicing per crop is not an optimisation: recomputed on a crop they
+        # come back in a slightly different place (see the note at eye_guard),
+        # and a per-face pass then edits skin the frame said was off limits.
+        frame_eye = masks.get_mask(rgb, "face-eye-region")
         for x0, y0, x1, y1 in _face_boxes(rgb, faces):
             healed_sub, m = _apply_one(
                 out[y0:y1, x0:x1],
                 params,
                 sel_mask=None if sel_mask is None else sel_mask[y0:y1, x0:x1],
+                frame_eye=frame_eye[y0:y1, x0:x1],
             )
             out[y0:y1, x0:x1] = healed_sub
             for key in totals:
@@ -1846,11 +1900,16 @@ def apply(rgb, params: dict):
             totals.pop("selected", None)
         return out, totals
 
+    # Single face still crops — `_scan_face` takes its own region box — so it
+    # needs the frame-computed guard for the same reason the group path does.
+    out, meta = _apply_one(
+        rgb, params, sel_mask=sel_mask,
+        frame_eye=masks.get_mask(rgb, "face-eye-region"),
+    )
     # `faces` on the single-face path too. The group path already reported it,
     # and the lab needs the DENOMINATOR in both: "1 face skipped" and "1 of 4
     # skipped" are different sentences, and without a total the front end can
     # only say the harsher one.
-    out, meta = _apply_one(rgb, params, sel_mask=sel_mask)
     meta.setdefault("faces", len(faces))
     return out, meta
 
@@ -1887,7 +1946,46 @@ def _params(params: dict):
     )
 
 
-def _apply_one(rgb, params: dict, sel_mask=None):
+# How far above the floor a rescaled face is taken (a face landing exactly on
+# MIN_FACE_PX would sit on the knee of every gate), and the hard ceiling on the
+# factor. Every face blocked in the 23-frame set needs 1.19x-1.39x; 2.0 leaves
+# room for a smaller one without ever entering the range where the resampler is
+# the thing producing the detail.
+UPSCALE_MARGIN = 1.15
+UPSCALE_MAX = 2.0
+
+
+def _apply_upscaled(rgb, params: dict, factor: float, frame_eye=None):
+    """Run the pipeline on an enlarged crop, return only what it changed.
+
+    The composite is the whole point. `edit` is taken back to the original size
+    and blended through the mask of pixels the pipeline actually touched, so
+    every untouched pixel is bit-identical to the input: the resample can only
+    ever reach the repairs themselves, never the skin around them.
+    """
+    h, w = rgb.shape[:2]
+    big = cv2.resize(rgb, (int(w * factor), int(h * factor)),
+                     interpolation=cv2.INTER_LANCZOS4)
+    edit, meta = _apply_one(big, params, frame_eye=frame_eye, _rescaled=True)
+
+    touched = (np.abs(edit.astype(np.int16) - big.astype(np.int16)).max(axis=2) > 0)
+    if not touched.any():
+        return rgb, {**meta, "upscaled": round(factor, 2), "upscaledChangedPx": 0}
+
+    back = cv2.resize(edit, (w, h), interpolation=cv2.INTER_AREA)
+    alpha = cv2.resize(touched.astype(np.float32), (w, h),
+                       interpolation=cv2.INTER_AREA)
+    r = max(3, int(min(h, w) * 0.004)) | 1
+    alpha = cv2.GaussianBlur(alpha, (r, r), 0)[..., None]
+    out = (rgb.astype(np.float32) * (1.0 - alpha) + back.astype(np.float32) * alpha)
+    return (
+        np.clip(out, 0, 255).astype(np.uint8),
+        {**meta, "upscaled": round(factor, 2),
+         "upscaledChangedPx": int(touched.sum())},
+    )
+
+
+def _apply_one(rgb, params: dict, sel_mask=None, frame_eye=None, _rescaled=False):
     """The single-face pipeline: every threshold scales from THIS face.
 
     `sel_mask` is a crop-aligned 0/1 array when a person marked what to treat.
@@ -1896,7 +1994,31 @@ def _apply_one(rgb, params: dict, sel_mask=None):
     harmonisation are the same code doing the same thing, because none of them
     is a judgement about what counts as a blemish.
     """
-    scan = _scan_face(rgb, params, candidates=sel_mask is None)
+    # A face under the size floor is not a face this tool cannot help — it is a
+    # face this tool does not have enough pixels to measure. Every threshold in
+    # here is a fraction of `face_d`, so below the floor the detection kernel and
+    # the mark-size gates run several times too coarse and the honest answer was
+    # to refuse. Measured cost of that refusal on this set: 11 of 40 faces, and
+    # on 321A5078 three of five children — including one with visible irritation.
+    #
+    # So give it the pixels. The crop is resampled up until it clears the floor
+    # and the pipeline runs unchanged; `UPSCALE_MAX` caps how far, because past a
+    # point this stops being "resolve the thresholds" and starts being "invent
+    # detail". On this set every blocked face needs 1.19x-1.39x — modest.
+    #
+    # The result comes back through the CHANGED PIXELS ONLY (`_downscale_edit`).
+    # A whole crop pushed up and pulled back would soften every pore on the face
+    # to repair four spots, which is a worse trade than doing nothing — the
+    # failure this whole exercise exists to avoid.
+    if not _rescaled and sel_mask is None:
+        skin = masks.get_mask(rgb, "face-skin")
+        gate = float(np.sqrt(skin.sum()))
+        if 0 < gate < MIN_FACE_PX:
+            factor = min(UPSCALE_MAX, (MIN_FACE_PX * UPSCALE_MARGIN) / gate)
+            if factor > 1.02:
+                return _apply_upscaled(rgb, params, factor, frame_eye)
+
+    scan = _scan_face(rgb, params, candidates=sel_mask is None, frame_eye=frame_eye)
     if scan is None:
         return rgb, {"spotsRemoved": 0, "faceTooSmall": 1}
 

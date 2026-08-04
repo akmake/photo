@@ -220,3 +220,10 @@ export const IcDownload = ({ size, className, style }: P) => (
     <path d="M4.5 19.5h15" />
   </svg>
 );
+
+/** Corners pushing outward — "give this the whole window". */
+export const IcExpand = ({ size, className, style }: P) => (
+  <svg {...base(size)} className={className} style={style}>
+    <path d="M9 4.5H4.5V9M15 4.5h4.5V9M9 19.5H4.5V15M15 19.5h4.5V15" />
+  </svg>
+);
