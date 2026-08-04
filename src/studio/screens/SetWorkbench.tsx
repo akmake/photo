@@ -35,8 +35,8 @@ import { useSetPreview } from '../preview';
 import { useZoomPan } from '../zoom';
 import { Histogram, computeDiff } from '../../design/Metering';
 import type { Delta } from '../../design/Metering';
-import { explainStep, isScaleBlocked } from '../../lab/explain';
-import type { StepReport } from '../../lab/explain';
+import { explainStep, scaleBlockKind } from '../../lab/explain';
+import type { ScaleBlock, StepReport } from '../../lab/explain';
 import SetRecipe from './SetRecipe';
 import { IcCheck, IcSliders } from '../../design/Icons';
 
@@ -321,7 +321,7 @@ export default function SetWorkbench({
     return () => { alive = false; };
   }, [settled, trial, gain, diffOn]);
 
-  const blocked = reports.some(isScaleBlocked);
+  const blocked = scaleBlockKind(reports);
 
   return (
     <div className="wb">
@@ -703,7 +703,7 @@ function Report({
 }: {
   reports: StepReport[];
   delta: Delta | null;
-  blocked: boolean;
+  blocked: ScaleBlock;
 }) {
   const [open, setOpen] = useState<string | null>(null);
   if (!reports.length && !delta) return null;
@@ -723,11 +723,28 @@ function Report({
       )}
 
       {/* A tool that skipped because the preview is too small is not a weak
-        * tool, and the fix is not the slider. See docs/BUGS.md BUG-001. */}
-      {blocked && (
+        * tool, and the fix is not the slider. See docs/BUGS.md BUG-001.
+        *
+        * Two refusals, two sentences. This used to say "too small in the
+        * preview resolution" for BOTH, which was a guess that happened to be
+        * right most of the time and wrong exactly when it mattered: on a face
+        * no resolution can help, it promised an export that would never come. */}
+      {blocked === 'preview' && (
         <p className="wb-blocked">
-          כלי דילג כי הפנים קטנות מדי ברזולוציית התצוגה. הסליידר לא ישנה את זה —
-          בייצוא הוא כן ירוץ, ברזולוציה המלאה.
+          הפנים גדולות מספיק בקובץ, אבל לא בתצוגה המוקטנת שרצה כאן. הסליידר לא
+          ישנה את זה — בייצוא הכלי ירוץ עליהן, ברזולוציה המלאה.
+        </p>
+      )}
+      {blocked === 'photo' && (
+        <p className="wb-blocked">
+          הפנים קטנות מדי בצילום עצמו, לא בתצוגה. גם בייצוא הכלי ידלג עליהן —
+          זו התמונה, ולא הגדרה.
+        </p>
+      )}
+      {blocked === 'both' && (
+        <p className="wb-blocked">
+          חלק מהפנים קטנות מדי בצילום עצמו והכלי ידלג עליהן גם בייצוא; אחרות
+          גדולות מספיק בקובץ ורק התצוגה המוקטנת חוסמת אותן — הן כן ייעשו בייצוא.
         </p>
       )}
 

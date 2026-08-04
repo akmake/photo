@@ -94,9 +94,12 @@ def _ellipse(shape, centre, major, minor, angle) -> np.ndarray:
     return layer.astype(np.float32) / 255.0
 
 
-def _bands(rgb, faces):
+def _bands(rgb, faces, notes: dict):
     """The anatomical maps, each 0..1:
-    (cheek_up, cheek_low, forehead, jaw, undereye)."""
+    (cheek_up, cheek_low, forehead, jaw, undereye).
+
+    `notes` collects per-face size refusals — see the gate below for why a
+    silent `continue` here was worse than no gate at all."""
     h, w = rgb.shape[:2]
     out = [np.zeros((h, w), np.float32) for _ in range(5)]
 
@@ -105,7 +108,15 @@ def _bands(rgb, faces):
             return np.array([lm[i].x * w, lm[i].y * h], np.float32)
 
         fw = float(np.linalg.norm(pt(masks.FACE_RIGHT) - pt(masks.FACE_LEFT)))
+        # Per-face, and it must REPORT. The gate in `apply` reads sqrt of the
+        # whole frame's skin, so in a group photo it is the sum of every face
+        # and always passes; this one then drops each face in turn without a
+        # word, and the tool returns the frame looking merely ineffective.
+        if common.source_px(fw) < MIN_FACE_PX:
+            notes['faceTooSmall'] = notes.get('faceTooSmall', 0) + 1
+            continue
         if fw < MIN_FACE_PX:
+            notes['previewTooSmall'] = notes.get('previewTooSmall', 0) + 1
             continue
 
         mouth_c = (pt(masks.MOUTH_CORNERS[0]) + pt(masks.MOUTH_CORNERS[1])) / 2
@@ -210,8 +221,9 @@ def apply(rgb, params: dict):
 
     skin = masks.get_mask(rgb, "face-skin")
     face_d = float(np.sqrt(float(skin.sum())))
-    if face_d < MIN_FACE_PX:
-        return rgb, {"applied": 0, "faceTooSmall": 1}
+    verdict = common.face_verdict(face_d, MIN_FACE_PX)
+    if verdict:
+        return rgb, {"applied": 0, verdict: 1}
 
     faces = masks._face_landmarks(rgb)
     if not faces and anatomical:
@@ -219,13 +231,14 @@ def apply(rgb, params: dict):
 
     soft = _p(params, "softness", 50)
     radius = face_d * (0.03 + 0.09 * soft)
+    notes: dict = {}   # per-face size refusals, collected by _bands
 
     dl = np.zeros(rgb.shape[:2], np.float32)
     reach = skin
     light_follow = None
     if faces and anatomical:
         cheek_up, cheek_low, fore, jawband, under = (
-            local_color.feather(b, radius) for b in _bands(rgb, faces)
+            local_color.feather(b, radius) for b in _bands(rgb, faces, notes)
         )
         if jaw:
             # The shadow that defines a jawline falls UNDER it, which is neck,
@@ -277,8 +290,15 @@ def apply(rgb, params: dict):
     out[y0:y1, x0:x1] = np.clip(pushed, 0, 255).astype(np.uint8)
 
     sel = reg > 0.5
+    # `applied: 1` with an all-zero push is the same silent lie the gates above
+    # were making, one stage later: every face was dropped, dl never moved, and
+    # the frame comes back byte-identical while the report says the tool ran.
+    moved = int(((np.abs(d) > 1.0) & sel).sum())
+    if not moved and notes:
+        return rgb, {"applied": 0, "faces": len(faces), **notes}
     info = {
         "applied": 1,
+        **notes,
         "faces": len(faces),
         "faceDiameter": round(face_d, 1),
         "meanAbsL": round(float(np.abs(d[sel]).mean()), 2) if sel.any() else 0.0,

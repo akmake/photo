@@ -2,9 +2,116 @@
 
 import io
 import base64
+import threading
 
 import numpy as np
 from PIL import Image, ImageOps
+
+
+# --------------------------------------------------------------- source scale
+#
+# THE FRAME A TOOL IS HANDED IS NOT ALWAYS THE PHOTOGRAPH.
+#
+# A panel renders a proxy so that a slider answers while it is being dragged —
+# `server._render` caps the long edge, `_render_proxy` decodes small. Every
+# tool then asks "are these pixels enough to work on" with an absolute count
+# (MIN_FACE_PX, MIN_IRIS_PX, the 40px face-width floor), and asked about the
+# proxy that question answers about the SCREEN instead of about the picture.
+#
+# Measured across the 8-frame set at panel width: five frames had three or four
+# tools return the image untouched, flagged `faceTooSmall`, while the delivered
+# file — same recipe, full resolution — retouched every one of them. The gate
+# reads 80-178 on the proxy against 290-886 on the file. On 321A5078 the crop
+# loop ran ZERO times at 1100px and the tool still reported "5 faces".
+#
+# So the pipeline carries one number: how much the frame in hand was shrunk
+# from the file on disk. A tool converts its own floor with `source_px` and
+# gets the same verdict in the panel and in the export.
+#
+# Thread-local for the reason `masks.set_source` is: image work runs on one
+# worker thread, one frame at a time. Default 1.0 — a caller that says nothing
+# is holding the real thing, which is what every script and test does.
+_source = threading.local()
+
+
+def set_source_scale(scale: float, frame=None) -> None:
+    """Declare that this frame is 1/scale of the photograph's long edge.
+
+    `frame` is the photograph itself when the caller still has it in memory.
+    Holding it lets a face tool that cannot work at proxy size take its crop
+    from the real pixels instead — the option docs/BUGS.md BUG-001 settled on,
+    because the cost is bounded by the face and not by the frame. A caller that
+    passes no frame (a 320px grid thumbnail, where the point is to CHOOSE a
+    photograph rather than judge retouching) simply gets the honest refusal.
+    """
+    _source.scale = max(1.0, float(scale))
+    _source.frame = frame
+
+
+def clear_source_scale() -> None:
+    _source.scale = 1.0
+    _source.frame = None
+
+
+def source_scale() -> float:
+    return float(getattr(_source, "scale", 1.0) or 1.0)
+
+
+def source_frame():
+    return getattr(_source, "frame", None)
+
+
+class at_source_scale:
+    """Inside this block the frame in hand IS the photograph.
+
+    A tool running on a crop taken from the file must not go on multiplying its
+    measurements by a scale that describes the proxy it came from — it would
+    conclude the face is twice the size the camera saw.
+    """
+
+    def __enter__(self):
+        self._prev = (source_scale(), source_frame())
+        _source.scale, _source.frame = 1.0, None
+        return self
+
+    def __exit__(self, *exc):
+        _source.scale, _source.frame = self._prev
+        return False
+
+
+def source_px(px: float) -> float:
+    """A length measured on the frame in hand, in pixels OF THE PHOTOGRAPH.
+
+    This is the number every "is it big enough to treat" test wants. What the
+    working copy can physically resolve is a different question, asked with the
+    raw length — see cleanup's upscale path, which is about kernel geometry.
+    """
+    return float(px) * source_scale()
+
+
+def face_verdict(work_px: float, floor_px: float, work_floor_px=None):
+    """May a face tool run on this face? -> None to run, else the reason.
+
+    ONE rule, in ONE place, because the five facial tools each carried their own
+    copy of it and every copy asked the wrong frame. Two questions, deliberately
+    separated:
+
+      "faceTooSmall"     the PHOTOGRAPH does not contain enough face. A real
+                         refusal, and identical in the panel and in the export —
+                         which is the property that was missing.
+      "previewTooSmall"  the photograph does, this copy does not. The delivered
+                         file will get this. Saying nothing here is what made a
+                         panel of untouched skin look like a verdict of clean
+                         skin.
+
+    `work_floor_px` defaults to the same number: a tool that has measured no
+    separate working floor should not invent one.
+    """
+    if source_px(work_px) < floor_px:
+        return "faceTooSmall"
+    if work_px < (floor_px if work_floor_px is None else work_floor_px):
+        return "previewTooSmall"
+    return None
 
 
 def _upright(img: Image.Image) -> Image.Image:

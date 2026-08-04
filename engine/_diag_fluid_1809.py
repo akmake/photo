@@ -32,7 +32,7 @@ print("  -> fluidTrails =", det["notes"].get("fluidTrails", 0),
 # 2) Reproduce the per-face crop the group path builds for the baby, and trace
 #    _fluid_trails gate by gate on it.
 faces = masks._face_landmarks(rgb)
-boxes = sorted(cleanup._face_boxes(rgb, faces), key=lambda b: (b[0] + b[2]) / 2)
+boxes = sorted(cleanup._face_boxes(rgb, faces)[0], key=lambda b: (b[0] + b[2]) / 2)
 x0, y0, x1, y1 = boxes[1]                       # 2nd from left = the toddler
 sub = rgb[y0:y1, x0:x1]
 skin = masks.get_mask(sub, "face-skin")

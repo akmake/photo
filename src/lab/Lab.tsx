@@ -23,7 +23,7 @@ import {
 } from '../toolRegistry';
 import { renderRecipe, checkEngine, detectSpots } from '../api';
 import type { RenderStep, SpotCandidate, SpotDetection } from '../api';
-import { explainStep, isScaleBlocked, markLabel, markReason } from './explain';
+import { explainStep, scaleBlockKind, markLabel, markReason } from './explain';
 import type { StepReport } from './explain';
 // Travels with the screen, not with the app: the lab is lazily loaded and its
 // sheet has no business in the first paint. Every selector is .lab-* / .cmp-*.
@@ -733,7 +733,7 @@ export default function Lab() {
     );
   }
 
-  const scaleBlocked = reports.some(isScaleBlocked);
+  const scaleBlocked = scaleBlockKind(reports);
   const showProcessed = !!out && !showOriginal;
   const pctZoom = Math.round(zoom * fitScale * 100);
 
@@ -1223,9 +1223,11 @@ export default function Lab() {
               {marks && marks.items.length === 0 && !marksBusy && (
                 <div className="lab-log-idle">
                   הגלאי לא מצא כלום על הפנים האלה בעוצמה הזאת.
-                  {marks.notes.faceTooSmall
-                    ? ' הפנים קטנות מהמינימום שהכלי דורש.'
-                    : ' העלה את "ניקוי נקודתי" וסרוק מחדש כדי לראות מועמדים חלשים יותר.'}
+                  {marks.notes.previewTooSmall
+                    ? ' הפנים קטנות מדי בתצוגה המוקטנת — סרוק מהקובץ המלא כדי לסמן עליהן.'
+                    : marks.notes.faceTooSmall
+                      ? ' הפנים קטנות מהמינימום שהכלי דורש.'
+                      : ' העלה את "ניקוי נקודתי" וסרוק מחדש כדי לראות מועמדים חלשים יותר.'}
                 </div>
               )}
 
@@ -1265,10 +1267,25 @@ export default function Lab() {
             </div>
           )}
 
-          {scaleBlocked && (
+          {/* Two refusals, two sentences. This block used to assert the
+            * harsher one for both cases — "this is the photograph, not a
+            * setting" — about faces the export was retouching at full size. */}
+          {scaleBlocked === 'preview' && (
             <div className="lab-hint">
-              הפנים בתמונה הזאת קטנות מהמינימום שהמנוע דורש (120px), אז הכלים דילגו.
-              זו התמונה, לא הגדרה — כלי הפנים לא יעבדו עליה.
+              הפנים גדולות מספיק בקובץ עצמו, אבל לא בתצוגה המוקטנת שרצה כאן.
+              בייצוא הכלים ירוצו עליהן ברזולוציה המלאה.
+            </div>
+          )}
+          {scaleBlocked === 'photo' && (
+            <div className="lab-hint">
+              הפנים בתמונה הזאת קטנות מהמינימום שהמנוע דורש, אז הכלים דילגו.
+              זו התמונה, לא הגדרה — גם בייצוא הם לא יעבדו עליה.
+            </div>
+          )}
+          {scaleBlocked === 'both' && (
+            <div className="lab-hint">
+              חלק מהפנים קטנות מדי בצילום עצמו והכלים ידלגו עליהן גם בייצוא;
+              אחרות רק בתצוגה המוקטנת, והן כן ייעשו בקובץ המלא.
             </div>
           )}
 

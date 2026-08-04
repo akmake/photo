@@ -125,11 +125,20 @@ def apply(rgb, params: dict):
         h, w = rgb.shape[:2]
         out = rgb.copy()
         cov = 0.0
+        notes: dict = {}
         for x0, y0, x1, y1 in boxes:
             sub, m = _apply_one(out[y0:y1, x0:x1], {**params, "body": 0})
             out[y0:y1, x0:x1] = sub
             cov += float(m.get("skinCoverage", 0.0)) * (x1 - x0) * (y1 - y0)
-        meta = {"skinCoverage": round(cov / (h * w), 4), "faces": len(boxes)}
+            # A per-face refusal has to SURVIVE the loop — see abpn.apply for
+            # the same fix and what it cost: the summary came back bland and
+            # reasonless, and `render` could not offer those faces their own
+            # pixels from the file because nothing said they were refused.
+            for key in ("faceTooSmall", "previewTooSmall"):
+                if m.get(key):
+                    notes[key] = notes.get(key, 0) + int(m[key])
+        meta = {"skinCoverage": round(cov / (h * w), 4), "faces": len(boxes),
+                **notes}
         if body > 0:
             out, mb = _apply_one(out, {**params, "strength": 0})
             meta["bodyCoverage"] = mb.get("bodyCoverage", 0.0)
@@ -148,10 +157,11 @@ def _apply_one(rgb, params: dict):
     skin_mask = masks.get_mask(rgb, "face-skin")
     skin_px = float(skin_mask.sum())
     face_d = float(np.sqrt(skin_px))  # ~face diameter in px
-    if face_d < MIN_FACE_PX:
+    verdict = common.face_verdict(face_d, MIN_FACE_PX)
+    if verdict:
         # No face means no scale reference — the split radius and the bilateral
         # window are both read off the face. Body skin is not smoothed alone.
-        return rgb, {"skinCoverage": 0.0, "faceTooSmall": 1}
+        return rgb, {"skinCoverage": 0.0, verdict: 1}
 
     evenness = _p(params, "evenness", 50)
     scale = _p(params, "scale", 50)

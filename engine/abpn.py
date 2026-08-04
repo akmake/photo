@@ -123,11 +123,23 @@ def apply(rgb, params: dict):
     if len(boxes) >= 2:
         out = rgb.copy()
         applied = 0
+        notes: dict = {}
         for x0, y0, x1, y1 in boxes:
             sub, m = _apply_one(out[y0:y1, x0:x1], strength)
             out[y0:y1, x0:x1] = sub
             applied += int("faceDiameter" in m)
-        return out, {"model": "abpn", "faces": len(boxes), "applied": applied}
+            # A per-face refusal has to SURVIVE the loop. It was accumulated
+            # inside `_apply_one` and dropped on the floor here, so a group
+            # frame came back with a bland summary and no reason — and `render`
+            # could not offer those faces their own pixels from the file,
+            # because nothing had told it they were refused. Measured on
+            # 321A1809 and 321A5078 at panel width: acts on the file, silent in
+            # the preview.
+            for key in ("faceTooSmall", "previewTooSmall"):
+                if m.get(key):
+                    notes[key] = notes.get(key, 0) + int(m[key])
+        return out, {"model": "abpn", "faces": len(boxes),
+                     "applied": applied, **notes}
 
     return _apply_one(rgb, strength)
 
@@ -135,8 +147,12 @@ def apply(rgb, params: dict):
 def _apply_one(rgb, strength: float):
     skin = masks.get_mask(rgb, "face-skin")
     face_d = float(np.sqrt(skin.sum()))
-    if face_d < MIN_FACE_PX:
-        return rgb, {"model": "abpn", "faceTooSmall": 1}
+    # MIN_FACE_PX is the NETWORK's documented lower bound, so it is a fact about
+    # the crop actually fed to it as well as about the photograph — the working
+    # floor is the same number, not a smaller one.
+    verdict = common.face_verdict(face_d, MIN_FACE_PX)
+    if verdict:
+        return rgb, {"model": "abpn", verdict: 1}
 
     box = common.region_box(skin, int(face_d * 0.45), rgb.shape)
     if box is None:

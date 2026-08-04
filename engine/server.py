@@ -311,14 +311,22 @@ def _fit_size(size, width):
 
 def _decode_small(path, width):
     """Decode small. Reading a 20MP frame to show it at 320px costs about twenty
-    times more, and libjpeg can downscale while it decodes."""
+    times more, and libjpeg can downscale while it decodes.
+
+    Returns the frame and THE FILE'S OWN long edge, read before the draft throws
+    it away. Everything downstream that asks "is this face big enough" needs it:
+    without it the tools answer about the proxy, and a strip drawn at 320px
+    would report every face in the set as too small to touch. Rotation does not
+    change a long edge, so this survives `exif_transpose`.
+    """
     im = Image.open(path)
+    source_long = max(im.size)
     im.draft("RGB", (width * 2, width * 2))
-    return ImageOps.exif_transpose(im).convert("RGB")
+    return ImageOps.exif_transpose(im).convert("RGB"), source_long
 
 
 def _render_proxy(path, width, recipe):
-    im = _decode_small(path, width)
+    im, source_long = _decode_small(path, width)
     # Decided BEFORE rendering, from the frame as decoded — so the answer does
     # not depend on how many times the image was resized on the way here.
     out_size = _fit_size(im.size, width)
@@ -330,7 +338,7 @@ def _render_proxy(path, width, recipe):
         work = _fit_size(im.size, max(width, 640))
         if work != im.size:
             im = im.resize(work, Image.LANCZOS)
-        im, _ = render.render(im, recipe)
+        im, _ = render.render(im, recipe, source_long / float(max(im.size)))
 
     if im.size != out_size:
         im = im.resize(out_size, Image.LANCZOS)
@@ -501,7 +509,7 @@ class Handler(BaseHTTPRequestHandler):
                 self._json(404, {"error": "not found"})
                 return
 
-            im = _decode_small(path, width)
+            im, _ = _decode_small(path, width)  # a thumb runs no tools
             # the same rule /preview uses, so a raw frame and a graded one are
             # never a pixel apart
             size = _fit_size(im.size, width)
@@ -810,6 +818,12 @@ class Handler(BaseHTTPRequestHandler):
         size to be shown in an 1100px panel is the difference between a control
         that responds and one that does not. Delivery ignores it and renders
         from the original.
+
+        And the pipeline is TOLD about that cap. Every face tool has a floor
+        below which it refuses to work, and a capped frame put those floors on
+        the wrong side of the truth: the panel reported `faceTooSmall` for the
+        very faces the export was retouching. `sourceScale` in the body covers
+        the case where the CLIENT did the shrinking and only sent us the result.
         """
         try:
             body = self._body()
@@ -817,12 +831,23 @@ class Handler(BaseHTTPRequestHandler):
                 img = common.load_image(body["path"])
             else:
                 img = common.b64_to_image(body["image"])
+            # What the caller already shrank before we ever saw the frame.
+            scale = max(1.0, float(body.get("sourceScale") or 1.0))
             cap = int(body.get("w") or 0)
+            # THE frame being edited, and the one place worth keeping the file
+            # in hand for: a face the proxy is too small to serve is worked from
+            # these pixels instead of refused. Thumbnails go through /preview and
+            # deliberately do not get this.
+            source = img
             if cap > 0:
                 size = _fit_size(img.size, cap)
                 if size != img.size:
+                    scale *= max(img.size) / float(max(size))
                     img = img.resize(size, Image.LANCZOS)
-            out, meta = on_worker(render.render, img, body.get("recipe", []))
+            out, meta = on_worker(
+                render.render, img, body.get("recipe", []), scale,
+                source if img is not source else None,
+            )
             # A preview and a file the photographer keeps are not the same
             # picture. Previews stay small; `deliver` asks for the same settings
             # render.export writes to disk — q97, no chroma subsampling.
@@ -856,6 +881,9 @@ class Handler(BaseHTTPRequestHandler):
                 img,
                 body.get("params", {}),
                 body.get("recipe", []),
+                # Marking and applying have to agree about which faces are in
+                # play; the size gates decide that, and they need the scale.
+                max(1.0, float(body.get("sourceScale") or 1.0)),
             )
             self._json(200, found)
         except Exception as e:  # noqa: BLE001

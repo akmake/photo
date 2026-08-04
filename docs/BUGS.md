@@ -69,7 +69,7 @@ coming back. IDs are permanent and never reused.
 
 | ID | Status | Severity | Title |
 |---|---|---|---|
-| [BUG-001](#bug-001--every-face-tool-is-inert-in-every-preview-the-app-renders) | `OPEN` | High | Every face tool is inert in every preview the app renders |
+| [BUG-001](#bug-001--every-face-tool-is-inert-in-every-preview-the-app-renders) | `FIXED` | High | Every face tool is inert in every preview the app renders |
 | [BUG-002](#bug-002--a-graded-frame-is-re-segmented-for-every-display-width-and-again-for-every-change-of-look) | `FIXED` | High | A graded frame is re-segmented for every display width, and again for every change of look |
 | [BUG-003](#bug-003--the-drool-fluid-trail-is-detected-and-then-thrown-away-by-the-mean-width-gate) | `OPEN` | High | The drool (fluid trail) is detected and then thrown away by the mean-width gate |
 | [BUG-004](#bug-004--skin-cleanup-heals-the-eye-corners-at-full-resolution-invisible-in-preview) | `FIXED` | Medium | skin-cleanup heals the eye corners at full resolution, invisible in preview |
@@ -81,7 +81,7 @@ coming back. IDs are permanent and never reused.
 
 ## BUG-001 — Every face tool is inert in every preview the app renders
 
-**Status:** `OPEN` · found 2026-08-03 · not fixed, recorded by decision
+**Status:** `FIXED` · found 2026-08-03 · fixed 2026-08-05 — see *What closed it*
 **Severity:** High — the five face tools appear broken while editing, then act
 on export. The photographer is shown a picture that is not the one they get.
 
@@ -212,16 +212,90 @@ cheap half is to stop swallowing a diagnosis the engine already made.
 | ...and only for the frame being edited | **Recommended.** A 320px grid exists to *choose* frames, not to judge retouching. Full-resolution face work on the edit view and zoom only: one frame at a time instead of 1,900. |
 | Surface `faceTooSmall` in the UI | **Ship regardless.** Small, and it ends the silent lie even before the real fix lands. |
 
-Not yet decided. Recorded at the user's request; no code touched.
+### What closed it
+
+Both recommended rows, plus the "ship regardless" one. In order:
+
+**1. The pipeline is told what it is holding.** `common.set_source_scale(scale,
+frame)` — one thread-local, set once in `render.render`, the same shape as the
+`masks.set_source` that was already there. `common.source_px(px)` converts a
+length measured on the frame in hand into pixels of the PHOTOGRAPH, and
+`common.face_verdict` is the single rule every face tool now asks:
+
+| verdict | means | same answer in panel and export? |
+|---|---|---|
+| `faceTooSmall` | the photograph does not contain enough face | yes — that is the point |
+| `previewTooSmall` | it does; this copy does not | expires when the file renders |
+
+**2. Faces the panel cannot serve are worked from the FILE.**
+`render._run_on_source_faces` crops each such face out of the original at native
+resolution, runs the tool there, and composites only the CHANGED pixels back
+down — the alpha trick `cleanup._apply_upscaled` already used, so untouched skin
+stays bit-identical to the proxy. Cost is bounded by face area, and it only ever
+runs for faces small in the frame, which are the cheap crops. `server._render`
+passes the file; `/preview` deliberately does not (the 320 grid row above).
+
+**3. The signal is consumed.** `src/lab/explain.ts` reports the two refusals
+separately, and both banners branch on `scaleBlockKind`. The workbench's old
+line asserted "too small in the display resolution" for every case including the
+ones no resolution helps; the lab's asserted the opposite, "this is the
+photograph, not a setting", about faces the export was retouching in full.
+
+### What it measured, after
+
+`engine/test_resolution_parity.py`, six frames from the small-face set, shipped
+tool defaults. At the workbench well (1400px, the edit view) every tool acts on
+every frame, against **five of five dead at 640 and four of five at 1600**
+before. On 321A5078 — five faces, three of them under the floor at full
+resolution — all five tools now act on all five faces.
+
+Delivery is untouched, which was the safety property: 24 full-resolution tool
+runs across six frames, **pixel-identical** to the previous code.
+
+### Blast radius, corrected
+
+The entry said `eyes.py` was "a related counter, mechanism not verified". It is
+verified: `_one_eye` compares an iris radius measured in the frame in hand to a
+fixed 6.0px, the identical defect. Fixed with the same rule.
+
+Two more sites the entry did not have, both found by the guard rather than by
+reading:
+
+- `blush._cheek_band:57` and `contour._bands:110` carry a SECOND, per-face floor
+  measured on landmark width, and dropped a face with a silent `continue`. The
+  outer gate reads sqrt of the whole frame's skin — in a group photo that is
+  every face added together, so it always passes and the inner one killed each
+  face in turn. Measured: blush applied on the file, nothing at all in the panel.
+- `abpn.apply` and `skin.apply` accumulate per-face metas in their multi-face
+  loops and then discarded the refusal counters, so the reason never reached the
+  caller and `render` could not offer those faces their own pixels.
+
+`contour` could also return `applied: 1` after an all-zero push, when every face
+had been dropped by that inner gate.
+
+### Residual, stated
+
+At 320px the detector itself gives up — MediaPipe returns no faces at all for a
+frame holding two children — so a thumbnail can still decline. It declines out
+loud (`noFace`), and the grid is for choosing frames, not judging retouching, so
+this is left. The guard holds thumbnails to the weaker promise deliberately and
+says so.
 
 ### Guard
 
-There is no test that renders the same recipe at two sizes and compares. That
-absence is the reason this survived. The pattern to copy is
-`engine/test_parity.py`, which guards the JS preview against the Python export
-on the *language* axis; this is the same class of defect on the *resolution*
-axis, and wants the same shape of guard: render at preview width, render at
-full width, assert that a tool which acts in one acts in the other.
+`engine/test_resolution_parity.py` — the test this section used to ask for.
+Renders the same recipe at thumbnail width, edit-view width and full
+resolution, and fails if a tool acts on one and is silent on another, if a
+preview answers `faceTooSmall` for a face the export retouches, or if a tool
+springs to life in the preview and does nothing on the file.
+
+```bash
+cd engine && ./.venv/Scripts/python.exe test_resolution_parity.py <image> [...]
+```
+
+The delivery-safety half is a separate assertion and belongs with it: any change
+to a size gate must leave full-resolution output pixel-identical, because at full
+resolution every new test collapses onto the old one by construction.
 
 ---
 

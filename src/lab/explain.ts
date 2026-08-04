@@ -45,10 +45,28 @@ const px = (v: MetaValue) => `${Math.round(num(v))}px`;
  * five spots had in fact been healed. A blocker that overstates itself teaches
  * the same distrust as a tool that says nothing. */
 const BLOCKERS: Record<string, (v: MetaValue, meta: Meta) => string> = {
+  /* Two refusals that look identical in the result and are opposite in what to
+   * do next, and for a long time the engine had only one word for both.
+   *
+   * `previewTooSmall` comes FIRST deliberately: when a frame carries both, the
+   * faces this panel cannot show outnumber the ones nobody can help, and the
+   * headline the photographer needs is the one that expires. */
+  previewTooSmall: (v, meta) => {
+    const deferred = num(v);
+    const total = num(meta.faces);
+    const src = meta.sourceFacePx ? ` (${px(meta.sourceFacePx)} בקובץ)` : '';
+    return total > deferred && deferred > 0
+      ? `${int(deferred)} מתוך ${int(total)} הפנים קטנות מדי בתצוגה המוקטנת${src} — הן ייעשו בקובץ המלא`
+      : `הפנים גדולות מספיק בצילום${src} אבל לא בתצוגה המוקטנת — התיקון ייעשה בקובץ המלא`;
+  },
   faceTooSmall: (v, meta) => {
     const skipped = num(v);
     const total = num(meta.faces);
-    return total > skipped && skipped > 0
+    // Faces held back for the full file are not faces the tool "worked on" —
+    // counting them as such is how this line came to describe an untouched
+    // panel as a job well done.
+    const treated = total - skipped - num(meta.previewTooSmall ?? 0);
+    return treated > 0 && skipped > 0
       ? `${int(skipped)} מתוך ${int(total)} הפנים בפריים קטנות מדי — הכלי דילג עליהן ועבד על השאר`
       : 'הפנים קטנות מדי בפריים — הכלי דילג ולא נגע בפיקסל אחד';
   },
@@ -70,10 +88,27 @@ const BLOCKERS: Record<string, (v: MetaValue, meta: Meta) => string> = {
 
 /** Any of these means the frame came back untouched because of resolution.
  *  The lab turns this into "switch to full resolution", which is the fix. */
-export const SCALE_BLOCKERS = ['faceTooSmall', 'irisTooSmall'];
+export const SCALE_BLOCKERS = ['faceTooSmall', 'irisTooSmall', 'previewTooSmall'];
 
 export function isScaleBlocked(r: StepReport): boolean {
   return SCALE_BLOCKERS.some((k) => r.raw.includes(`"${k}"`));
+}
+
+/** WHICH resolution refusal happened. They call for opposite sentences and the
+ *  screens used to have only one, so a face the export retouches in full was
+ *  announced as a face the tools "will not work on".
+ *
+ *  'preview' expires the moment the real file is rendered. 'photo' never does. */
+export type ScaleBlock = 'none' | 'preview' | 'photo' | 'both';
+
+export function scaleBlockKind(reports: StepReport[]): ScaleBlock {
+  const has = (k: string) => reports.some((r) => r.raw.includes(`"${k}"`));
+  const preview = has('previewTooSmall');
+  const photo = has('faceTooSmall') || has('irisTooSmall');
+  if (preview && photo) return 'both';
+  if (preview) return 'preview';
+  if (photo) return 'photo';
+  return 'none';
 }
 
 /* Keys whose value being 0 means "ran, changed nothing". */
@@ -103,6 +138,9 @@ const FACTS: Record<string, (v: MetaValue) => string> = {
   lightOnRest: (v) => `מהאור שנוסף נחת על השאר: ${pct(v)}`,
   subjectPlane: (v) => `מישור הנושא: ${num(v).toFixed(3)}`,
   faceDiameter: (v) => `קוטר פנים: ${px(v)}`,
+  // The same face measured in the FILE rather than in the panel — the number
+  // that decides whether a tool may run at all.
+  sourceFacePx: (v) => `קוטר הפנים בקובץ המקורי: ${px(v)}`,
   regionPx: (v) => `אזור הפעולה: ${int(v)} פיקסלים`,
   irisRadiusPx: (v) =>
     `רדיוס קשתית: ${(v as number[]).map((x) => x.toFixed(1)).join(' / ')}px`,

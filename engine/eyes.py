@@ -59,8 +59,18 @@ def _one_eye(rgb, lm, iris_idx, eye_idx, strength, whites, sparkle, meta):
     ctr = np.array([lm[iris_idx[0]].x * w, lm[iris_idx[0]].y * h], np.float32)
     rim = np.array([[lm[i].x * w, lm[i].y * h] for i in iris_idx[1:]], np.float32)
     radius = float(np.mean(np.linalg.norm(rim - ctr, axis=1)))
-    if radius < MIN_IRIS_PX:
+    # Same two questions the face tools ask, about the same two frames. Listed
+    # in docs/BUGS.md BUG-001 as "a related counter, mechanism not verified" —
+    # it is verified now, and it is the identical defect: `radius` is measured
+    # in the pixels of whatever frame arrived, so an iris the file resolves at
+    # 20px is 4px in an 1100px panel and the eye is refused for being small on
+    # screen. `irisTooSmall` is a verdict about the eye; the panel may not
+    # borrow it to describe its own resolution.
+    if common.source_px(radius) < MIN_IRIS_PX:
         meta["irisTooSmall"] = meta.get("irisTooSmall", 0) + 1
+        return rgb
+    if radius < MIN_IRIS_PX:
+        meta["previewTooSmall"] = meta.get("previewTooSmall", 0) + 1
         return rgb
 
     # work on a tight box around the eye — the whole point of landmarks

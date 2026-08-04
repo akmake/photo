@@ -44,8 +44,14 @@ def process(image_b64: str, params: dict):
     return common.image_to_b64(common.to_pil(out)), meta
 
 
-def _cheek_band(rgb, faces, size: float) -> np.ndarray:
-    """Soft band over each cheekbone, oriented temple -> mouth corner."""
+def _cheek_band(rgb, faces, size: float, notes: dict) -> np.ndarray:
+    """Soft band over each cheekbone, oriented temple -> mouth corner.
+
+    `notes` collects the per-face size refusals. It is an out-parameter
+    because a face dropped in here used to vanish entirely: the caller
+    reported `blushApplied: 0` and no reason, which reads as "this face
+    needed no blush" rather than "this face was never looked at."
+    """
     h, w = rgb.shape[:2]
     m = np.zeros((h, w), np.float32)
 
@@ -54,7 +60,17 @@ def _cheek_band(rgb, faces, size: float) -> np.ndarray:
             return np.array([lm[i].x * w, lm[i].y * h], np.float32)
 
         fw = float(np.linalg.norm(pt(masks.FACE_RIGHT) - pt(masks.FACE_LEFT)))
+        # The SECOND size gate in this file, per face, and it used to drop a
+        # face without a word. The outer one in `apply` reads sqrt(total skin),
+        # which in a group frame is every face added together and therefore
+        # always passes — so a four-face frame sailed through the gate that
+        # reports and then died in the one that does not. Silent, and measured:
+        # blush applied on the file and nothing at all in the panel.
+        if common.source_px(fw) < MIN_FACE_PX:
+            notes["faceTooSmall"] = notes.get("faceTooSmall", 0) + 1
+            continue
         if fw < MIN_FACE_PX:
+            notes["previewTooSmall"] = notes.get("previewTooSmall", 0) + 1
             continue
 
         for temple_i, cheek_i, mouth_i in (
@@ -100,12 +116,14 @@ def apply(rgb, params: dict):
 
     skin = masks.get_mask(rgb, "face-skin")
     face_d = float(np.sqrt(float(skin.sum())))
-    if face_d < MIN_FACE_PX:
-        return rgb, {"blushApplied": 0, "faceTooSmall": 1}
+    verdict = common.face_verdict(face_d, MIN_FACE_PX)
+    if verdict:
+        return rgb, {"blushApplied": 0, verdict: 1}
 
-    band = _cheek_band(rgb, faces, size)
+    notes: dict = {}
+    band = _cheek_band(rgb, faces, size, notes)
     if not band.any():
-        return rgb, {"blushApplied": 0}
+        return rgb, {"blushApplied": 0, **notes}
 
     # never on eyes, brows, lips or nostrils, and never off the face
     features = masks.get_mask(rgb, "face-features")

@@ -41,7 +41,28 @@ import skinmodel
 import specular
 
 # A face must be at least this wide (px) for blemish healing to be safe.
+#
+# Measured IN THE PHOTOGRAPH, never in the frame that happens to be in hand.
+# The panel renders a proxy, and asked about the proxy this number answers a
+# question nobody wanted to ask: not "does this photograph have a face worth
+# retouching" but "is the face big on screen right now". See common.source_px.
 MIN_FACE_PX = 180
+
+# ...and this many pixels must be PRESENT in the frame in hand, or not even a
+# full resample reaches the floor above — which is the only way the pipeline
+# ever satisfies it for a small face. Derived, not chosen: it IS the point where
+# `_apply_upscaled` runs out of room, so it moves if UPSCALE_MAX moves.
+#
+# Two different questions, and conflating them is what made the panel lie. A
+# 5472px file previewed at 1100 shows a 55px face: the PHOTOGRAPH has 273px of
+# face and plainly deserves the tool, while this copy of it cannot carry the
+# tool out. The honest answer there is to say so — `previewTooSmall` — not to
+# return the frame untouched as though the skin were clean.
+#
+# NOTE it does not LOWER the floor. docs/BUGS.md BUG-001 rejected that outright
+# ("replaces 'does nothing' with 'does something wrong'"), and `_scan_face` and
+# `confidence` still refuse anything under MIN_FACE_PX exactly as before.
+MIN_WORK_PX = 90  # = MIN_FACE_PX / UPSCALE_MAX; the assert lives by UPSCALE_MAX
 
 # `_fluid_trails` is ON. It was switched off for two measured reasons, and both
 # are now fixed rather than tolerated.
@@ -1001,6 +1022,8 @@ def confidence(rgb, params: dict):
     strength = common.clamp01(params.get("strength", 60))
     skin = masks.get_mask(rgb, "face-skin")
     face_d = float(np.sqrt(skin.sum()))
+    # Working-frame floor, same reasoning and same number as `_scan_face`: the
+    # detector's kernels are fractions of this.
     if face_d < MIN_FACE_PX:
         return None
 
@@ -1539,6 +1562,13 @@ def _scan_face(rgb, params: dict, candidates: bool = True, frame_eye=None) -> Fa
     redness, strength, spot_params = _params(params)
     skin = masks.get_mask(rgb, "face-skin")
     face_d = float(np.sqrt(skin.sum()))
+    # The floor HERE is about this array, not about the photograph: everything
+    # below is a fraction of `face_d`, and under it those fractions all land on
+    # their minimum and stop meaning anything. UNCHANGED at MIN_FACE_PX —
+    # docs/BUGS.md BUG-001 rejected lowering it, and the caller's job is to hand
+    # this function a frame that clears it (`_apply_upscaled`), not to argue the
+    # number down. What the caller no longer does is decide, from this same
+    # number, whether the PHOTOGRAPH deserves the tool.
     if face_d < MIN_FACE_PX:
         return None
 
@@ -1760,9 +1790,20 @@ def _selection_mask(shape, polygons) -> np.ndarray:
 
 
 def _face_boxes(rgb, faces):
-    """One working crop per face, with room for the below-mouth fluid zone."""
+    """One working crop per face. -> (boxes, too_small_in_this_copy).
+
+    Room is left below the mouth for the fluid zone.
+
+    The two rejections here are NOT the same rejection, and returning them as
+    one silent `continue` is how a group photo came back untouched while the
+    tool reported "5 faces". `fw` is judged in the photograph — a speck is a
+    speck at any zoom — while the 48px crop minimum is a fact about the array in
+    hand, and a face that trips only that one is a face the delivered file will
+    retouch. The caller has to be able to say so out loud.
+    """
     h, w = rgb.shape[:2]
     boxes = []
+    too_small_here = 0
     for lm in faces:
         xs = np.array([p.x * w for p in lm])
         ys = np.array([p.y * h for p in lm])
@@ -1770,17 +1811,18 @@ def _face_boxes(rgb, faces):
             (lm[masks.FACE_RIGHT].x - lm[masks.FACE_LEFT].x) * w,
             (lm[masks.FACE_RIGHT].y - lm[masks.FACE_LEFT].y) * h,
         ))
-        if fw < 40:
-            continue
+        if common.source_px(fw) < 40:
+            continue  # a speck in the photograph itself, not a face
         # margin: chin, forehead and the below-mouth fluid zone included
         x0 = max(0, int(xs.min() - fw * 0.35))
         x1 = min(w, int(xs.max() + fw * 0.35))
         y0 = max(0, int(ys.min() - fw * 0.35))
         y1 = min(h, int(ys.max() + fw * 0.65))
         if x1 - x0 < 48 or y1 - y0 < 48:
+            too_small_here += 1
             continue
         boxes.append((x0, y0, x1, y1))
-    return boxes
+    return boxes, too_small_here
 
 
 def detect(rgb, params: dict) -> dict:
@@ -1794,17 +1836,29 @@ def detect(rgb, params: dict) -> dict:
     """
     h, w = rgb.shape[:2]
     faces = masks._face_landmarks(rgb) or []
+    unworkable = 0
     if len(faces) >= 2:
-        boxes = _face_boxes(rgb, faces)
+        boxes, unworkable = _face_boxes(rgb, faces)
     else:
         boxes = [(0, 0, w, h)]
 
     items = []
     notes: dict = {}
+    if unworkable:
+        notes["previewTooSmall"] = unworkable
     for face_index, (fx0, fy0, fx1, fy1) in enumerate(boxes):
-        scan = _scan_face(rgb[fy0:fy1, fx0:fx1], params)
+        crop = rgb[fy0:fy1, fx0:fx1]
+        scan = _scan_face(crop, params)
         if scan is None:
-            notes["faceTooSmall"] = notes.get("faceTooSmall", 0) + 1
+            # WHICH refusal was it? A face the photograph does not really
+            # contain, or one this copy is too small to measure? Reporting the
+            # second as the first tells the photographer their subject is too
+            # small to help while the delivered file retouches them in full.
+            work = float(np.sqrt(masks.get_mask(crop, "face-skin").sum()))
+            key = ("faceTooSmall"
+                   if common.source_px(work) < MIN_FACE_PX / UPSCALE_MAX
+                   else "previewTooSmall")
+            notes[key] = notes.get(key, 0) + 1
             continue
         if scan.spots_off:
             notes["spotsOff"] = notes.get("spotsOff", 0) + 1
@@ -1889,13 +1943,15 @@ def apply(rgb, params: dict):
         totals = {"spotsRemoved": 0, "correctedPx": 0, "lineVetoed": 0, "creaseVetoed": 0,
                   "shadingVetoed": 0, "wetTrails": 0, "fluidTrails": 0,
                   "pigmentPx": 0, "protectedSpotPx": 0, "selected": 0,
-                  "faceTooSmall": 0, "spotsOff": 0}
+                  "faceTooSmall": 0, "spotsOff": 0, "previewTooSmall": 0}
         # Protection masks belong to the FRAME. Computing them once here and
         # slicing per crop is not an optimisation: recomputed on a crop they
         # come back in a slightly different place (see the note at eye_guard),
         # and a per-face pass then edits skin the frame said was off limits.
         frame_eye = masks.get_mask(rgb, "face-eye-region")
-        for x0, y0, x1, y1 in _face_boxes(rgb, faces):
+        boxes, unworkable = _face_boxes(rgb, faces)
+        totals["previewTooSmall"] += unworkable
+        for x0, y0, x1, y1 in boxes:
             healed_sub, m = _apply_one(
                 out[y0:y1, x0:x1],
                 params,
@@ -1963,6 +2019,15 @@ def _params(params: dict):
 # the thing producing the detail.
 UPSCALE_MARGIN = 1.15
 UPSCALE_MAX = 2.0
+
+# MIN_WORK_PX is a DERIVED number, not a second opinion about face size: it is
+# the smallest face a full resample still lifts over MIN_FACE_PX. Stated up
+# there so it can be read next to the floor it protects, checked down here so it
+# cannot drift away from the constant it is made of.
+assert MIN_WORK_PX == MIN_FACE_PX / UPSCALE_MAX, (
+    "MIN_WORK_PX must stay MIN_FACE_PX / UPSCALE_MAX — it is where "
+    "_apply_upscaled runs out of room, not an independent judgement"
+)
 
 
 def _apply_upscaled(rgb, params: dict, factor: float, frame_eye=None):
@@ -2035,9 +2100,34 @@ def _apply_one(rgb, params: dict, sel_mask=None, frame_eye=None, _rescaled=False
     # failure this whole exercise exists to avoid.
     if not _rescaled and sel_mask is None:
         skin = masks.get_mask(rgb, "face-skin")
-        gate = float(np.sqrt(skin.sum()))
-        if 0 < gate < MIN_FACE_PX:
-            factor = min(UPSCALE_MAX, (MIN_FACE_PX * UPSCALE_MARGIN) / gate)
+        work = float(np.sqrt(skin.sum()))       # face pixels I actually hold
+        source = common.source_px(work)         # face pixels the photograph has
+        if work > 0:
+            # (1) MAY this face be treated at all? A question about the
+            # PHOTOGRAPH, so it gets the same answer in the panel and in the
+            # export — which is the property that was missing. MIN_WORK_PX is
+            # where `_apply_upscaled` runs out of room, so this is the same
+            # verdict the tool already reached at full resolution; only the frame
+            # it is asked about has changed.
+            if source < MIN_WORK_PX:
+                return rgb, {"spotsRemoved": 0, "faceTooSmall": 1}
+
+            # (2) CAN this frame carry it out? A question about the array in
+            # hand. `_scan_face` needs MIN_FACE_PX and the resample is what gets
+            # it there, so the factor is read off the working face — never off
+            # the source, or a proxy would be handed a factor sized for a frame
+            # it is not.
+            factor = 1.0
+            if work < MIN_FACE_PX:
+                factor = min(UPSCALE_MAX, (MIN_FACE_PX * UPSCALE_MARGIN) / work)
+
+            # (3) Out of room. The photograph deserves the tool and this copy
+            # cannot deliver it — SAY SO. Returning the frame silently is what
+            # made a panel of untouched skin read as a verdict of clean skin.
+            if work * factor < MIN_FACE_PX:
+                return rgb, {"spotsRemoved": 0, "previewTooSmall": 1,
+                             "sourceFacePx": int(round(source))}
+
             if factor > 1.02:
                 return _apply_upscaled(rgb, params, factor, frame_eye)
 
