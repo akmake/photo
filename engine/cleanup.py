@@ -1526,6 +1526,16 @@ class FaceScan:
 
 def _scan_face(rgb, params: dict, candidates: bool = True, frame_eye=None) -> FaceScan | None:
     """Stage the correctable field, then detect on the untouched original."""
+    # `frame_eye` is a mask of THIS frame, and it is used by slicing it with a
+    # box measured on this frame. A caller that resamples the image and forwards
+    # the old mask breaks that silently: numpy clips the out-of-range slice and
+    # the mismatch only surfaces as a broadcast error further down, naming two
+    # shapes and no reason. One sentence here beats that riddle.
+    if frame_eye is not None and frame_eye.shape[:2] != rgb.shape[:2]:
+        raise ValueError(
+            f"frame_eye is {frame_eye.shape[:2]} but the frame it must cover is "
+            f"{rgb.shape[:2]}: the guard was not resampled with the image"
+        )
     redness, strength, spot_params = _params(params)
     skin = masks.get_mask(rgb, "face-skin")
     face_d = float(np.sqrt(skin.sum()))
@@ -1966,7 +1976,20 @@ def _apply_upscaled(rgb, params: dict, factor: float, frame_eye=None):
     h, w = rgb.shape[:2]
     big = cv2.resize(rgb, (int(w * factor), int(h * factor)),
                      interpolation=cv2.INTER_LANCZOS4)
-    edit, meta = _apply_one(big, params, frame_eye=frame_eye, _rescaled=True)
+    # The guard has to travel WITH the resample, or it is a mask in the wrong
+    # coordinate system. Handed over unchanged it was silently mis-sliced --
+    # `frame_eye[y0:y1, x0:x1]` with a box measured on `big` runs off the end of
+    # a frame-sized array, and numpy CLIPS an out-of-range slice instead of
+    # failing, so the first sign of it was a broadcast error several lines later
+    # (`operands could not be broadcast together ... (295,277) (176,134)`).
+    #
+    # Resampled, not recomputed: recomputing the kind on `big` is exactly what
+    # the note at `eye_guard` forbids, because MediaPipe re-detects and the
+    # region lands a few pixels off. Resampling moves the SAME mask.
+    big_eye = None if frame_eye is None else cv2.resize(
+        frame_eye, (big.shape[1], big.shape[0]), interpolation=cv2.INTER_LINEAR
+    )
+    edit, meta = _apply_one(big, params, frame_eye=big_eye, _rescaled=True)
 
     touched = (np.abs(edit.astype(np.int16) - big.astype(np.int16)).max(axis=2) > 0)
     if not touched.any():
