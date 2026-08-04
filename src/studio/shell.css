@@ -333,3 +333,28 @@
     display: none;
   }
 }
+
+/* A change that did not reach the database. Loud on purpose and pinned above
+ * the work: it is the one message where "quiet and tasteful" would cost the
+ * photographer their afternoon. */
+.save-alarm {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s3);
+  padding: var(--s3) var(--s4);
+  background: var(--bad-soft, #40201f);
+  color: var(--bad-ink, #ffb4ae);
+  border-bottom: 1px solid var(--bad-line, #7a3a36);
+  font-size: var(--t-sm);
+}
+
+.save-alarm b {
+  font-size: var(--t-md);
+}
+
+.save-alarm-what {
+  flex: 1 1 100%;
+  color: inherit;
+  opacity: 0.85;
+}

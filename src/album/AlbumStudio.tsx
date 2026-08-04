@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  IcBook, IcCheck, IcChevron, IcDownload, IcEye, IcGallery, IcSparkle,
-  IcUndo, IcUpload,
+  IcBook, IcCheck, IcChevron, IcDownload, IcExpand, IcEye, IcGallery, IcSparkle,
+  IcUndo,
 } from '../design/Icons';
 import type {
-  AlbumPhoto, AlbumPhotoAnalysis, AlbumProject, AlbumSpread, LayoutSlot,
+  AlbumPhoto, AlbumProject, AlbumSpread, LayoutSlot,
   PhotoFitMode, PhotoFrameSettings,
 } from './model';
 import { FIRST_PRINT_PROFILE, PRINT_PROFILES } from './model';
@@ -13,13 +13,15 @@ import {
 } from './layoutEngine';
 import { assessCrop } from './cropEngine';
 import { LAYOUT_TEMPLATES, TEMPLATE_PHOTO_COUNTS } from './layoutTemplates';
-import { analyzeAlbumPhoto } from '../api';
 import { exportAlbumForPrint, exportAlbumProof } from './exportEngine';
 import { buildAutomaticAlbum } from './albumFlow';
 import {
-  deleteAlbum, duplicateAlbum, listAlbums, loadAlbum, renameAlbum, saveAlbum, storePhotoBlob,
+  deleteAlbum, duplicateAlbum, loadAlbum, renameAlbum, saveAlbum, useAlbums,
   type AlbumSummary,
 } from './albumStorage';
+import {
+  analyseFrames, applyFacts, ensureAnalysed, loadProjectPhotos,
+} from './projectPhotos';
 import AlbumPreview from './AlbumPreview';
 import ReviewWorkspace from './ReviewWorkspace';
 import CoverEditor from './CoverEditor';
@@ -27,68 +29,6 @@ import PreflightPanel from './PreflightPanel';
 import OrganizeView from './OrganizeView';
 import AlbumLibrary from './AlbumLibrary';
 import { runAlbumPreflight, type PreflightIssue } from './preflightEngine';
-
-const DEMO_PHOTOS_BASE: AlbumPhoto[] = [
-  { id: 'p1', name: 'רגע עם הסוס', url: '/demo/b.jpg', orientation: 'landscape', widthPx: 1600, heightPx: 1067, focalPoint: { x: 0.58, y: 0.45 } },
-  { id: 'p2', name: 'פורטרט בחוץ', url: '/demo/c.jpg', orientation: 'portrait', widthPx: 1067, heightPx: 1600, focalPoint: { x: 0.5, y: 0.34 } },
-  { id: 'p3', name: 'רגע סתווי', url: '/demo/a.jpg', orientation: 'landscape', widthPx: 1600, heightPx: 1067, focalPoint: { x: 0.48, y: 0.44 } },
-  { id: 'p4', name: 'דיוקן נבחר', url: '/demo/c.jpg', orientation: 'portrait', widthPx: 1067, heightPx: 1600, focalPoint: { x: 0.54, y: 0.32 } },
-  { id: 'p5', name: 'פריים רחב', url: '/demo/b.jpg', orientation: 'landscape', widthPx: 1600, heightPx: 1067, focalPoint: { x: 0.63, y: 0.45 } },
-  { id: 'p6', name: 'פרט משלים', url: '/demo/a.jpg', orientation: 'square', widthPx: 1400, heightPx: 1400, focalPoint: { x: 0.5, y: 0.5 } },
-  { id: 'p7', name: 'רגע טבעי', url: '/demo/b.jpg', orientation: 'landscape', widthPx: 1600, heightPx: 1067, focalPoint: { x: 0.58, y: 0.46 } },
-  { id: 'p8', name: 'דיוקן עם סוס', url: '/demo/c.jpg', orientation: 'portrait', widthPx: 1067, heightPx: 1600, focalPoint: { x: 0.52, y: 0.34 } },
-  { id: 'p9', name: 'מבט מהצד', url: '/demo/a.jpg', orientation: 'landscape', widthPx: 1600, heightPx: 1067, focalPoint: { x: 0.56, y: 0.47 } },
-  { id: 'p10', name: 'רגע שקט', url: '/demo/c.jpg', orientation: 'portrait', widthPx: 1067, heightPx: 1600, focalPoint: { x: 0.5, y: 0.36 } },
-  { id: 'p11', name: 'פריים לסיום', url: '/demo/b.jpg', orientation: 'landscape', widthPx: 1600, heightPx: 1067, focalPoint: { x: 0.62, y: 0.46 } },
-  { id: 'p12', name: 'תמונה משלימה', url: '/demo/a.jpg', orientation: 'square', widthPx: 1400, heightPx: 1400, focalPoint: { x: 0.5, y: 0.5 } },
-];
-
-const DEMO_ANALYSIS: Record<string, AlbumPhotoAnalysis> = {
-  '/demo/a.jpg': {
-    status: 'ready',
-    faces: [{ x: 0.50331, y: 0.32614, width: 0.13707, height: 0.16908 }],
-    subject: { x: 0.32474, y: 0.34063, width: 0.3177, height: 0.44688 },
-    focalPoint: { x: 0.54978, y: 0.44903 },
-    sharpnessScore: 0.486,
-    qualityScore: 0.5926,
-    analyzedBy: 'mediapipe-local-v1',
-  },
-  '/demo/b.jpg': {
-    status: 'ready',
-    faces: [{ x: 0.47894, y: 0.30108, width: 0.13497, height: 0.24971 }],
-    subject: { x: 0.3, y: 0.08441, width: 0.44531, height: 0.91559 },
-    focalPoint: { x: 0.54048, y: 0.455 },
-    sharpnessScore: 0.7496,
-    qualityScore: 0.8047,
-    analyzedBy: 'mediapipe-local-v1',
-  },
-  '/demo/c.jpg': {
-    status: 'ready',
-    faces: [{ x: 0.50345, y: 0.32609, width: 0.13718, height: 0.16897 }],
-    subject: { x: 0.28605, y: 0.33984, width: 0.35756, height: 0.44688 },
-    focalPoint: { x: 0.54524, y: 0.44875 },
-    sharpnessScore: 0.8443,
-    qualityScore: 0.8238,
-    analyzedBy: 'mediapipe-local-v1',
-  },
-};
-
-const DEMO_PHOTOS: AlbumPhoto[] = DEMO_PHOTOS_BASE.map((photo) => ({
-  ...photo,
-  widthPx: photo.url.endsWith('/b.jpg') ? 5472 : 3648,
-  heightPx: photo.url.endsWith('/b.jpg') ? 3648 : 5472,
-  orientation: photo.url.endsWith('/b.jpg') ? 'landscape' : 'portrait',
-  focalPoint: DEMO_ANALYSIS[photo.url].focalPoint,
-  analysis: DEMO_ANALYSIS[photo.url],
-}));
-
-const INITIAL_SPREADS: AlbumSpread[] = [
-  { id: 's1', pageStart: 2, layoutId: 'balanced', photoIds: ['p1'], background: '#f4efe7', locked: false, status: 'draft' },
-  { id: 's2', pageStart: 4, layoutId: 'balanced', photoIds: ['p2', 'p3'], background: '#f8f6f1', locked: false, status: 'draft' },
-  { id: 's3', pageStart: 6, layoutId: 'balanced', photoIds: ['p4', 'p5', 'p6', 'p7', 'p8'], background: '#f5efe7', locked: false, status: 'draft' },
-  { id: 's4', pageStart: 8, layoutId: 'balanced', photoIds: [], background: '#e9e2d8', locked: false, status: 'draft' },
-  { id: 's5', pageStart: 10, layoutId: 'balanced', photoIds: [], background: '#f8f6f1', locked: false, status: 'draft' },
-];
 
 type PhotoTrayFilter = 'available' | 'unused' | 'used' | 'all';
 interface PersonalLayout {
@@ -106,25 +46,86 @@ const DEFAULT_FRAME_SETTINGS: PhotoFrameSettings = {
   zoom: 100,
 };
 
-const INITIAL_PROJECT: AlbumProject = {
-  id: 'album-mali',
-  name: 'מלי כץ — בת מצווה',
-  productProfileId: FIRST_PRINT_PROFILE.id,
-  styleName: 'Fine Art',
-  spreads: INITIAL_SPREADS,
-  activeSpreadId: 's3',
-};
-
-function orientationFor(width: number, height: number): AlbumPhoto['orientation'] {
-  const ratio = width / height;
-  if (ratio > 1.12) return 'landscape';
-  if (ratio < 0.88) return 'portrait';
-  return 'square';
+/** One empty spread, so a new album opens on a page rather than on nothing. */
+function firstSpread(): AlbumSpread {
+  return {
+    id: 's1', pageStart: 2, layoutId: 'balanced', photoIds: [],
+    background: '#f8f6f1', locked: false, status: 'draft',
+  };
 }
 
-export default function AlbumStudio() {
-  const [project, setProject] = useState(INITIAL_PROJECT);
-  const [photos, setPhotos] = useState(DEMO_PHOTOS);
+/* What the studio holds before an album is open. It is deliberately blank: a
+ * demo album used to sit here, and a horse photo captioned "מלי כץ" appearing
+ * for one frame inside a real client's job is the kind of thing a photographer
+ * never trusts again. */
+const NO_ALBUM: AlbumProject = {
+  id: '',
+  name: '',
+  productProfileId: FIRST_PRINT_PROFILE.id,
+  styleName: 'Fine Art',
+  spreads: [firstSpread()],
+  activeSpreadId: 's1',
+};
+
+/** Every frame the album actually refers to — the current spreads, the cover,
+ *  and any proof version already sent. Only these are stored with the album:
+ *  the tray is rebuilt from the project's folders on every open, so keeping a
+ *  copy of a 2,000-frame wedding in localStorage would be both wasteful and
+ *  wrong the moment the photographer adds a folder. */
+function referencedPhotos(project: AlbumProject, photos: AlbumPhoto[]): AlbumPhoto[] {
+  const wanted = new Set<string>();
+  const collect = (spreads: AlbumSpread[]) => spreads
+    .forEach((spread) => spread.photoIds.forEach((id) => wanted.add(id)));
+  collect(project.spreads);
+  project.reviewVersions?.forEach((version) => {
+    collect(version.spreads);
+    if (version.cover?.frontPhotoId) wanted.add(version.cover.frontPhotoId);
+    if (version.cover?.backPhotoId) wanted.add(version.cover.backPhotoId);
+  });
+  if (project.cover?.frontPhotoId) wanted.add(project.cover.frontPhotoId);
+  if (project.cover?.backPhotoId) wanted.add(project.cover.backPhotoId);
+  return photos.filter((photo) => wanted.has(photo.id));
+}
+
+/** The tray: every frame in the project's folders, plus any frame the album
+ *  still uses whose folder has since been removed — dropping those would empty
+ *  spreads the photographer already approved. */
+function mergePool(pool: AlbumPhoto[], saved: AlbumPhoto[]): AlbumPhoto[] {
+  const savedById = new Map(saved.map((photo) => [photo.id, photo]));
+  const merged = pool.map((photo) => {
+    const known = savedById.get(photo.id);
+    savedById.delete(photo.id);
+    // the album remembers the analysis; the pool holds the fresh url
+    return known ? { ...known, url: photo.url, name: photo.name } : photo;
+  });
+  return [...merged, ...savedById.values()];
+}
+
+export interface AlbumStudioProps {
+  /** The job these albums belong to, and whose folders fill the tray. */
+  projectId: string;
+  /** Shown when naming a new album — the photographer should not retype it. */
+  projectName: string;
+  /** Which album is open; null shows the project's album list. */
+  albumId: string | null;
+  onOpenAlbum: (id: string) => void;
+  onCloseAlbum: () => void;
+  /** Drop the project frame and give the spread the whole window. */
+  fullscreen?: boolean;
+  onToggleFullscreen?: () => void;
+}
+
+export default function AlbumStudio({
+  projectId,
+  projectName,
+  albumId,
+  onOpenAlbum,
+  onCloseAlbum,
+  fullscreen = false,
+  onToggleFullscreen,
+}: AlbumStudioProps) {
+  const [project, setProject] = useState(NO_ALBUM);
+  const [photos, setPhotos] = useState<AlbumPhoto[]>([]);
   const [historyPast, setHistoryPast] = useState<AlbumProject[]>([]);
   const [historyFuture, setHistoryFuture] = useState<AlbumProject[]>([]);
   const [isHydrated, setIsHydrated] = useState(false);
@@ -143,10 +144,22 @@ export default function AlbumStudio() {
   /* `organize` is the album; `design` is one spread. The module opens on the
    * album, because that is the question a photographer actually asks first. */
   const [mode, setMode] = useState<'organize' | 'design'>('organize');
-  /* Null means the library is showing. An album is a saved thing you come back
-   * to, so nothing is open until the photographer picks one. */
-  const [activeAlbumId, setActiveAlbumId] = useState<string | null>(null);
-  const [albums, setAlbums] = useState<AlbumSummary[]>(() => listAlbums());
+  /* Null means the project's album list is showing. Which album is open lives
+   * in the URL, not here — an album a photographer worked on for an hour has
+   * to survive a reload and be linkable. */
+  const activeAlbumId = albumId;
+  /* Straight from the album store, so a save anywhere refreshes the list —
+   * no hand-written refresh call to forget at the one call site that
+   * mattered. */
+  const albums = useAlbums(projectId);
+  /* The project's frames, read from its folders on disk. Loading is a state of
+   * its own because a disconnected drive is a normal Tuesday, and an empty
+   * tray must be able to say WHY it is empty. */
+  const [poolState, setPoolState] = useState<{
+    photos: AlbumPhoto[];
+    loading: boolean;
+    errors: { folder: string; error: string }[];
+  }>({ photos: [], loading: true, errors: [] });
   const [showPreview, setShowPreview] = useState(false);
   const [showReview, setShowReview] = useState(false);
   const [showCover, setShowCover] = useState(false);
@@ -170,7 +183,6 @@ export default function AlbumStudio() {
       return [];
     }
   });
-  const fileInput = useRef<HTMLInputElement>(null);
   const panSession = useRef<{
     slotIndex: number;
     startX: number;
@@ -182,15 +194,44 @@ export default function AlbumStudio() {
   } | null>(null);
   const suppressFrameClick = useRef(false);
 
+  /* The tray is the PROJECT's folders, read fresh. Nothing is uploaded and
+   * nothing is copied: a frame here is a path, and the engine serves its
+   * pixels at whatever size the screen or the press asks for. */
+  useEffect(() => {
+    let alive = true;
+    setPoolState((current) => ({ ...current, loading: true }));
+    loadProjectPhotos(projectId)
+      .then((result) => {
+        if (!alive) return;
+        setPoolState({ photos: result.photos, loading: false, errors: result.errors });
+      })
+      .catch(() => {
+        if (!alive) return;
+        setPoolState({
+          photos: [],
+          loading: false,
+          errors: [{ folder: '', error: 'המנוע המקומי אינו זמין' }],
+        });
+      });
+    return () => {
+      alive = false;
+    };
+  }, [projectId]);
+
+  useEffect(() => {
+  }, [projectId]);
+
   useEffect(() => {
     if (!activeAlbumId) return undefined;
+    // wait for the folders: merging into an empty pool would drop the tray
+    if (poolState.loading) return undefined;
     let alive = true;
     setIsHydrated(false);
     loadAlbum(activeAlbumId)
       .then((saved) => {
         if (!alive || !saved) return;
         setProject(saved.project);
-        setPhotos(saved.photos);
+        setPhotos(mergePool(poolState.photos, saved.photos));
         setNotice(`${saved.project.name} נפתח`);
       })
       .catch(() => setNotice('לא ניתן היה לפתוח את האלבום'))
@@ -200,18 +241,19 @@ export default function AlbumStudio() {
     return () => {
       alive = false;
     };
-  }, [activeAlbumId]);
+    // the pool is a dependency by identity, and it is replaced only on reload
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeAlbumId, poolState.loading, poolState.photos]);
 
   useEffect(() => {
     // autosave belongs to the OPEN album; with none open there is nothing to write
     if (!isHydrated || !activeAlbumId) return undefined;
     const timer = window.setTimeout(() => {
-      saveAlbum(project, photos);
-      setAlbums(listAlbums());
-      setNotice('כל השינויים נשמרו אוטומטית');
+      saveAlbum(project, referencedPhotos(project, photos));
+        setNotice('כל השינויים נשמרו אוטומטית');
     }, 600);
     return () => window.clearTimeout(timer);
-  }, [activeAlbumId, isHydrated, photos, project]);
+  }, [activeAlbumId, isHydrated, photos, project, projectId]);
 
   /* The core loop is the keyboard: vertical cycles this spread's candidate
    * layouts, horizontal walks the album. The album reads right-to-left, so
@@ -233,6 +275,18 @@ export default function AlbumStudio() {
         case 'ArrowLeft': event.preventDefault(); setActiveSpread(spreadIndex + 1); break;
         case 'ArrowRight':event.preventDefault(); setActiveSpread(spreadIndex - 1); break;
         case 'Escape':    setSelectedSlotIndex(null); setSelectedPhotoId(null); break;
+        /* Both directions on the same key, and NOT on Escape: inside the
+         * editor Escape already means "drop this selection", and one key that
+         * does two things depending on what is selected is how a photographer
+         * loses a crop they were in the middle of. */
+        case 'f':
+        case 'F':
+        case 'כ': // the same physical key on a Hebrew layout
+          if (activeAlbumId && onToggleFullscreen) {
+            event.preventDefault();
+            onToggleFullscreen();
+          }
+          break;
         default: break;
       }
     }
@@ -276,6 +330,33 @@ export default function AlbumStudio() {
     return true;
   }), [photoFilter, photos, previouslyUsedIds, usedIds]);
   const visiblePhotos = filteredPhotos.slice(0, photoLimit);
+  /* WHICH frames are on screen, not how many — changing spread swaps the tray
+   * without changing its length, and a count would miss that. */
+  const visibleKey = visiblePhotos.map((photo) => photo.id).join('|');
+
+  /* Analysis is what turns a file into something that can be placed: real
+   * pixel dimensions, faces, a focal point. It costs a full decode, so it runs
+   * only for the frames actually on screen and the frames already in the
+   * album — analysing a 2,000-frame wedding up front would keep the engine
+   * busy for minutes to answer a question nobody asked. */
+  useEffect(() => {
+    if (!activeAlbumId) return undefined;
+    const wanted = [...new Set([...visiblePhotos.map((p) => p.id), ...usedIds])]
+      .map((id) => photos.find((photo) => photo.id === id))
+      .filter((photo): photo is AlbumPhoto => !!photo?.path && photo.analysis?.status !== 'ready')
+      .map((photo) => photo.path!);
+    if (!wanted.length) return undefined;
+
+    return analyseFrames(wanted, (path, facts) => {
+      setPhotos((current) => current.map((photo) => (
+        photo.path === path ? applyFacts(photo, facts) : photo
+      )));
+    });
+    // `photos` is deliberately absent: this effect WRITES it, and depending on
+    // it would restart the queue on every frame that lands.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeAlbumId, visibleKey, usedIds]);
+
   const selectedSlot = selectedSlotIndex === null ? null : layout.slots[selectedSlotIndex];
   const selectedFramePhoto = selectedSlotIndex === null
     ? null
@@ -424,20 +505,16 @@ export default function AlbumStudio() {
     const fresh: AlbumProject = {
       id,
       name,
+      projectId,
       productProfileId,
       styleName: 'Fine Art',
-      /* One empty spread, so the album opens on a page rather than on nothing.
-       * Photos are chosen next, from the tray. */
-      spreads: [{
-        id: 's1', pageStart: 2, layoutId: 'balanced', photoIds: [],
-        background: '#f8f6f1', locked: false, status: 'draft',
-      }],
+      spreads: [firstSpread()],
       activeSpreadId: 's1',
     };
     saveAlbum(fresh, []);
-    setAlbums(listAlbums());
     setProject(fresh);
-    setPhotos([]);
+    // the tray is the project's, so a new album starts with every frame in it
+    setPhotos(poolState.photos);
     setHistoryPast([]);
     setHistoryFuture([]);
     setSelectedSlotIndex(null);
@@ -445,18 +522,17 @@ export default function AlbumStudio() {
     setAlbumSelectedIds(new Set());
     setSelectionMode(true);
     setMode('design');
-    setActiveAlbumId(id);
-    setNotice('בחרי את התמונות שייכנסו לאלבום');
+    onOpenAlbum(id);
+    setNotice('בחר את התמונות שייכנסו לאלבום');
   }
 
   function closeAlbum() {
     // flush before leaving; the autosave debounce may not have fired yet
-    if (activeAlbumId && isHydrated) saveAlbum(project, photos);
-    setAlbums(listAlbums());
-    setActiveAlbumId(null);
+    if (activeAlbumId && isHydrated) saveAlbum(project, referencedPhotos(project, photos));
     setSelectedSlotIndex(null);
     setSelectedPhotoId(null);
     setMode('organize');
+    onCloseAlbum();
   }
 
   /** Reorder by dropping one spread onto another's slot, from the organise grid. */
@@ -503,18 +579,38 @@ export default function AlbumStudio() {
     setNotice(`${filteredPhotos.length} תמונות נוספו לבחירת האלבום`);
   }
 
-  function buildFullAlbum() {
-    const orderedIds = photos
-      .filter((photo) => albumSelectedIds.has(photo.id))
-      .map((photo) => photo.id);
+  async function buildFullAlbum() {
+    const chosen = photos.filter((photo) => albumSelectedIds.has(photo.id));
+    const orderedIds = chosen.map((photo) => photo.id);
     if (!orderedIds.length) {
       setSelectionMode(true);
-      setNotice('בחרי תחילה את התמונות שייכנסו לאלבום');
+      setNotice('בחר תחילה את התמונות שייכנסו לאלבום');
       return;
     }
+
+    /* Lay out only what has been measured. The layout engine places by
+     * orientation and the crop is judged against the real pixel size, so a
+     * frame that has not been analysed yet would be laid out as a guess and
+     * then quietly reported at 0 ppi. Waiting a few seconds here is the
+     * difference between a draft and a draft that has to be redone. */
+    const unmeasured = chosen
+      .filter((photo) => photo.path && photo.analysis?.status !== 'ready')
+      .map((photo) => photo.path!);
+    let measured = photos;
+    if (unmeasured.length) {
+      setNotice(`מנתח ${unmeasured.length} תמונות לפני בניית האלבום…`);
+      const facts = await ensureAnalysed(unmeasured, (done, total) => {
+        setNotice(`מנתח תמונות לאלבום · ${done} מתוך ${total}`);
+      });
+      measured = photos.map((photo) => (
+        photo.path && facts.has(photo.path) ? applyFacts(photo, facts.get(photo.path)!) : photo
+      ));
+      setPhotos(measured);
+    }
+
     const spreads = buildAutomaticAlbum(
       orderedIds,
-      photos,
+      measured,
       profile.closedWidthMm / profile.closedHeightMm,
     );
     commitProject((current) => ({
@@ -893,66 +989,20 @@ export default function AlbumStudio() {
     setNotice('התמונה הוחזרה למאגר והכפולה אורגנה מחדש');
   }
 
-  function handleFiles(files: FileList | null) {
-    if (!files) return;
-    const imported: AlbumPhoto[] = Array.from(files)
-      .filter((file) => file.type.startsWith('image/'))
-      .map((file, index) => {
-        const url = URL.createObjectURL(file);
-        const id = `import-${Date.now()}-${index}`;
-        void storePhotoBlob(id, file).catch(() => {
-          setNotice(`לא ניתן היה לשמור את ${file.name} לשחזור`);
-        });
-        return {
-          id,
-          name: file.name,
-          url,
-          storageKey: id,
-          orientation: 'landscape',
-          widthPx: 0,
-          heightPx: 0,
-          analysis: {
-            status: 'pending',
-            faces: [],
-            focalPoint: { x: 0.5, y: 0.5 },
-            sharpnessScore: 0,
-            qualityScore: 0,
-            analyzedBy: 'pending',
-          },
-        };
-      });
-    imported.forEach((photo) => {
-      const img = new Image();
-      img.onload = () => {
-        setPhotos((current) => current.map((item) => item.id === photo.id
-          ? { ...item, widthPx: img.width, heightPx: img.height, orientation: orientationFor(img.width, img.height) }
-          : item));
-        analyzeAlbumPhoto(photo.url)
-          .then((result) => {
-            setPhotos((current) => current.map((item) => item.id === photo.id ? {
-              ...item,
-              widthPx: result.widthPx,
-              heightPx: result.heightPx,
-              orientation: orientationFor(result.widthPx, result.heightPx),
-              focalPoint: result.focalPoint,
-              analysis: { ...result, status: 'ready' },
-            } : item));
-          })
-          .catch(() => {
-            setPhotos((current) => current.map((item) => item.id === photo.id ? {
-              ...item,
-              analysis: {
-                ...item.analysis!,
-                status: 'failed',
-                analyzedBy: 'engine-unavailable',
-              },
-            } : item));
-          });
-      };
-      img.src = photo.url;
-    });
-    setPhotos((current) => [...current, ...imported]);
-    setNotice(`נוספו ${imported.length} תמונות · הניתוח המקומי התחיל`);
+  /* Re-read the project's folders. There is no "import" any more: the frames
+   * ARE the project's, and the only thing that can change is what is on disk —
+   * a folder added in the ייבוא stage, or a re-export over the same files. */
+  async function refreshFromProject() {
+    setNotice('קורא מחדש את תיקיות הפרויקט…');
+    setPoolState((current) => ({ ...current, loading: true }));
+    const result = await loadProjectPhotos(projectId);
+    setPoolState({ photos: result.photos, loading: false, errors: result.errors });
+    setPhotos((current) => mergePool(result.photos, referencedPhotos(project, current)));
+    setNotice(
+      result.photos.length
+        ? `${result.photos.length.toLocaleString('he-IL')} תמונות בתיקיות הפרויקט`
+        : 'אין תמונות בתיקיות הפרויקט',
+    );
   }
 
   function createExportItems() {
@@ -1036,19 +1086,17 @@ export default function AlbumStudio() {
       <AlbumLibrary
         albums={albums}
         profiles={printProfiles}
-        onOpen={(id) => { setHistoryPast([]); setHistoryFuture([]); setActiveAlbumId(id); }}
+        projectName={projectName}
+        photoCount={poolState.photos.length}
+        photosLoading={poolState.loading}
+        onOpen={(id) => { setHistoryPast([]); setHistoryFuture([]); onOpenAlbum(id); }}
         onCreate={createAlbum}
-        onRename={(id, name) => {
-          renameAlbum(id, name);
-          setAlbums(listAlbums());
-        }}
+        onRename={(id, name) => { void renameAlbum(id, name); }}
         onDuplicate={(id) => {
           const source = albums.find((item) => item.id === id);
-          if (duplicateAlbum(id, `${source?.name ?? 'אלבום'} — עותק`)) setAlbums(listAlbums());
+          void duplicateAlbum(id, `${source?.name ?? 'אלבום'} — עותק`);
         }}
-        onDelete={(id) => {
-          deleteAlbum(id).then(() => setAlbums(listAlbums()));
-        }}
+        onDelete={(id) => { void deleteAlbum(id); }}
       />
     );
   }
@@ -1104,10 +1152,25 @@ export default function AlbumStudio() {
     <div className="album-studio" data-surface="studio">
       <header className="album-actionbar">
         <div className="album-save-state">
-          <button className="album-back-to-library" onClick={closeAlbum} title="כל האלבומים">
+          <button
+            className="album-back-to-library"
+            onClick={closeAlbum}
+            title={`האלבומים של ${projectName}`}
+          >
             <IcChevron size={15} style={{ transform: 'rotate(180deg)' }} />
             <span>האלבומים</span>
           </button>
+          {onToggleFullscreen && (
+            <button
+              className="album-fullscreen-toggle"
+              onClick={onToggleFullscreen}
+              title={fullscreen ? 'חזרה למסגרת הפרויקט (F)' : 'הרחבה למסך מלא (F)'}
+              aria-pressed={fullscreen}
+            >
+              <IcExpand size={15} />
+              <span>{fullscreen ? 'צמצום' : 'מסך מלא'}</span>
+            </button>
+          )}
           <div className="album-mode-switch" role="group" aria-label="מצב עבודה">
             <button
               className={mode === 'organize' ? 'on' : ''}
@@ -1386,7 +1449,7 @@ export default function AlbumStudio() {
             }}
             onReorder={reorderSpread}
             onAddSpread={addSpread}
-            onAddPhotos={() => { setMode('design'); fileInput.current?.click(); }}
+            onAddPhotos={() => { setMode('design'); setSelectionMode(true); }}
           />
         ) : (
           <>
@@ -1403,7 +1466,9 @@ export default function AlbumStudio() {
               <button className="remove-spread" onClick={removeSpread}>מחיקה</button>
             </div>
             <div className="album-canvas-tools">
-              <button onClick={() => fileInput.current?.click()}><IcUpload size={16} />החלף תמונות</button>
+              <button onClick={() => { setSelectionMode(true); setPhotoFilter('all'); }}>
+                <IcGallery size={16} />בחירת תמונות
+              </button>
               <button><IcGallery size={16} />{layout.photoCount} מסגרות</button>
               <button
                 aria-label="בדיקה לפני ייצוא"
@@ -1559,8 +1624,14 @@ export default function AlbumStudio() {
                     ? 'הסרה מהכפולה'
                     : 'הוספה לכפולה'}
               </button>
-              <button className="album-import" onClick={() => fileInput.current?.click()}><IcUpload size={16} />הוספת תמונות</button>
-              <input ref={fileInput} type="file" accept="image/*" multiple hidden onChange={(event) => handleFiles(event.target.files)} />
+              <button
+                className="album-import"
+                onClick={refreshFromProject}
+                disabled={poolState.loading}
+                title="קורא מחדש את תיקיות הפרויקט מהדיסק"
+              >
+                <IcUndo size={16} />{poolState.loading ? 'קורא…' : 'רענון מהתיקיות'}
+              </button>
             </div>
             <div className="album-photos">
               {visiblePhotos.map((photo) => (
@@ -1603,9 +1674,24 @@ export default function AlbumStudio() {
                   עוד {Math.min(60, filteredPhotos.length - visiblePhotos.length)} תמונות
                 </button>
               )}
+              {/* An empty tray must say WHY. "No photos" when the drive is
+                * unplugged, or when the project has no folders yet, sends the
+                * photographer looking for a bug that is not there. */}
               {filteredPhotos.length === 0 && (
                 <div className="album-photo-empty">
-                  אין תמונות במסנן הזה. אפשר לעבור ל״הכול״ או להוסיף תמונות חדשות.
+                  {poolState.loading ? 'קורא את תיקיות הפרויקט…'
+                    : poolState.errors.length ? (
+                      <>
+                        לא ניתן לקרוא את תיקיות הפרויקט:
+                        {poolState.errors.map((item) => (
+                          <span key={item.folder} className="album-photo-empty-detail" dir="ltr">
+                            {item.folder || 'engine'} — {item.error}
+                          </span>
+                        ))}
+                      </>
+                    ) : poolState.photos.length === 0
+                      ? 'לפרויקט אין עדיין תיקיות תמונות. הוסף תיקייה בשלב הייבוא, והתמונות יופיעו כאן.'
+                      : 'אין תמונות במסנן הזה. אפשר לעבור ל״הכול״.'}
                 </div>
               )}
             </div>

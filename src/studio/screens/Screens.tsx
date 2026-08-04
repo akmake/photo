@@ -1,25 +1,15 @@
-/* The screens around the editor.
+/* The screens the business rail reaches that are not yet their own module.
  *
- * These describe work this build does not perform yet. Each one carries a
- * visible "demo data" note, because a screen that shows invented numbers as if
- * they were real is worse than an empty screen — the photographer would plan
- * against them.
+ * There used to be a demo file behind these — invented clients, invented
+ * counts, a "נתוני דמה" badge under each one. The badge did not help: a screen
+ * full of confident numbers reads as real no matter what the footnote says,
+ * and the photographer plans against it. Everything here now reads the project
+ * store or says plainly that it is not built.
  */
 
-import { CLIENTS, PROJECT } from '../demo';
-import type { StageId } from '../nav';
-import {
-  IcCheckCircle, IcFilter, IcGallery, IcHeart, IcSparkle, IcUpload,
-} from '../../design/Icons';
-
-function DemoNote({ what }: { what: string }) {
-  return (
-    <div className="demo-note">
-      <IcSparkle size={16} />
-      <span>נתוני דמה — {what} עדיין לא מחובר למנוע.</span>
-    </div>
-  );
-}
+import { useProjects } from '../store';
+import type { Project } from '../store';
+import { IcCheckCircle, IcSparkle } from '../../design/Icons';
 
 function Head({ title, sub, action }: { title: string; sub: string; action?: JSX.Element }) {
   return (
@@ -33,140 +23,92 @@ function Head({ title, sub, action }: { title: string; sub: string; action?: JSX
   );
 }
 
-function Stat({ n, label }: { n: number | string; label: string }) {
-  return (
-    <div className="stat">
-      <b>{typeof n === 'number' ? n.toLocaleString('he-IL') : n}</b>
-      <span>{label}</span>
-    </div>
-  );
+interface ClientRow {
+  name: string;
+  projects: number;
+  lastEvent: string;
+  lastDate: string;
+  photos: number;
+  billed: number;
+  paid: number;
+  active: boolean;
 }
 
-function Tiles({ n }: { n: number }) {
-  return (
-    <div className="tile-grid">
-      {Array.from({ length: n }, (_, i) => (
-        <div key={i} className="tile">
-          <IcGallery size={26} />
-        </div>
-      ))}
-    </div>
-  );
-}
+/** Clients are not a separate list that has to be kept in step — a client IS
+ *  whoever the projects are for. Derived, so it can never drift from the work
+ *  (docs/UX-SKELETON.md §4.1: לקוח 1 ──< פרויקט N). */
+function clientsOf(projects: Project[]): ClientRow[] {
+  const byName = new Map<string, Project[]>();
+  projects.forEach((project) => {
+    const list = byName.get(project.client) ?? [];
+    list.push(project);
+    byName.set(project.client, list);
+  });
 
-export function GalleryUpload() {
-  return (
-    <>
-      <Head
-        title="העלאת גלריה"
-        sub="העלאת קבצי המקור מהצילום"
-        action={<button className="btn btn-primary"><IcUpload size={17} />העלאת תמונות</button>}
-      />
-      <DemoNote what="ההעלאה" />
-      <div className="stat-row">
-        <Stat n={PROJECT.originals} label="תמונות בגלריה" />
-        <Stat n="RAW + JPG" label="סוגי קבצים" />
-        <Stat n="42.6 GB" label="נפח" />
-        <Stat n={PROJECT.shootDate} label="תאריך צילום" />
-      </div>
-      <section className="card card-pad">
-        <div className="card-title">תצוגה מקדימה</div>
-        <div style={{ marginTop: 14 }}>
-          <Tiles n={12} />
-        </div>
-      </section>
-    </>
-  );
-}
-
-export function GalleryCull() {
-  const kept = PROJECT.afterCull;
-  const dropped = PROJECT.originals - kept;
-  return (
-    <>
-      <Head
-        title="סינון גלריה"
-        sub="הסרת כפולות, עיניים עצומות ותמונות לא חדות"
-        action={<button className="btn btn-primary"><IcFilter size={17} />הרצת סינון</button>}
-      />
-      <DemoNote what="הסינון האוטומטי" />
-      <div className="stat-row">
-        <Stat n={PROJECT.originals} label="נכנסו" />
-        <Stat n={kept} label="נותרו" />
-        <Stat n={dropped} label="הוסרו" />
-        <Stat n={`${Math.round((dropped / PROJECT.originals) * 100)}%`} label="שיעור סינון" />
-      </div>
-      <section className="card card-pad">
-        <div className="card-title">מה הוסר</div>
-        <table className="table" style={{ marginTop: 12 }}>
-          <thead>
-            <tr><th>סיבה</th><th>כמות</th></tr>
-          </thead>
-          <tbody>
-            <tr><td>כפולות כמעט־זהות</td><td>318</td></tr>
-            <tr><td>עיניים עצומות</td><td>142</td></tr>
-            <tr><td>חוסר חדות</td><td>96</td></tr>
-            <tr><td>חשיפה קיצונית</td><td>40</td></tr>
-          </tbody>
-        </table>
-      </section>
-    </>
-  );
-}
-
-export function GalleryPicked() {
-  return (
-    <>
-      <Head
-        title="תמונות שנבחרו"
-        sub="הבחירה של הלקוחה מתוך הגלריה"
-        action={<button className="btn"><IcHeart size={17} />ייצוא רשימה</button>}
-      />
-      <DemoNote what="בחירת הלקוחה" />
-      <div className="stat-row">
-        <Stat n={PROJECT.clientPicked} label="נבחרו" />
-        <Stat n={PROJECT.afterCull} label="הוצגו" />
-        <Stat n="12.05.2024" label="תאריך בחירה" />
-        <Stat n="הושלם" label="סטטוס" />
-      </div>
-      <section className="card card-pad">
-        <div className="card-title">הנבחרות</div>
-        <div style={{ marginTop: 14 }}>
-          <Tiles n={16} />
-        </div>
-      </section>
-    </>
-  );
+  return [...byName.entries()]
+    .map(([name, jobs]) => {
+      const sorted = [...jobs].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+      return {
+        name,
+        projects: jobs.length,
+        lastEvent: sorted[0].event,
+        lastDate: sorted[0].date,
+        photos: jobs.reduce((sum, job) => sum + job.imported, 0),
+        billed: jobs.reduce((sum, job) => sum + (job.price ?? 0), 0),
+        paid: jobs.reduce((sum, job) => sum + (job.paid ?? 0), 0),
+        active: jobs.some((job) => job.state !== 'done'),
+      };
+    })
+    .sort((a, b) => b.lastDate.localeCompare(a.lastDate));
 }
 
 export function Clients() {
+  const projects = useProjects();
+  const rows = clientsOf(projects);
+
+  if (!rows.length) {
+    return (
+      <>
+        <Head title="לקוחות" sub="כל מי שיש לו עבודה אצלך" />
+        <section className="card card-pad">
+          <div style={{ textAlign: 'center', color: 'var(--ink-3)', padding: 'var(--s6)' }}>
+            אין עדיין לקוחות. לקוח נוצר יחד עם הפרויקט הראשון שלו.
+          </div>
+        </section>
+      </>
+    );
+  }
+
   return (
     <>
-      <Head title="לקוחות" sub="כל הפרויקטים והלקוחות בסטודיו" />
-      <DemoNote what="ניהול הלקוחות" />
+      <Head title="לקוחות" sub={`${rows.length} לקוחות · מתוך הפרויקטים עצמם`} />
       <section className="card" style={{ overflow: 'hidden' }}>
         <table className="table">
           <thead>
             <tr>
-              <th>לקוחה</th><th>סוג אירוע</th><th>תאריך</th>
-              <th>תמונות</th><th>שלב</th>
+              <th>לקוח</th><th>פרויקטים</th><th>אחרון</th>
+              <th>תמונות</th><th>פתוח לתשלום</th><th>מצב</th>
             </tr>
           </thead>
           <tbody>
-            {CLIENTS.map((c) => (
-              <tr key={c.name}>
-                <td style={{ fontWeight: 600 }}>{c.name}</td>
-                <td>{c.event}</td>
-                <td>{c.date}</td>
-                <td>{c.photos.toLocaleString('he-IL')}</td>
-                <td>
-                  <span className={`pill ${c.state === 'done' ? 'pill-ok' : 'pill-run'}`}>
-                    {c.state === 'done' && <IcCheckCircle size={13} />}
-                    {c.stage}
-                  </span>
-                </td>
-              </tr>
-            ))}
+            {rows.map((row) => {
+              const open = row.billed - row.paid;
+              return (
+                <tr key={row.name}>
+                  <td style={{ fontWeight: 600 }}>{row.name}</td>
+                  <td className="mono">{row.projects}</td>
+                  <td>{row.lastEvent} · <span className="mono">{row.lastDate}</span></td>
+                  <td className="mono">{row.photos.toLocaleString('he-IL')}</td>
+                  <td className="mono">{open > 0 ? `₪${open.toLocaleString('he-IL')}` : '—'}</td>
+                  <td>
+                    <span className={`pill ${row.active ? 'pill-run' : 'pill-ok'}`}>
+                      {!row.active && <IcCheckCircle size={13} />}
+                      {row.active ? 'בעבודה' : 'הושלם'}
+                    </span>
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </section>
@@ -174,59 +116,18 @@ export function Clients() {
   );
 }
 
-export function Home() {
-  return (
-    <>
-      <Head title="דף הבית" sub="מבט על על הסטודיו" />
-      <DemoNote what="לוח המחוונים" />
-      <div className="stat-row">
-        <Stat n={5} label="פרויקטים פעילים" />
-        <Stat n={3} label="ממתינים לבחירת לקוחה" />
-        <Stat n={1} label="בעיבוד" />
-        <Stat n={2} label="לאלבום" />
-      </div>
-      <section className="card card-pad">
-        <div className="card-title">פרויקטים אחרונים</div>
-        <table className="table" style={{ marginTop: 12 }}>
-          <thead>
-            <tr><th>לקוחה</th><th>אירוע</th><th>שלב</th></tr>
-          </thead>
-          <tbody>
-            {CLIENTS.slice(0, 4).map((c) => (
-              <tr key={c.name}>
-                <td style={{ fontWeight: 600 }}>{c.name}</td>
-                <td>{c.event}</td>
-                <td>
-                  <span className={`pill ${c.state === 'done' ? 'pill-ok' : 'pill-run'}`}>
-                    {c.stage}
-                  </span>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </section>
-    </>
-  );
-}
-
+/** A screen that does not exist yet, saying exactly that. No invented numbers
+ *  to plan against — that is the whole point. */
 export function Simple({ title, sub }: { title: string; sub: string }) {
   return (
     <>
       <Head title={title} sub={sub} />
-      <DemoNote what={title} />
       <section className="card card-pad" style={{ minHeight: 220, display: 'grid', placeItems: 'center' }}>
         <div style={{ textAlign: 'center', color: 'var(--ink-3)' }}>
           <IcSparkle size={30} />
-          <div style={{ marginTop: 10 }}>המסך הזה יבנה בשלב הבא.</div>
+          <div style={{ marginTop: 10 }}>המסך הזה עדיין לא נבנה.</div>
         </div>
       </section>
     </>
   );
 }
-
-export const STAGE_SCREENS: Partial<Record<StageId, () => JSX.Element>> = {
-  'gallery-upload': GalleryUpload,
-  'gallery-cull': GalleryCull,
-  'gallery-picked': GalleryPicked,
-};

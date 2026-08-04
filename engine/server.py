@@ -34,6 +34,7 @@ import recipe_fit
 import pixel_color
 import album_analysis
 import album_export
+import db
 
 PORT = 8756
 
@@ -156,6 +157,11 @@ class Handler(BaseHTTPRequestHandler):
         if self.path.startswith("/thumb?"):
             self._thumb()
             return
+        if self.path == "/db/health":
+            # never 500s: "cannot reach the database" is an ANSWER the screen
+            # has to show, not a failure the client should guess at
+            self._json(200, db.health())
+            return
         if self.path == "/health":
             self._json(200, {"status": "ok", "tools": [t["id"] for t in TOOLS]})
         elif self.path == "/tools":
@@ -251,6 +257,9 @@ class Handler(BaseHTTPRequestHandler):
         if self.path == "/export":
             self._export()
             return
+        if self.path.startswith("/db/"):
+            self._db(self.path[len("/db/"):])
+            return
         if self.path == "/album/analyze":
             self._album_analyze()
             return
@@ -280,6 +289,45 @@ class Handler(BaseHTTPRequestHandler):
     def _body(self):
         length = int(self.headers.get("Content-Length", 0))
         return json.loads(self.rfile.read(length))
+
+    def _db(self, action):
+        """The studio's records. See db.py for why they live here and not in
+        the browser.
+
+        A database that cannot be reached answers 503 and NOT an empty result.
+        The difference matters more than anything else in this handler: an
+        empty list tells the photographer their studio is empty, and that is a
+        sentence the tool must never say unless it is true.
+        """
+        try:
+            body = self._body() if action != "health" else {}
+            if action == "health":
+                self._json(200, db.health())
+            elif action == "find":
+                self._json(
+                    200,
+                    {"docs": db.find(body["collection"], body.get("where"))},
+                )
+            elif action == "save":
+                self._json(200, db.save(body["collection"], body["doc"]))
+            elif action == "save-many":
+                self._json(200, db.save_many(body["collection"], body["docs"]))
+            elif action == "delete":
+                self._json(200, db.remove(body["collection"], body["id"]))
+            elif action == "delete-where":
+                self._json(
+                    200, db.remove_where(body["collection"], body.get("where"))
+                )
+            elif action == "import":
+                self._json(200, {"report": db.import_once(body.get("collections"))})
+            else:
+                self._json(404, {"error": f"unknown db action: {action}"})
+        except db.DatabaseUnavailable as e:
+            self._json(503, {"error": f"מסד הנתונים אינו זמין: {e}"})
+        except (KeyError, ValueError) as e:
+            self._json(400, {"error": str(e)})
+        except Exception as e:  # noqa: BLE001
+            self._json(500, {"error": str(e)})
 
     def _render(self):
         """Run a whole recipe in one pass. { image|path, recipe:[...] }"""

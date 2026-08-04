@@ -2,18 +2,15 @@ import { useEffect, useState } from 'react';
 import { Shell } from './studio/Shell';
 import { SECTION_TO_STAGE } from './studio/nav';
 import type { SectionId, StageId } from './studio/nav';
-import { PROJECT } from './studio/demo';
-import ClientStatus from './studio/screens/ClientStatus';
 import GalleryEdit from './studio/screens/GalleryEdit';
 import Lab from './lab/Lab';
 import Compare from './lab/Compare';
-import AlbumStudio from './album/AlbumStudio';
 import Today from './studio/screens/Today';
 import Projects from './studio/screens/Projects';
 import ProjectScreen from './studio/screens/Project';
 import ColorMatch from './studio/screens/ColorMatch';
 import { getProject } from './studio/store';
-import { Clients, STAGE_SCREENS, Simple } from './studio/screens/Screens';
+import { Clients, Simple } from './studio/screens/Screens';
 
 /* The rail carries ONE axis — the business. A project's stages live inside the
  * project, because they are only ever true of one project at a time.
@@ -33,24 +30,38 @@ const RETIRED: Partial<Record<string, SectionId>> = {
   culling: 'projects',
   orders: 'today',
   reports: 'today',
+  /* The album module moved INSIDE the project, where its photos come from the
+   * project's folders. A standalone album route would still open — on an album
+   * with no client, no folders and no way back — which is exactly how a
+   * rewrite gets reported as "nothing changed". */
+  albums: 'projects',
 };
 
 const LIVE_SECTIONS = new Set<string>([
   'today', 'projects', 'project', 'clients', 'calendar', 'settings',
   // pre-direction workspaces, still reachable until the project screen absorbs them
-  'editing', 'albums', 'lab', 'compare',
+  'editing', 'lab', 'compare',
 ]);
 
-/** `#/section/stage`, plus `#/project/<id>` for one job — so any screen can be
- *  linked, reloaded and bookmarked. */
-function readHash(): { section: SectionId; stage: StageId; id: string; sub: string } {
+/** `#/section/stage`, plus `#/project/<id>/<stage>` for one job and
+ *  `#/project/<id>/album/<albumId>` for one album — so any screen, down to the
+ *  album someone spent an hour on, can be linked, reloaded and bookmarked. */
+function readHash(): {
+  section: SectionId; stage: StageId; id: string; sub: string; albumId: string;
+} {
   // the `#/` is stripped first, so the section is element 0 — not 1
-  const [sec, a, b] = window.location.hash.replace(/^#\/?/, '').split('/');
+  const [sec, a, b, c] = window.location.hash.replace(/^#\/?/, '').split('/');
   const section = RETIRED[sec] ?? (LIVE_SECTIONS.has(sec) ? (sec as SectionId) : 'today');
   if (section === 'project') {
-    return { section, stage: 'client-status', id: a ?? '', sub: b ?? '' };
+    return {
+      section,
+      stage: 'client-status',
+      id: a ?? '',
+      sub: b ?? '',
+      albumId: b === 'album' ? (c ?? '') : '',
+    };
   }
-  return { section, stage: (a as StageId) || 'client-status', id: '', sub: '' };
+  return { section, stage: (a as StageId) || 'client-status', id: '', sub: '', albumId: '' };
 }
 
 /** The top bar states where you are, not what the product is called. */
@@ -68,6 +79,9 @@ export default function App() {
   const [stage, setStage] = useState<StageId>(initial.stage);
   const [projectId, setProjectId] = useState<string>(initial.id);
   const [colorMatch, setColorMatch] = useState(initial.sub === 'color');
+  /** Where inside the project we are: a stage name, or an open album. */
+  const [projectStage, setProjectStage] = useState<string>(initial.sub);
+  const [albumId, setAlbumId] = useState<string | null>(initial.albumId || null);
 
   useEffect(() => {
     const onHash = () => {
@@ -76,19 +90,27 @@ export default function App() {
       setStage(h.stage);
       setProjectId(h.id);
       setColorMatch(h.sub === 'color');
+      setProjectStage(h.sub);
+      setAlbumId(h.albumId || null);
     };
     window.addEventListener('hashchange', onHash);
     return () => window.removeEventListener('hashchange', onHash);
   }, []);
 
   useEffect(() => {
-    const want = section === 'project'
-      ? `#/project/${projectId}${colorMatch ? '/color' : ''}`
-      : `#/${section}/${stage}`;
+    let want = `#/${section}/${stage}`;
+    if (section === 'project') {
+      const tail = colorMatch
+        ? '/color'
+        : albumId
+          ? `/album/${albumId}`
+          : projectStage ? `/${projectStage}` : '';
+      want = `#/project/${projectId}${tail}`;
+    }
     if (window.location.hash !== want) {
       window.history.replaceState(null, '', want);
     }
-  }, [section, stage, projectId, colorMatch]);
+  }, [section, stage, projectId, colorMatch, projectStage, albumId]);
 
   function openProject(id: string) {
     setProjectId(id);
@@ -111,7 +133,7 @@ export default function App() {
 
   // The business sections render on their own — no stage, no tabs.
   const standalone: Partial<Record<SectionId, () => JSX.Element>> = {
-    today: () => <Today onSection={goSection} />,
+    today: () => <Today onSection={goSection} onOpenProject={openProject} />,
     projects: () => <Projects onOpen={openProject} />,
     clients: Clients,
     calendar: () => <Simple title="יומן" sub="צילומים קרובים ודדליינים" />,
@@ -125,10 +147,9 @@ export default function App() {
   const isLab = section === 'lab';
   const isCompare = section === 'compare';
   const isEditor = stage === 'gallery-edit' && !Standalone && !isLab && !isCompare;
-  const isAlbum = stage === 'album-design' && !Standalone && !isLab && !isCompare;
 
   let body: JSX.Element;
-  let title = PROJECT.title;
+  let title = 'TEZA';
 
   if (openedProject && colorMatch) {
     body = <ColorMatch project={openedProject} onBack={() => setColorMatch(false)} />;
@@ -136,16 +157,20 @@ export default function App() {
   } else if (openedProject) {
     body = (
       <ProjectScreen
+        key={openedProject.id}
         project={openedProject}
-        initialStage={(initial.sub || undefined) as never}
+        initialStage={(initial.albumId ? 'album' : initial.sub || undefined) as never}
+        albumId={albumId}
+        onAlbum={setAlbumId}
+        onStage={(next) => setProjectStage(next)}
         onBack={() => goSection('projects')}
         onOpenTool={(what) => {
           if (what === 'color') {
             setColorMatch(true);
             return;
           }
-          setStage(what === 'edit' ? 'gallery-edit' : 'album-design');
-          setSection(what === 'edit' ? 'editing' : 'albums');
+          setStage('gallery-edit');
+          setSection('editing');
         }}
       />
     );
@@ -161,14 +186,13 @@ export default function App() {
     title = SECTION_TITLE[section] ?? 'TEZA';
   } else if (isEditor) {
     body = <GalleryEdit />;
-  } else if (isAlbum) {
-    body = <AlbumStudio />;
-    title = 'עיצוב אלבום';
-  } else if (stage === 'client-status') {
-    body = <ClientStatus onStage={goStage} />;
   } else {
-    const S = STAGE_SCREENS[stage];
-    body = S ? <S /> : <Simple title="בקרוב" sub="" />;
+    /* Everything else used to land on demo screens — a client status page and
+     * three gallery stages made of invented counts. Those stages belong to a
+     * project and now live inside one, so an unrouted stage sends you to the
+     * projects list instead of to fiction. */
+    body = <Projects onOpen={openProject} />;
+    title = 'פרויקטים';
   }
 
   return (
@@ -179,8 +203,9 @@ export default function App() {
       stage={stage}
       onStage={goStage}
       title={title}
-      flush={isEditor || isAlbum || isLab || isCompare}
-      bare={isAlbum || isLab || isCompare}
+      // the album now lives inside a project, and the project screen is flush
+      flush={isEditor || isLab || isCompare || !!openedProject}
+      bare={isLab || isCompare}
       // Only the pre-direction project routes still carry the tab row.
       stages={!Standalone && !openedProject}
     >

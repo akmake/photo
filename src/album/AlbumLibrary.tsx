@@ -6,6 +6,11 @@ import type { PrintProductProfile } from './model';
 interface Props {
   albums: AlbumSummary[];
   profiles: PrintProductProfile[];
+  /** The job these albums belong to — an album is never free-floating. */
+  projectName: string;
+  /** How many frames the project's folders hold; what a new album draws from. */
+  photoCount: number;
+  photosLoading: boolean;
   onOpen(id: string): void;
   onCreate(name: string, productProfileId: string): void;
   onRename(id: string, name: string): void;
@@ -27,12 +32,20 @@ function whenLabel(iso: string): string {
 }
 
 export default function AlbumLibrary({
-  albums, profiles, onOpen, onCreate, onRename, onDuplicate, onDelete,
+  albums, profiles, projectName, photoCount, photosLoading,
+  onOpen, onCreate, onRename, onDuplicate, onDelete,
 }: Props) {
   const [creating, setCreating] = useState(false);
   const [name, setName] = useState('');
   const [profileId, setProfileId] = useState(profiles[0]?.id ?? '');
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
+
+  /* A second album for the same job is the common case — parents' copy, a
+   * smaller size — so the name suggests itself instead of being typed again. */
+  function beginCreate() {
+    setName(albums.length ? `${projectName} — אלבום ${albums.length + 1}` : projectName);
+    setCreating(true);
+  }
 
   function submit() {
     const trimmed = name.trim();
@@ -42,14 +55,22 @@ export default function AlbumLibrary({
     setCreating(false);
   }
 
+  const source = photosLoading
+    ? 'קורא את תיקיות הפרויקט…'
+    : photoCount
+      ? `${photoCount.toLocaleString('he-IL')} תמונות בתיקיות הפרויקט`
+      : 'אין עדיין תמונות בתיקיות הפרויקט';
+
   return (
     <div className="album-library" data-surface="studio">
       <header className="library-head">
         <div>
-          <strong>האלבומים שלי</strong>
-          <span>{albums.length ? `${albums.length} אלבומים` : 'עוד לא נוצרו אלבומים'}</span>
+          <strong>האלבומים של {projectName}</strong>
+          <span>
+            {albums.length ? `${albums.length} אלבומים` : 'עוד לא נוצרו אלבומים'} · {source}
+          </span>
         </div>
-        <button className="library-new" onClick={() => setCreating(true)}>
+        <button className="library-new" onClick={beginCreate}>
           <IcSparkle size={16} />אלבום חדש
         </button>
       </header>
@@ -61,7 +82,7 @@ export default function AlbumLibrary({
             <input
               autoFocus
               value={name}
-              placeholder="לדוגמה: מלי כץ — בת מצווה"
+              placeholder={projectName}
               onChange={(event) => setName(event.target.value)}
               onKeyDown={(event) => {
                 if (event.key === 'Enter') submit();
@@ -128,9 +149,12 @@ export default function AlbumLibrary({
       ) : !creating && (
         <div className="library-blank">
           <IcBook size={30} />
-          <strong>אין עדיין אלבומים</strong>
-          <span>כל אלבום נשמר אצלך במחשב ואפשר לחזור אליו בכל רגע</span>
-          <button className="library-new" onClick={() => setCreating(true)}>
+          <strong>לפרויקט הזה אין עדיין אלבום</strong>
+          <span>
+            האלבום מרכיב את עצמו מתמונות הפרויקט — {source}. שום קובץ לא מועתק:
+            התמונות נשארות בתיקיות שלהן על הדיסק.
+          </span>
+          <button className="library-new" onClick={beginCreate}>
             <IcSparkle size={16} />יצירת האלבום הראשון
           </button>
         </div>

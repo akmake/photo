@@ -1,15 +1,25 @@
 /* The project store.
  *
- * Small on purpose: a module-level list, a listener set, and localStorage. It
- * exists because "פרויקט חדש" has to actually create something and survive a
- * reload — a button that opens a form and then forgets is worse than no button.
+ * The records live in MongoDB, reached through the local engine (engine/db.py).
+ * They used to live in localStorage — one key, one browser profile, no backup,
+ * no way to move machines. Clearing site data deleted the studio. The
+ * photographs survived because they are files on disk; everything known about
+ * them did not.
  *
- * This is the seam where MongoDB lands later (docs/PRODUCT-UX.md §3.7: the
- * database holds knowledge ABOUT the work, the disk holds the work). Nothing
- * here touches image files.
+ * The shape here is deliberate:
+ *
+ *   memory   what the screens render, updated immediately
+ *   Mongo    the truth, written through on every change
+ *   disk     the photographs, never copied, never touched
+ *
+ * Writes are optimistic — the screen must not wait on a round trip to show a
+ * change the photographer just made — but a write that FAILS is surfaced, not
+ * swallowed. Silence after a failed save is how work disappears.
  */
 
 import { useSyncExternalStore } from 'react';
+import { thumbUrl } from '../api';
+import { DatabaseDown, dbDelete, dbDeleteWhere, dbFind, dbImport, dbSave } from '../db';
 
 /** The stages a job moves through. `הכנה` is where the deliverables are chosen,
  *  and those choices decide which of the later stages this project even has. */
@@ -42,8 +52,11 @@ export interface Project {
   location?: string;
   price?: number;
   paid?: number;
+  /** The job's cover: a REAL frame from its own folders, served by the engine.
+   *  Empty until the project has photographs — a stock picture standing in for
+   *  a client's shoot is a lie the tile tells every time it is seen. */
   thumb: string;
-  /** Crop of the demo frame, so a wall of tiles is not one repeated picture. */
+  /** Crop of the cover, so a wall of tiles is not one repeated composition. */
   pos: string;
   /** Index into the project's own stage list. */
   at: number;
@@ -67,44 +80,56 @@ export function stagesOf(p: Project) {
   return STAGES.filter((s) => (s.id === 'album' ? p.hasAlbum : true));
 }
 
-const SEED: Project[] = [
-  { id: 'p1', client: 'משפחת לוי', event: 'צילומי משפחה', date: '24.07', location: 'פארק הירקון', price: 3200, paid: 1600, thumb: '/demo/b.jpg', pos: '50% 40%', at: 3, counts: '96 בסט · 24 נערכו', state: 'work', hasAlbum: false, hasGallery: true, imported: 380, kept: 380, picked: 96, rendered: 24, createdAt: '2026-07-24' },
-  { id: 'p2', client: 'רון ומאיה', event: 'חתונה', date: '12.07', location: 'אחוזת הכפר', price: 12500, paid: 6000, thumb: '/demo/c.jpg', pos: '40% 30%', at: 4, counts: '18 כפולות · גרסה 1', state: 'waiting', hasAlbum: true, hasGallery: true, imported: 2140, kept: 1180, picked: 240, rendered: 240, waitingSince: '28.07', createdAt: '2026-07-12' },
-  { id: 'p3', client: 'בר מצווה איתי כהן', event: 'אירוע', date: '21.07', location: 'היכל התרבות', price: 5400, paid: 2000, thumb: '/demo/a.jpg', pos: '50% 25%', at: 2, counts: '412 אחרי סינון', state: 'work', hasAlbum: true, hasGallery: true, imported: 1290, kept: 412, picked: 0, rendered: 0, createdAt: '2026-07-21' },
-  { id: 'p4', client: 'משפחת ברק', event: 'ניו בורן', date: '18.07', location: 'סטודיו', price: 2400, paid: 2400, thumb: '/demo/b.jpg', pos: '30% 55%', at: 5, counts: '214 קבצים מוכנים', state: 'work', hasAlbum: false, hasGallery: true, imported: 640, kept: 320, picked: 214, rendered: 214, createdAt: '2026-07-18' },
-  { id: 'p5', client: 'משפחת אלון', event: 'בוק תדמית', date: '09.07', location: 'תל אביב', price: 4100, paid: 0, thumb: '/demo/a.jpg', pos: '60% 45%', at: 2, counts: '208 אחרי סינון', state: 'waiting', hasAlbum: false, hasGallery: true, imported: 520, kept: 208, picked: 0, rendered: 0, waitingSince: '25.07', createdAt: '2026-07-09' },
-  { id: 'p6', client: 'ליאת ואורי', event: 'חתונה', date: '31.07', location: 'גני התערוכה', price: 14000, paid: 4000, thumb: '/demo/c.jpg', pos: '55% 35%', at: 0, counts: 'הצילום מחר', state: 'shoot', hasAlbum: true, hasGallery: true, imported: 0, kept: 0, picked: 0, rendered: 0, createdAt: '2026-06-02' },
-  { id: 'p7', client: 'משפחת נחום', event: 'צילומי משפחה', date: '02.08', location: 'הבית', price: 2800, paid: 0, thumb: '/demo/b.jpg', pos: '45% 60%', at: 0, counts: 'טרם יובא', state: 'shoot', hasAlbum: false, hasGallery: true, imported: 0, kept: 0, picked: 0, rendered: 0, createdAt: '2026-07-10' },
-  { id: 'p8', client: 'דנה שגב', event: 'הריון', date: '15.07', location: 'סטודיו', price: 1900, paid: 1900, thumb: '/demo/c.jpg', pos: '35% 50%', at: 3, counts: '64 בסט · 64 נערכו', state: 'work', hasAlbum: false, hasGallery: true, imported: 210, kept: 140, picked: 64, rendered: 64, createdAt: '2026-07-15' },
-  { id: 'p9', client: 'סטודיו א.ד', event: 'צילומי מוצר', date: '02.07', location: 'סטודיו', price: 2400, paid: 0, thumb: '/demo/a.jpg', pos: '50% 70%', at: 5, counts: 'נמסר · ₪2,400 פתוח', state: 'done', hasAlbum: false, hasGallery: false, imported: 180, kept: 96, picked: 96, rendered: 96, createdAt: '2026-07-02' },
-  { id: 'p10', client: 'משפחת גל', event: 'בת מצווה', date: '28.06', location: 'אולמי הגן', price: 6800, paid: 6800, thumb: '/demo/b.jpg', pos: '65% 30%', at: 5, counts: 'נמסר · אלבום הודפס', state: 'done', hasAlbum: true, hasGallery: true, imported: 1420, kept: 720, picked: 180, rendered: 180, createdAt: '2026-06-28' },
-  { id: 'p11', client: 'עידן ושירה', event: 'חתונה', date: '14.06', location: 'יקב בנימינה', price: 13200, paid: 13200, thumb: '/demo/c.jpg', pos: '25% 40%', at: 5, counts: 'נמסר · 640 קבצים', state: 'done', hasAlbum: true, hasGallery: true, imported: 2860, kept: 1540, picked: 640, rendered: 640, createdAt: '2026-06-14' },
-  { id: 'p12', client: 'משפחת רוזן', event: 'צילומי משפחה', date: '30.05', location: 'חוף פולג', price: 2600, paid: 2600, thumb: '/demo/a.jpg', pos: '40% 65%', at: 5, counts: 'נמסר', state: 'done', hasAlbum: false, hasGallery: true, imported: 410, kept: 240, picked: 88, rendered: 88, createdAt: '2026-05-30' },
+export type PhotoStatus = 'raw' | 'working' | 'ready';
+
+export const PHOTO_STATUS: { id: PhotoStatus; label: string }[] = [
+  { id: 'raw', label: 'חומר גלם' },
+  { id: 'working', label: 'בטיפול' },
+  { id: 'ready', label: 'מוכן' },
 ];
 
-const KEY = 'teza.projects.v1';
-
-function load(): Project[] {
-  try {
-    const raw = localStorage.getItem(KEY);
-    if (!raw) return SEED;
-    const parsed = JSON.parse(raw) as Project[];
-    return Array.isArray(parsed) && parsed.length ? parsed : SEED;
-  } catch {
-    return SEED;
-  }
+export interface ProjectFolder {
+  id: string;
+  path: string;
+  name: string;
+  count: number;
 }
 
-let projects: Project[] = load();
+/** As stored: a folder knows which job it belongs to. */
+interface FolderDoc extends ProjectFolder {
+  projectId: string;
+}
+
+interface StatusDoc {
+  /** The absolute path IS the id. */
+  id: string;
+  status: PhotoStatus;
+}
+
+export interface Photo {
+  /** The absolute path IS the identity. It is stable, unique, and it is what
+   *  every engine call needs anyway — a generated id would only be a second
+   *  name for the same thing, and one more thing to keep in sync. */
+  id: string;
+  path: string;
+  name: string;
+  folderId: string;
+  status: PhotoStatus;
+}
+
+/* ------------------------------------------------------------------- state */
+
+export type StoreState = 'loading' | 'ready' | 'down';
+
+let projects: Project[] = [];
+let folders: Record<string, ProjectFolder[]> = {};
+let statuses: Record<string, PhotoStatus> = {};
+let state: StoreState = 'loading';
+let failure: string | null = null;
+
 const listeners = new Set<() => void>();
 
-function commit(next: Project[]) {
-  projects = next;
-  try {
-    localStorage.setItem(KEY, JSON.stringify(projects));
-  } catch {
-    // storage is optional; the session still works without it
-  }
+function notify() {
   listeners.forEach((fn) => fn());
 }
 
@@ -113,8 +138,153 @@ function subscribe(fn: () => void) {
   return () => listeners.delete(fn);
 }
 
+/** A write that did not reach the database. The screen has to say so — the
+ *  change is on screen but not saved, and only the photographer can decide
+ *  whether to retry or stop working. */
+function writeFailed(error: unknown) {
+  failure = error instanceof DatabaseDown
+    ? error.message
+    : error instanceof Error ? error.message : 'השמירה נכשלה';
+  notify();
+}
+
+export function useStoreState(): { state: StoreState; failure: string | null } {
+  return useSyncExternalStore(
+    subscribe,
+    () => snapshot(),
+    () => snapshot(),
+  );
+}
+
+/* useSyncExternalStore compares snapshots by identity, so this must return the
+ * SAME object until something actually changes — a fresh literal every call is
+ * an infinite render loop. */
+let cachedSnapshot: { state: StoreState; failure: string | null } = { state, failure };
+function snapshot() {
+  if (cachedSnapshot.state !== state || cachedSnapshot.failure !== failure) {
+    cachedSnapshot = { state, failure };
+  }
+  return cachedSnapshot;
+}
+
+/** True when the records could not be READ. Never means "no projects". */
+export function projectsUnreadable(): boolean {
+  return state === 'down';
+}
+
+/* --------------------------------------------------------------- migration
+ *
+ * The studio as it was saved in this browser, moved into the database once.
+ * NOTHING is deleted here: the old copy stays exactly where it is until the
+ * photographer has seen their work in the new home. A migration that removes
+ * the only other copy on its first run is one nobody can recover from.
+ */
+
+const OLD_PROJECTS = 'teza.projects.v1';
+const OLD_FOLDERS = 'teza.folders.v1';
+const OLD_STATUS = 'teza.photo-status.v1';
+
+function readOld<T>(key: string, fallback: T): T {
+  try {
+    const raw = localStorage.getItem(key);
+    return raw ? JSON.parse(raw) as T : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+/** What this browser still holds, in the shape the database stores. */
+function browserRecords() {
+  const oldProjects = readOld<Project[]>(OLD_PROJECTS, []);
+  const oldFolders = readOld<Record<string, ProjectFolder[]>>(OLD_FOLDERS, {});
+  const oldStatus = readOld<Record<string, PhotoStatus>>(OLD_STATUS, {});
+
+  const folderDocs: FolderDoc[] = Object.entries(oldFolders)
+    .flatMap(([projectId, list]) => (Array.isArray(list) ? list : [])
+      .map((folder) => ({ ...folder, projectId })));
+  const statusDocs: StatusDoc[] = Object.entries(oldStatus)
+    .map(([path, status]) => ({ id: path, status }));
+
+  return {
+    projects: Array.isArray(oldProjects) ? oldProjects : [],
+    folders: folderDocs,
+    photoStatus: statusDocs,
+  };
+}
+
+/** Whether this browser is still holding records that never reached the
+ *  database — the UI offers to move them rather than doing it silently. */
+export function browserRecordCount(): number {
+  const old = browserRecords();
+  return old.projects.length + old.folders.length + old.photoStatus.length;
+}
+
+/* ------------------------------------------------------------------ loading */
+
+async function hydrate() {
+  try {
+    /* Anything this browser still holds goes in FIRST, and only where the
+     * database has nothing — import_once never overwrites. Then the read below
+     * returns the union, so a photographer who has been working in localStorage
+     * finds their studio intact on the first launch after the change. */
+    const old = browserRecords();
+    if (old.projects.length || old.folders.length || old.photoStatus.length) {
+      await dbImport(old).catch(() => undefined);
+    }
+
+    const [projectDocs, folderDocs, statusDocs] = await Promise.all([
+      dbFind<Project>('projects'),
+      dbFind<FolderDoc>('folders'),
+      dbFind<StatusDoc>('photoStatus'),
+    ]);
+
+    projects = projectDocs.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+    folders = {};
+    folderDocs.forEach(({ projectId, ...folder }) => {
+      folders[projectId] = [...(folders[projectId] ?? []), folder];
+    });
+    statuses = {};
+    statusDocs.forEach((doc) => {
+      statuses[doc.id] = doc.status;
+    });
+
+    state = 'ready';
+    failure = null;
+  } catch (error) {
+    /* An unreachable database is NOT an empty studio. Everything stays empty
+     * in memory, but the state says why, and every screen that lists records
+     * must show that reason instead of "nothing here". */
+    state = 'down';
+    failure = error instanceof Error ? error.message : 'לא ניתן לקרוא את הנתונים';
+  }
+  notify();
+}
+
+let started = false;
+
+/** Load the studio. Safe to call repeatedly; only the first call reads. */
+export function openStore(): void {
+  if (started) return;
+  started = true;
+  void hydrate();
+}
+
+/** Try again after a failure — the engine may simply not have been running. */
+export function retryStore(): void {
+  state = 'loading';
+  failure = null;
+  notify();
+  void hydrate();
+}
+
+openStore();
+
+/* ----------------------------------------------------------------- projects */
+
+const EMPTY_PROJECTS: Project[] = [];
+
 export function useProjects(): Project[] {
-  return useSyncExternalStore(subscribe, () => projects, () => projects);
+  return useSyncExternalStore(subscribe, () => projects, () => EMPTY_PROJECTS);
 }
 
 export function getProject(id: string): Project | undefined {
@@ -131,7 +301,6 @@ export interface NewProjectInput {
   hasAlbum: boolean;
 }
 
-const FRAMES = ['/demo/b.jpg', '/demo/c.jpg', '/demo/a.jpg'];
 const CROPS = ['50% 40%', '40% 30%', '55% 45%', '35% 55%', '60% 35%'];
 
 /** Creates the project and returns it, so the caller can walk straight into it.
@@ -147,7 +316,8 @@ export function createProject(input: NewProjectInput): Project {
     location: input.location?.trim() || undefined,
     price: input.price,
     paid: 0,
-    thumb: FRAMES[n % FRAMES.length],
+    // no photographs yet, so no cover. It arrives with the first folder.
+    thumb: '',
     pos: CROPS[n % CROPS.length],
     at: 0,
     counts: 'טרם יובא',
@@ -160,8 +330,49 @@ export function createProject(input: NewProjectInput): Project {
     rendered: 0,
     createdAt: new Date().toISOString().slice(0, 10),
   };
-  commit([project, ...projects]);
+  projects = [project, ...projects];
+  notify();
+  dbSave('projects', project).catch(writeFailed);
   return project;
+}
+
+/** Change one job. The screen updates now; the database catches up. */
+export function updateProject(id: string, patch: Partial<Project>): void {
+  const current = projects.find((p) => p.id === id);
+  if (!current) return;
+  const next = { ...current, ...patch, id: current.id };
+  projects = projects.map((p) => (p.id === id ? next : p));
+  notify();
+  dbSave('projects', next).catch(writeFailed);
+}
+
+/** Remove a job and everything that belongs only to it. */
+export function deleteProject(id: string): void {
+  projects = projects.filter((p) => p.id !== id);
+  const { [id]: _dropped, ...rest } = folders;
+  folders = rest;
+  notify();
+  dbDelete('projects', id).catch(writeFailed);
+  dbDeleteWhere('folders', { projectId: id }).catch(writeFailed);
+}
+
+/** The cover to draw for a job, or null when it has no photographs yet.
+ *
+ * The stored value is a PATH on disk — the browser cannot read it, so the
+ * engine serves the pixels, exactly as it does everywhere else in the product. */
+export function coverUrl(project: Project, width = 480): string | null {
+  if (!project.thumb) return null;
+  return project.thumb.startsWith('/') ? project.thumb : thumbUrl(project.thumb, width);
+}
+
+/** Give a project its cover, once, from a frame it actually contains.
+ *
+ * Never overwrites an existing cover: the photographer may pick a better one
+ * later, and a re-read of the folder must not silently undo that choice. */
+export function setCoverIfMissing(projectId: string, framePath: string) {
+  const project = projects.find((p) => p.id === projectId);
+  if (!project || project.thumb || !framePath) return;
+  updateProject(projectId, { thumb: framePath });
 }
 
 /** Every distinct client already on file — a returning client is the most
@@ -175,90 +386,34 @@ export function knownClients(): string[] {
  *
  * A project points at FOLDERS on disk — often more than one (ceremony, party,
  * second shooter). The photographs themselves are never copied anywhere: the
- * folder list and each frame's status are the only things this store keeps, and
- * the disk stays the source of truth for what actually exists.
+ * folder list and each frame's status are the only things stored, and the disk
+ * stays the source of truth for what actually exists.
  *
  * Status defaults to "חומר גלם". That is not a placeholder for "unprocessed" —
  * most frames in a shoot never need an individual decision, and forcing the
- * photographer to clear a to-do on 1,800 files would be the tool inventing work.
- * Marking בטיפול / מוכן is opt-in, per frame.
+ * photographer to clear a to-do on 1,800 files would be the tool inventing
+ * work. Marking בטיפול / מוכן is opt-in, per frame.
  */
 
-export type PhotoStatus = 'raw' | 'working' | 'ready';
-
-export const PHOTO_STATUS: { id: PhotoStatus; label: string }[] = [
-  { id: 'raw', label: 'חומר גלם' },
-  { id: 'working', label: 'בטיפול' },
-  { id: 'ready', label: 'מוכן' },
-];
-
-export interface ProjectFolder {
-  id: string;
-  path: string;
-  name: string;
-  count: number;
-}
-
-export interface Photo {
-  /** The absolute path IS the identity. It is stable, unique, and it is what
-   *  every engine call needs anyway — a generated id would only be a second
-   *  name for the same thing, and one more thing to keep in sync. */
-  id: string;
-  path: string;
-  name: string;
-  folderId: string;
-  status: PhotoStatus;
-}
-
-const FOLDERS_KEY = 'teza.folders.v1';
-const STATUS_KEY = 'teza.photo-status.v1';
-
-function loadMap<T>(key: string): Record<string, T> {
-  try {
-    return JSON.parse(localStorage.getItem(key) ?? '{}') as Record<string, T>;
-  } catch {
-    return {};
-  }
-}
-
-let folders: Record<string, ProjectFolder[]> = loadMap<ProjectFolder[]>(FOLDERS_KEY);
-let statuses: Record<string, PhotoStatus> = loadMap<PhotoStatus>(STATUS_KEY);
-
-function saveFolders() {
-  try {
-    localStorage.setItem(FOLDERS_KEY, JSON.stringify(folders));
-  } catch {
-    /* optional */
-  }
-  listeners.forEach((fn) => fn());
-}
-
-function saveStatuses() {
-  try {
-    localStorage.setItem(STATUS_KEY, JSON.stringify(statuses));
-  } catch {
-    /* optional */
-  }
-  listeners.forEach((fn) => fn());
-}
+const EMPTY_FOLDERS: ProjectFolder[] = [];
 
 export function foldersOf(projectId: string): ProjectFolder[] {
-  return folders[projectId] ?? [];
+  return folders[projectId] ?? EMPTY_FOLDERS;
 }
 
 export function useFolders(projectId: string): ProjectFolder[] {
   return useSyncExternalStore(
     subscribe,
     () => folders[projectId] ?? EMPTY_FOLDERS,
-    () => folders[projectId] ?? EMPTY_FOLDERS,
+    () => EMPTY_FOLDERS,
   );
 }
 
-const EMPTY_FOLDERS: ProjectFolder[] = [];
-
 export function addFolder(projectId: string, path: string, count: number): ProjectFolder {
-  const clean = path.trim().replace(/[\/]+$/, '');
-  const name = clean.split(/[\/]/).filter(Boolean).pop() ?? clean;
+  /* Both separators, on both ends of the job. These paths are Windows paths:
+   * splitting on `/` alone left the folder's "name" as the entire path. */
+  const clean = path.trim().replace(/[/\\]+$/, '');
+  const name = clean.split(/[/\\]/).filter(Boolean).pop() ?? clean;
   const existing = (folders[projectId] ?? []).find((f) => f.path === clean);
   const folder: ProjectFolder = existing
     ? { ...existing, count }
@@ -269,7 +424,8 @@ export function addFolder(projectId: string, path: string, count: number): Proje
       ? (folders[projectId] ?? []).map((f) => (f.path === clean ? folder : f))
       : [...(folders[projectId] ?? []), folder],
   };
-  saveFolders();
+  notify();
+  dbSave<FolderDoc>('folders', { ...folder, projectId }).catch(writeFailed);
   return folder;
 }
 
@@ -278,7 +434,8 @@ export function removeFolder(projectId: string, folderId: string) {
     ...folders,
     [projectId]: (folders[projectId] ?? []).filter((f) => f.id !== folderId),
   };
-  saveFolders();
+  notify();
+  dbDelete('folders', folderId).catch(writeFailed);
 }
 
 export function statusOf(path: string): PhotoStatus {
@@ -287,14 +444,20 @@ export function statusOf(path: string): PhotoStatus {
 
 export function setPhotoStatus(path: string, status: PhotoStatus) {
   if (status === 'raw') {
+    // the default is not stored — 1,800 rows saying "untouched" is not a record
     const { [path]: _drop, ...rest } = statuses;
     statuses = rest;
-  } else {
-    statuses = { ...statuses, [path]: status };
+    notify();
+    dbDelete('photoStatus', path).catch(writeFailed);
+    return;
   }
-  saveStatuses();
+  statuses = { ...statuses, [path]: status };
+  notify();
+  dbSave<StatusDoc>('photoStatus', { id: path, status }).catch(writeFailed);
 }
 
+const EMPTY_STATUSES: Record<string, PhotoStatus> = {};
+
 export function useStatuses(): Record<string, PhotoStatus> {
-  return useSyncExternalStore(subscribe, () => statuses, () => statuses);
+  return useSyncExternalStore(subscribe, () => statuses, () => EMPTY_STATUSES);
 }

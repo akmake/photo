@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
 import { SECTIONS, STAGES } from './nav';
+import { retryStore, useStoreState } from './store';
 import type { SectionId, StageId } from './nav';
 import {
   IcBook, IcCalendar, IcChevron, IcFilter, IcFolder, IcGallery, IcGear,
@@ -201,10 +202,34 @@ export function Shell({
       />
       <div className="main">
         {stages && !bare && <StageTabs stage={stage} onStage={onStage} />}
+        <SaveAlarm />
         <div className={`content ${flush ? 'flush' : ''}`}>
           {flush ? children : <div className="sheet">{children}</div>}
         </div>
       </div>
+    </div>
+  );
+}
+
+/* A change the photographer made that did NOT reach the database.
+ *
+ * Writes are optimistic so the interface stays instant, which means the screen
+ * already shows the change. If the save then failed, silence would be the
+ * worst possible answer: the work looks saved, the photographer keeps going,
+ * and it is gone on the next launch. So it says so, everywhere, until the
+ * connection is proven again.
+ */
+function SaveAlarm() {
+  const { state, failure } = useStoreState();
+  if (state !== 'ready' || !failure) return null;
+  return (
+    <div className="save-alarm" role="alert">
+      <b>שינוי לא נשמר.</b>
+      <span>{failure}</span>
+      <span className="save-alarm-what">
+        מה שרואים על המסך קיים בזיכרון בלבד. אל תסגור את החלון עד שהשמירה תצליח.
+      </span>
+      <button className="btn" onClick={retryStore}>בדוק חיבור מחדש</button>
     </div>
   );
 }

@@ -51,6 +51,23 @@ export async function analyzeAlbumPhoto(imageUrlOrData: string): Promise<AlbumAn
   return response.json();
 }
 
+/** Analyse a frame the project already points at, BY PATH.
+ *
+ * The album needs the original pixel dimensions — they decide the print
+ * resolution of every crop. Sending a preview instead would report the
+ * preview's size, and every ppi warning downstream would be a lie. The engine
+ * opens the file itself, so nothing crosses the wire but the answer. */
+export async function analyzeAlbumFrame(path: string): Promise<AlbumAnalysisResponse> {
+  const response = await fetch(`${ENGINE}/album/analyze`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ path }),
+  });
+  const parsed = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(parsed?.error ?? `engine ${response.status}`);
+  return parsed;
+}
+
 export async function finalizeAlbumJpeg(
   imageDataUrl: string,
   ppi: number,

@@ -20,20 +20,34 @@ import type { Project as ProjectModel } from '../store';
 import { STATE_LABEL, stagesOf } from '../store';
 import type { StageKey } from '../store';
 import ProjectFiles from './ProjectFiles';
+import AlbumStudio from '../../album/AlbumStudio';
+import { useAlbums } from '../../album/albumStorage';
+import type { AlbumSummary } from '../../album/albumStorage';
 import {
-  IcCalendar, IcCamera, IcCheckCircle, IcFolderOpen, IcLink, IcMail, IcSliders,
+  IcCalendar, IcCamera, IcCheckCircle, IcFolderOpen, IcLink, IcSliders,
   IcSparkle,
 } from '../../design/Icons';
 
+/** What the album stage is worth on the measure rail: real spreads from real
+ *  albums. It used to read "18 כפולות" for every project past stage four —
+ *  a number nobody had made, on a rail whose whole job is to be trusted. */
+function albumValue(albums: AlbumSummary[]): string {
+  if (!albums.length) return '—';
+  const spreads = albums.reduce((sum, album) => sum + album.spreadCount, 0);
+  return albums.length > 1
+    ? `${albums.length} אלבומים · ${spreads} כפולות`
+    : `${spreads} כפולות`;
+}
+
 /** The number a stage is responsible for. Empty means the stage has no count of
  *  its own — a dash is honest, a zero is not. */
-function stageValue(p: ProjectModel, key: StageKey): string {
+function stageValue(p: ProjectModel, key: StageKey, albums: AlbumSummary[]): string {
   switch (key) {
     case 'setup': return p.date;
     case 'import': return p.imported ? p.imported.toLocaleString('he-IL') : '—';
     case 'select': return p.picked ? `${p.picked}/${p.kept.toLocaleString('he-IL')}` : p.kept ? p.kept.toLocaleString('he-IL') : '—';
     case 'edit': return p.picked ? `${p.rendered}/${p.picked}` : '—';
-    case 'album': return p.at >= 4 ? '18 כפולות' : '—';
+    case 'album': return albumValue(albums);
     case 'deliver': return p.state === 'done' ? 'נמסר' : '—';
   }
 }
@@ -41,24 +55,75 @@ function stageValue(p: ProjectModel, key: StageKey): string {
 export default function Project({
   project,
   initialStage,
+  albumId,
+  onAlbum,
+  onStage,
   onBack,
   onOpenTool,
 }: {
   project: ProjectModel;
   /** From the hash, so a stage can be linked and reloaded. */
   initialStage?: StageKey;
+  /** Which album is open, from the hash — an hour of album work has to survive
+   *  a reload and be linkable. */
+  albumId?: string | null;
+  onAlbum: (id: string | null) => void;
+  onStage: (stage: StageKey) => void;
   onBack: () => void;
-  onOpenTool: (what: 'edit' | 'album' | 'color') => void;
+  onOpenTool: (what: 'edit' | 'color') => void;
 }) {
   const stages = stagesOf(project);
-  const [stage, setStage] = useState<StageKey>(
+  const [stage, setStageState] = useState<StageKey>(
     initialStage && stages.some((s) => s.id === initialStage)
       ? initialStage
       : stages[Math.min(project.at, stages.length - 1)].id,
   );
   const [context, setContext] = useState(true);
+  /* The editor inside the project, or the editor with the whole window. The
+   * spread is the widest thing in the product and the project frame costs it
+   * about a fifth of its width — but the frame is also what answers "was this
+   * frame even edited yet", which is the question the album stage raises most.
+   * So: both, one key apart. */
+  const [albumFull, setAlbumFull] = useState(false);
+  // subscribed, so the measure rail's spread count updates as the album is built
+  const albums = useAlbums(project.id);
+
+  function setStage(next: StageKey) {
+    setStageState(next);
+    onStage(next);
+    // leaving the album stage closes the album; the URL must not keep claiming one
+    if (next !== 'album' && albumId) onAlbum(null);
+  }
 
   const open = project.price ? (project.price - (project.paid ?? 0)) : 0;
+
+  const albumStudio = (
+    <AlbumStudio
+      projectId={project.id}
+      projectName={project.client}
+      albumId={albumId ?? null}
+      onOpenAlbum={onAlbum}
+      onCloseAlbum={() => { onAlbum(null); setAlbumFull(false); }}
+      fullscreen={albumFull}
+      onToggleFullscreen={() => setAlbumFull((value) => !value)}
+    />
+  );
+
+  /* Full screen is the ONLY case where the project frame is gone, so it gets
+   * its own return: a header that still names the job, and nothing else. */
+  if (stage === 'album' && albumFull && albumId) {
+    return (
+      <div className="prj-album-full">
+        <header className="prj-album-bar">
+          <button className="prj-back" onClick={() => setAlbumFull(false)}>
+            ← {project.client} · {project.event}
+          </button>
+          <span className="prj-album-hint">F לחזרה למסגרת הפרויקט</span>
+        </header>
+        {albumStudio}
+      </div>
+    );
+  }
 
   return (
     <div className="prj">
@@ -94,14 +159,17 @@ export default function Project({
               onClick={() => setStage(s.id)}
             >
               <span className="ms-label">{s.label}</span>
-              <span className="ms-value mono">{stageValue(project, s.id)}</span>
+              <span className="ms-value mono">{stageValue(project, s.id, albums)}</span>
             </button>
           );
         })}
       </nav>
 
-      <div className={`prj-body ${context ? 'with-ctx' : ''}`}>
-        <main className="prj-work">
+      {/* The album is a workspace, not a document: it brings its own scrolling
+        * panels and must fill the area exactly, so the stage padding and the
+        * outer scrollbar come off for it. */}
+      <div className={`prj-body ${context && stage !== 'album' ? 'with-ctx' : ''}`}>
+        <main className={`prj-work ${stage === 'album' ? 'flush' : ''}`}>
           {stage === 'setup' && (
             <Stage title="הכנה" sub="מה העבודה הזאת, ומה יוצא ממנה">
               <Facts rows={[
@@ -176,17 +244,11 @@ export default function Project({
             </Stage>
           )}
 
-          {stage === 'album' && (
-            <Stage title="אלבום" sub="כפולות, הגהה ללקוח, ואז דפוס">
-              <Numbers items={[['כפולות', 18], ['גרסאות שנשלחו', 1]]} />
-              <div className="stage-actions">
-                <button className="btn btn-primary" onClick={() => onOpenTool('album')}>
-                  פתח את עיצוב האלבום
-                </button>
-                <button className="btn"><IcMail size={16} />שלח הגהה</button>
-              </div>
-            </Stage>
-          )}
+          {/* The stage IS the album. There used to be a button here that threw
+            * the photographer onto a separate route, where the album knew
+            * nothing about the job it belonged to and asked for the photos to
+            * be uploaded a second time. */}
+          {stage === 'album' && albumStudio}
 
           {stage === 'deliver' && (
             <Stage title="מסירה" sub="מה יוצא, לאן, ומה נשאר אצלך">
@@ -202,11 +264,14 @@ export default function Project({
           )}
 
           {/* A project always has a history, at every stage — so the workspace
-            * is never an empty room while the stage tools are being built. */}
-          <Activity project={project} />
+            * is never an empty room while the stage tools are being built. The
+            * album is the exception: it fills the workspace itself, and a log
+            * hanging below it would be a second scroll region in a screen that
+            * already owns its own. */}
+          {stage !== 'album' && <Activity project={project} />}
         </main>
 
-        {context && (
+        {context && stage !== 'album' && (
           <aside className="prj-ctx">
             <section>
               <h3>לקוח</h3>

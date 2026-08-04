@@ -481,6 +481,62 @@
   font-size: var(--t-md);
 }
 
+/* Unreadable is not empty. This one has to stop the photographer, because the
+ * wrong next move — creating a project — is what would overwrite the file. */
+.pj-empty-bad {
+  max-width: 62ch;
+  padding: var(--s4);
+  border: 1px solid var(--warn-line, var(--line-strong));
+  border-radius: var(--r-sm);
+  background: var(--warn-soft, var(--card-2));
+  color: var(--warn-ink, var(--ink-2));
+  line-height: 1.6;
+}
+
+/* First run: the studio really is empty, and the only thing worth showing is
+ * the way in. */
+.pj-blank {
+  display: grid;
+  justify-items: center;
+  gap: var(--s3);
+  padding: var(--s12) var(--s4);
+  color: var(--ink-3);
+  text-align: center;
+}
+
+.pj-blank strong {
+  font-size: var(--t-lg);
+  color: var(--ink);
+}
+
+.pj-blank span {
+  max-width: 46ch;
+  font-size: var(--t-md);
+}
+
+.pj-blank button {
+  margin-top: var(--s2);
+}
+
+/* A job with no photographs yet. Deliberately plain: it is an absence, and
+ * dressing it up is how a placeholder starts passing for a picture. */
+.job-nocover {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 100%;
+  background: var(--card-2);
+  color: var(--line-strong);
+}
+
+/* The same statement on היום — nothing pending is a real answer, and it
+ * should read as calm rather than as a screen that failed to load. */
+.today-clear {
+  padding: var(--s6) var(--s2);
+  color: var(--ink-3);
+  font-size: var(--t-md);
+}
+
 /* A finished job is stated, not colour-coded away — but quietly: the frame
  * stays the loudest thing on the tile. */
 .job-done {
@@ -608,12 +664,15 @@
 
 /* ============================================================ the project */
 
+/* The shell renders the project flush (App.tsx), so this is a real box with a
+ * real height rather than a sheet that grew to fit its content. The album
+ * needs that: it lays itself out against the height it is given, and inside a
+ * content-sized parent it would collapse to nothing. */
 .prj {
   display: grid;
   grid-template-rows: auto auto minmax(0, 1fr);
   height: 100%;
   min-height: 0;
-  margin: calc(var(--s4) * -1);
 }
 
 /* identity — never scrolls away */
@@ -772,6 +831,40 @@
   overflow-y: auto;
   padding: var(--s6);
   min-height: 0;
+}
+
+/* A stage that IS a workspace — the album. It brings its own scrolling panels,
+ * so the padding and the outer scrollbar would only fight it. */
+.prj-work.flush {
+  padding: 0;
+  overflow: hidden;
+  display: grid;
+  grid-template-rows: minmax(0, 1fr);
+}
+
+/* ---- the album with the whole window ---- */
+
+.prj-album-full {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  height: 100%;
+  min-height: 0;
+}
+
+.prj-album-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--s3);
+  height: 42px;
+  padding: 0 var(--s4);
+  background: var(--card);
+  border-bottom: 1px solid var(--line);
+}
+
+.prj-album-hint {
+  margin-inline-start: auto;
+  font-size: var(--t-sm);
+  color: var(--ink-3);
 }
 
 .stage-head {

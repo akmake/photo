@@ -4,6 +4,7 @@ import type {
 import { assessCrop } from './cropEngine';
 import type { GeneratedAlbumLayout } from './layoutEngine';
 import { finalizeAlbumJpeg } from '../api';
+import { PRINT_WIDTH, WORK_WIDTH, frameUrl } from './projectPhotos';
 
 interface SpreadExportItem {
   spread: AlbumSpread;
@@ -40,6 +41,20 @@ function loadBitmap(url: string): Promise<ImageBitmap> {
       return response.blob();
     })
     .then((blob) => createImageBitmap(blob));
+}
+
+/** The pixels an EXPORT needs, which are not the pixels the screen needs.
+ *
+ * `photo.url` is the working preview — around 1,400px, right for a canvas and
+ * useless for a press. A project photo is a file on disk, so the engine can
+ * serve it at any size, and the size that matters is the one this render will
+ * actually draw into: no frame is ever wider than the sheet it sits on. Asking
+ * for more than the file holds returns the file, so this is a ceiling and
+ * never an upscale. */
+function sourceUrl(photo: AlbumPhoto, canvasWidth: number): string {
+  if (!photo.path) return photo.url;
+  const want = Math.min(PRINT_WIDTH, Math.max(WORK_WIDTH, Math.round(canvasWidth)));
+  return frameUrl(photo.path, want);
 }
 
 function canvasBlob(canvas: HTMLCanvasElement): Promise<Blob> {
@@ -129,7 +144,7 @@ async function renderSpread(
   for (let index = 0; index < item.layout.slots.length; index += 1) {
     const photo = photosById.get(item.layout.photoIds[index]);
     if (!photo) throw new Error(`חסרה תמונה בכפולה ${item.spread.pageStart}`);
-    const bitmap = await loadBitmap(photo.url);
+    const bitmap = await loadBitmap(sourceUrl(photo, width));
     try {
       drawPhoto(
         context,
@@ -223,7 +238,7 @@ async function renderCover(
 
   const back = photosById.get(project.cover.backPhotoId ?? '');
   if (back) {
-    const bitmap = await loadBitmap(back.url);
+    const bitmap = await loadBitmap(sourceUrl(back, pageWidth));
     try {
       drawCoverImage(
         context, bitmap, 0, pageWidth, height, back.focalPoint, project.cover.backSettings,
@@ -234,7 +249,7 @@ async function renderCover(
   }
   const front = photosById.get(project.cover.frontPhotoId ?? '');
   if (!front) throw new Error('חסרה תמונת חזית לכריכה');
-  const frontBitmap = await loadBitmap(front.url);
+  const frontBitmap = await loadBitmap(sourceUrl(front, pageWidth));
   try {
     drawCoverImage(
       context,

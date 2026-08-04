@@ -17,7 +17,8 @@
 import { useCallback, useEffect, useState } from 'react';
 import { listImages, pickFolder, thumbUrl } from '../../api';
 import {
-  PHOTO_STATUS, addFolder, removeFolder, setPhotoStatus, useFolders, useStatuses,
+  PHOTO_STATUS, addFolder, removeFolder, setCoverIfMissing, setPhotoStatus, useFolders,
+  useStatuses,
 } from '../store';
 import type { PhotoStatus, ProjectFolder } from '../store';
 import { IcFolderOpen, IcCheckCircle } from '../../design/Icons';
@@ -53,6 +54,8 @@ export default function ProjectFiles({
     try {
       const r = await listImages(folder.path);
       setLoaded((m) => ({ ...m, [folder.id]: { folder, files: r.files, loading: false } }));
+      // the tile in פרויקטים gets a real frame from this shoot, not a stock photo
+      if (r.files[0]) setCoverIfMissing(projectId, r.files[0]);
     } catch (e) {
       setLoaded((m) => ({
         ...m,
@@ -64,7 +67,7 @@ export default function ProjectFiles({
         },
       }));
     }
-  }, []);
+  }, [projectId]);
 
   useEffect(() => {
     folders.forEach((f) => {

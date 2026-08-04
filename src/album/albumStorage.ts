@@ -1,29 +1,56 @@
+/* Albums, in the database.
+ *
+ * An album is a deliverable of ONE project, so it is stored with that
+ * project's id and never listed under another — two weddings sharing a library
+ * is how the wrong album reaches the press.
+ *
+ * What is stored is the DESIGN: spreads, layouts, crops, cover, review
+ * versions, and for each frame the album uses, the path to it on disk. Not one
+ * photograph is copied in. The tray is rebuilt from the project's folders every
+ * time the album opens, so a folder added later simply appears.
+ *
+ * The one exception is a frame that was uploaded into the browser before
+ * albums drew from project folders. Those have no path, only a blob in
+ * IndexedDB, and they keep working — deleting somebody's album because the
+ * storage model changed is not an option.
+ */
+
+import { useSyncExternalStore } from 'react';
 import type { AlbumPhoto, AlbumProject } from './model';
+import { frameUrl } from './projectPhotos';
+import { DatabaseDown, dbDelete, dbFind, dbSave } from '../db';
 
 const DB_NAME = 'teza-album-local';
 const DB_VERSION = 1;
 const PHOTO_STORE = 'photo-blobs';
 
-/** The pre-library format: a single album, with no way back to an earlier one. */
+/** Albums saved in the browser before they lived in the database. Read once so
+ *  they can be moved in; never deleted here. */
 const LEGACY_WORKSPACE_KEY = 'teza-album-workspace-v1';
-const INDEX_KEY = 'teza-albums-index-v1';
-const albumKey = (id: string) => `teza-album-${id}-v1`;
+const LEGACY_INDEX_KEY = 'teza-albums-index-v1';
+const legacyAlbumKey = (id: string) => `teza-album-${id}-v1`;
 
 interface SavedPhoto extends Omit<AlbumPhoto, 'url'> {
   url?: string;
   storageKey?: string;
 }
 
-interface SavedAlbum {
+/** One album, as one document. */
+interface AlbumDoc {
+  id: string;
+  projectId?: string;
   project: AlbumProject;
   photos: SavedPhoto[];
   savedAt: string;
+  createdAt: string;
 }
 
 /** What the library lists, without paying to parse every album. */
 export interface AlbumSummary {
   id: string;
   name: string;
+  /** The project this album is a deliverable of. */
+  projectId?: string;
   productProfileId: string;
   spreadCount: number;
   photoCount: number;
@@ -31,6 +58,12 @@ export interface AlbumSummary {
   updatedAt: string;
   createdAt: string;
 }
+
+/* ------------------------------------------------------- the photo blobs
+ *
+ * Only for frames uploaded into the browser. Project photos are paths, and
+ * their pixels come from the engine.
+ */
 
 function openDatabase(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
@@ -67,118 +100,177 @@ async function readPhotoBlob(key: string): Promise<Blob | null> {
   return result;
 }
 
-async function deletePhotoBlobs(keys: string[]): Promise<void> {
-  if (!keys.length) return;
-  const database = await openDatabase();
-  await new Promise<void>((resolve, reject) => {
-    const transaction = database.transaction(PHOTO_STORE, 'readwrite');
-    const store = transaction.objectStore(PHOTO_STORE);
-    keys.forEach((key) => store.delete(key));
-    transaction.oncomplete = () => resolve();
-    transaction.onerror = () => reject(transaction.error);
-  });
-  database.close();
+/* --------------------------------------------------------------- the store */
+
+let summaries: AlbumSummary[] = [];
+let state: 'loading' | 'ready' | 'down' = 'loading';
+let failure: string | null = null;
+const listeners = new Set<() => void>();
+
+function notify() {
+  listeners.forEach((fn) => fn());
 }
 
-function readIndex(): AlbumSummary[] {
-  try {
-    const raw = localStorage.getItem(INDEX_KEY);
-    const parsed = raw ? JSON.parse(raw) : null;
-    return Array.isArray(parsed) ? parsed as AlbumSummary[] : [];
-  } catch {
-    return [];
-  }
+function subscribe(fn: () => void) {
+  listeners.add(fn);
+  return () => listeners.delete(fn);
 }
 
-function writeIndex(entries: AlbumSummary[]): void {
-  localStorage.setItem(INDEX_KEY, JSON.stringify(entries));
+function writeFailed(error: unknown) {
+  failure = error instanceof DatabaseDown
+    ? error.message
+    : error instanceof Error ? error.message : 'שמירת האלבום נכשלה';
+  notify();
 }
 
-function readAlbum(id: string): SavedAlbum | null {
-  try {
-    const raw = localStorage.getItem(albumKey(id));
-    const parsed = raw ? JSON.parse(raw) as SavedAlbum : null;
-    if (!parsed?.project || !Array.isArray(parsed.photos)) return null;
-    return parsed;
-  } catch {
-    return null;
-  }
-}
-
-function storageKeysOf(saved: SavedAlbum): string[] {
-  return saved.photos.map((photo) => photo.storageKey).filter((key): key is string => !!key);
-}
-
-/* One album saved before the library existed. Move it in rather than leaving it
- * stranded — it is the photographer's real work, and it is the only copy. */
-function migrateLegacyWorkspace(): void {
-  const raw = localStorage.getItem(LEGACY_WORKSPACE_KEY);
-  if (!raw) return;
-  try {
-    const saved = JSON.parse(raw) as SavedAlbum;
-    if (!saved?.project || !Array.isArray(saved.photos)) {
-      localStorage.removeItem(LEGACY_WORKSPACE_KEY);
-      return;
-    }
-    const id = saved.project.id || `album-${Date.now()}`;
-    if (!readAlbum(id)) {
-      localStorage.setItem(albumKey(id), JSON.stringify(saved));
-      const entries = readIndex();
-      if (!entries.some((entry) => entry.id === id)) {
-        writeIndex([summarize({ ...saved, project: { ...saved.project, id } }), ...entries]);
-      }
-    }
-    localStorage.removeItem(LEGACY_WORKSPACE_KEY);
-  } catch {
-    // a corrupt legacy blob must not block the library from opening
-    localStorage.removeItem(LEGACY_WORKSPACE_KEY);
-  }
-}
-
-function summarize(saved: SavedAlbum, createdAt?: string): AlbumSummary {
-  const placed = new Set(saved.project.spreads.flatMap((spread) => spread.photoIds));
+function summarize(doc: AlbumDoc): AlbumSummary {
+  const placed = new Set(doc.project.spreads.flatMap((spread) => spread.photoIds));
   return {
-    id: saved.project.id,
-    name: saved.project.name,
-    productProfileId: saved.project.productProfileId,
-    spreadCount: saved.project.spreads.length,
-    photoCount: saved.photos.length,
+    id: doc.project.id,
+    name: doc.project.name,
+    projectId: doc.project.projectId,
+    productProfileId: doc.project.productProfileId,
+    spreadCount: doc.project.spreads.length,
+    photoCount: doc.photos.length,
     placedCount: placed.size,
-    updatedAt: saved.savedAt,
-    createdAt: createdAt ?? saved.savedAt,
+    updatedAt: doc.savedAt,
+    createdAt: doc.createdAt,
   };
 }
 
-export function listAlbums(): AlbumSummary[] {
-  migrateLegacyWorkspace();
-  return readIndex().sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+/* Albums the browser still holds from before the database. Moved in on first
+ * load, and left in place afterwards as a safety net. */
+function legacyAlbums(): AlbumDoc[] {
+  const docs: AlbumDoc[] = [];
+  const seen = new Set<string>();
+
+  const take = (raw: string | null, fallbackId?: string) => {
+    if (!raw) return;
+    try {
+      const saved = JSON.parse(raw) as { project: AlbumProject; photos: SavedPhoto[]; savedAt: string };
+      if (!saved?.project || !Array.isArray(saved.photos)) return;
+      const id = saved.project.id || fallbackId;
+      if (!id || seen.has(id)) return;
+      seen.add(id);
+      docs.push({
+        id,
+        projectId: saved.project.projectId,
+        project: { ...saved.project, id },
+        photos: saved.photos,
+        savedAt: saved.savedAt ?? new Date().toISOString(),
+        createdAt: saved.savedAt ?? new Date().toISOString(),
+      });
+    } catch {
+      // a corrupt legacy blob must not block the library from opening
+    }
+  };
+
+  take(localStorage.getItem(LEGACY_WORKSPACE_KEY), `album-${Date.now()}`);
+  try {
+    const index = JSON.parse(localStorage.getItem(LEGACY_INDEX_KEY) ?? '[]') as AlbumSummary[];
+    if (Array.isArray(index)) {
+      index.forEach((entry) => take(localStorage.getItem(legacyAlbumKey(entry.id))));
+    }
+  } catch {
+    // no index, or an unreadable one — the workspace above may still be there
+  }
+  return docs;
+}
+
+async function hydrate() {
+  try {
+    const legacy = legacyAlbums();
+    if (legacy.length) {
+      // never overwrites: an id already in the database is left alone
+      const existing = new Set((await dbFind<AlbumDoc>('albums')).map((doc) => doc.id));
+      await Promise.all(
+        legacy
+          .filter((doc) => !existing.has(doc.id))
+          .map((doc) => dbSave('albums', doc).catch(() => undefined)),
+      );
+    }
+    const docs = await dbFind<AlbumDoc>('albums');
+    summaries = docs.map(summarize).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+    state = 'ready';
+    failure = null;
+  } catch (error) {
+    // unreachable is not empty — the library must say which one it is
+    state = 'down';
+    failure = error instanceof Error ? error.message : 'לא ניתן לקרוא את האלבומים';
+  }
+  notify();
+}
+
+let started = false;
+if (typeof window !== 'undefined' && !started) {
+  started = true;
+  void hydrate();
+}
+
+/** The albums of one project, newest first.
+ *
+ * With no project id it returns everything — the only caller that wants that is
+ * one looking for albums made before albums belonged to projects. */
+export function listAlbums(projectId?: string): AlbumSummary[] {
+  return projectId ? summaries.filter((entry) => entry.projectId === projectId) : summaries;
+}
+
+/** Albums with no project — the pre-integration ones, kept reachable. */
+export function listUnassignedAlbums(): AlbumSummary[] {
+  return summaries.filter((entry) => !entry.projectId);
+}
+
+/** Re-render whichever screen is showing albums when they change. */
+export function useAlbums(projectId?: string): AlbumSummary[] {
+  const all = useSyncExternalStore(subscribe, () => summaries, () => EMPTY_SUMMARIES);
+  return projectId ? all.filter((entry) => entry.projectId === projectId) : all;
+}
+
+const EMPTY_SUMMARIES: AlbumSummary[] = [];
+
+export function albumStoreState(): { state: typeof state; failure: string | null } {
+  return { state, failure };
 }
 
 export function saveAlbum(project: AlbumProject, photos: AlbumPhoto[]): void {
-  const saved: SavedAlbum = {
+  const existing = summaries.find((entry) => entry.id === project.id);
+  const now = new Date().toISOString();
+  const doc: AlbumDoc = {
+    id: project.id,
+    projectId: project.projectId,
     project,
     photos: photos.map((photo) => ({
       ...photo,
-      url: photo.storageKey ? undefined : photo.url,
+      /* A url is only worth keeping when it is the only way back to the
+       * pixels. A project photo is rebuilt from its path and an uploaded one
+       * from its blob; a stored blob: URL would just be a dead handle from a
+       * session that has ended. */
+      url: photo.path || photo.storageKey ? undefined : photo.url,
     })),
-    savedAt: new Date().toISOString(),
+    savedAt: now,
+    createdAt: existing?.createdAt ?? now,
   };
-  localStorage.setItem(albumKey(project.id), JSON.stringify(saved));
 
-  const entries = readIndex();
-  const existing = entries.find((entry) => entry.id === project.id);
-  const summary = summarize(saved, existing?.createdAt);
-  writeIndex([summary, ...entries.filter((entry) => entry.id !== project.id)]);
+  summaries = [
+    summarize(doc),
+    ...summaries.filter((entry) => entry.id !== project.id),
+  ];
+  notify();
+  dbSave('albums', doc).catch(writeFailed);
 }
 
 export async function loadAlbum(id: string): Promise<{
   project: AlbumProject;
   photos: AlbumPhoto[];
 } | null> {
-  migrateLegacyWorkspace();
-  const saved = readAlbum(id);
-  if (!saved) return null;
-  const photos = await Promise.all(saved.photos.map(async (photo) => {
+  const [doc] = await dbFind<AlbumDoc>('albums', { _id: id });
+  if (!doc) return null;
+
+  const photos = await Promise.all(doc.photos.map(async (photo) => {
+    /* A project photo is a pointer to a file on disk. The engine serves it,
+     * so re-opening an album a month later costs nothing and picks up the
+     * file as it is now — including a re-export of the same frame. */
+    if (photo.path) return { ...photo, url: frameUrl(photo.path) } as AlbumPhoto;
     if (!photo.storageKey) return { ...photo, url: photo.url ?? '' } as AlbumPhoto;
     const blob = await readPhotoBlob(photo.storageKey);
     return {
@@ -194,47 +286,50 @@ export async function loadAlbum(id: string): Promise<{
       },
     } as AlbumPhoto;
   }));
-  return { project: saved.project, photos };
+  return { project: doc.project, photos };
 }
 
-/** Delete an album, and with it any photo blob no other album still refers to. */
 export async function deleteAlbum(id: string): Promise<void> {
-  const doomed = readAlbum(id);
-  localStorage.removeItem(albumKey(id));
-  writeIndex(readIndex().filter((entry) => entry.id !== id));
-  if (!doomed) return;
-
-  const stillReferenced = new Set(
-    readIndex()
-      .map((entry) => readAlbum(entry.id))
-      .filter((album): album is SavedAlbum => !!album)
-      .flatMap(storageKeysOf),
-  );
-  const orphans = storageKeysOf(doomed).filter((key) => !stillReferenced.has(key));
-  await deletePhotoBlobs(orphans);
+  summaries = summaries.filter((entry) => entry.id !== id);
+  notify();
+  await dbDelete('albums', id).catch(writeFailed);
 }
 
-export function duplicateAlbum(id: string, name: string): string | null {
-  const saved = readAlbum(id);
-  if (!saved) return null;
+export async function duplicateAlbum(id: string, name: string): Promise<string | null> {
+  const [doc] = await dbFind<AlbumDoc>('albums', { _id: id });
+  if (!doc) return null;
   const newId = `album-${Date.now()}`;
-  /* The copy points at the SAME photo blobs on purpose — duplicating an album
-   * to try a different edit should not double the disk it costs. deleteAlbum
-   * only reclaims a blob once no album references it. */
-  const copy: SavedAlbum = {
-    ...saved,
-    project: { ...saved.project, id: newId, name },
-    savedAt: new Date().toISOString(),
+  /* The copy points at the SAME frames on purpose — duplicating an album to
+   * try a different edit must not double anything on disk. */
+  const now = new Date().toISOString();
+  const copy: AlbumDoc = {
+    ...doc,
+    id: newId,
+    project: { ...doc.project, id: newId, name },
+    savedAt: now,
+    createdAt: now,
   };
-  localStorage.setItem(albumKey(newId), JSON.stringify(copy));
-  writeIndex([summarize(copy), ...readIndex()]);
+  summaries = [summarize(copy), ...summaries];
+  notify();
+  await dbSave('albums', copy).catch(writeFailed);
   return newId;
 }
 
-export function renameAlbum(id: string, name: string): void {
-  const saved = readAlbum(id);
-  if (!saved) return;
-  const next: SavedAlbum = { ...saved, project: { ...saved.project, name } };
-  localStorage.setItem(albumKey(id), JSON.stringify(next));
-  writeIndex(readIndex().map((entry) => (entry.id === id ? { ...entry, name } : entry)));
+export async function renameAlbum(id: string, name: string): Promise<void> {
+  const [doc] = await dbFind<AlbumDoc>('albums', { _id: id });
+  if (!doc) return;
+  const next: AlbumDoc = { ...doc, project: { ...doc.project, name } };
+  summaries = summaries.map((entry) => (entry.id === id ? { ...entry, name } : entry));
+  notify();
+  await dbSave('albums', next).catch(writeFailed);
+}
+
+/** Attach an existing album to a project. */
+export async function assignAlbumToProject(id: string, projectId: string): Promise<void> {
+  const [doc] = await dbFind<AlbumDoc>('albums', { _id: id });
+  if (!doc) return;
+  const next: AlbumDoc = { ...doc, projectId, project: { ...doc.project, projectId } };
+  summaries = summaries.map((entry) => (entry.id === id ? { ...entry, projectId } : entry));
+  notify();
+  await dbSave('albums', next).catch(writeFailed);
 }

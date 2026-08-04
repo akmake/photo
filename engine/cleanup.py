@@ -1770,7 +1770,46 @@ def _params(params: dict):
     )
 
 
-def _apply_one(rgb, params: dict, sel_mask=None, frame_eye=None):
+# How far above the floor a rescaled face is taken (a face landing exactly on
+# MIN_FACE_PX would sit on the knee of every gate), and the hard ceiling on the
+# factor. Every face blocked in the 23-frame set needs 1.19x-1.39x; 2.0 leaves
+# room for a smaller one without ever entering the range where the resampler is
+# the thing producing the detail.
+UPSCALE_MARGIN = 1.15
+UPSCALE_MAX = 2.0
+
+
+def _apply_upscaled(rgb, params: dict, factor: float, frame_eye=None):
+    """Run the pipeline on an enlarged crop, return only what it changed.
+
+    The composite is the whole point. `edit` is taken back to the original size
+    and blended through the mask of pixels the pipeline actually touched, so
+    every untouched pixel is bit-identical to the input: the resample can only
+    ever reach the repairs themselves, never the skin around them.
+    """
+    h, w = rgb.shape[:2]
+    big = cv2.resize(rgb, (int(w * factor), int(h * factor)),
+                     interpolation=cv2.INTER_LANCZOS4)
+    edit, meta = _apply_one(big, params, frame_eye=frame_eye, _rescaled=True)
+
+    touched = (np.abs(edit.astype(np.int16) - big.astype(np.int16)).max(axis=2) > 0)
+    if not touched.any():
+        return rgb, {**meta, "upscaled": round(factor, 2), "upscaledChangedPx": 0}
+
+    back = cv2.resize(edit, (w, h), interpolation=cv2.INTER_AREA)
+    alpha = cv2.resize(touched.astype(np.float32), (w, h),
+                       interpolation=cv2.INTER_AREA)
+    r = max(3, int(min(h, w) * 0.004)) | 1
+    alpha = cv2.GaussianBlur(alpha, (r, r), 0)[..., None]
+    out = (rgb.astype(np.float32) * (1.0 - alpha) + back.astype(np.float32) * alpha)
+    return (
+        np.clip(out, 0, 255).astype(np.uint8),
+        {**meta, "upscaled": round(factor, 2),
+         "upscaledChangedPx": int(touched.sum())},
+    )
+
+
+def _apply_one(rgb, params: dict, sel_mask=None, frame_eye=None, _rescaled=False):
     """The single-face pipeline: every threshold scales from THIS face.
 
     `sel_mask` is a crop-aligned 0/1 array when a person marked what to treat.
@@ -1779,6 +1818,30 @@ def _apply_one(rgb, params: dict, sel_mask=None, frame_eye=None):
     harmonisation are the same code doing the same thing, because none of them
     is a judgement about what counts as a blemish.
     """
+    # A face under the size floor is not a face this tool cannot help — it is a
+    # face this tool does not have enough pixels to measure. Every threshold in
+    # here is a fraction of `face_d`, so below the floor the detection kernel and
+    # the mark-size gates run several times too coarse and the honest answer was
+    # to refuse. Measured cost of that refusal on this set: 11 of 40 faces, and
+    # on 321A5078 three of five children — including one with visible irritation.
+    #
+    # So give it the pixels. The crop is resampled up until it clears the floor
+    # and the pipeline runs unchanged; `UPSCALE_MAX` caps how far, because past a
+    # point this stops being "resolve the thresholds" and starts being "invent
+    # detail". On this set every blocked face needs 1.19x-1.39x — modest.
+    #
+    # The result comes back through the CHANGED PIXELS ONLY (`_downscale_edit`).
+    # A whole crop pushed up and pulled back would soften every pore on the face
+    # to repair four spots, which is a worse trade than doing nothing — the
+    # failure this whole exercise exists to avoid.
+    if not _rescaled and sel_mask is None:
+        skin = masks.get_mask(rgb, "face-skin")
+        gate = float(np.sqrt(skin.sum()))
+        if 0 < gate < MIN_FACE_PX:
+            factor = min(UPSCALE_MAX, (MIN_FACE_PX * UPSCALE_MARGIN) / gate)
+            if factor > 1.02:
+                return _apply_upscaled(rgb, params, factor, frame_eye)
+
     scan = _scan_face(rgb, params, candidates=sel_mask is None, frame_eye=frame_eye)
     if scan is None:
         return rgb, {"spotsRemoved": 0, "faceTooSmall": 1}

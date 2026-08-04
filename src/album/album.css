@@ -302,6 +302,29 @@
 
 .album-back-to-library:hover { color: var(--ink); border-color: var(--line-strong); }
 
+/* Same weight as "back": both are about where the editor sits, not about the
+ * album itself, so neither competes with the export actions. */
+.album-fullscreen-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 30px;
+  padding: 0 10px;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--line);
+  background: var(--card-2);
+  color: var(--ink-2);
+  font-size: var(--t-sm);
+  white-space: nowrap;
+}
+
+.album-fullscreen-toggle:hover { color: var(--ink); border-color: var(--line-strong); }
+
+.album-fullscreen-toggle[aria-pressed='true'] {
+  color: var(--ink);
+  border-color: var(--acc-mark);
+}
+
 /* ---------------------------------------------------------- organise view */
 
 .album-organize {
@@ -1284,11 +1307,25 @@
   min-width: 330px;
   display: grid;
   place-items: center;
+  gap: 6px;
+  padding: 18px;
+  text-align: center;
+  line-height: 1.5;
   color: var(--ink-3);
   font-size: var(--t-sm);
   border: 1px dashed var(--line-strong);
   border-radius: var(--r-sm);
   background: var(--card-2);
+}
+
+/* A folder that could not be read, named exactly. "No photos" is not an
+ * answer when the external drive is simply unplugged. */
+.album-photo-empty-detail {
+  display: block;
+  font-family: var(--mono, monospace);
+  font-size: var(--t-xs, 11px);
+  color: var(--warn-ink, var(--ink-2));
+  overflow-wrap: anywhere;
 }
 
 .album-photo-name {

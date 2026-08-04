@@ -41,6 +41,12 @@ export interface AlbumPhoto {
   focalPoint?: { x: number; y: number };
   analysis?: AlbumPhotoAnalysis;
   storageKey?: string;
+  /** The file on disk this frame IS, for a photo that came from the project's
+   *  folders. The album stores the path and nothing else: the photograph stays
+   *  where the photographer put it, and the engine serves the pixels at
+   *  whatever size the screen or the press asks for. `storageKey` is the other
+   *  case — a file uploaded into the browser, which has no path. */
+  path?: string;
 }
 
 export interface NormalizedBox {
@@ -136,6 +142,11 @@ export interface AlbumCover {
 export interface AlbumProject {
   id: string;
   name: string;
+  /** The job this album belongs to (studio/store.ts `Project.id`). An album is
+   *  never a free-floating document: it is a deliverable of one project, and
+   *  its photographs come from that project's folders. Absent only on albums
+   *  saved before the album module moved inside the project. */
+  projectId?: string;
   productProfileId: string;
   styleName: string;
   spreads: AlbumSpread[];
