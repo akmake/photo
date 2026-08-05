@@ -38,6 +38,12 @@ export default function NewProject({
   const [price, setPrice] = useState('');
   const [hasGallery, setGallery] = useState(true);
   const [hasAlbum, setAlbum] = useState(false);
+  /* createProject refuses when the database is unreachable, because the only
+   * thing it could do then is add a row to the in-memory mirror — which looks
+   * exactly like success and is gone on the next reload. The refusal has to
+   * reach the photographer, or the dialog just closes on a project that was
+   * never created. */
+  const [failed, setFailed] = useState<string | null>(null);
   const first = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -55,17 +61,23 @@ export default function NewProject({
   function submit(e: React.FormEvent) {
     e.preventDefault();
     if (!ready) return;
-    onCreated(
-      createProject({
-        client,
-        event,
-        date,
-        location,
-        price: price ? Number(price) : undefined,
-        hasGallery,
-        hasAlbum,
-      }),
-    );
+    try {
+      onCreated(
+        createProject({
+          client,
+          event,
+          date,
+          location,
+          price: price ? Number(price) : undefined,
+          hasGallery,
+          hasAlbum,
+        }),
+      );
+    } catch (err) {
+      // The dialog STAYS OPEN, holding everything that was typed. Closing on a
+      // failure would look like it worked and lose the form as well.
+      setFailed((err as Error).message);
+    }
   }
 
   return (
@@ -147,6 +159,12 @@ export default function NewProject({
               <em>אפשר לשנות בכל שלב. פרויקט בלי אלבום לא יציג שלב אלבום.</em>
             </fieldset>
           </div>
+
+          {failed && (
+            <div className="dialog-fault" role="alert">
+              הפרויקט לא נוצר — {failed}
+            </div>
+          )}
 
           <div className="dialog-foot">
             <button type="button" className="btn" onClick={onClose}>ביטול</button>

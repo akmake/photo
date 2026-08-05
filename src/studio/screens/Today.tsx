@@ -14,7 +14,8 @@
 
 import { useMemo } from 'react';
 import type { SectionId } from '../nav';
-import { STAGES, useProjects } from '../store';
+import { STAGES, useStudio } from '../store';
+import { CannotRead, StillReading } from './Screens';
 import type { Project } from '../store';
 import JobTile from './JobTile';
 import { IcCamera, IcCalendar, IcFolderOpen } from '../../design/Icons';
@@ -89,7 +90,7 @@ export default function Today({
   onSection: (s: SectionId) => void;
   onOpen: (id: string) => void;
 }) {
-  const projects = useProjects();
+  const { projects, status, fault } = useStudio();
 
   const now = new Date();
   const day = now.toLocaleDateString('he-IL', { weekday: 'long' });
@@ -109,6 +110,14 @@ export default function Today({
     };
     return { queue, active, upcoming, stats, nextShoot: upcoming[0] };
   }, [projects]);
+
+  /* "The desk is empty" is a claim about the studio, so it may only be made
+   * once the studio has actually been read. Unreachable and empty look the same
+   * from here and mean opposite things. */
+  if (status === 'down') return <CannotRead what="את השולחן" fault={fault} />;
+  if (status === 'loading' && projects.length === 0) {
+    return <StillReading what="את השולחן" />;
+  }
 
   // Nothing in the studio yet — say so, and point at the one action that starts
   // everything. Every other section is derived from projects, so they are all

@@ -28,6 +28,7 @@ import {
   initProject, projectFrames, projectState, workspaceRoot,
 } from '../api';
 import type { Frame, ProjectMemory } from '../api';
+import { dbFind, dbImport, dbSaveMany } from '../db';
 import type { LearnedColorModel, ProjectRecipe, Batch, ToolInstance } from '../types';
 
 /** The stages a job moves through. Every project carries all of them — a shoot
@@ -94,37 +95,155 @@ export function stagesOf(_p: Project) {
   return STAGES;
 }
 
-/* The business starts EMPTY. There is no seed data: a project exists because the
- * photographer created it, and every counter it carries is real. The key is v2
- * so any demo seed persisted under v1 is left behind on first load. */
-const KEY = 'teza.projects.v2';
+/* THE BUSINESS LIVES IN THE DATABASE, NOT IN THE BROWSER.
+ *
+ * It lived in localStorage until now, and the bill came due the first time this
+ * app was opened on a second port. localStorage is keyed by ORIGIN — scheme,
+ * host AND port — so http://localhost:5173 and http://localhost:5188 are two
+ * unrelated stores inside the same browser. Opening the app at a different
+ * address did not show a different view of the studio, it showed a DIFFERENT
+ * STUDIO: an old project appeared and every current one was gone. Nothing had
+ * actually been lost and everything looked lost, which is the worst shape a
+ * data bug can take.
+ *
+ * The engine answers on a fixed 127.0.0.1:8756 and holds the only connection to
+ * MongoDB. Reading the business from there makes the client's port what it
+ * should always have been: irrelevant.
+ *
+ * Reads stay SYNCHRONOUS against the mirror below — a screen must never wait on
+ * a round trip to render a list it already has. What changed is where the
+ * mirror is filled from, and that failing to fill it is now a state the screens
+ * can see. `status` is not decoration: empty and unreadable are different
+ * claims, and a studio that says "no projects" when it merely could not read is
+ * telling a photographer their work is gone (CLAUDE.md §3).
+ *
+ * There is still no seed data. A project exists because the photographer
+ * created it, and every counter it carries is real.
+ */
 
-function load(): Project[] {
+/** Where the studio used to live, per origin. Read ONCE to migrate out of it,
+ *  and never written again. Deliberately NOT deleted: engine/db.py::import_once
+ *  leaves the browser copy standing as a safety net, and so does this — a
+ *  migration that removes the only other copy on its first run is one nobody
+ *  can recover from. */
+const LEGACY_KEY = 'teza.projects.v2';
+
+export type StudioStatus = 'loading' | 'ready' | 'down';
+
+let projects: Project[] = [];
+let status: StudioStatus = 'loading';
+/** Why the studio could not be read. Shown; never collapsed into emptiness. */
+let fault: string | null = null;
+/** A write that did not reach the database. Surfaced rather than swallowed — a
+ *  save that fails in silence is how the mirror and the truth part company
+ *  without anyone finding out until it matters. */
+let saveFault: string | null = null;
+
+const listeners = new Set<() => void>();
+
+export interface StudioSnapshot {
+  projects: Project[];
+  status: StudioStatus;
+  fault: string | null;
+  saveFault: string | null;
+}
+
+let snapshot: StudioSnapshot = { projects, status, fault, saveFault };
+
+function notify() {
+  // useSyncExternalStore compares snapshots by identity, so a fresh object on
+  // every notify would re-render every subscriber whenever the DISK half moves.
+  // Rebuild only when something inside it actually changed.
+  if (
+    snapshot.projects !== projects
+    || snapshot.status !== status
+    || snapshot.fault !== fault
+    || snapshot.saveFault !== saveFault
+  ) {
+    snapshot = { projects, status, fault, saveFault };
+  }
+  listeners.forEach((fn) => fn());
+}
+
+function legacyProjects(): Project[] {
   try {
-    const raw = localStorage.getItem(KEY);
+    const raw = localStorage.getItem(LEGACY_KEY);
     if (!raw) return [];
     const parsed = JSON.parse(raw) as Project[];
-    return Array.isArray(parsed) ? parsed : [];
+    if (!Array.isArray(parsed)) return [];
+    // A record with no id cannot be addressed later, so it cannot be migrated.
+    return parsed.filter((p) => p && typeof p.id === 'string' && p.id.length > 0);
   } catch {
     return [];
   }
 }
 
-let projects: Project[] = load();
-const listeners = new Set<() => void>();
-
-function notify() {
-  listeners.forEach((fn) => fn());
-}
-
-function commit(next: Project[]) {
-  projects = next;
+/** Fill the mirror from the database, migrating anything this origin's browser
+ *  store still holds that the database has never seen.
+ *
+ *  The migration is per-document and never overwrites, which is what makes it
+ *  safe to run from EVERY origin: opening the app once at each old address
+ *  merges those stranded projects in, instead of one bucket fighting another. */
+async function refresh(): Promise<void> {
   try {
-    localStorage.setItem(KEY, JSON.stringify(projects));
-  } catch {
-    // storage is optional; the session still works without it
+    let docs = await dbFind<Project>('projects');
+    const known = new Set(docs.map((p) => p.id));
+    const stranded = legacyProjects().filter((p) => !known.has(p.id));
+    if (stranded.length) {
+      await dbImport({ projects: stranded });
+      docs = await dbFind<Project>('projects');
+    }
+    projects = docs;
+    status = 'ready';
+    fault = null;
+  } catch (e) {
+    // The mirror is left exactly as it was. Reporting "no projects" here is the
+    // one thing this branch exists to prevent.
+    status = 'down';
+    fault = (e as Error).message;
   }
   notify();
+}
+
+let booted = false;
+
+/** Start the first read. Idempotent, so every screen can ask without
+ *  coordinating. */
+export function boot(): void {
+  if (booted) return;
+  booted = true;
+  void refresh();
+}
+
+/** Deliberate re-read, after the engine has been started or a failure fixed. */
+export function reload(): void {
+  booted = true;
+  status = 'loading';
+  fault = null;
+  notify();
+  void refresh();
+}
+
+async function persist(changed: Project[]): Promise<void> {
+  if (!changed.length) return;
+  try {
+    await dbSaveMany('projects', changed);
+    if (saveFault !== null) {
+      saveFault = null;
+      notify();
+    }
+  } catch (e) {
+    saveFault = (e as Error).message;
+    notify();
+  }
+}
+
+/** Mirror first, database right behind it. The screen updates on this tick; the
+ *  write is on its way before the next render finishes. */
+function commit(next: Project[], changed: Project[]) {
+  projects = next;
+  notify();
+  void persist(changed);
 }
 
 function subscribe(fn: () => void) {
@@ -133,15 +252,29 @@ function subscribe(fn: () => void) {
 }
 
 export function useProjects(): Project[] {
+  useEffect(boot, []);
   return useSyncExternalStore(subscribe, () => projects, () => projects);
+}
+
+/** The list AND whether it can be believed. Any screen that renders an empty
+ *  state must use this rather than `useProjects`, or it will eventually print
+ *  "nothing here" over a database it merely failed to reach. */
+export function useStudio(): StudioSnapshot {
+  useEffect(boot, []);
+  return useSyncExternalStore(subscribe, () => snapshot, () => snapshot);
 }
 
 export function getProject(id: string): Project | undefined {
   return projects.find((p) => p.id === id);
 }
 
+export function studioStatus(): StudioStatus {
+  return status;
+}
+
 export function updateProject(id: string, patch: Partial<Project>) {
-  commit(projects.map((p) => (p.id === id ? { ...p, ...patch } : p)));
+  const next = projects.map((p) => (p.id === id ? { ...p, ...patch } : p));
+  commit(next, next.filter((p) => p.id === id));
 }
 
 export interface NewProjectInput {
@@ -159,6 +292,18 @@ export interface NewProjectInput {
  *  is nothing to invent, and inventing it is how a screen starts lying. A cover
  *  appears once the shoot's files are imported. */
 export function createProject(input: NewProjectInput): Project {
+  /* Refuse rather than pretend. With the database unreachable this could only
+   * add a row to the mirror, which looks exactly like success and is gone on
+   * the next reload — the same silent divergence this whole file was rewritten
+   * to end. The screens disable the button too; this is the invariant behind
+   * them, so no future caller can reintroduce it. */
+  if (status !== 'ready') {
+    throw new Error(
+      status === 'loading'
+        ? 'עוד קוראים את הפרויקטים מהמסד — רגע.'
+        : `אין חיבור למסד, אז הפרויקט לא היה נשמר. ${fault ?? ''}`.trim(),
+    );
+  }
   const project: Project = {
     id: `p${Date.now().toString(36)}`,
     client: input.client.trim(),
@@ -180,7 +325,7 @@ export function createProject(input: NewProjectInput): Project {
     rendered: 0,
     createdAt: new Date().toISOString().slice(0, 10),
   };
-  commit([project, ...projects]);
+  commit([project, ...projects], [project]);
   return project;
 }
 

@@ -7,8 +7,8 @@ import Today from './studio/screens/Today';
 import Projects from './studio/screens/Projects';
 import ProjectScreen from './studio/screens/Project';
 import Clients from './studio/screens/Clients';
-import { getProject } from './studio/store';
-import { STAGE_SCREENS, Simple } from './studio/screens/Screens';
+import { useStudio } from './studio/store';
+import { STAGE_SCREENS, Simple, CannotRead, StillReading } from './studio/screens/Screens';
 
 /* The business screens above are eager: one of them is always what the app opens
  * on, so deferring them would only add a flash.
@@ -159,7 +159,15 @@ export default function App() {
     settings: () => <Simple title="הגדרות" sub="חשבון, מנוי, אחסון ותבניות" />,
   };
 
-  const openedProject = section === 'project' ? getProject(projectId) : undefined;
+  /* SUBSCRIBED, not read once. The studio used to load synchronously out of
+   * localStorage, so a plain getProject() during render always had its answer.
+   * It arrives over the engine now, which means a deep link to a project would
+   * resolve to nothing on the first render and never re-render when the
+   * projects landed. */
+  const studio = useStudio();
+  const openedProject = section === 'project'
+    ? studio.projects.find((p) => p.id === projectId)
+    : undefined;
   const Standalone = openedProject ? undefined : standalone[section];
   // The lab is not a project stage — it is its own place in the rail, full-bleed
   // and without the stage tabs, and it carries both of its halves itself.
@@ -223,6 +231,26 @@ export default function App() {
   } else if (isAlbum) {
     body = <AlbumStudio />;
     title = 'עיצוב אלבום';
+  } else if (section === 'project') {
+    /* A project route with no project behind it. Three different reasons, and
+     * they must not share a screen: still reading, could not read, or read fine
+     * and this id is genuinely not in the studio. Before this branch existed
+     * all three landed on "בקרוב". */
+    if (studio.status === 'down') {
+      body = <CannotRead what="את הפרויקט" fault={studio.fault} />;
+      title = 'לא ניתן לקרוא';
+    } else if (studio.status === 'loading') {
+      body = <StillReading what="את הפרויקט" />;
+      title = 'טוען';
+    } else {
+      body = (
+        <Simple
+          title="הפרויקט לא נמצא"
+          sub="הקישור מצביע על מזהה שאינו במסד."
+        />
+      );
+      title = 'לא נמצא';
+    }
   } else {
     const S = STAGE_SCREENS[stage];
     body = S ? <S /> : <Simple title="בקרוב" sub="" />;

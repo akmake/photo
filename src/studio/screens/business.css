@@ -650,6 +650,26 @@
   border-top: 1px solid var(--line);
 }
 
+/* A refusal, stated where the action was taken. Both of these carry the same
+ * message in two places: the work you just did did NOT reach the database. They
+ * are deliberately loud — the failure they describe is invisible otherwise,
+ * because the screen has already drawn the change. */
+.dialog-fault,
+.pj-savefault {
+  margin: 0 var(--s4);
+  padding: var(--s3);
+  border: 1px solid var(--danger);
+  border-radius: var(--r2, 8px);
+  background: var(--danger-soft);
+  color: var(--danger-ink);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.pj-savefault {
+  margin: 0 0 var(--s4);
+}
+
 /* ====================================================== coming-soon placeholder
  * For sections whose real screen is still ahead. Honest and quiet — a title, a
  * line, and the room around them, in the product's own language. */

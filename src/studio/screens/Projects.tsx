@@ -10,10 +10,11 @@
  */
 
 import { useMemo, useState } from 'react';
-import { useProjects } from '../store';
+import { useStudio } from '../store';
 import type { ProjectState } from '../store';
 import NewProject from './NewProject';
 import JobTile from './JobTile';
+import { CannotRead, StillReading } from './Screens';
 import { IcFolderOpen } from '../../design/Icons';
 
 type Filter = 'all' | ProjectState;
@@ -27,7 +28,7 @@ const FILTERS: { id: Filter; label: string }[] = [
 ];
 
 export default function Projects({ onOpen }: { onOpen: (id: string) => void }) {
-  const PROJECTS = useProjects();
+  const { projects: PROJECTS, status, fault, saveFault } = useStudio();
   const [filter, setFilter] = useState<Filter>('all');
   const [creating, setCreating] = useState(false);
 
@@ -39,6 +40,13 @@ export default function Projects({ onOpen }: { onOpen: (id: string) => void }) {
 
   const shown = filter === 'all' ? PROJECTS : PROJECTS.filter((p) => p.state === filter);
 
+  // Before the count, before the filters, before anything that implies a
+  // number: the read either worked or it did not.
+  if (status === 'down') return <CannotRead what="את הפרויקטים" fault={fault} />;
+  if (status === 'loading' && PROJECTS.length === 0) {
+    return <StillReading what="את הפרויקטים" />;
+  }
+
   return (
     <div className="pj">
       <header className="pj-head">
@@ -49,6 +57,15 @@ export default function Projects({ onOpen }: { onOpen: (id: string) => void }) {
           פרויקט חדש
         </button>
       </header>
+
+      {/* A write that did not land. Loud, and above the list it disagrees with:
+          the tiles below already show the change, and only this line knows the
+          database does not. */}
+      {saveFault && (
+        <div className="pj-savefault" role="alert">
+          שינוי לא נשמר במסד — {saveFault}. מה שמוצג כאן קדימה מהמסד עד שזה ייפתר.
+        </div>
+      )}
 
       <nav className="pj-filters" aria-label="סינון לפי מצב">
         {FILTERS.map((f) => (

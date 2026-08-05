@@ -13,12 +13,14 @@
  */
 
 import { useMemo, useState } from 'react';
-import { useClientSummaries } from '../store';
+import { useClientSummaries, useStudio } from '../store';
+import { CannotRead, StillReading } from './Screens';
 
 type Filter = 'all' | 'open' | 'returning';
 
 export default function Clients({ onOpen }: { onOpen: (id: string) => void }) {
   const clients = useClientSummaries();
+  const { status, fault } = useStudio();
   const [filter, setFilter] = useState<Filter>('all');
 
   const counts = useMemo(() => ({
@@ -38,6 +40,14 @@ export default function Clients({ onOpen }: { onOpen: (id: string) => void }) {
     { id: 'open', label: 'חוב פתוח' },
     { id: 'returning', label: 'לקוחות חוזרים' },
   ];
+
+  /* A client is DERIVED from the projects, so an unread studio produces an
+   * empty client list that looks entirely convincing — including the money,
+   * which would read as zero owed by everybody. */
+  if (status === 'down') return <CannotRead what="את הלקוחות" fault={fault} />;
+  if (status === 'loading' && clients.length === 0) {
+    return <StillReading what="את הלקוחות" />;
+  }
 
   return (
     <div className="pj">
