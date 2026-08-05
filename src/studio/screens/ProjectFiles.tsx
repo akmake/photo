@@ -16,7 +16,10 @@
  */
 
 import { useCallback, useEffect, useState } from 'react';
-import { importFrame, initProject, listImages, pickFolder } from '../../api';
+import {
+  importCloudFrame, importFrame, initProject, listImages, pickFolder,
+} from '../../api';
+import type { CloudEntry, CloudProvider } from '../../api';
 import {
   PHOTO_STATUS, folderNameOf, getWorkspaceRoot, reloadFrames, setPhotoStatus,
   setWorkspaceRoot, updateProject, useProjectFiles, useStatuses,
@@ -24,7 +27,8 @@ import {
 import type { Project } from '../store';
 import { useSetPreview } from '../preview';
 import type { PhotoStatus } from '../store';
-import { IcFolderOpen, IcCheckCircle } from '../../design/Icons';
+import { IcFolderOpen, IcCheckCircle, IcCloud } from '../../design/Icons';
+import CloudImportDialog from './CloudImportDialog';
 
 export default function ProjectFiles({ project }: { project: Project }) {
   const projectId = project.id;
@@ -38,6 +42,7 @@ export default function ProjectFiles({ project }: { project: Project }) {
   const [total, setTotal] = useState(0);
   const [skipped, setSkipped] = useState(0);
   const [error, setError] = useState<string | null>(null);
+  const [cloud, setCloud] = useState<CloudProvider | null>(null);
 
   useEffect(() => {
     getWorkspaceRoot().then(setRoot).catch(() => setError('המנוע אינו זמין'));
@@ -102,6 +107,40 @@ export default function ProjectFiles({ project }: { project: Project }) {
     }
   }, [project, projectId]);
 
+  const runCloudImport = useCallback(async (provider: CloudProvider, files: CloudEntry[]) => {
+    if (!files.length) return;
+    setError(null);
+    setBusy(true);
+    setDone(0);
+    setSkipped(0);
+    setTotal(files.length);
+    try {
+      const home = project.home ?? (await initProject(folderNameOf(project))).home;
+      if (!project.home) updateProject(projectId, { home });
+      const rawDir = `${home}\\תמונות גלם`;
+      let already = 0;
+      let failed = 0;
+      for (const file of files) {
+        try {
+          const result = await importCloudFrame(provider, file, rawDir);
+          if (result.skipped) already += 1;
+        } catch {
+          /* one remote frame must not cancel the rest of the folder */
+          failed += 1;
+        }
+        setDone((n) => n + 1);
+        setSkipped(already);
+      }
+      await reloadFrames(projectId);
+      if (project.at < 1) updateProject(projectId, { at: 1, state: 'work' });
+      if (failed) {
+        throw new Error(`${failed.toLocaleString('he-IL')} קבצים לא ירדו. אפשר לנסות שוב; קבצים שכבר הועתקו ידולגו.`);
+      }
+    } finally {
+      setBusy(false);
+    }
+  }, [project, projectId]);
+
   /* ONE action. The folder this button opens is the folder the photographs are
    * IN — the only folder the photographer is thinking about when they arrive
    * here. Where the project itself gets saved has a sensible default and is
@@ -112,6 +151,14 @@ export default function ProjectFiles({ project }: { project: Project }) {
         <button className="btn btn-primary" onClick={runImport} disabled={busy}>
           <IcFolderOpen size={16} />
           {busy ? 'מייבא…' : 'ייבא תמונות'}
+        </button>
+        <button className="btn pf-cloud-button" onClick={() => setCloud('google')} disabled={busy}>
+          <IcCloud size={16} />
+          Google Drive
+        </button>
+        <button className="btn pf-cloud-button" onClick={() => setCloud('dropbox')} disabled={busy}>
+          <IcCloud size={16} />
+          Dropbox
         </button>
         <span className="pf-add-note">
           בחר את התיקייה או הכרטיס שבהם התמונות. הן יועתקו אל הפרויקט — המקור לא
@@ -128,6 +175,14 @@ export default function ProjectFiles({ project }: { project: Project }) {
           </button>
         )}
       </p>
+
+      {cloud && (
+        <CloudImportDialog
+          provider={cloud}
+          onClose={() => setCloud(null)}
+          onImport={(files) => runCloudImport(cloud, files)}
+        />
+      )}
 
       {busy && (
         <div className="dlv-progress">

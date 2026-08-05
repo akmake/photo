@@ -38,6 +38,7 @@ import pixel_color
 import album_analysis
 import album_export
 import workspace
+import cloud_sources
 import storage_locations
 import db
 
@@ -458,6 +459,9 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
 
     def do_GET(self):
+        if self.path.startswith("/oauth/callback/"):
+            self._oauth_callback()
+            return
         if self.path.startswith("/thumb?"):
             self._thumb()
             return
@@ -720,6 +724,21 @@ class Handler(BaseHTTPRequestHandler):
         if self.path == "/workspace":
             self._workspace()
             return
+        if self.path == "/cloud/status":
+            self._cloud_status()
+            return
+        if self.path == "/cloud/connect":
+            self._cloud_connect()
+            return
+        if self.path == "/cloud/disconnect":
+            self._cloud_disconnect()
+            return
+        if self.path == "/cloud/list":
+            self._cloud_list()
+            return
+        if self.path == "/project/import-cloud":
+            self._project_import_cloud()
+            return
         if self.path == "/project/init":
             self._project_init()
             return
@@ -833,6 +852,7 @@ class Handler(BaseHTTPRequestHandler):
                 img = common.b64_to_image(body["image"])
             # What the caller already shrank before we ever saw the frame.
             scale = max(1.0, float(body.get("sourceScale") or 1.0))
+
             cap = int(body.get("w") or 0)
             # THE frame being edited, and the one place worth keeping the file
             # in hand for: a face the proxy is too small to serve is worked from
@@ -851,12 +871,22 @@ class Handler(BaseHTTPRequestHandler):
             # A preview and a file the photographer keeps are not the same
             # picture. Previews stay small; `deliver` asks for the same settings
             # render.export writes to disk — q97, no chroma subsampling.
+            #
+            # But NO CHROMA SUBSAMPLING EITHER WAY. This branch used the library
+            # default, 4:2:0, which throws away half the colour resolution — on
+            # the one screen where a photographer judges colour work. Blush and
+            # the redness pass are a* pushes of a few Lab units across a cheek,
+            # and 4:2:0 is exactly the thing that softens them. Reported from
+            # use as "what I see is blurrier than the original". q92 keeps the
+            # payload sane; the subsampling is what mattered.
             if body.get("deliver"):
                 payload = "data:image/jpeg;base64," + common.image_to_jpeg_b64(
                     out, render.DEFAULT_QUALITY, subsampling=0
                 )
             else:
-                payload = "data:image/jpeg;base64," + common.image_to_jpeg_b64(out)
+                payload = "data:image/jpeg;base64," + common.image_to_jpeg_b64(
+                    out, 92, subsampling=0
+                )
             self._json(200, {"image": payload, "meta": meta})
         except Exception as e:  # noqa: BLE001
             self._json(500, {"error": str(e)})
@@ -1192,6 +1222,78 @@ if ($path) {
     # A project is a folder (workspace.py). These endpoints are the only way the
     # front end touches it: the browser cannot create a directory, copy a file,
     # or read a JSON off D:\ — and the whole model rests on it being able to.
+
+    def _oauth_callback(self):
+        """Finish a system-browser OAuth flow and send the photographer back."""
+        parsed = urllib.parse.urlparse(self.path)
+        provider = parsed.path.rsplit("/", 1)[-1]
+        args = {k: v[0] for k, v in urllib.parse.parse_qs(parsed.query).items()}
+        try:
+            cloud_sources.finish(provider, args)
+            title = "החיבור הושלם"
+            message = "אפשר לסגור את החלון ולחזור ל־TEZA."
+        except Exception as exc:  # noqa: BLE001
+            title = "החיבור לא הושלם"
+            message = str(exc)
+        escaped = message.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+        payload = (
+            "<!doctype html><meta charset=utf-8><title>TEZA</title>"
+            "<style>body{font:18px system-ui;display:grid;place-items:center;"
+            "min-height:90vh;background:#f5f3ef;color:#171717}main{text-align:center;"
+            "max-width:34rem}p{color:#666}</style><main dir=rtl><h1>"
+            + title + "</h1><p>" + escaped + "</p></main>"
+        ).encode("utf-8")
+        self.send_response(200)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Content-Length", str(len(payload)))
+        self.end_headers()
+        self.wfile.write(payload)
+
+    def _cloud_status(self):
+        try:
+            self._json(200, {"providers": cloud_sources.status()})
+        except Exception as exc:  # noqa: BLE001
+            self._json(500, {"error": str(exc)})
+
+    def _cloud_connect(self):
+        try:
+            self._json(200, cloud_sources.begin(self._body().get("provider")))
+        except cloud_sources.CloudError as exc:
+            self._json(exc.status, {"error": str(exc)})
+        except Exception as exc:  # noqa: BLE001
+            self._json(500, {"error": str(exc)})
+
+    def _cloud_disconnect(self):
+        try:
+            self._json(200, cloud_sources.disconnect(self._body().get("provider")))
+        except cloud_sources.CloudError as exc:
+            self._json(exc.status, {"error": str(exc)})
+        except Exception as exc:  # noqa: BLE001
+            self._json(500, {"error": str(exc)})
+
+    def _cloud_list(self):
+        try:
+            body = self._body()
+            self._json(200, cloud_sources.list_folder(body.get("provider"), body.get("folder")))
+        except cloud_sources.CloudError as exc:
+            self._json(exc.status, {"error": str(exc)})
+        except Exception as exc:  # noqa: BLE001
+            self._json(500, {"error": str(exc)})
+
+    def _project_import_cloud(self):
+        try:
+            body = self._body()
+            result = cloud_sources.import_image(
+                body.get("provider"), body.get("id"), body.get("name"),
+                body.get("size"), body.get("rawDir"),
+            )
+            self._json(200, result)
+        except cloud_sources.CloudError as exc:
+            self._json(exc.status, {"error": str(exc)})
+        except ValueError as exc:
+            self._json(400, {"error": str(exc)})
+        except Exception as exc:  # noqa: BLE001
+            self._json(500, {"error": str(exc)})
 
     def _workspace(self):
         """Read or set the projects root. { folder? } -> { root }

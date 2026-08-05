@@ -177,6 +177,38 @@ def import_file(src, raw_dir):
     return {"file": dest, "skipped": False}
 
 
+def import_download(name, size, raw_dir, download):
+    """Download one remote frame into the project without exposing a partial file.
+
+    ``download`` receives a temporary path and writes the remote bytes there.
+    The same name + byte size rule used for cards also applies to cloud imports,
+    so choosing the same Drive or Dropbox folder twice is harmless.
+    """
+    name = os.path.basename((name or "").strip())
+    if not name or os.path.splitext(name)[1].lower() not in IMAGE_EXTS:
+        raise ValueError("invalid image name")
+    os.makedirs(raw_dir, exist_ok=True)
+    dest = os.path.join(raw_dir, name)
+    if os.path.exists(dest) and size is not None:
+        if os.path.getsize(dest) == int(size):
+            return {"file": dest, "skipped": True}
+
+    dest = _unique(dest)
+    part = dest + ".teza-download"
+    try:
+        download(part)
+        if not os.path.isfile(part):
+            raise ValueError("cloud download did not create a file")
+        os.replace(part, dest)
+    finally:
+        try:
+            if os.path.exists(part):
+                os.remove(part)
+        except OSError:
+            pass
+    return {"file": dest, "skipped": False}
+
+
 # ------------------------------------------------------------- reading a set
 
 def _shot_time(path):

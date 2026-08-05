@@ -40,6 +40,19 @@ export interface ZoomPan {
   actual: () => void;
   /** True once panning is possible, so the cursor can say so. */
   pannable: boolean;
+  /** What part of the PHOTOGRAPH is on screen, and where it lands.
+   *
+   *  The zoom is a CSS transform over a proxy, so past a couple of steps the
+   *  photographer is studying an upscale rather than the file. This is what
+   *  lets the screen ask the engine for the real pixels of exactly this region:
+   *  `rect` is normalised 0..1 of the image, `screen` is the CSS box it covers
+   *  inside the stage, and `w` is how many DEVICE pixels wide that box is —
+   *  which is what makes the render cost a constant instead of a function of
+   *  how far in you went. Null until the image has been measured. */
+  visible: () => { rect: [number, number, number, number];
+                   screen: { left: number; top: number;
+                             width: number; height: number };
+                   w: number } | null;
   onPointerDown: (e: React.PointerEvent) => void;
   onPointerMove: (e: React.PointerEvent) => void;
   onPointerUp: () => void;
@@ -123,9 +136,42 @@ export function useZoomPan(resetKey?: unknown): ZoomPan {
     return () => window.removeEventListener('keydown', onKey);
   }, [fit, actual]);
 
+  const visible = useCallback(() => {
+    const stage = stageRef.current;
+    const img = imgRef.current;
+    if (!stage || !img || !img.naturalWidth || fitScale <= 0) return null;
+
+    // Where the image actually sits: `object-fit: contain` centres it, then the
+    // wrapper is translated by `pan` and scaled by `zoom` about that centre.
+    const dispW = img.naturalWidth * fitScale * zoom;
+    const dispH = img.naturalHeight * fitScale * zoom;
+    const originX = stage.clientWidth / 2 + pan.x - dispW / 2;
+    const originY = stage.clientHeight / 2 + pan.y - dispH / 2;
+
+    const clamp = (v: number) => Math.min(1, Math.max(0, v));
+    const u0 = clamp(-originX / dispW);
+    const v0 = clamp(-originY / dispH);
+    const u1 = clamp((stage.clientWidth - originX) / dispW);
+    const v1 = clamp((stage.clientHeight - originY) / dispH);
+    if (u1 - u0 <= 0.001 || v1 - v0 <= 0.001) return null;
+
+    const dpr = window.devicePixelRatio || 1;
+    return {
+      rect: [u0, v0, u1, v1] as [number, number, number, number],
+      screen: {
+        left: originX + u0 * dispW,
+        top: originY + v0 * dispH,
+        width: (u1 - u0) * dispW,
+        height: (v1 - v0) * dispH,
+      },
+      w: Math.round((u1 - u0) * dispW * dpr),
+    };
+  }, [zoom, pan, fitScale]);
+
   return {
     stageRef,
     imgRef,
+    visible,
     style: {
       transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
       // No transition. A comparison you have to wait for is not a comparison,

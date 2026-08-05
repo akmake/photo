@@ -1,5 +1,6 @@
 # Node modules
 node_modules/
+engine/cloud_apps.json
 client/node_modules/
 server/node_modules/
 

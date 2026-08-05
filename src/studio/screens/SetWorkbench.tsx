@@ -144,6 +144,9 @@ export default function SetWorkbench({
   const [gain, setGain] = useState(5);
   const [diffOn, setDiffOn] = useState(false);
   const diffRef = useRef<HTMLCanvasElement | null>(null);
+  /* Declared up here because the sharp-region effect below reads it; it used
+   * to sit next to the JSX that consumes it. */
+  const view = useZoomPan(frame);
   /** The well's real pixel width, so the render matches the display. */
   const wellRef = useRef<HTMLDivElement | null>(null);
   const [wellW, setWellW] = useState(1400);
@@ -246,6 +249,58 @@ export default function SetWorkbench({
     return () => window.clearTimeout(timer.current);
   }, [frame, draft, saved, wellW]);
 
+  /* THE ZOOM SHOWS THE FILE, NOT A MAGNIFIED COPY OF IT.
+   *
+   * Everything above renders a proxy the size of the well, and the zoom was a
+   * CSS transform over it — so past a step or two the photographer was studying
+   * an upscale of a 2600px copy of a 5472px photograph and judging skin on it.
+   * Reported from use: "what I see is blurrier than the original."
+   *
+   * The first design here rendered only the visible RECTANGLE from the file,
+   * on the theory that the screen holds the same pixel count at every zoom so
+   * the cost would be a constant. Measured, that theory was wrong twice: the
+   * region took 18.8s against 21s for the whole frame — the expense is the face
+   * work at native resolution, which you pay either way — and it did not even
+   * MATCH, because the face tools re-detect on a cut crop (max 100 levels off,
+   * 3.65% of pixels; a 25% margin brought it to 21 levels and never to zero).
+   *
+   * So: render the file once, whole, and keep it. It is exactly the delivered
+   * picture by construction — no crop semantics, no allowlist, no residual —
+   * and every pan and zoom after the first is free. ~21s, once per frame and
+   * recipe, while the proxy stays on screen.
+   */
+  const [nativeSrc, setNativeSrc] = useState<string | null>(null);
+  const nativeKey = useRef<string | null>(null);
+  const nativeTimer = useRef<number | undefined>(undefined);
+  useEffect(() => {
+    const recipe = draft
+      ? [...saved.filter((t) => t.toolId !== draft.toolId), draft]
+      : saved;
+    const key = frame ? `${frame}|${JSON.stringify(recipe)}` : null;
+    // A different frame or a changed recipe makes the held render a picture of
+    // something else. Drop it rather than show it under the new settings.
+    if (key !== nativeKey.current) {
+      nativeKey.current = key;
+      setNativeSrc(null);
+    }
+    window.clearTimeout(nativeTimer.current);
+    // Below this the proxy already carries every pixel the screen can show, and
+    // the request would cost twenty seconds to change nothing.
+    if (!frame || !key || view.zoom < 1.2 || busy) return;
+    nativeTimer.current = window.setTimeout(() => {
+      let alive = true;
+      // No width: uncapped is the full file, which is the same call `deliver`
+      // makes. What you inspect is therefore what you receive.
+      renderRecipeAtPath(frame, recipe)
+        .then((r) => {
+          if (alive && nativeKey.current === key) setNativeSrc(r.image);
+        })
+        .catch(() => {});
+      return () => { alive = false; };
+    }, 600);
+    return () => window.clearTimeout(nativeTimer.current);
+  }, [frame, saved, draft, view.zoom, busy]);
+
   const start = useCallback((def: ToolDef) => {
     /* Look through the WHOLE stack this frame renders through, not just the
      * base — a tool tuned on this frame or on its batch must reopen with the
@@ -302,7 +357,6 @@ export default function SetWorkbench({
   }, [def, frame, project.id, recipe]);
 
   const shown = showBefore ? settled : (trial ?? settled);
-  const view = useZoomPan(frame);
 
   /* Measured on EVERY result, whether or not the diff view is open. "Did this
    * do anything" is not a question that should cost a click, and the number is
@@ -392,7 +446,21 @@ export default function SetWorkbench({
               >
                 {shown ? (
                   <div className="wb-zoomer" style={view.style}>
-                    <img ref={view.imgRef} src={shown} alt="" draggable={false} />
+                    {/* The held native render when there is one — same picture, every
+                      * pixel the file has. Swapping the src changes
+                      * naturalWidth, so `fitScale` remeasures and the view
+                      * does not jump: zoom is a multiple of FIT, not of the
+                      * file. See zoom.ts. */}
+                    <img
+                      ref={view.imgRef}
+                      src={nativeSrc ?? shown}
+                      alt=""
+                      draggable={false}
+                    />
+                    {/* Rendered from the FILE for exactly the region on screen.
+                      * Outside the zoomer's transform on purpose: it is already
+                      * at screen scale, and putting it inside would scale it a
+                      * second time. */}
                     {/* The "before" laid over the same pixels and clipped, so
                       * both halves sit in ONE transform. Two separately
                       * positioned images would drift apart the moment the frame

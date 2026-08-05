@@ -564,6 +564,56 @@ export interface ProjectPaths {
   state?: string;
 }
 
+export type CloudProvider = 'google' | 'dropbox';
+
+export interface CloudProviderStatus {
+  configured: boolean;
+  connected: boolean;
+}
+
+export interface CloudEntry {
+  id: string;
+  name: string;
+  kind: 'folder' | 'image';
+  size: number | null;
+  modified?: string | null;
+}
+
+export async function cloudStatus(): Promise<Record<CloudProvider, CloudProviderStatus>> {
+  const result = await post<{ providers: Record<CloudProvider, CloudProviderStatus> }>('/cloud/status', {});
+  return result.providers;
+}
+
+export async function connectCloud(provider: CloudProvider): Promise<string> {
+  const result = await post<{ authorizationUrl: string }>('/cloud/connect', { provider });
+  return result.authorizationUrl;
+}
+
+export async function disconnectCloud(provider: CloudProvider): Promise<void> {
+  await post('/cloud/disconnect', { provider });
+}
+
+export async function cloudFolder(
+  provider: CloudProvider,
+  folder?: string,
+): Promise<{ folder: string; entries: CloudEntry[] }> {
+  return post('/cloud/list', { provider, folder });
+}
+
+export async function importCloudFrame(
+  provider: CloudProvider,
+  entry: CloudEntry,
+  rawDir: string,
+): Promise<{ file: string; skipped: boolean }> {
+  return post('/project/import-cloud', {
+    provider,
+    id: entry.id,
+    name: entry.name,
+    size: entry.size,
+    rawDir,
+  });
+}
+
 /** Everything project.json remembers — the project's MEMORY. Keyed by frame
  *  NAME, not absolute path: the folder is meant to travel, and a drive letter
  *  is not identity. */
