@@ -105,6 +105,18 @@ TOOLS = {
 FRAME_ONLY = {"light-point", "glow", "vignette"}
 
 
+# The face-size floor each tool refuses below, declared once where the pipeline
+# can see it. These are the tools docs/BUGS.md BUG-001 measured as inert in every
+# preview the app renders; the numbers are the tools' own, not new ones.
+FACE_FLOOR = {
+    "face-retouch": abpn.MIN_FACE_PX,
+    "skin-cleanup": cleanup.MIN_FACE_PX,
+    "skin": skin.MIN_FACE_PX,
+    "contour": contour.MIN_FACE_PX,
+    "blush": blush.MIN_FACE_PX,
+}
+
+
 def _source_face_boxes(rgb, floor_px):
     """Face crops worth taking from the FILE instead of from this proxy.
 
