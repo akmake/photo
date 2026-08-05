@@ -27,6 +27,11 @@ const GalleryEdit = lazy(() => import('./studio/screens/GalleryEdit'));
 const LabSection = lazy(() => import('./lab/LabSection'));
 const AlbumStudio = lazy(() => import('./album/AlbumStudio'));
 const ColorMatch = lazy(() => import('./studio/screens/ColorMatch'));
+/* The bench — the lab, on a frame of the project. It is the primary way to edit
+ * a photograph now. SetWorkbench below is kept and still reachable: it holds
+ * the batch strip, applying to a whole batch and the pipeline-order warning,
+ * and nothing was deleted to make room. */
+const ProjectBench = lazy(() => import('./studio/screens/ProjectBench'));
 const SetWorkbench = lazy(() => import('./studio/screens/SetWorkbench'));
 
 /* The rail carries ONE axis — the business. A project's stages live inside the
@@ -94,6 +99,8 @@ export default function App() {
   const [colorMatch, setColorMatch] = useState(initial.sub === 'color');
   // The set's workbench — one tool at a time, on top of the recipe so far.
   const [workbench, setWorkbench] = useState(initial.sub === 'edit');
+  // The bench: the lab itself, on a frame of this project.
+  const [bench, setBench] = useState(initial.sub === 'bench');
   // Which half of the lab is showing. Lives here, not inside LabSection, so the
   // hash carries it and a reload comes back to the same screen.
   const [labView, setLabView] = useState<LabView>(
@@ -113,6 +120,7 @@ export default function App() {
       setProjectId(h.id);
       setColorMatch(h.sub === 'color');
       setWorkbench(h.sub === 'edit');
+      setBench(h.sub === 'bench');
       if (h.section === 'lab') setLabView(h.sub === 'compare' ? 'compare' : 'tools');
     };
     window.addEventListener('hashchange', onHash);
@@ -120,7 +128,7 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    const sub = colorMatch ? '/color' : workbench ? '/edit' : '';
+    const sub = colorMatch ? '/color' : bench ? '/bench' : workbench ? '/edit' : '';
     const want = section === 'project'
       ? `#/project/${projectId}${sub}`
       : section === 'lab'
@@ -129,7 +137,7 @@ export default function App() {
     if (window.location.hash !== want) {
       window.history.replaceState(null, '', want);
     }
-  }, [section, stage, projectId, colorMatch, workbench, labView]);
+  }, [section, stage, projectId, colorMatch, workbench, bench, labView]);
 
   function openProject(id: string) {
     setProjectId(id);
@@ -187,6 +195,15 @@ export default function App() {
       />
     );
     title = `התאמת צבעים · ${openedProject.client}`;
+  } else if (openedProject && bench) {
+    body = (
+      <ProjectBench
+        project={openedProject}
+        batchId={batch}
+        onBack={() => setBench(false)}
+      />
+    );
+    title = `מעבדה · ${openedProject.client}`;
   } else if (openedProject && workbench) {
     body = (
       <SetWorkbench
@@ -208,8 +225,13 @@ export default function App() {
             setColorMatch(true);
             return;
           }
+          if (what === 'bench') {
+            // The lab, on this project's frame — the primary way to edit now.
+            setBench(true);
+            return;
+          }
           if (what === 'edit') {
-            // The set's own workbench, not the disconnected gallery editor.
+            // The set's own workbench, kept and still reachable.
             setWorkbench(true);
             return;
           }
@@ -264,10 +286,14 @@ export default function App() {
       stage={stage}
       onStage={goStage}
       title={title}
-      flush={isEditor || isAlbum || isLab || Boolean(openedProject && workbench)}
+      flush={
+        isEditor || isAlbum || isLab
+        || Boolean(openedProject && (workbench || bench))
+      }
       // Editing a photograph owns the whole window: the business rail comes off
-      // and the strip it used becomes the set being edited.
-      rail={!(openedProject && workbench)}
+      // and the strip it used becomes the set being edited. The bench carries
+      // its own way back, so nothing is stranded.
+      rail={!(openedProject && (workbench || bench))}
       bare={isAlbum || isLab}
       // Only the pre-direction project routes still carry the tab row.
       stages={!Standalone && !openedProject}

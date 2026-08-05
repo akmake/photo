@@ -16,13 +16,18 @@
  */
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import type { Recipe } from '../types';
+import type { Recipe, ToolInstance } from '../types';
 import {
   defaultRecipe, getTool, isToolAtDefault, orderedInstances, setToolEnabled,
   updateToolMask, updateToolParams, updateToolSelection, visibleInstances,
 } from '../toolRegistry';
-import { renderRecipe, checkEngine, detectSpots } from '../api';
+import {
+  renderRecipe, renderRecipeAtPath, checkEngine, detectSpots, detectSpotsAtPath,
+} from '../api';
 import type { RenderStep, SpotCandidate, SpotDetection } from '../api';
+import {
+  batchOfFrame, batchRecipe, effectiveRecipe, frameSteps, removeFrameStep, setFrameStep,
+} from '../studio/store';
 import { explainStep, scaleBlockKind, markLabel, markReason } from './explain';
 import type { StepReport } from './explain';
 // Travels with the screen, not with the app: the lab is lazily loaded and its
@@ -50,12 +55,43 @@ const PAINT_FEATHER = 12;
  *  between. Everything else here is a field: there is nothing to enumerate. */
 const CLEANUP_ID = 'skin-cleanup';
 
+/* A photograph that belongs to a project.
+ *
+ * THE SCREEN DOES NOT CHANGE WHEN THIS IS PRESENT. Same three regions, same
+ * tool list with its switches, same result/diff/marks, same marking geometry,
+ * same brush, same zoom. What changes is only the plumbing at the two ends:
+ * the engine works from the FILE by path instead of from pixels the browser
+ * uploaded, and a save goes into the project's recipe instead of downloading a
+ * JPG.
+ *
+ * ONE component serves both, deliberately. A copy of this file adapted for
+ * projects would be two labs by the end of the month, and the one people
+ * actually use would be whichever was fixed last. */
+export interface LabFrame {
+  projectId: string;
+  /** Absolute path on disk — the engine opens it; the browser never holds the
+   *  original's pixels. */
+  path: string;
+  name: string;
+  /** The batch this session belongs to, for the layer a save could reach. */
+  batchId: string | null;
+  /** Swap to another photograph of the set. */
+  onChange: () => void;
+}
+
 interface Loaded {
   name: string;
+  /** A displayable original. From the chosen file when the bench is standalone;
+   *  rendered from the file by the engine when it is a project's frame. */
   full: string;
-  preview: string;
+  /** Set only for a project frame. Its presence is what routes every engine
+   *  call to the by-path API. */
+  path?: string;
   w: number;
   h: number;
+  /** The brush canvas's size — always the fitted preview size, never the
+   *  frame's. A 5472x3648 mask canvas is 80MB of pixel buffer for strokes that
+   *  the engine feathers anyway. */
   pw: number;
   ph: number;
 }
@@ -63,6 +99,30 @@ interface Loaded {
 function emptyRecipe(): Recipe {
   const r = defaultRecipe();
   return { tools: r.tools.map((t) => ({ ...t, enabled: false })) };
+}
+
+/** The project's decisions, poured into the switches this screen already has.
+ *
+ *  The mapping is exact and that is why it is worth doing: this panel shows the
+ *  STATE of every tool — on or off, at what values — and a project recipe is
+ *  precisely that. So a frame opens showing what has already been decided about
+ *  it, rather than switched off over a set that carries a look. */
+function recipeFromSteps(steps: ToolInstance[]): Recipe {
+  let r = emptyRecipe();
+  for (const step of steps) {
+    if (!r.tools.some((t) => t.toolId === step.toolId)) continue;
+    r = {
+      tools: r.tools.map((t) => (t.toolId === step.toolId ? { ...t, ...step } : t)),
+    };
+  }
+  return r;
+}
+
+/** The fitted size for the brush canvas, mirroring `downscale` without needing
+ *  the browser to hold the original. */
+function maskSize(w: number, h: number): { pw: number; ph: number } {
+  const scale = Math.min(1, FAST_PREVIEW / Math.max(w, h));
+  return { pw: Math.round(w * scale), ph: Math.round(h * scale) };
 }
 
 function readFile(file: File): Promise<string> {
@@ -74,16 +134,11 @@ function readFile(file: File): Promise<string> {
   });
 }
 
-async function downscale(dataUrl: string): Promise<Omit<Loaded, 'name' | 'full'>> {
+/** Measure a chosen file. Only its dimensions are wanted — the render always
+ *  runs on the full picture, and the fitted size is just the brush canvas. */
+async function measure(dataUrl: string): Promise<Omit<Loaded, 'name' | 'full' | 'path'>> {
   const img = await loadImage(dataUrl);
-  const scale = Math.min(1, FAST_PREVIEW / Math.max(img.width, img.height));
-  const pw = Math.round(img.width * scale);
-  const ph = Math.round(img.height * scale);
-  const c = document.createElement('canvas');
-  c.width = pw;
-  c.height = ph;
-  c.getContext('2d')!.drawImage(img, 0, 0, pw, ph);
-  return { preview: c.toDataURL('image/jpeg', 0.95), w: img.width, h: img.height, pw, ph };
+  return { w: img.width, h: img.height, ...maskSize(img.width, img.height) };
 }
 
 function paramNote(toolId: string, params: Record<string, number>): string {
@@ -94,7 +149,7 @@ function paramNote(toolId: string, params: Record<string, number>): string {
   }
 }
 
-export default function Lab() {
+export default function Lab({ frame }: { frame?: LabFrame } = {}) {
   const [img, setImg] = useState<Loaded | null>(null);
   const [recipe, setRecipe] = useState<Recipe>(emptyRecipe);
   const [out, setOut] = useState<string | null>(null);
@@ -160,6 +215,31 @@ export default function Lab() {
   const stroke = useRef<{ x: number; y: number } | null>(null);
 
   const originalSrc = img ? img.full : '';
+
+  /* ONE DOOR TO THE ENGINE, so the two sources cannot drift apart.
+   *
+   * A project's frame travels as a PATH: the engine opens the file, and a 20MP
+   * original never goes through a POST body. A file chosen from disk has no
+   * path, so its pixels go, exactly as before.
+   *
+   * Both render the WHOLE picture — no width is passed. The resolution
+   * behaviour of this screen is unchanged by the move into projects, which is
+   * the point of the move being plumbing only. */
+  const runRender = useCallback(
+    (tools: ToolInstance[], deliver = false) =>
+      (img?.path
+        ? renderRecipeAtPath(img.path, tools, undefined, deliver)
+        : renderRecipe(img!.full, tools, deliver)),
+    [img],
+  );
+
+  const runDetect = useCallback(
+    (params: Record<string, number>, prefix: ToolInstance[]) =>
+      (img?.path
+        ? detectSpotsAtPath(img.path, params, prefix)
+        : detectSpots(img!.full, params, prefix)),
+    [img],
+  );
 
   useEffect(() => {
     checkEngine().then(setEngineOk);
@@ -387,33 +467,76 @@ export default function Lab() {
 
   /* -------------------------------------------------------------- load */
 
-  const load = useCallback(async (file: File) => {
+  /** Everything that describes the PREVIOUS photograph. A candidate set, a
+   *  brush stroke and a zoom all belong to one frame; carrying any of them
+   *  across would outline marks that are not there. */
+  const forget = useCallback((next: Recipe) => {
     setError(null);
     setOut(null);
     setReports([]);
     setMissing([]);
     setDelta(null);
-    setRecipe(emptyRecipe());
+    setRecipe(next);
     setZoom(1);
     setPan({ x: 0, y: 0 });
     setPaintFor(null);
     maskCanvas.current = null;
-    // A candidate set describes one photograph. Carrying it to the next frame
-    // would outline marks that are not there.
     setMarks(null);
     setMarksKey('');
     setMarksError(null);
     setMarksReset(false);
     setHoverMark(null);
     scanAttempt.current = '';
+  }, []);
+
+  const load = useCallback(async (file: File) => {
+    forget(emptyRecipe());
+    setImg(null);
     try {
       const full = await readFile(file);
-      const dims = await downscale(full);
+      const dims = await measure(full);
       setImg({ name: file.name, full, ...dims });
     } catch (e) {
       setError(`טעינת הקובץ נכשלה: ${(e as Error).message}`);
     }
-  }, []);
+  }, [forget]);
+
+  /* A PROJECT'S FRAME. The engine renders the original with an empty recipe to
+   * produce something displayable — the same call the workbench makes for its
+   * raw comparison — and nothing but the path travels for every render after
+   * that.
+   *
+   * The recipe is seeded from the project, so this frame arrives carrying what
+   * has already been decided about it. Opening a photograph switched off, over
+   * a set that has a look, is the "I open the tool and see the raw file"
+   * complaint the recipe model exists to remove. */
+  const framePath = frame?.path;
+  const frameProject = frame?.projectId;
+  useEffect(() => {
+    if (!framePath || !frameProject) return;
+    let alive = true;
+    forget(recipeFromSteps(effectiveRecipe(frameProject, framePath)));
+    setImg(null);
+    renderRecipeAtPath(framePath, [])
+      .then(async (r) => {
+        if (!alive) return;
+        const im = await loadImage(r.image);
+        if (!alive) return;
+        setImg({
+          name: frame!.name,
+          full: r.image,
+          path: framePath,
+          w: im.width,
+          h: im.height,
+          ...maskSize(im.width, im.height),
+        });
+      })
+      .catch((e) => alive && setError(`טעינת התמונה נכשלה: ${(e as Error).message}`));
+    return () => {
+      alive = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [framePath, frameProject, forget]);
 
   /* ------------------------------------------------------------ render */
 
@@ -437,8 +560,7 @@ export default function Lab() {
     const timer = setTimeout(async () => {
       const started = performance.now();
       try {
-        const res = await renderRecipe(
-          originalSrc,
+        const res = await runRender(
           enabled.map((i) => ({
             toolId: i.toolId,
             params: i.params,
@@ -556,7 +678,7 @@ export default function Lab() {
       const prefix = orderedInstances(recipe)
         .filter((i) => i.enabled && getTool(i.toolId).order < cleanupOrder)
         .map((i) => ({ toolId: i.toolId, params: i.params, enabled: true }));
-      const found = await detectSpots(img.full, cleanupInst?.params ?? {}, prefix);
+      const found = await runDetect(cleanupInst?.params ?? {}, prefix);
       setMarks(found);
       setMarksKey(key);
       // A fresh scan starts from the engine's own answer: everything it accepted
@@ -674,14 +796,72 @@ export default function Lab() {
    * 4:2:0 chroma subsampling. Handing that file over would deliver something
    * measurably worse than the edit that was made. So saving re-renders the
    * ORIGINAL frame and asks the engine for delivery settings. */
-  const save = useCallback(async () => {
+  /* SAVING INTO A PROJECT WRITES NO FILE, and that is the point.
+   *
+   * The recipe IS the deliverable: it travels to the batch, to the export, and
+   * to every later change of mind, from the RAW each time. Rendering a JPG here
+   * would make a second copy of the truth that the next slider move silently
+   * invalidates.
+   *
+   * The reconciliation is the whole job. This panel states the FULL state of
+   * every tool, on or off, while a project keeps a SPARSE list of exceptions.
+   * So three things have to happen, and missing any one of them loses work:
+   *   - what is on is written to this frame;
+   *   - a tool the set carries that was switched off here needs an explicit
+   *     off, or the inherited step simply comes back on the next render;
+   *   - a frame-level step for a tool that is now neither on nor inherited is
+   *     removed, rather than left as an exception that excepts nothing. */
+  const commit = useCallback(() => {
+    if (!frame) return;
+    const { projectId, path } = frame;
+
+    /* ONLY THE TOOLS THIS PANEL ACTUALLY CARRIES.
+     *
+     * `pixel-color` is why this line exists, and it cost real work to find. It
+     * is a look FITTED from a pair rather than configured, it has no sliders,
+     * and it is deliberately not one of the switches on this screen — so it
+     * never enters this recipe at all. Reconciling against the inherited list
+     * without this guard read its absence as "the photographer switched it
+     * off" and wrote an explicit off onto the frame, silently removing the
+     * batch's learned colour from a photograph nobody had touched. Measured,
+     * not theorised: `perFrame["321A1770.JPG"]` came back
+     * `vignette:true, pixel-color:false` after a save that only moved a
+     * vignette slider.
+     *
+     * A tool that cannot be seen cannot have been turned off. Anything outside
+     * this set is left exactly as the set left it. */
+    const known = new Set(recipe.tools.map((t) => t.toolId));
+    const on = orderedInstances(recipe).filter((i) => i.enabled);
+    const onIds = new Set(on.map((i) => i.toolId));
+    const inherited = batchRecipe(
+      projectId,
+      batchOfFrame(projectId, path) ?? frame.batchId,
+    ).filter((t) => t.enabled && known.has(t.toolId));
+
+    for (const step of on) setFrameStep(projectId, path, step);
+    for (const step of inherited) {
+      if (!onIds.has(step.toolId)) {
+        setFrameStep(projectId, path, { ...step, enabled: false });
+      }
+    }
+    for (const own of frameSteps(projectId, path)) {
+      if (!known.has(own.toolId)) continue; // not this screen's to remove
+      if (!onIds.has(own.toolId) && !inherited.some((t) => t.toolId === own.toolId)) {
+        removeFrameStep(projectId, path, own.toolId);
+      }
+    }
+  }, [frame, recipe]);
+
+  /** The standalone bench has nowhere to save TO, so it hands over a file. What
+   *  is on screen is a preview — q90, 4:2:0 — so this re-renders and asks the
+   *  engine for delivery settings rather than shipping the picture displayed. */
+  const download = useCallback(async () => {
     if (!img) return;
     const enabled = orderedInstances(recipe).filter((i) => i.enabled);
     if (enabled.length === 0) return;
     setSaving(true);
     try {
-      const res = await renderRecipe(
-        img.full,
+      const res = await runRender(
         enabled.map((i) => ({
           toolId: i.toolId,
           params: i.params,
@@ -704,11 +884,30 @@ export default function Lab() {
     } finally {
       setSaving(false);
     }
-  }, [img, recipe]);
+  }, [img, recipe, runRender]);
+
+  const save = frame ? commit : download;
 
   /* --------------------------------------------------------------- ui */
 
   if (!img) {
+    /* A project's frame is already chosen — there is nothing to ask for, only
+     * the engine's first pass on the file to wait for. Offering the file picker
+     * here would invite loading a photograph from outside the project into a
+     * screen whose save writes to the project's recipe. */
+    if (frame) {
+      return (
+        <div className="lab lab-empty">
+          <div className="lab-empty-card">
+            <h2>{frame.name}</h2>
+            <p>{error ? 'התמונה לא נטענה.' : 'קורא את התמונה מהקובץ…'}</p>
+            {error && <div className="lab-error">{error}</div>}
+            <button className="btn" onClick={frame.onChange}>בחר תמונה אחרת</button>
+            <EngineBadge ok={engineOk} />
+          </div>
+        </div>
+      );
+    }
     return (
       <div className="lab lab-empty">
         <div className="lab-empty-card">
@@ -1060,10 +1259,26 @@ export default function Lab() {
           </span>
 
           <div className="row">
-            <button className="btn btn-ghost" onClick={save} disabled={!out || saving}
-              title={`שומר ברזולוציה מלאה ${img.w}×${img.h}, איכות מלאה — לא את התצוגה`}>
-              {saving ? 'שומר…' : `שמור ${img.w}×${img.h}`}
-            </button>
+            {frame && (
+              <button className="btn btn-ghost" onClick={frame.onChange}>
+                החלף תמונה
+              </button>
+            )}
+            {frame ? (
+              <button
+                className="btn btn-ghost"
+                onClick={save}
+                disabled={!out}
+                title="נשמר למתכון של התמונה הזאת. שום קובץ לא נכתב — הייצוא מרנדר מהגלם דרך כל המתכון."
+              >
+                שמור לתמונה הזאת
+              </button>
+            ) : (
+              <button className="btn btn-ghost" onClick={save} disabled={!out || saving}
+                title={`שומר ברזולוציה מלאה ${img.w}×${img.h}, איכות מלאה — לא את התצוגה`}>
+                {saving ? 'שומר…' : `שמור ${img.w}×${img.h}`}
+              </button>
+            )}
           </div>
         </div>
       </section>

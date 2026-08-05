@@ -6,6 +6,55 @@
  * engine's report is half the product.
  */
 
+/* ------------------------------------------- the bench inside a project */
+
+/* One bar and a box for the lab. `.lab` is `height: 100%`, so the body row is
+ * minmax(0, 1fr) for the same reason `.content.flush` is — a flex child would
+ * collapse to auto and let the canvas push the log off the window. */
+.bench {
+  height: 100%;
+  min-height: 0;
+  direction: rtl;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  background: var(--page);
+  color: var(--ink);
+}
+
+.bench-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 12px;
+  height: 42px;
+  background: var(--card);
+  border-bottom: 1px solid var(--line);
+  font-size: 13px;
+}
+
+.bench-frame {
+  color: var(--ink-2);
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bench-body {
+  min-height: 0;
+  display: grid;
+  grid-template-rows: minmax(0, 1fr);
+}
+
+.bench-blank {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  color: var(--ink-2);
+}
+
 /* ------------------------------------------------------------- section */
 
 /* Both screens below are `height: 100%`, and a percentage height resolves

@@ -35,7 +35,10 @@ import {
   IcCalendar, IcCamera, IcCheckCircle, IcLink, IcMail, IcSliders, IcSparkle,
 } from '../../design/Icons';
 
-type ToolWhat = 'edit' | 'album' | 'color';
+/** `bench` is the lab on a frame of this project — the primary way to edit a
+ *  photograph. `edit` is SetWorkbench, kept and still reachable for the batch
+ *  strip and applying to a whole batch. */
+type ToolWhat = 'bench' | 'edit' | 'album' | 'color';
 type View = 'overview' | StageKey;
 
 /** The number a stage is responsible for. Empty means the stage has no count of
@@ -442,12 +445,18 @@ function EditStage({
       )}
 
       <div className="stage-actions">
-        <button className="btn btn-primary" onClick={() => onOpenTool('color', at)}>
+        <button className="btn btn-primary" onClick={() => onOpenTool('bench', at)}>
+          <IcSliders size={16} />
+          פתח את המעבדה
+        </button>
+        <button className="btn" onClick={() => onOpenTool('color', at)}>
           <IcSparkle size={16} />
           התאמת צבעים{current ? ` · ${current.name}` : ''}
         </button>
+        {/* Kept, not replaced. It still holds the batch strip, applying to a
+          * whole batch, and the pipeline-order warning. */}
         <button className="btn" onClick={() => onOpenTool('edit', at)}>
-          <IcSliders size={16} />עריכה כלי אחר כלי
+          שולחן העבודה הישן
         </button>
       </div>
 
