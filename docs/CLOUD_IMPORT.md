@@ -39,6 +39,17 @@ desktop loopback callback at `http://127.0.0.1:8756/oauth/callback/google`.
 
 ## Local token storage
 
-Refresh tokens are saved in the installation's existing `TEZA/settings.json`
-file with restricted file permissions where the operating system supports it.
-Disconnecting an account from the picker removes its local token.
+OAuth access and refresh tokens are stored as generic credentials in the
+current user's **Windows Credential Manager**, under `TEZA/cloud/google` and
+`TEZA/cloud/dropbox`. Windows encrypts this vault with the user's logon key.
+No token or token fragment is written to `TEZA/settings.json`.
+
+Installations that used the earlier plaintext format are migrated
+automatically: TEZA first writes the token to Credential Manager and only then
+removes the old value from `settings.json`. If the secure write fails, the old
+value is retained so the account is not silently lost. Disconnecting an
+account deletes its credential from the vault.
+
+The implementation fails closed on non-Windows systems; it never falls back to
+plaintext token storage. A future macOS build should provide an equivalent
+Keychain backend before cloud import is enabled there.

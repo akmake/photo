@@ -26,7 +26,8 @@ export default function CloudImportDialog({
   const [connection, setConnection] = useState<CloudProviderStatus | null>(null);
   const [entries, setEntries] = useState<CloudEntry[]>([]);
   const [crumbs, setCrumbs] = useState<Crumb[]>([{ name: NAMES[provider] }]);
-  const [loading, setLoading] = useState(true);
+  const [checking, setChecking] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [connecting, setConnecting] = useState(false);
   const [importing, setImporting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -50,21 +51,23 @@ export default function CloudImportDialog({
     }
   }, [provider]);
 
-  useEffect(() => {
-    let alive = true;
-    loadStatus()
-      .then((status) => {
-        if (alive && status.connected) return loadFolder();
-        if (alive) setLoading(false);
-      })
-      .catch((e) => {
-        if (alive) {
-          setError(e instanceof Error ? e.message : 'לא ניתן לבדוק את החיבור');
-          setLoading(false);
-        }
-      });
-    return () => { alive = false; };
+  const checkConnection = useCallback(async () => {
+    setChecking(true);
+    setConnection(null);
+    setError(null);
+    try {
+      const status = await loadStatus();
+      if (status.connected) await loadFolder();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'לא ניתן לבדוק את החיבור');
+    } finally {
+      setChecking(false);
+    }
   }, [loadFolder, loadStatus]);
+
+  useEffect(() => {
+    void checkConnection();
+  }, [checkConnection]);
 
   const connect = useCallback(async () => {
     setConnecting(true);
@@ -103,6 +106,7 @@ export default function CloudImportDialog({
   }, [crumbs, loadFolder]);
 
   const images = useMemo(() => entries.filter((entry) => entry.kind === 'image'), [entries]);
+  const browsing = connection?.connected === true;
 
   const runImport = useCallback(async () => {
     setImporting(true);
@@ -128,19 +132,32 @@ export default function CloudImportDialog({
     <div className="scrim" role="presentation" onMouseDown={(event) => {
       if (event.currentTarget === event.target && !importing) onClose();
     }}>
-      <section className="dialog cloud-dialog" role="dialog" aria-modal="true" aria-label={`ייבוא מ־${NAMES[provider]}`}>
+      <section className={`dialog cloud-dialog ${browsing ? '' : 'cloud-dialog-compact'}`} role="dialog" aria-modal="true" aria-label={`ייבוא מהענן: ${NAMES[provider]}`}>
         <header className="dialog-head">
           <IcCloud size={20} />
-          <h2>ייבוא מ־{NAMES[provider]}</h2>
+          <h2><span>ייבוא מהענן</span><bdi dir="ltr">{NAMES[provider]}</bdi></h2>
           <button className="dialog-x" onClick={onClose} disabled={importing} aria-label="סגירה">×</button>
         </header>
 
-        {!connection?.configured && !loading ? (
-          <div className="cloud-message">
-            <strong>החיבור עדיין לא הוגדר בהתקנה הזאת</strong>
-            <p>יש להוסיף את מזהה האפליקציה של {NAMES[provider]} להגדרות TEZA, ואז להפעיל מחדש.</p>
+        {checking ? (
+          <div className="cloud-message" aria-live="polite">
+            <IcCloud size={28} />
+            <strong>בודק את החיבור…</strong>
           </div>
-        ) : !connection?.connected && !loading ? (
+        ) : !connection ? (
+          <div className="cloud-message cloud-message-failed">
+            <strong>לא הצלחנו להגיע למנוע המקומי של TEZA</strong>
+            <p>הייבוא מהענן זמין רק כשהמנוע המקומי פועל. אפשר להפעיל מחדש את TEZA ולנסות שוב.</p>
+            {error && <p className="cloud-message-detail">{error}</p>}
+            <button className="btn btn-primary" onClick={checkConnection}>נסה שוב</button>
+          </div>
+        ) : !connection.configured ? (
+          <div className="cloud-message">
+            <strong>הייבוא מהענן עדיין אינו פעיל בהתקנה הזאת</strong>
+            <p>זו הגדרת התקנה של TEZA, ולא בעיה בחשבון שלך. לאחר שהחיבור יוגדר, כפתור ההתחברות יופיע כאן.</p>
+            <button className="btn" onClick={onClose}>סגור</button>
+          </div>
+        ) : !connection.connected ? (
           <div className="cloud-message">
             <strong>מחברים פעם אחת, ומייבאים בכל פרויקט</strong>
             <p>TEZA תבקש הרשאת קריאה בלבד. שום קובץ בענן לא יימחק או ישתנה.</p>
@@ -148,6 +165,7 @@ export default function CloudImportDialog({
               <IcCloud size={16} />
               {connecting ? 'ממתין לאישור…' : `חבר את ${NAMES[provider]}`}
             </button>
+            {error && <p className="cloud-message-detail">{error}</p>}
           </div>
         ) : (
           <>
@@ -160,6 +178,7 @@ export default function CloudImportDialog({
               ))}
             </nav>
             <div className="cloud-list">
+              {error && <p className="cm-error cloud-list-error">{error}</p>}
               {loading ? (
                 <p className="pf-note">קורא את התיקייה…</p>
               ) : entries.length === 0 ? (
@@ -189,7 +208,6 @@ export default function CloudImportDialog({
             </footer>
           </>
         )}
-        {error && <p className="cm-error cloud-error">{error}</p>}
       </section>
     </div>
   );

@@ -124,12 +124,17 @@ export default function SetWorkbench({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showBefore, setShowBefore] = useState(false);
-  /* THE SPLIT. Hold-to-compare answers "did this change anything"; it cannot
-   * answer "is this better", because the two states never share the screen and
-   * the eye has to carry one of them across the gap in memory. A draggable
-   * divider puts them side by side on the same photograph. Both are kept: hold is
-   * faster for a yes/no, the split is honest for a judgement. */
-  const [split, setSplit] = useState(0);   // 0 = off, otherwise 1..99 (%)
+  /* THE RAW FRAME. Nothing here ever rendered it, and that is why two of the
+   * three comparison controls did nothing at all: they all compared `settled`
+   * against `trial`, and `trial` exists ONLY while a tool is being tuned. The
+   * moment a tool was saved there was no second picture in the room, so
+   * hold-to-compare held the same image, the split clipped it against itself,
+   * and the difference button sat disabled. Reported from use as "two do not
+   * work, one works badly."
+   *
+   * So the comparison always has a floor: before the tool being tuned when
+   * there is one, and before the WHOLE recipe when there is not. */
+  const [raw, setRaw] = useState<string | null>(null);
 
   /* THE INSTRUMENTS.
    *
@@ -215,6 +220,8 @@ export default function SetWorkbench({
         setSettled(r.image);
         setReports(reportsFor(r.meta.steps, saved));
       })
+      .then(() => renderRecipeAtPath(frame, [], wellW))
+      .then((r) => alive && r && setRaw(r.image))
       .catch((e) => alive && setError(e instanceof Error ? e.message : 'הרינדור נכשל'));
     return () => {
       alive = false;
@@ -356,7 +363,11 @@ export default function SetWorkbench({
       .map((t) => t.label);
   }, [def, frame, project.id, recipe]);
 
-  const shown = showBefore ? settled : (trial ?? settled);
+  /** What "before" means right now: before the tool being tuned, or — once it
+   *  is saved and there is nothing in the draft — before the whole recipe. */
+  const before = trial ? settled : raw;
+  const after = trial ?? settled;
+  const shown = showBefore && before ? before : after;
 
   /* Measured on EVERY result, whether or not the diff view is open. "Did this
    * do anything" is not a question that should cost a click, and the number is
@@ -364,16 +375,16 @@ export default function SetWorkbench({
    * set as it stands against the set with the tool being tuned — so it answers
    * for THIS tool, not for the whole stack. */
   useEffect(() => {
-    if (!settled || !trial) {
+    if (!before || !after) {
       setDelta(null);
       return;
     }
     let alive = true;
-    computeDiff(settled, trial, diffOn ? diffRef.current : null, gain)
+    computeDiff(before, after, diffOn ? diffRef.current : null, gain)
       .then((d) => alive && setDelta(d))
       .catch(() => alive && setDelta(null));
     return () => { alive = false; };
-  }, [settled, trial, gain, diffOn]);
+  }, [before, after, gain, diffOn]);
 
   const blocked = scaleBlockKind(reports);
 
@@ -471,43 +482,13 @@ export default function SetWorkbench({
                     <canvas
                       ref={diffRef}
                       className="wb-diff"
-                      style={{ opacity: diffOn && trial ? 1 : 0 }}
+                      style={{ opacity: diffOn && showBefore && before ? 1 : 0 }}
                     />
-                    {split > 0 && settled && (
-                      <img
-                        className="wb-before"
-                        src={settled}
-                        alt=""
-                        draggable={false}
-                        style={{ clipPath: `inset(0 ${100 - split}% 0 0)` }}
-                      />
-                    )}
                   </div>
                 ) : (
                   <span className="wb-wait">מרנדר…</span>
                 )}
                 {shown && <Histogram src={shown} className="wb-hist" />}
-                {split > 0 && (
-                  <>
-                    {/* `left`, not `inset-inline-start`. The clip below is
-                      * clip-path: inset(), which is PHYSICAL and does not flip
-                      * in RTL — so the divider that marks it must not flip
-                      * either, or the line lands on the opposite side from the
-                      * edge it is supposed to be marking. */}
-                    <div className="wb-split-line" style={{ left: `${split}%` }} />
-                    <input
-                      className="wb-split-grip"
-                      type="range"
-                      min={1}
-                      max={99}
-                      value={split}
-                      onChange={(e) => setSplit(Number(e.target.value))}
-                      aria-label="גבול ההשוואה"
-                    />
-                    <span className="wb-split-tag before">לפני</span>
-                    <span className="wb-split-tag after">אחרי</span>
-                  </>
-                )}
               </div>
               <div className="wb-under">
                 <span className="mono" dir="ltr">{baseName(frame)}</span>
@@ -518,34 +499,36 @@ export default function SetWorkbench({
                 {/* Hold to see the set without the tool being tuned. Mouse down
                   * and up, not a toggle: the eye compares best when the swap is
                   * under the hand. */}
-                {draft && (
-                  <button
-                    className="btn wb-compare"
-                    onMouseDown={() => setShowBefore(true)}
-                    onMouseUp={() => setShowBefore(false)}
-                    onMouseLeave={() => setShowBefore(false)}
-                    disabled={!trial}
-                  >
-                    החזק כדי לראות בלי {def?.label}
-                  </button>
-                )}
-
-                {/* The split lives next to hold-to-compare because they answer
-                  * different questions: hold answers "did this do anything",
-                  * the split answers "is this better". */}
+                {/* ONE control, because there was only ever one question:
+                  * show me this without the edit. It used to be three, and two
+                  * of them could not work — they all compared `settled` to
+                  * `trial`, and `trial` is null the moment a tool is saved, so
+                  * hold held the same picture and the split clipped it against
+                  * itself. Now `before` falls back to the raw frame, so the
+                  * comparison is live whether or not something is being tuned.
+                  *
+                  * The difference is not a separate view any more: it is what
+                  * holding shows when it is switched on. Same gesture, same
+                  * pair, two answers — did anything move, and where exactly. */}
                 <button
-                  className={`btn ${split > 0 ? 'on' : ''}`}
-                  onClick={() => setSplit((v) => (v > 0 ? 0 : 50))}
-                  disabled={!settled}
+                  className="btn wb-compare"
+                  onMouseDown={() => setShowBefore(true)}
+                  onMouseUp={() => setShowBefore(false)}
+                  onMouseLeave={() => setShowBefore(false)}
+                  onTouchStart={() => setShowBefore(true)}
+                  onTouchEnd={() => setShowBefore(false)}
+                  disabled={!before}
                 >
-                  {split > 0 ? 'סגור השוואה' : 'לפני / אחרי'}
+                  {draft
+                    ? `החזק כדי לראות בלי ${def?.label}`
+                    : 'החזק כדי לראות את הגלם'}
                 </button>
 
                 <button
                   className={`btn ${diffOn ? 'on' : ''}`}
                   onClick={() => setDiffOn((v) => !v)}
-                  disabled={!trial}
-                  title="מראה רק את מה שהשתנה, מוגבר"
+                  disabled={!before}
+                  title="בזמן החזקה — להראות רק את מה שהשתנה, מוגבר"
                 >
                   הפרש
                 </button>

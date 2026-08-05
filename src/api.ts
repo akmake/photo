@@ -631,11 +631,16 @@ export interface ProjectMemory {
 }
 
 async function post<T>(path: string, body: unknown): Promise<T> {
-  const r = await fetch(`${ENGINE}${path}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body ?? {}),
-  });
+  let r: Response;
+  try {
+    r = await fetch(`${ENGINE}${path}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body ?? {}),
+    });
+  } catch {
+    throw new Error('לא ניתן להתחבר למנוע המקומי של TEZA');
+  }
   const j = await r.json().catch(() => ({}));
   if (!r.ok) throw new Error(j?.error ?? `engine ${r.status}`);
   return j as T;
