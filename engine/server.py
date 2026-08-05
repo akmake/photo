@@ -906,6 +906,18 @@ class Handler(BaseHTTPRequestHandler):
                 img = common.load_image(body["path"])
             else:
                 img = common.b64_to_image(body["image"])
+            # `w` caps the frame exactly as /render does, and for the same
+            # reason: the marking view runs on the picture the panel is showing,
+            # and detecting on a 20MP frame to draw outlines over an 1400px one
+            # costs a wait nobody asked for. The outlines come back normalised,
+            # so they are valid on the file either way.
+            scale = max(1.0, float(body.get("sourceScale") or 1.0))
+            cap = int(body.get("w") or 0)
+            if cap > 0:
+                size = _fit_size(img.size, cap)
+                if size != img.size:
+                    scale *= max(img.size) / float(max(size))
+                    img = img.resize(size, Image.LANCZOS)
             found = on_worker(
                 render.detect_cleanup,
                 img,
@@ -913,7 +925,7 @@ class Handler(BaseHTTPRequestHandler):
                 body.get("recipe", []),
                 # Marking and applying have to agree about which faces are in
                 # play; the size gates decide that, and they need the scale.
-                max(1.0, float(body.get("sourceScale") or 1.0)),
+                scale,
             )
             self._json(200, found)
         except Exception as e:  # noqa: BLE001

@@ -392,6 +392,29 @@ export async function listImages(folder: string): Promise<{
   return j;
 }
 
+/** The same scan, on a file the engine already has.
+ *
+ *  The lab hands over a data URL because it holds the picture in the browser.
+ *  The workbench holds a PATH, and round-tripping a 20MP frame through base64
+ *  just to ask what is on it is a wait for nothing. `width` caps the frame the
+ *  detector runs on, exactly as a render does; the outlines come back
+ *  normalised to the frame, so a mark made here is valid on the full file. */
+export async function detectSpotsAtPath(
+  path: string,
+  params: Record<string, number>,
+  recipe: { toolId: string; params: Record<string, number>; enabled: boolean }[] = [],
+  width?: number,
+): Promise<SpotDetection> {
+  const r = await fetch(`${ENGINE}/cleanup/detect`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ path, params, recipe, w: width }),
+  });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j?.error ?? `engine ${r.status}`);
+  return j;
+}
+
 /** Apply a learned colour model to files ON DISK and write the results.
  *
  * Called with ONE file at a time on purpose: the endpoint loops happily over

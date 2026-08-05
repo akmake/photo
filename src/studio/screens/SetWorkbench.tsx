@@ -21,8 +21,8 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { renderRecipeAtPath } from '../../api';
-import type { RenderStep } from '../../api';
+import { detectSpotsAtPath, renderRecipeAtPath } from '../../api';
+import type { RenderStep, SpotDetection } from '../../api';
 import { TOOLS, defaultParams, getTool } from '../../toolRegistry';
 import type { ToolDef, ToolInstance } from '../../types';
 import type { Project } from '../store';
@@ -35,7 +35,7 @@ import { useSetPreview } from '../preview';
 import { useZoomPan } from '../zoom';
 import { Histogram, computeDiff } from '../../design/Metering';
 import type { Delta } from '../../design/Metering';
-import { explainStep, scaleBlockKind } from '../../lab/explain';
+import { explainStep, markLabel, markReason, scaleBlockKind } from '../../lab/explain';
 import type { ScaleBlock, StepReport } from '../../lab/explain';
 import SetRecipe from './SetRecipe';
 import { IcCheck, IcSliders } from '../../design/Icons';
@@ -144,6 +144,25 @@ export default function SetWorkbench({
    * tool set too weak, so you push it further, and the strength was never the
    * problem. See docs/BUGS.md BUG-001 — five face tools are inert in every
    * preview this app renders, and nothing on screen says so. */
+  /* MANUAL MARKING — docs/LAB-VS-WORKBENCH.md G-1.
+   *
+   * The lab has had this since the detector was written; this screen never
+   * did, so the one tool whose judgement a photographer most often disagrees
+   * with was the one tool they could not overrule here. Every piece it needs
+   * already existed: /cleanup/detect returns geometry rather than a picture,
+   * the outlines are frame-normalised so a mark made on a proxy is valid on
+   * the file, and `selection` already rides the recipe all the way to export.
+   * What was missing was the layer you click on.
+   *
+   * An EMPTY selection is a real answer -- "I looked, and none of them" -- and
+   * is deliberately different from no selection at all, which means "engine,
+   * you decide". Both have to be expressible, so `marking` is a mode and not
+   * an inference from an empty set. */
+  const [marks, setMarks] = useState<SpotDetection | null>(null);
+  const [marksBusy, setMarksBusy] = useState(false);
+  const [marksError, setMarksError] = useState<string | null>(null);
+  const [chosen, setChosen] = useState<Set<string>>(new Set());
+  const [showRefused, setShowRefused] = useState(true);
   const [reports, setReports] = useState<StepReport[]>([]);
   const [delta, setDelta] = useState<Delta | null>(null);
   const [gain, setGain] = useState(5);
@@ -307,6 +326,57 @@ export default function SetWorkbench({
     }, 600);
     return () => window.clearTimeout(nativeTimer.current);
   }, [frame, saved, draft, view.zoom, busy]);
+
+  const marking = draft?.toolId === 'skin-cleanup';
+
+  /** Scan this frame for what cleanup would find, on the picture the tool will
+   *  actually receive — so the earlier steps of the recipe run first. */
+  const scan = useCallback(() => {
+    if (!frame || !draft) return;
+    setMarksBusy(true);
+    setMarksError(null);
+    const before = saved.filter((t) => t.toolId !== draft.toolId);
+    // FROM THE FILE, not from the panel's proxy. Measured at 1400px on
+    // 321A5078: five faces found and ZERO candidates, every one reporting
+    // previewTooSmall — the detector needs 180px of face and the proxy has 38.
+    // A marking view that reliably finds nothing is worse than none. Full
+    // resolution costs 8-24s for an explicit press, and finds 9 and 10.
+    detectSpotsAtPath(frame, draft.params, before)
+      .then((d) => {
+        setMarks(d);
+        // The engine's own verdict is the starting point, never the last word:
+        // everything it would have healed anyway comes up marked, and the
+        // refusals come up visible but unticked, with the measurement that
+        // refused them. Overruling is one click, and so is agreeing.
+        setChosen(new Set(d.items.filter((i) => i.verdict === 'heal').map((i) => i.id)));
+      })
+      .catch((e) => setMarksError(e instanceof Error ? e.message : 'הסריקה נכשלה'))
+      .finally(() => setMarksBusy(false));
+  }, [frame, draft, saved]);
+
+  /** Hand the chosen outlines to the draft. This is what makes the render show
+   *  the marks being honoured rather than the engine's automatic decision --
+   *  the failure the lab hit once, silently. */
+  const applyMarks = useCallback((ids: Set<string>) => {
+    if (!draft || !marks) return;
+    const polygons = marks.items
+      .filter((i) => ids.has(i.id))
+      .flatMap((i) => i.contours.map((points) => ({ id: i.id, points })));
+    setDraft({ ...draft, selection: { polygons } });
+  }, [draft, marks]);
+
+  const toggleMark = useCallback((id: string) => {
+    setChosen((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      applyMarks(next);
+      return next;
+    });
+  }, [applyMarks]);
+
+  // A different tool, frame or set makes a held scan a scan of something else.
+  useEffect(() => { setMarks(null); setChosen(new Set()); setMarksError(null); },
+    [frame, draft?.toolId, saved]);
 
   const start = useCallback((def: ToolDef) => {
     /* Look through the WHOLE stack this frame renders through, not just the
@@ -479,6 +549,37 @@ export default function SetWorkbench({
                       * worse than none. */}
                     {/* The amplified difference, on the same transform so it
                       * can be zoomed into like anything else. */}
+                    {/* The marks ride INSIDE the zoomer, so an outline stays
+                      * on its blemish through every pan and zoom. Coordinates
+                      * are the frame's own, via viewBox — no mapping to
+                      * maintain, and nothing to drift. */}
+                    {marking && marks && (
+                      <svg
+                        className="wb-marks"
+                        viewBox={`0 0 ${marks.width} ${marks.height}`}
+                        preserveAspectRatio="xMidYMid meet"
+                      >
+                        {marks.items
+                          .filter((i) => showRefused || i.verdict === 'heal')
+                          .map((item) => {
+                            const on = chosen.has(item.id);
+                            const d = item.contours
+                              .map((c) => `M ${c.map(([x, y]) =>
+                                `${x * marks.width} ${y * marks.height}`).join(' L ')} Z`)
+                              .join(' ');
+                            return (
+                              <path
+                                key={item.id}
+                                d={d}
+                                className={`wb-mark ${on ? 'on' : 'off'} ${item.verdict}`}
+                                onClick={() => toggleMark(item.id)}
+                              >
+                                <title>{`${markLabel(item.kind)} — ${markReason(item.verdict, item.facts)}`}</title>
+                              </path>
+                            );
+                          })}
+                      </svg>
+                    )}
                     <canvas
                       ref={diffRef}
                       className="wb-diff"
@@ -510,6 +611,42 @@ export default function SetWorkbench({
                   * The difference is not a separate view any more: it is what
                   * holding shows when it is switched on. Same gesture, same
                   * pair, two answers — did anything move, and where exactly. */}
+                {marking && (
+                  <span className="wb-markbar">
+                    <button className="btn" onClick={scan} disabled={marksBusy}>
+                      {marksBusy ? 'סורק מהקובץ…' : marks ? 'סרוק מחדש' : 'סרוק כתמים'}
+                    </button>
+                    {marksError && <strong className="bad">{marksError}</strong>}
+                    {marks && !marksBusy && (
+                      <>
+                        <strong>
+                          {chosen.size}/{marks.items.length} מסומנים
+                          {marks.faces > 1 && <> · {marks.faces} פנים</>}
+                        </strong>
+                        <button
+                          className="btn btn-ghost"
+                          onClick={() => {
+                            const all = new Set(marks.items.map((i) => i.id));
+                            setChosen(all); applyMarks(all);
+                          }}
+                        >סמן הכל</button>
+                        <button
+                          className="btn btn-ghost"
+                          onClick={() => { setChosen(new Set()); applyMarks(new Set()); }}
+                        >נקה הכל</button>
+                        <label className="wb-refused">
+                          <input
+                            type="checkbox"
+                            checked={showRefused}
+                            onChange={(e) => setShowRefused(e.target.checked)}
+                          />
+                          הצג גם מה שהמנוע דחה
+                        </label>
+                      </>
+                    )}
+                  </span>
+                )}
+
                 <button
                   className="btn wb-compare"
                   onMouseDown={() => setShowBefore(true)}

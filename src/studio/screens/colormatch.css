@@ -1116,3 +1116,48 @@
   white-space: pre-wrap;
   word-break: break-all;
 }
+
+/* ---- manual spot marking (LAB-VS-WORKBENCH G-1) -------------------------
+   Inside the zoomer, so an outline stays on its blemish through every pan and
+   zoom. `vector-effect` is what keeps a hairline a hairline: without it the
+   stroke scales with the transform and a 1px outline becomes a 16px blob at
+   full zoom, covering the very thing it is pointing at. */
+.wb-marks {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+.wb-mark {
+  fill: transparent;
+  stroke-width: 1.5;
+  vector-effect: non-scaling-stroke;
+  pointer-events: auto;
+  cursor: pointer;
+}
+/* An outline only. Never a fill — a mark that covers the blemish hides the
+   thing you are deciding about. */
+.wb-mark.on  { stroke: #35d07f; }
+.wb-mark.off { stroke: rgba(255, 255, 255, .55); stroke-dasharray: 3 3; }
+/* The engine's refusals, in its own voice: dashed amber says "I would not have
+   touched this", and clicking says otherwise. */
+.wb-mark.off.line,
+.wb-mark.off.shading,
+.wb-mark.off.size { stroke: rgba(255, 183, 77, .8); }
+.wb-mark:hover { stroke-width: 2.5; }
+
+.wb-markbar {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.wb-markbar .bad { color: #ff6b6b; }
+.wb-refused {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  opacity: .8;
+}
