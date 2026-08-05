@@ -17,6 +17,27 @@ import urllib.parse
 from concurrent.futures import ThreadPoolExecutor
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
+# THE STARTUP NOISE IS NOT OURS, AND IT CANNOT BE TURNED OFF FROM HERE.
+#
+# Every start prints five or six lines that look like failures and are not:
+#
+#   W0000 ... face_landmarker_graph.cc:180] Sets FaceBlendshapesGraph
+#             acceleration to xnnpack by default.
+#   INFO: Created TensorFlow Lite XNNPACK delegate for CPU.
+#   W0000 ... inference_feedback_manager.cc:121] Feedback manager requires a
+#             model with a single signature inference.
+#
+# MediaPipe and TFLite talking to themselves about internal acceleration. The
+# engine is fine; the line that matters is `engine listening on ...`.
+#
+# TRIED AND MEASURED, does not work: GLOG_minloglevel, TF_CPP_MIN_LOG_LEVEL,
+# GRPC_VERBOSITY and ABSL_LOGGING_MIN_SEVERITY set before the imports. All five
+# lines still appeared. They are written straight to stderr by the native layer,
+# which never consults these. Silencing them needs the process's stderr file
+# DESCRIPTOR redirected around every MediaPipe call — which would swallow real
+# errors from the same stream, and a quiet log that hides failures is a worse
+# trade than a noisy one that does not. Left alone deliberately.
+
 from PIL import Image, ImageOps
 
 import abpn
