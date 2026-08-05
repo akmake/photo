@@ -1,8 +1,8 @@
-# Restart the local engine — kill what is already serving, then start fresh.
+﻿# Restart the local engine -- kill what is already serving, then start fresh.
 #
 # WHY THIS EXISTS. Python reads a module once, when the process starts. Editing
 # engine/*.py does nothing to an engine that is already running, so a fix that
-# is verified on disk keeps failing in the app — and the error even MOVES from
+# is verified on disk keeps failing in the app -- and the error even MOVES from
 # one tool to the next as the recipe changes, which reads exactly like a
 # half-finished fix. It cost a round trip of "it is fixed" / "no it is not".
 #
@@ -14,10 +14,17 @@
 #   2. python processes whose command line points at THIS repository's server.py
 #
 # Anything it kills, it names first.
+#
+# ASCII ONLY, and saved with a BOM. Windows PowerShell 5.1 reads a .ps1 by the
+# system codepage unless the file carries one, so a single em-dash in a comment
+# arrived as three bytes of mojibake, broke the string it sat in, and took the
+# block structure with it -- five parse errors, none of them where the problem
+# was. See CLAUDE.md section 4: never assume UTF-8 at a boundary between
+# processes on this machine.
 
 $ErrorActionPreference = 'Stop'
 
-# Read the port from server.py rather than repeating it here — a copy would
+# Read the port from server.py rather than repeating it here -- a copy would
 # drift the moment the port moves, and then this script would helpfully restart
 # nothing while reporting success.
 $engineDir = Split-Path -Parent $MyInvocation.MyCommand.Path
@@ -51,7 +58,7 @@ try {
 # running engine was launched as `python server.py` from inside engine\, so its
 # command line says "server.py" and never the full path. So: the full path, OR
 # the bare script name together with an interpreter that lives in THIS repo's
-# virtualenv. Both are specific to this checkout — another clone of the project
+# virtualenv. Both are specific to this checkout -- another clone of the project
 # on the same machine keeps running.
 $venvRoot = Join-Path $engineDir '.venv'
 Get-CimInstance Win32_Process -Filter "Name like '%python%'" -ErrorAction SilentlyContinue |
@@ -64,12 +71,12 @@ Get-CimInstance Win32_Process -Filter "Name like '%python%'" -ErrorAction Silent
     ForEach-Object { $targets[[int]$_.ProcessId] = 'running this server.py' }
 
 if ($targets.Count -eq 0) {
-    Write-Host "nothing to stop — no engine was running" -ForegroundColor DarkGray
+    Write-Host "nothing to stop -- no engine was running" -ForegroundColor DarkGray
 } else {
     foreach ($pidKey in $targets.Keys) {
         $proc = Get-Process -Id $pidKey -ErrorAction SilentlyContinue
         $name = if ($proc) { $proc.ProcessName } else { '(gone)' }
-        Write-Host ("stopping pid {0}  {1}  — {2}" -f $pidKey, $name, $targets[$pidKey]) -ForegroundColor Yellow
+        Write-Host ("stopping pid {0}  {1}  -- {2}" -f $pidKey, $name, $targets[$pidKey]) -ForegroundColor Yellow
         try { Stop-Process -Id $pidKey -Force -ErrorAction Stop } catch {
             Write-Host "  could not stop it: $($_.Exception.Message)" -ForegroundColor Red
         }
@@ -89,12 +96,12 @@ for ($i = 0; $i -lt 40; $i++) {
 # ---- 4. up again -----------------------------------------------------------
 $python = Join-Path $engineDir '.venv\Scripts\python.exe'
 if (-not (Test-Path $python)) {
-    Write-Host "no virtualenv at $python — run the project setup first" -ForegroundColor Red
+    Write-Host "no virtualenv at $python -- run the project setup first" -ForegroundColor Red
     exit 1
 }
 
 Write-Host ""
-Write-Host "starting the engine — leave this window open, its log lives here" -ForegroundColor Green
+Write-Host "starting the engine -- leave this window open, its log lives here" -ForegroundColor Green
 Write-Host "  Ctrl+C to stop" -ForegroundColor DarkGray
 Write-Host ""
 
