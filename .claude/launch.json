@@ -1,12 +1,28 @@
 {
   "version": "0.0.1",
+  "_comment": [
+    "ATTACH, never start. dev.bat is what runs this project: it opens two",
+    "windows -- the engine on 8756 and Vite on 5173 -- so both logs stay visible,",
+    "and the engine is not optional (no engine, no tool runs at all).",
+    "",
+    "This file used to say port 5188 with its own `npm run dev`, which meant an",
+    "agent asked to look at the app quietly raised a SECOND Vite on a second",
+    "port, beside the one already running. Both serve the same files from disk,",
+    "so both worked -- and that is what made it expensive: the verification came",
+    "from an address the photographer had never seen, while his own tab on 5173",
+    "was equally correct the whole time. Reported as 'what is this address, what",
+    "is going on here'.",
+    "",
+    "No runtimeExecutable on purpose. With a url and no command this attaches to",
+    "the server dev.bat already started. If nothing is listening on 5173 the",
+    "preview fails to open, which is the honest outcome: run dev.bat. Starting",
+    "another one, or letting the port bump, is how you get two servers again."
+  ],
   "configurations": [
     {
       "name": "editor",
-      "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "dev"],
-      "port": 5188,
-      "autoPort": true
+      "url": "http://localhost:5173",
+      "port": 5173
     }
   ]
 }
