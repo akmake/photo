@@ -902,48 +902,8 @@
 }
 .cmp-viewbar button.on { background: var(--accent); }
 
-/* ----------------------------------------------------- manual brush */
-
-/* the paint layer sits on top of everything in the zoomer and owns the
-   pointer while a tool is being painted */
-.lab-paintlayer {
-  pointer-events: auto;
-  cursor: crosshair;
-  touch-action: none;
-}
-
-.lab-paintbar {
-  position: absolute;
-  top: 14px;
-  inset-inline-start: 50%;
-  transform: translateX(50%);
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 6px 12px;
-  border-radius: 999px;
-  background: rgba(12, 14, 18, 0.85);
-  color: #fff;
-  font-size: 12.5px;
-  backdrop-filter: blur(6px);
-  z-index: 4;
-}
-
-.lab-paintbar strong { font-size: 12.5px; white-space: nowrap; }
-
-.lab-paintbar button {
-  height: 26px;
-  padding: 0 10px;
-  border-radius: 999px;
-  color: #fff;
-  font-size: 12px;
-  font-weight: 600;
-}
-.lab-paintbar button:hover { background: rgba(255, 255, 255, 0.16); }
-.lab-paintbar .lab-modes button.on { background: var(--accent); }
-
-.lab-paint-size { display: flex; align-items: center; gap: 6px; white-space: nowrap; }
-.lab-paint-size input { width: 90px; }
+/* The manual brush's styles were deleted with it. `.lab-mask-row` survives
+   because the cleanup tool still uses it for its own row of controls. */
 
 .lab-mask-row {
   display: flex;
@@ -951,7 +911,6 @@
   gap: 8px;
   margin-top: 6px;
 }
-.lab-brush-btn.on { background: var(--accent); color: #fff; }
 .lab-mask-note { font-size: 11.5px; opacity: 0.75; }
 
 /* ------------------------------------------------------------------ marks */

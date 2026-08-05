@@ -19,7 +19,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import type { Recipe, ToolInstance } from '../types';
 import {
   defaultRecipe, getTool, isToolAtDefault, orderedInstances, setToolEnabled,
-  updateToolMask, updateToolParams, updateToolSelection, visibleInstances,
+  updateToolParams, updateToolSelection, visibleInstances,
 } from '../toolRegistry';
 import {
   renderRecipe, renderRecipeAtPath, checkEngine, detectSpots, detectSpotsAtPath,
@@ -36,21 +36,10 @@ import './lab.css';
 import { Histogram, computeDiff, loadImage } from '../design/Metering';
 import type { Delta } from '../design/Metering';
 
-/** Only used when "מהיר" is switched on — and it is off by default, because at
- *  this size the face tools stop working. */
-const FAST_PREVIEW = 1600;
 const DEBOUNCE_MS = 260;
-/** The diff is a diagnostic overlay, not a deliverable; capping it keeps a
- *  20MP frame from allocating 160MB of pixel buffers on every render. */
 /** Multiplier on the fitted size. A 3648px frame fitted into ~900px of stage
  *  sits at ~0.25, so 80x is roughly 2000% — enough to inspect single pixels. */
 const MAX_ZOOM = 80;
-/** Frame-relative tools reject region masks in the engine (render.py
- *  FRAME_ONLY) — offering a brush for them would be a lying control. */
-const NO_BRUSH = new Set(['light-point', 'glow', 'vignette']);
-/** Painted edges get engine-side feathering so a preview-resolution stroke
- *  stays soft at export resolution. */
-const PAINT_FEATHER = 12;
 /** The one tool that reports its findings as objects a person can choose
  *  between. Everything else here is a field: there is nothing to enumerate. */
 const CLEANUP_ID = 'skin-cleanup';
@@ -89,11 +78,6 @@ interface Loaded {
   path?: string;
   w: number;
   h: number;
-  /** The brush canvas's size — always the fitted preview size, never the
-   *  frame's. A 5472x3648 mask canvas is 80MB of pixel buffer for strokes that
-   *  the engine feathers anyway. */
-  pw: number;
-  ph: number;
 }
 
 function emptyRecipe(): Recipe {
@@ -118,12 +102,6 @@ function recipeFromSteps(steps: ToolInstance[]): Recipe {
   return r;
 }
 
-/** The fitted size for the brush canvas, mirroring `downscale` without needing
- *  the browser to hold the original. */
-function maskSize(w: number, h: number): { pw: number; ph: number } {
-  const scale = Math.min(1, FAST_PREVIEW / Math.max(w, h));
-  return { pw: Math.round(w * scale), ph: Math.round(h * scale) };
-}
 
 function readFile(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -138,7 +116,7 @@ function readFile(file: File): Promise<string> {
  *  runs on the full picture, and the fitted size is just the brush canvas. */
 async function measure(dataUrl: string): Promise<Omit<Loaded, 'name' | 'full' | 'path'>> {
   const img = await loadImage(dataUrl);
-  return { w: img.width, h: img.height, ...maskSize(img.width, img.height) };
+  return { w: img.width, h: img.height };
 }
 
 function paramNote(toolId: string, params: Record<string, number>): string {
@@ -176,10 +154,20 @@ export default function Lab({ frame }: { frame?: LabFrame } = {}) {
   const diffRef = useRef<HTMLCanvasElement>(null);
   const drag = useRef<{ x: number; y: number; px: number; py: number } | null>(null);
 
-  /* The manual brush: a per-photo override painted over ONE tool's result.
-   * The strokes live in an offscreen canvas at preview size; commit ships
-   * them as a PNG in the tool's mask spec, and the ENGINE blends — the same
-   * code path the export uses, so what she paints is what she gets. */
+  /* THE MANUAL BRUSH IS GONE, and it is not coming back as a brush.
+   *
+   * It let you smear a soft-edged stroke over one tool's result and say "except
+   * here" or "only here". Judged from use: bad and broken. The honest diagnosis
+   * is that a feathered stroke painted at preview scale is the wrong instrument
+   * for a decision that has to be exact — you cannot see where it lands, you
+   * cannot adjust it after the fact, and it is stored as a PNG that means
+   * nothing to anyone reading the recipe later.
+   *
+   * What replaced it is the drawn REGION below: a closed outline the
+   * photographer places deliberately, either "clean only inside this" or
+   * "clean everything except this". Same intent, exact geometry, legible in the
+   * recipe, and reversible. */
+
   /* The marking pass: every candidate the cleanup detector found, outlined, and
    * a choice about each one.
    *
@@ -205,14 +193,6 @@ export default function Lab({ frame }: { frame?: LabFrame } = {}) {
    * take the marks on faith. Switching to the result is one click, for checking
    * the repair without leaving the marks. */
   const [markBase, setMarkBase] = useState<'original' | 'result'>('original');
-
-  const [paintFor, setPaintFor] = useState<string | null>(null);
-  const [brush, setBrush] = useState(70);
-  const [erase, setErase] = useState(false);
-  const [paintMode, setPaintMode] = useState<'except' | 'only'>('except');
-  const maskCanvas = useRef<HTMLCanvasElement | null>(null);
-  const overlayRef = useRef<HTMLCanvasElement>(null);
-  const stroke = useRef<{ x: number; y: number } | null>(null);
 
   const originalSrc = img ? img.full : '';
 
@@ -341,135 +321,11 @@ export default function Lab({ frame }: { frame?: LabFrame } = {}) {
     drag.current = null;
   }
 
-  /* ------------------------------------------------------------- brush */
-
-  const redrawOverlay = useCallback(() => {
-    const ov = overlayRef.current;
-    const mc = maskCanvas.current;
-    if (!ov || !mc) return;
-    const g = ov.getContext('2d')!;
-    g.clearRect(0, 0, ov.width, ov.height);
-    g.drawImage(mc, 0, 0);
-    g.globalCompositeOperation = 'source-in';
-    g.fillStyle = 'rgba(255, 64, 64, 0.5)';
-    g.fillRect(0, 0, ov.width, ov.height);
-    g.globalCompositeOperation = 'source-over';
-  }, []);
-
-  const enterPaint = useCallback(
-    (toolId: string) => {
-      if (paintFor === toolId) {
-        setPaintFor(null);
-        return;
-      }
-      if (!img) return;
-      let c = maskCanvas.current;
-      if (!c || c.width !== img.pw || c.height !== img.ph) {
-        c = document.createElement('canvas');
-        c.width = img.pw;
-        c.height = img.ph;
-        maskCanvas.current = c;
-      }
-      const ctx = c.getContext('2d')!;
-      ctx.clearRect(0, 0, c.width, c.height);
-      const inst = recipe.tools.find((t) => t.toolId === toolId);
-      if (inst?.mask?.region === 'painted' && inst.mask.paint) {
-        setPaintMode(inst.mask.invert ? 'except' : 'only');
-        loadImage(inst.mask.paint).then((im) => {
-          ctx.drawImage(im, 0, 0, c!.width, c!.height);
-          redrawOverlay();
-        });
-      }
-      setPaintFor(toolId);
-    },
-    [img, paintFor, recipe, redrawOverlay],
-  );
-
-  useEffect(() => {
-    if (paintFor) redrawOverlay();
-  }, [paintFor, redrawOverlay]);
-
-  const commitMask = useCallback(
-    (mode: 'except' | 'only') => {
-      const c = maskCanvas.current;
-      if (!c || !paintFor) return;
-      setRecipe((r) =>
-        updateToolMask(r, paintFor, {
-          region: 'painted',
-          paint: c.toDataURL('image/png'),
-          invert: mode === 'except',
-          feather: PAINT_FEATHER,
-        }),
-      );
-    },
-    [paintFor],
-  );
-
-  /** Pointer position in mask-bitmap pixels. object-fit: contain letterboxes
-   *  the bitmap inside the element box; the box itself already carries the
-   *  zoom/pan transform, so this mapping is honest at any zoom. */
-  function maskPoint(e: React.PointerEvent<HTMLCanvasElement>) {
-    const el = e.currentTarget;
-    const r = el.getBoundingClientRect();
-    const s = Math.min(r.width / el.width, r.height / el.height);
-    const ox = r.left + (r.width - el.width * s) / 2;
-    const oy = r.top + (r.height - el.height * s) / 2;
-    return { x: (e.clientX - ox) / s, y: (e.clientY - oy) / s, s };
-  }
-
-  function stamp(x: number, y: number, rad: number) {
-    const ctx = maskCanvas.current?.getContext('2d');
-    if (!ctx) return;
-    ctx.globalCompositeOperation = erase ? 'destination-out' : 'source-over';
-    const grad = ctx.createRadialGradient(x, y, rad * 0.55, x, y, rad);
-    grad.addColorStop(0, 'rgba(255,255,255,1)');
-    grad.addColorStop(1, 'rgba(255,255,255,0)');
-    ctx.fillStyle = grad;
-    ctx.beginPath();
-    ctx.arc(x, y, rad, 0, Math.PI * 2);
-    ctx.fill();
-  }
-
-  function brushDown(e: React.PointerEvent<HTMLCanvasElement>) {
-    e.stopPropagation();
-    e.currentTarget.setPointerCapture(e.pointerId);
-    const p = maskPoint(e);
-    stamp(p.x, p.y, Math.max(3, brush / 2 / p.s));
-    stroke.current = { x: p.x, y: p.y };
-    redrawOverlay();
-  }
-
-  function brushMove(e: React.PointerEvent<HTMLCanvasElement>) {
-    if (!stroke.current) return;
-    const p = maskPoint(e);
-    const rad = Math.max(3, brush / 2 / p.s);
-    const last = stroke.current;
-    const steps = Math.max(1, Math.floor(Math.hypot(p.x - last.x, p.y - last.y) / (rad * 0.35)));
-    for (let i = 1; i <= steps; i++) {
-      stamp(last.x + ((p.x - last.x) * i) / steps, last.y + ((p.y - last.y) * i) / steps, rad);
-    }
-    stroke.current = { x: p.x, y: p.y };
-    redrawOverlay();
-  }
-
-  function brushUp() {
-    if (!stroke.current) return;
-    stroke.current = null;
-    commitMask(paintMode);
-  }
-
-  const clearMask = useCallback(() => {
-    const c = maskCanvas.current;
-    if (c) c.getContext('2d')!.clearRect(0, 0, c.width, c.height);
-    redrawOverlay();
-    if (paintFor) setRecipe((r) => updateToolMask(r, paintFor, null));
-  }, [paintFor, redrawOverlay]);
-
   /* -------------------------------------------------------------- load */
 
-  /** Everything that describes the PREVIOUS photograph. A candidate set, a
-   *  brush stroke and a zoom all belong to one frame; carrying any of them
-   *  across would outline marks that are not there. */
+  /** Everything that describes the PREVIOUS photograph. A candidate set and a
+   *  zoom belong to one frame; carrying either across would outline marks that
+   *  are not there. */
   const forget = useCallback((next: Recipe) => {
     setError(null);
     setOut(null);
@@ -479,8 +335,6 @@ export default function Lab({ frame }: { frame?: LabFrame } = {}) {
     setRecipe(next);
     setZoom(1);
     setPan({ x: 0, y: 0 });
-    setPaintFor(null);
-    maskCanvas.current = null;
     setMarks(null);
     setMarksKey('');
     setMarksError(null);
@@ -528,7 +382,6 @@ export default function Lab({ frame }: { frame?: LabFrame } = {}) {
           path: framePath,
           w: im.width,
           h: im.height,
-          ...maskSize(im.width, im.height),
         });
       })
       .catch((e) => alive && setError(`טעינת התמונה נכשלה: ${(e as Error).message}`));
@@ -973,18 +826,6 @@ export default function Lab({ frame }: { frame?: LabFrame } = {}) {
               className="lab-img lab-over"
               style={{ opacity: showProcessed && mode === 'diff' ? 1 : 0 }}
             />
-            {paintFor && (
-              <canvas
-                ref={overlayRef}
-                className="lab-img lab-over lab-paintlayer"
-                width={img.pw}
-                height={img.ph}
-                onPointerDown={brushDown}
-                onPointerMove={brushMove}
-                onPointerUp={brushUp}
-                onPointerCancel={brushUp}
-              />
-            )}
             {/* SVG, not a canvas: the outline has to stay one hairline wide at
                 2000% zoom (vector-effect) and each candidate has to be clickable
                 as itself. A rasterised overlay would need manual hit-testing and
@@ -1107,43 +948,6 @@ export default function Lab({ frame }: { frame?: LabFrame } = {}) {
           {/* histogram follows what the eye sees: result, or original on hold */}
           <Histogram src={showProcessed ? out! : originalSrc} />
 
-          {paintFor && (
-            <div className="lab-paintbar">
-              <strong>מכחול · {getTool(paintFor).label}</strong>
-              <label className="lab-paint-size">
-                גודל
-                <input
-                  type="range"
-                  min={14}
-                  max={240}
-                  value={brush}
-                  onChange={(e) => setBrush(Number(e.target.value))}
-                />
-              </label>
-              <div className="lab-modes">
-                <button className={!erase ? 'on' : ''} onClick={() => setErase(false)}>צייר</button>
-                <button className={erase ? 'on' : ''} onClick={() => setErase(true)}>מחק</button>
-              </div>
-              <div className="lab-modes">
-                <button
-                  className={paintMode === 'except' ? 'on' : ''}
-                  onClick={() => { setPaintMode('except'); commitMask('except'); }}
-                  title="האזור שצויר מוגן — הכלי לא נוגע בו"
-                >
-                  הסר מהציור
-                </button>
-                <button
-                  className={paintMode === 'only' ? 'on' : ''}
-                  onClick={() => { setPaintMode('only'); commitMask('only'); }}
-                  title="הכלי פועל רק בתוך האזור שצויר"
-                >
-                  רק בציור
-                </button>
-              </div>
-              <button onClick={clearMask}>נקה</button>
-              <button onClick={() => setPaintFor(null)}>סיום</button>
-            </div>
-          )}
 
           {mode === 'marks' && (
             <div className="lab-marksbar">
@@ -1362,22 +1166,6 @@ export default function Lab({ frame }: { frame?: LabFrame } = {}) {
                     </div>
                   )}
 
-                  {!NO_BRUSH.has(def.id) && (
-                    <div className="lab-mask-row">
-                      <button
-                        className={`btn btn-ghost lab-brush-btn ${paintFor === def.id ? 'on' : ''}`}
-                        disabled={!inst.enabled}
-                        onClick={() => enterPaint(def.id)}
-                      >
-                        {paintFor === def.id ? 'מצייר… (סיום)' : 'מכחול ידני'}
-                      </button>
-                      {inst.mask?.region === 'painted' && (
-                        <span className="lab-mask-note">
-                          {inst.mask.invert ? 'מוסר באזור שצויר' : 'פועל רק באזור שצויר'}
-                        </span>
-                      )}
-                    </div>
-                  )}
                 </div>
               )}
             </div>
