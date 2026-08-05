@@ -2,6 +2,7 @@ import { Suspense, lazy, useEffect, useState } from 'react';
 import { Shell } from './studio/Shell';
 import { SECTION_TO_STAGE } from './studio/nav';
 import type { SectionId, StageId } from './studio/nav';
+import type { LabView } from './lab/LabSection';
 import Today from './studio/screens/Today';
 import Projects from './studio/screens/Projects';
 import ProjectScreen from './studio/screens/Project';
@@ -20,8 +21,10 @@ import { STAGE_SCREENS, Simple } from './studio/screens/Screens';
  * None of it is needed to render היום, and in dev every one of those modules is
  * a separate request the browser waits on before the app appears. */
 const GalleryEdit = lazy(() => import('./studio/screens/GalleryEdit'));
-const Lab = lazy(() => import('./lab/Lab'));
-const Compare = lazy(() => import('./lab/Compare'));
+/* The lab's own shell. It holds both halves — the bench and the reader — and
+ * keeps each of them behind its own lazy boundary, so this one import does not
+ * pull both into a single chunk. */
+const LabSection = lazy(() => import('./lab/LabSection'));
 const AlbumStudio = lazy(() => import('./album/AlbumStudio'));
 const ColorMatch = lazy(() => import('./studio/screens/ColorMatch'));
 const SetWorkbench = lazy(() => import('./studio/screens/SetWorkbench'));
@@ -44,22 +47,32 @@ const RETIRED: Partial<Record<string, SectionId>> = {
   culling: 'projects',
   orders: 'today',
   reports: 'today',
+  // The reader is a view INSIDE the lab now, not a section of its own. An old
+  // #/compare tab lands on it rather than on an empty bench.
+  compare: 'lab',
 };
 
 const LIVE_SECTIONS = new Set<string>([
-  'today', 'projects', 'project', 'clients', 'calendar', 'settings',
+  'today', 'projects', 'project', 'clients', 'calendar', 'lab', 'settings',
   // pre-direction workspaces, still reachable until the project screen absorbs them
-  'editing', 'albums', 'lab', 'compare',
+  'editing', 'albums',
 ]);
 
-/** `#/section/stage`, plus `#/project/<id>` for one job — so any screen can be
- *  linked, reloaded and bookmarked. */
+/** `#/section/stage`, plus `#/project/<id>` for one job and `#/lab/<view>` for
+ *  the two halves of the lab — so any screen can be linked, reloaded and
+ *  bookmarked. */
 function readHash(): { section: SectionId; stage: StageId; id: string; sub: string } {
   // the `#/` is stripped first, so the section is element 0 — not 1
   const [sec, a, b] = window.location.hash.replace(/^#\/?/, '').split('/');
   const section = RETIRED[sec] ?? (LIVE_SECTIONS.has(sec) ? (sec as SectionId) : 'today');
   if (section === 'project') {
     return { section, stage: 'client-status', id: a ?? '', sub: b ?? '' };
+  }
+  if (section === 'lab') {
+    // `sec === 'compare'` is the retired route arriving; `a === 'compare'` is
+    // the current one. Anything else is the bench.
+    const view: LabView = sec === 'compare' || a === 'compare' ? 'compare' : 'tools';
+    return { section, stage: 'client-status', id: '', sub: view };
   }
   return { section, stage: (a as StageId) || 'client-status', id: '', sub: '' };
 }
@@ -81,6 +94,11 @@ export default function App() {
   const [colorMatch, setColorMatch] = useState(initial.sub === 'color');
   // The set's workbench — one tool at a time, on top of the recipe so far.
   const [workbench, setWorkbench] = useState(initial.sub === 'edit');
+  // Which half of the lab is showing. Lives here, not inside LabSection, so the
+  // hash carries it and a reload comes back to the same screen.
+  const [labView, setLabView] = useState<LabView>(
+    initial.section === 'lab' && initial.sub === 'compare' ? 'compare' : 'tools',
+  );
   /* Which batch a tool was opened FOR. Carried here rather than looked up
    * inside the tool, because the tool is opened from the stage that made the
    * choice — and a tool that guesses its own layer is a tool that writes the
@@ -95,6 +113,7 @@ export default function App() {
       setProjectId(h.id);
       setColorMatch(h.sub === 'color');
       setWorkbench(h.sub === 'edit');
+      if (h.section === 'lab') setLabView(h.sub === 'compare' ? 'compare' : 'tools');
     };
     window.addEventListener('hashchange', onHash);
     return () => window.removeEventListener('hashchange', onHash);
@@ -104,11 +123,13 @@ export default function App() {
     const sub = colorMatch ? '/color' : workbench ? '/edit' : '';
     const want = section === 'project'
       ? `#/project/${projectId}${sub}`
-      : `#/${section}/${stage}`;
+      : section === 'lab'
+        ? `#/lab/${labView}`
+        : `#/${section}/${stage}`;
     if (window.location.hash !== want) {
       window.history.replaceState(null, '', want);
     }
-  }, [section, stage, projectId, colorMatch, workbench]);
+  }, [section, stage, projectId, colorMatch, workbench, labView]);
 
   function openProject(id: string) {
     setProjectId(id);
@@ -140,12 +161,11 @@ export default function App() {
 
   const openedProject = section === 'project' ? getProject(projectId) : undefined;
   const Standalone = openedProject ? undefined : standalone[section];
-  // The lab is not a project stage — it opens on its own, full-bleed, and the
-  // stage tabs above it stay where they were.
+  // The lab is not a project stage — it is its own place in the rail, full-bleed
+  // and without the stage tabs, and it carries both of its halves itself.
   const isLab = section === 'lab';
-  const isCompare = section === 'compare';
-  const isEditor = stage === 'gallery-edit' && !Standalone && !isLab && !isCompare;
-  const isAlbum = stage === 'album-design' && !Standalone && !isLab && !isCompare;
+  const isEditor = stage === 'gallery-edit' && !Standalone && !isLab;
+  const isAlbum = stage === 'album-design' && !Standalone && !isLab;
 
   let body: JSX.Element;
   let title = 'TEZA';
@@ -192,11 +212,8 @@ export default function App() {
     );
     title = openedProject.client;
   } else if (isLab) {
-    body = <Lab />;
-    title = 'מעבדה';
-  } else if (isCompare) {
-    body = <Compare />;
-    title = 'קריאת עריכה';
+    body = <LabSection view={labView} onView={setLabView} />;
+    title = labView === 'compare' ? 'קריאת עריכה · מעבדה' : 'מעבדה';
   } else if (Standalone) {
     body = <Standalone />;
     title = SECTION_TITLE[section] ?? 'TEZA';
@@ -219,11 +236,11 @@ export default function App() {
       stage={stage}
       onStage={goStage}
       title={title}
-      flush={isEditor || isAlbum || isLab || isCompare || Boolean(openedProject && workbench)}
+      flush={isEditor || isAlbum || isLab || Boolean(openedProject && workbench)}
       // Editing a photograph owns the whole window: the business rail comes off
       // and the strip it used becomes the set being edited.
       rail={!(openedProject && workbench)}
-      bare={isAlbum || isLab || isCompare}
+      bare={isAlbum || isLab}
       // Only the pre-direction project routes still carry the tab row.
       stages={!Standalone && !openedProject}
     >

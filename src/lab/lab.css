@@ -6,6 +6,62 @@
  * engine's report is half the product.
  */
 
+/* ------------------------------------------------------------- section */
+
+/* Both screens below are `height: 100%`, and a percentage height resolves
+ * against a parent that has a definite one — the same trap `.content.flush`
+ * documents in shell.css. So the switch row and the body are grid rows, and the
+ * body is `minmax(0, 1fr)`: a real box for the screen to fill, rather than a
+ * flex child that would collapse to auto and let a 1200px canvas push the log
+ * off the bottom of the window. */
+.labsec {
+  height: 100%;
+  min-height: 0;
+  direction: rtl;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  background: var(--page);
+}
+
+.labsec-tabs {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 0 12px;
+  background: var(--card);
+  border-bottom: 1px solid var(--line);
+}
+
+.labsec-tab {
+  height: 38px;
+  padding: 0 14px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: none;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink-2);
+  cursor: pointer;
+}
+
+.labsec-tab:hover {
+  color: var(--ink);
+}
+
+.labsec-tab.on {
+  color: var(--ink);
+  border-bottom-color: var(--accent);
+}
+
+.labsec-body {
+  min-height: 0;
+  display: grid;
+  grid-template-rows: minmax(0, 1fr);
+}
+
+/* --------------------------------------------------------------- bench */
+
 .lab {
   height: 100%;
   min-height: 0;

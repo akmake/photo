@@ -1,7 +1,7 @@
 /* Navigation model.
  *
- * ONE axis in the rail, and it is the BUSINESS: today, projects, clients,
- * calendar, settings. That is where the photographer is between sessions.
+ * The rail is the BUSINESS: today, projects, clients, calendar, settings. That
+ * is where the photographer is between sessions.
  *
  * The work itself — import, cull, edit, album, deliver — does NOT appear here.
  * It lives inside a project, because it is only ever true of one project at a
@@ -9,8 +9,18 @@
  * routes led to the same screen and no mental model could form. See
  * docs/UX-SKELETON.md §1.4.
  *
+ * ONE item breaks that rule on purpose, and it is מעבדה. The lab is not a
+ * project stage and never was: it is one photograph, one tool, and the engine's
+ * own report — the room you go to when you want to know what a tool actually
+ * does, on no client's work. It belongs to no project, so there is nowhere
+ * inside a project to put it, and until now it had no door at all: #/lab and
+ * #/compare existed and nothing in the product linked to either, so the only
+ * way in was to type the URL. A screen no one can reach is a screen that is not
+ * finished. It sits LAST, next to settings, because it is a workshop and not a
+ * place the day passes through.
+ *
  * There is deliberately no "tasks" item: a task always belongs to a project or a
- * client, so it lives in Today's queue and inside the project. A five-item rail
+ * client, so it lives in Today's queue and inside the project. A six-item rail
  * stays readable; a twelve-item one does not.
  */
 
@@ -21,6 +31,7 @@ export type SectionId =
   | 'project'
   | 'clients'
   | 'calendar'
+  | 'lab'
   | 'settings'
   /* Not rail destinations. Still reachable by hash while the screens that will
    * absorb them are built — the tools are scheduled last. */
@@ -28,8 +39,6 @@ export type SectionId =
   | 'galleries'
   | 'culling'
   | 'editing'
-  | 'lab'
-  | 'compare'
   | 'albums'
   | 'orders'
   | 'reports';
@@ -50,12 +59,13 @@ export interface SectionDef {
   foot?: boolean;
 }
 
-/** The rail. Five items, and every one is a place in the business. */
+/** The rail. Four places in the business, then the workshop, then settings. */
 export const SECTIONS: SectionDef[] = [
   { id: 'today', label: 'היום', icon: 'home' },
   { id: 'projects', label: 'פרויקטים', icon: 'folder' },
   { id: 'clients', label: 'לקוחות', icon: 'users' },
   { id: 'calendar', label: 'יומן', icon: 'calendar' },
+  { id: 'lab', label: 'מעבדה', icon: 'lab' },
   { id: 'settings', label: 'הגדרות', icon: 'gear', foot: true },
 ];
 
