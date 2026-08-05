@@ -105,12 +105,21 @@ TOOLS = {
 FRAME_ONLY = {"light-point", "glow", "vignette"}
 
 
-# The face-size floor each tool refuses below, declared once where the pipeline
-# can see it. These are the tools docs/BUGS.md BUG-001 measured as inert in every
-# preview the app renders; the numbers are the tools' own, not new ones.
+# The smallest face each tool can still do something with, declared once where
+# the pipeline can see it. These are the tools docs/BUGS.md BUG-001 measured as
+# inert in every preview the app renders; the numbers are the tools' own.
+#
+# `skin-cleanup` is NOT its MIN_FACE_PX, and using that was a bug worth stating.
+# 180 is the size it needs the frame it WORKS on to be, and `_apply_upscaled`
+# is how it gets there — so the smallest face it can actually treat is
+# MIN_FACE_PX / UPSCALE_MAX = 90. Asking the file for 180 meant a face of 149px
+# was declared beyond help and skipped, while a full-resolution render retouched
+# it happily. Measured on 321A5078, whose five faces are 149-227 in the file:
+# three of them were being refused, so the tool reported real work on two faces
+# and the photographer saw almost nothing.
 FACE_FLOOR = {
     "face-retouch": abpn.MIN_FACE_PX,
-    "skin-cleanup": cleanup.MIN_FACE_PX,
+    "skin-cleanup": cleanup.MIN_WORK_PX,
     "skin": skin.MIN_FACE_PX,
     "contour": contour.MIN_FACE_PX,
     "blush": blush.MIN_FACE_PX,
