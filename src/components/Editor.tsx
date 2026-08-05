@@ -54,6 +54,12 @@ export default function Editor({
   const aiKeyRef = useRef<string>('');
 
   const [showOriginal, setShowOriginal] = useState(false);
+  /* THE DIFFERENCE VIEW. The lab has had it since the beginning and this screen
+   * never did, so "I see no change" and "nothing changed" stayed a matter of
+   * opinion here. It amplifies |result - original| onto black, which turns the
+   * question into something you can look at. */
+  const [showDiff, setShowDiff] = useState(false);
+  const [diffGain, setDiffGain] = useState(5);
   const [loading, setLoading] = useState(true);
   const [aiBusy, setAiBusy] = useState(false);
   const [aiInfo, setAiInfo] = useState<string | null>(null);
@@ -90,6 +96,21 @@ export default function Editor({
     let img: ImageData = base;
     for (const inst of globals) {
       img = applyGlobalTool(inst.toolId, img, inst.params);
+    }
+    if (showDiff) {
+      // Amplified onto black: what MOVED, and by how much. Grey is nothing.
+      const a = orig.data, b = img.data;
+      const out = ctx.createImageData(img.width, img.height);
+      const o = out.data;
+      for (let i = 0; i < o.length; i += 4) {
+        o[i] = Math.min(255, Math.abs(b[i] - a[i]) * diffGain);
+        o[i + 1] = Math.min(255, Math.abs(b[i + 1] - a[i + 1]) * diffGain);
+        o[i + 2] = Math.min(255, Math.abs(b[i + 2] - a[i + 2]) * diffGain);
+        o[i + 3] = 255;
+      }
+      ctx.putImageData(out, 0, 0);
+      setRenderMs(Math.round(performance.now() - t0));
+      return;
     }
     ctx.putImageData(img, 0, 0);
     setRenderMs(Math.round(performance.now() - t0));
@@ -180,7 +201,7 @@ export default function Editor({
       clearTimeout(timer);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [recipe, showOriginal, loading]);
+  }, [recipe, showOriginal, showDiff, diffGain, loading]);
 
   function toggleGroup(id: string) {
     setOpenGroups((prev) => {
@@ -223,10 +244,34 @@ export default function Editor({
             onKeyUp={() => setShowOriginal(false)}
             onBlur={() => setShowOriginal(false)}
             aria-pressed={showOriginal}
-            title="החזיקי כדי לראות את המקור"
+            title="החזק כדי לראות את הגלם"
           >
-            לפני / אחרי
+            {/* It said "לפני / אחרי", which reads as a toggle you press and
+              * release. It is a HOLD, and it was parked in a panel header away
+              * from the picture — reported from use as a button that is not
+              * there. The label now says the gesture. */}
+            החזק כדי לראות את הגלם
           </button>
+          <button
+            className={`ghost ${showDiff ? 'on' : ''}`}
+            onClick={() => setShowDiff((v) => !v)}
+            aria-pressed={showDiff}
+            title="מה שהשתנה בלבד, מוגבר על רקע שחור"
+          >
+            הפרש
+          </button>
+          {showDiff && (
+            <select
+              value={diffGain}
+              onChange={(e) => setDiffGain(Number(e.target.value))}
+              aria-label="הגברת ההפרש"
+            >
+              <option value={1}>×1</option>
+              <option value={5}>×5</option>
+              <option value={10}>×10</option>
+              <option value={25}>×25</option>
+            </select>
+          )}
         </div>
 
         <StyleBar recipe={recipe} onApply={onRecipeChange} />

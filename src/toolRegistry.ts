@@ -486,7 +486,19 @@ export function defaultRecipe(): Recipe {
     tools: TOOLS.filter((def) => !def.legacy).map<ToolInstance>((def) => ({
       toolId: def.id,
       params: defaultParams(def),
-      enabled: def.kind === 'global',
+      /* NOTHING IS ON UNTIL SOMEONE TURNS IT ON.
+       *
+       * This was `def.kind === 'global'`, which switched six tools on the
+       * moment a photograph was loaded. Measured on a 5472px frame, all six at
+       * their defaults: max 0 levels changed, 1.1 SECONDS spent. They could not
+       * change anything -- every strength defaults to 0 and the non-zero
+       * numbers are geometry, where a light would sit IF you placed one -- so
+       * the whole cost bought a panel that showed six tools "enabled" while
+       * none of them was doing a thing.
+       *
+       * That is the same lie this project spent a day removing from the face
+       * tools: "on" has to mean "acting". */
+      enabled: false,
     })),
   };
 }
