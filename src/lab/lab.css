@@ -992,8 +992,22 @@
   display: inline-block;
   margin-inline-start: 6px;
 }
-.lab-mark-tally .dot.on { background: #19f5a6; }
-.lab-mark-tally .dot.refused { background: #ff4d4d; }
+/* The same three colours the outlines use, so the count and the picture agree
+   without anyone having to learn a second key. */
+.lab-mark-tally .dot.fixed  { background: #7cc6ff; }
+.lab-mark-tally .dot.spared { background: #ffb74d; }
+.lab-mark-tally .dot.all    { background: rgba(255, 255, 255, 0.45); }
+
+/* The close control. Pushed to the end of the bar, away from the actions, so
+   leaving is never a mis-click on a decision. */
+.lab-marks-x {
+  margin-inline-start: 4px;
+  width: 26px;
+  padding: 0 !important;
+  font-size: 13px;
+  opacity: 0.75;
+}
+.lab-marks-x:hover { opacity: 1; }
 
 .lab-mark-check {
   display: flex;
@@ -1037,7 +1051,7 @@
    "is this dirt?" cannot be answered from a thumbnail. */
 .lab-mark-row {
   display: grid;
-  grid-template-columns: auto 1fr auto;
+  grid-template-columns: 1fr auto auto;
   align-items: start;
   gap: 8px;
   padding: 6px 8px;
@@ -1052,8 +1066,44 @@
 .lab-mark-row:hover { border-color: var(--line-strong); }
 .lab-mark-row.ok { border-inline-start-color: #12b57e; }
 .lab-mark-row.refused { border-inline-start-color: #e04b4b; }
-.lab-mark-row.on { background: var(--card); }
-.lab-mark-row input { margin-top: 3px; cursor: pointer; }
+
+/* A decided row steps back. The list is a queue of things still asking, and
+   what has been answered should stop competing for the eye — without
+   disappearing, because every decision here has to stay reversible. */
+.lab-mark-row.st-fixed  { border-inline-start-color: #7cc6ff; opacity: 0.62; }
+.lab-mark-row.st-spared { border-inline-start-color: #ffb74d; opacity: 0.62; }
+.lab-mark-row.st-fixed:hover,
+.lab-mark-row.st-spared:hover { opacity: 1; }
+
+.lab-mark-acts {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+}
+
+.lab-mark-acts .act {
+  height: 22px;
+  padding: 0 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--ink-2);
+  font-size: 11.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.lab-mark-acts .act:hover { color: var(--ink); border-color: var(--line-strong); }
+.lab-mark-acts .act.fix:hover   { border-color: #12b57e; color: #12b57e; }
+.lab-mark-acts .act.spare:hover { border-color: #d38a1f; color: #d38a1f; }
+.lab-mark-acts .act.undo { opacity: 0.85; }
+
+.lab-autosave {
+  font-size: 11.5px;
+  color: var(--ink-3);
+  white-space: nowrap;
+}
 
 .lab-mark-focus {
   display: block;

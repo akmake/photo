@@ -148,6 +148,10 @@ export default function Lab({ frame }: { frame?: LabFrame } = {}) {
   const [fitScale, setFitScale] = useState(1);
 
   const [saving, setSaving] = useState(false);
+  /** Which frame the recipe on screen was seeded FROM. The autosave below will
+   *  not write until this matches, so a fresh mount's empty recipe can never
+   *  land on top of what the set already decided. */
+  const seeded = useRef<string | null>(null);
   const seq = useRef(0);
   const stageRef = useRef<HTMLDivElement>(null);
   const baseRef = useRef<HTMLImageElement>(null);
@@ -370,6 +374,7 @@ export default function Lab({ frame }: { frame?: LabFrame } = {}) {
     if (!framePath || !frameProject) return;
     let alive = true;
     forget(recipeFromSteps(effectiveRecipe(frameProject, framePath)));
+    seeded.current = framePath;
     setImg(null);
     renderRecipeAtPath(framePath, [])
       .then(async (r) => {
@@ -501,25 +506,90 @@ export default function Lab({ frame }: { frame?: LabFrame } = {}) {
   const marksStale = !!marks && marksKey !== scanKey;
   const scanAttempt = useRef('');
 
-  const selectedIds = useMemo(
+  /* THREE STATES, NOT TWO.
+   *
+   *   ממתין  — found, nothing decided. Outlined, asking.
+   *   תוקן   — repaired. The outline comes OFF: it is handled, and an outline
+   *            over a blemish that is already gone is asking about nothing.
+   *   מוגן   — looked at, deliberately left alone. Outlined differently, and it
+   *            stays that way through a rescan.
+   *
+   * Both decisions live in the recipe, so they travel to the export exactly like
+   * a slider value, and both survive a reload. */
+  const fixedIds = useMemo(
     () => new Set((cleanupInst?.selection?.polygons ?? []).map((p) => p.id)),
     [cleanupInst],
   );
+  const sparedIds = useMemo(
+    () => new Set(cleanupInst?.selection?.spared ?? []),
+    [cleanupInst],
+  );
 
-  /** Write a set of chosen candidates into the recipe. The render effect above
-   *  does the rest — a chosen mark travels exactly like a slider value, which is
-   *  also how it reaches the export. */
+  /** Write both decisions into the recipe. The render effect above does the
+   *  rest — a fixed mark travels like a slider value, and reaches the export
+   *  the same way. */
   const commitMarks = useCallback(
-    (ids: Set<string>, items: SpotCandidate[]) => {
+    (fixed: Set<string>, spared: Set<string>, items: SpotCandidate[]) => {
       setRecipe((r) =>
         updateToolSelection(r, CLEANUP_ID, {
           polygons: items
-            .filter((i) => ids.has(i.id))
+            .filter((i) => fixed.has(i.id))
             .flatMap((i) => i.contours.map((points) => ({ id: i.id, points }))),
+          spared: [...spared],
         }),
       );
     },
     [],
+  );
+
+  /** Repair this one, now.
+   *
+   *  Switching the tool on is part of the click and not a separate chore — but
+   *  it is switched on in its POINTWISE form: `selection` is present, so the
+   *  engine rebuilds exactly the outlines listed and nothing else. It never
+   *  becomes "clean the whole face" as a side effect of asking for one spot. */
+  const fixMark = useCallback(
+    (id: string) => {
+      if (!marks) return;
+      const fixed = new Set(fixedIds);
+      const spared = new Set(sparedIds);
+      fixed.add(id);
+      spared.delete(id);
+      setMarksReset(false);
+      commitMarks(fixed, spared, marks.items);
+      setRecipe((r) => (r.tools.find((t) => t.toolId === CLEANUP_ID)?.enabled
+        ? r
+        : setToolEnabled(r, CLEANUP_ID, true)));
+    },
+    [marks, fixedIds, sparedIds, commitMarks],
+  );
+
+  /** "Found it, and we are not touching it." */
+  const spareMark = useCallback(
+    (id: string) => {
+      if (!marks) return;
+      const fixed = new Set(fixedIds);
+      const spared = new Set(sparedIds);
+      fixed.delete(id);
+      spared.add(id);
+      setMarksReset(false);
+      commitMarks(fixed, spared, marks.items);
+    },
+    [marks, fixedIds, sparedIds, commitMarks],
+  );
+
+  /** Back to undecided — the way out of either decision. */
+  const resetMark = useCallback(
+    (id: string) => {
+      if (!marks) return;
+      const fixed = new Set(fixedIds);
+      const spared = new Set(sparedIds);
+      fixed.delete(id);
+      spared.delete(id);
+      setMarksReset(false);
+      commitMarks(fixed, spared, marks.items);
+    },
+    [marks, fixedIds, sparedIds, commitMarks],
   );
 
   const runScan = useCallback(async () => {
@@ -534,20 +604,25 @@ export default function Lab({ frame }: { frame?: LabFrame } = {}) {
       const found = await runDetect(cleanupInst?.params ?? {}, prefix);
       setMarks(found);
       setMarksKey(key);
-      // A fresh scan starts from the engine's own answer: everything it accepted
-      // is marked. Two reasons — the picture does not jump when this view opens
-      // (marking all the accepted candidates reproduces the automatic result
-      // exactly), and unmarking three is less work than marking forty.
-      commitMarks(
-        new Set(found.items.filter((i) => i.verdict === 'heal').map((i) => i.id)),
-        found.items,
-      );
+      /* NOTHING IS REPAIRED UNTIL IT IS ASKED FOR.
+       *
+       * This used to open with everything the engine accepted already marked,
+       * so the view's job was to talk it back down. That is the opposite of
+       * what the control is called: "סמן ובחר מה לתקן" is an instruction to
+       * choose, and a screen that has already chosen for you is a screen you
+       * argue with rather than one you operate.
+       *
+       * An empty polygon list is not "no decision" to the engine — it is the
+       * explicit answer "none of them", which is exactly right here. Anything
+       * previously spared on this frame is kept: that decision was made by
+       * looking, and a rescan is not a reason to ask again. */
+      commitMarks(new Set(), sparedIds, found.items);
     } catch (e) {
       setMarksError((e as Error).message);
     } finally {
       setMarksBusy(false);
     }
-  }, [img, recipe, scanKey, cleanupInst, cleanupOrder, commitMarks]);
+  }, [img, recipe, scanKey, cleanupInst, cleanupOrder, commitMarks, sparedIds]);
 
   const rescan = useCallback(() => {
     scanAttempt.current = scanKey;
@@ -567,30 +642,31 @@ export default function Lab({ frame }: { frame?: LabFrame } = {}) {
     runScan();
   }, [mode, img, marks, marksBusy, scanKey, runScan]);
 
-  const toggleMark = useCallback(
-    (id: string) => {
-      if (!marks) return;
-      const next = new Set(selectedIds);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      setMarksReset(false);
-      commitMarks(next, marks.items);
-    },
-    [marks, selectedIds, commitMarks],
-  );
-
+  /** The bulk moves. `accepted` is the engine's own answer applied in one go —
+   *  which reproduces the automatic result exactly (test_cleanup_marking.py),
+   *  so it is a shortcut and not a different outcome. Nothing spared is ever
+   *  swept up by these: a decision already made is not overwritten by a bulk
+   *  one. */
   const markEvery = useCallback(
     (which: 'all' | 'accepted' | 'none') => {
       if (!marks) return;
       setMarksReset(false);
-      const ids = new Set(
-        marks.items
-          .filter((i) => which === 'all' || (which === 'accepted' && i.verdict === 'heal'))
-          .map((i) => i.id),
-      );
-      commitMarks(ids, marks.items);
+      const fixed = which === 'none'
+        ? new Set<string>()
+        : new Set(
+          marks.items
+            .filter((i) => !sparedIds.has(i.id))
+            .filter((i) => which === 'all' || i.verdict === 'heal')
+            .map((i) => i.id),
+        );
+      commitMarks(fixed, sparedIds, marks.items);
+      if (fixed.size) {
+        setRecipe((r) => (r.tools.find((t) => t.toolId === CLEANUP_ID)?.enabled
+          ? r
+          : setToolEnabled(r, CLEANUP_ID, true)));
+      }
     },
-    [marks, commitMarks],
+    [marks, sparedIds, commitMarks],
   );
 
   /** Put one candidate under the loupe: centred, and zoomed until it is big
@@ -632,16 +708,44 @@ export default function Lab({ frame }: { frame?: LabFrame } = {}) {
     setRecipe((r) => updateToolSelection(r, CLEANUP_ID, null));
   }, []);
 
+  type MarkState = 'pending' | 'fixed' | 'spared';
+  const stateOfMark = useCallback(
+    (id: string): MarkState =>
+      (fixedIds.has(id) ? 'fixed' : sparedIds.has(id) ? 'spared' : 'pending'),
+    [fixedIds, sparedIds],
+  );
+
+  /** Repaired spots are OFF the canvas, and that is the point of the state —
+   *  the outline was a question and it has been answered. They stay in the list
+   *  so the decision is reversible, and the toggle below brings them back onto
+   *  the picture when the repair itself needs checking. */
+  const [showFixed, setShowFixed] = useState(false);
+
   const shownMarks = useMemo(() => {
     const items = (marks?.items ?? []).filter(
-      (i) => showRefused || i.verdict === 'heal' || selectedIds.has(i.id),
+      (i) => showRefused || i.verdict === 'heal' || fixedIds.has(i.id) || sparedIds.has(i.id),
     );
+    // Undecided first — the list is a queue of things still asking.
+    const rank = (i: SpotCandidate) => {
+      const s = stateOfMark(i.id);
+      if (s === 'pending') return i.verdict === 'heal' ? 0 : 1;
+      return s === 'spared' ? 2 : 3;
+    };
     return [...items].sort((a, b) => {
-      const rank = (i: SpotCandidate) => (i.verdict === 'heal' ? 0 : 1);
       if (rank(a) !== rank(b)) return rank(a) - rank(b);
       return (b.facts.areaPx ?? 0) - (a.facts.areaPx ?? 0);
     });
-  }, [marks, showRefused, selectedIds]);
+  }, [marks, showRefused, fixedIds, sparedIds, stateOfMark]);
+
+  const tally = useMemo(() => {
+    const items = marks?.items ?? [];
+    return {
+      total: items.length,
+      pending: items.filter((i) => stateOfMark(i.id) === 'pending').length,
+      fixed: items.filter((i) => stateOfMark(i.id) === 'fixed').length,
+      spared: items.filter((i) => stateOfMark(i.id) === 'spared').length,
+    };
+  }, [marks, stateOfMark]);
 
   /* ------------------------------------------------------------- save */
 
@@ -739,7 +843,31 @@ export default function Lab({ frame }: { frame?: LabFrame } = {}) {
     }
   }, [img, recipe, runRender]);
 
-  const save = frame ? commit : download;
+  /* EVERY ACTION SAVES ITSELF. There is no "save it all at the end" press in a
+   * project any more: a slider, a spot repaired, a spot spared — each one is
+   * written to this frame's recipe as it happens. That is what makes the work
+   * dynamic and exact to the pixel. You can stop at any moment and what you
+   * decided is already recorded, and nothing is ever lost to a button nobody
+   * pressed.
+   *
+   * Debounced, because a slider drag emits dozens of values a second and each
+   * one would otherwise be a disk write. Gated on the seed having landed for
+   * THIS frame: without that, the empty recipe a fresh mount starts with could
+   * be written over the inherited one before the seeding effect replaces it. */
+  /* The timer is keyed on the RECIPE, not on `commit`.
+   *
+   * `commit` closes over `recipe` and `frame`, and `frame` is a fresh object
+   * every render, so depending on it re-armed the timer on every render — and
+   * this component re-renders on mouse-over of a mark. Moving the pointer along
+   * a list of forty spots would have postponed the save indefinitely. A ref
+   * keeps the newest function while the schedule follows the actual change. */
+  const commitRef = useRef(commit);
+  commitRef.current = commit;
+  useEffect(() => {
+    if (!framePath || seeded.current !== framePath) return;
+    const t = setTimeout(() => commitRef.current(), 450);
+    return () => clearTimeout(t);
+  }, [recipe, framePath]);
 
   /* --------------------------------------------------------------- ui */
 
@@ -837,7 +965,16 @@ export default function Lab({ frame }: { frame?: LabFrame } = {}) {
                 preserveAspectRatio="xMidYMid meet"
               >
                 {shownMarks.map((item) => {
-                  const chosen = selectedIds.has(item.id);
+                  const state = stateOfMark(item.id);
+                  /* A REPAIRED SPOT LEAVES THE PICTURE.
+                   *
+                   * The outline was a question — "do you want this gone?" — and
+                   * it has been answered. Leaving it drawn over skin that is
+                   * already rebuilt asks about nothing and hides the repair
+                   * being judged. It stays in the list, so the decision is one
+                   * click from being undone, and `showFixed` puts it back on
+                   * the canvas when the repair itself is what needs checking. */
+                  if (state === 'fixed' && !showFixed) return null;
                   // A real 31x52px mark on a 3648px frame fitted to the stage is
                   // 1.9x3.1 SCREEN px — measured, not estimated. The outline is
                   // exact and completely invisible at the same time, so anything
@@ -886,12 +1023,22 @@ export default function Lab({ frame }: { frame?: LabFrame } = {}) {
                   // the exact pixels this view exists to show. A presentation
                   // attribute travels with the element, so the outline cannot
                   // become a blob because a stylesheet somewhere disagrees.
-                  const colour = item.verdict === 'heal' ? '#19f5a6' : '#ff4d4d';
+                  /* Three states, three colours, and the state wins over the
+                   * engine's verdict — once a decision has been made, what the
+                   * detector thought is history. Undecided still shows the
+                   * verdict, because that is the one moment it is useful. */
+                  const colour = state === 'fixed'
+                    ? '#7cc6ff'
+                    : state === 'spared'
+                      ? '#ffb74d'
+                      : item.verdict === 'heal' ? '#19f5a6' : '#ff4d4d';
                   const hot = hoverMark === item.id;
                   return (
                     <g key={item.id}>
                       {/* a 5px blob on a 20MP frame is sub-pixel on screen; the
-                          fat transparent stroke is what makes it clickable */}
+                          fat transparent stroke is what makes it clickable.
+                          A click REPAIRS — that is the whole gesture this view
+                          exists for. Undoing and sparing are in the row. */}
                       <path
                         className="lab-outline-hit"
                         d={d}
@@ -900,7 +1047,8 @@ export default function Lab({ frame }: { frame?: LabFrame } = {}) {
                         strokeWidth={16 * hair}
                         onPointerDown={(e) => {
                           e.stopPropagation();
-                          toggleMark(item.id);
+                          if (state === 'fixed') resetMark(item.id);
+                          else fixMark(item.id);
                         }}
                         onPointerEnter={() => setHoverMark(item.id)}
                         onPointerLeave={() => setHoverMark(null)}
@@ -934,7 +1082,10 @@ export default function Lab({ frame }: { frame?: LabFrame } = {}) {
                         fill="none"
                         stroke={colour}
                         strokeWidth={(hot ? 1.6 : 1) * hair}
-                        strokeDasharray={chosen ? undefined : `${3 * hair} ${2.5 * hair}`}
+                        // Solid once decided, dashed while still asking.
+                        strokeDasharray={
+                          state === 'pending' ? `${3 * hair} ${2.5 * hair}` : undefined
+                        }
                       />
                     </g>
                   );
@@ -960,14 +1111,16 @@ export default function Lab({ frame }: { frame?: LabFrame } = {}) {
               ) : (
                 <>
                   <strong>
-                    {marks.items.length} מוקדים
+                    {tally.pending} ממתינים
                     {marks.faces > 1 && <> · {marks.faces} פנים</>}
                   </strong>
                   <span className="lab-mark-tally">
-                    <i className="dot on" />
-                    {selectedIds.size} מסומנים לתיקון
-                    <i className="dot refused" />
-                    {marks.items.filter((i) => i.verdict !== 'heal').length} נדחו ע״י המנוע
+                    <i className="dot fixed" />
+                    {tally.fixed} תוקנו
+                    <i className="dot spared" />
+                    {tally.spared} מוגנים
+                    <i className="dot all" />
+                    {tally.total} סה״כ
                   </span>
                 </>
               )}
@@ -996,6 +1149,14 @@ export default function Lab({ frame }: { frame?: LabFrame } = {}) {
                 />
                 הצג נדחים
               </label>
+              <label className="lab-mark-check">
+                <input
+                  type="checkbox"
+                  checked={showFixed}
+                  onChange={(e) => setShowFixed(e.target.checked)}
+                />
+                הצג מתוקנים
+              </label>
               <button
                 className={marksStale ? 'stale' : ''}
                 onClick={rescan}
@@ -1007,6 +1168,19 @@ export default function Lab({ frame }: { frame?: LabFrame } = {}) {
                 }
               >
                 {marksStale ? 'סרוק מחדש ●' : 'סרוק מחדש'}
+              </button>
+              {/* THE WAY OUT. The bar opened and there was no way to shut it —
+                * the only exit was to notice that "תוצאה" in a different group
+                * of controls happened to also leave this mode, which is not a
+                * close button and does not read as one. Nothing is lost by
+                * leaving: every decision was already written when it was made. */}
+              <button
+                className="lab-marks-x"
+                onClick={() => setMode('result')}
+                aria-label="סגור את הסימון"
+                title="סגור — ההחלטות כבר שמורות"
+              >
+                ✕
               </button>
             </div>
           )}
@@ -1068,17 +1242,15 @@ export default function Lab({ frame }: { frame?: LabFrame } = {}) {
                 החלף תמונה
               </button>
             )}
+            {/* No save button in a project. Every decision was already written
+              * when it was made — a button here would be a lie about when the
+              * work is safe. */}
             {frame ? (
-              <button
-                className="btn btn-ghost"
-                onClick={save}
-                disabled={!out}
-                title="נשמר למתכון של התמונה הזאת. שום קובץ לא נכתב — הייצוא מרנדר מהגלם דרך כל המתכון."
-              >
-                שמור לתמונה הזאת
-              </button>
+              <span className="lab-autosave" title="כל פעולה נשמרת בנפרד למתכון של התמונה">
+                נשמר אוטומטית
+              </span>
             ) : (
-              <button className="btn btn-ghost" onClick={save} disabled={!out || saving}
+              <button className="btn btn-ghost" onClick={download} disabled={!out || saving}
                 title={`שומר ברזולוציה מלאה ${img.w}×${img.h}, איכות מלאה — לא את התצוגה`}>
                 {saving ? 'שומר…' : `שמור ${img.w}×${img.h}`}
               </button>
@@ -1159,8 +1331,8 @@ export default function Lab({ frame }: { frame?: LabFrame } = {}) {
                       {inst.selection && (
                         <span className="lab-mask-note">
                           {inst.selection.polygons.length === 0
-                            ? 'ידני — לא נבחר כלום'
-                            : `ידני — ${new Set(inst.selection.polygons.map((p) => p.id)).size} מוקדים`}
+                            ? 'נקודתי — עוד לא נבחר כלום'
+                            : `נקודתי — ${new Set(inst.selection.polygons.map((p) => p.id)).size} מוקדים`}
                         </span>
                       )}
                     </div>
@@ -1204,22 +1376,27 @@ export default function Lab({ frame }: { frame?: LabFrame } = {}) {
 
               {marks && marks.items.length > 0 && (
                 <div className="lab-marks-actions">
-                  <button onClick={() => markEvery('accepted')}>רק מה שאושר</button>
-                  <button onClick={() => markEvery('all')}>סמן הכל</button>
-                  <button onClick={() => markEvery('none')}>נקה הכל</button>
+                  <button
+                    onClick={() => markEvery('accepted')}
+                    title="תקן בבת אחת כל מה שהמנוע אישר — זהה לתוצאה האוטומטית, פיקסל בפיקסל"
+                  >
+                    תקן את מה שאושר
+                  </button>
+                  <button onClick={() => markEvery('all')}>תקן הכל</button>
+                  <button onClick={() => markEvery('none')}>בטל תיקונים</button>
                   <button
                     className={cleanupInst?.selection ? '' : 'on'}
                     onClick={backToAuto}
-                    title="מבטל את הסימון וחוזר להחלטת המנוע — שממשיכה להתעדכן כשמזיזים סליידר"
+                    title="מוותר על הבחירה הידנית ומחזיר את ההחלטה למנוע — שממשיך להתעדכן כשמזיזים סליידר"
                   >
-                    אוטומטי
+                    חזור לאוטומטי
                   </button>
                 </div>
               )}
 
               {marksReset && (
                 <div className="lab-hint">
-                  סריקה חדשה — הסימון אופס לברירת המחדל (כל מה שהמנוע אישר).
+                  סריקה חדשה. שום דבר לא מתוקן עד שתבחר — מה שסימנת כמוגן נשמר.
                 </div>
               )}
 
@@ -1235,22 +1412,14 @@ export default function Lab({ frame }: { frame?: LabFrame } = {}) {
               )}
 
               {shownMarks.map((item) => {
-                const chosen = selectedIds.has(item.id);
+                const state = stateOfMark(item.id);
                 return (
                   <div
                     key={item.id}
-                    className={`lab-mark-row ${item.verdict === 'heal' ? 'ok' : 'refused'}${
-                      chosen ? ' on' : ''
-                    }`}
+                    className={`lab-mark-row ${item.verdict === 'heal' ? 'ok' : 'refused'} st-${state}`}
                     onMouseEnter={() => setHoverMark(item.id)}
                     onMouseLeave={() => setHoverMark(null)}
                   >
-                    <input
-                      type="checkbox"
-                      checked={chosen}
-                      onChange={() => toggleMark(item.id)}
-                      title={chosen ? 'מסומן לתיקון' : 'לא מסומן'}
-                    />
                     <button
                       className="lab-mark-focus"
                       onClick={() => focusMark(item)}
@@ -1261,7 +1430,40 @@ export default function Lab({ frame }: { frame?: LabFrame } = {}) {
                         {markReason(item.verdict, item.facts)}
                       </span>
                     </button>
-                    {item.verdict !== 'heal' && chosen && (
+
+                    {/* The three states, as three acts rather than one checkbox.
+                      * A checkbox can only say yes or no, and "I looked at this
+                      * and we are leaving it" is neither. */}
+                    <span className="lab-mark-acts">
+                      {state === 'pending' ? (
+                        <>
+                          <button
+                            className="act fix"
+                            onClick={() => fixMark(item.id)}
+                            title="תקן את זה עכשיו"
+                          >
+                            תקן
+                          </button>
+                          <button
+                            className="act spare"
+                            onClick={() => spareMark(item.id)}
+                            title="נמצא, ובמפורש לא נוגעים בו — נשמר גם אחרי סריקה מחדש"
+                          >
+                            לא נוגעים
+                          </button>
+                        </>
+                      ) : (
+                        <button
+                          className="act undo"
+                          onClick={() => resetMark(item.id)}
+                          title="חזרה למצב לא-מוכרע"
+                        >
+                          {state === 'fixed' ? 'תוקן ✓' : 'מוגן'}
+                        </button>
+                      )}
+                    </span>
+
+                    {item.verdict !== 'heal' && state === 'fixed' && (
                       <span className="lab-mark-forced">נכפה</span>
                     )}
                   </div>

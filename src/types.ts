@@ -64,7 +64,17 @@ export interface SpotOutline {
  *  "decide for me". Per-photo state, like a painted mask: it can never travel
  *  into a style, because the marks belong to one face in one frame. */
 export interface SpotSelection {
+  /** What gets rebuilt. An EMPTY list is a real answer — "I looked, and none of
+   *  them" — and is deliberately different from the whole `selection` being
+   *  absent, which means "engine, you decide" (engine/cleanup.py::apply). */
   polygons: SpotOutline[];
+  /** Candidates the photographer looked at and deliberately left alone.
+   *
+   *  It changes no pixels — the engine only ever reads `polygons` — and it is
+   *  not redundant with simply not being in that list. "Not decided yet" and
+   *  "decided: do not touch this" are different states, and only the second one
+   *  should survive a rescan and stop asking to be looked at again. */
+  spared?: string[];
 }
 
 /** A colour look fitted from one before/after pair, as anchors and deltas in
