@@ -101,6 +101,10 @@ export default function App() {
   const [workbench, setWorkbench] = useState(initial.sub === 'edit');
   // The bench: the lab itself, on a frame of this project.
   const [bench, setBench] = useState(initial.sub === 'bench');
+  // The album, on THIS project's photos — a workspace of the project, not a
+  // section of its own. It abandoned the project before (setSection('albums')),
+  // which is why it had no way back and no access to the project's frames.
+  const [album, setAlbum] = useState(initial.sub === 'album');
   // Which half of the lab is showing. Lives here, not inside LabSection, so the
   // hash carries it and a reload comes back to the same screen.
   const [labView, setLabView] = useState<LabView>(
@@ -121,6 +125,7 @@ export default function App() {
       setColorMatch(h.sub === 'color');
       setWorkbench(h.sub === 'edit');
       setBench(h.sub === 'bench');
+      setAlbum(h.sub === 'album');
       if (h.section === 'lab') setLabView(h.sub === 'compare' ? 'compare' : 'tools');
     };
     window.addEventListener('hashchange', onHash);
@@ -128,7 +133,7 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    const sub = colorMatch ? '/color' : bench ? '/bench' : workbench ? '/edit' : '';
+    const sub = colorMatch ? '/color' : bench ? '/bench' : workbench ? '/edit' : album ? '/album' : '';
     const want = section === 'project'
       ? `#/project/${projectId}${sub}`
       : section === 'lab'
@@ -137,7 +142,7 @@ export default function App() {
     if (window.location.hash !== want) {
       window.history.replaceState(null, '', want);
     }
-  }, [section, stage, projectId, colorMatch, workbench, bench, labView]);
+  }, [section, stage, projectId, colorMatch, workbench, bench, album, labView]);
 
   function openProject(id: string) {
     setProjectId(id);
@@ -213,6 +218,9 @@ export default function App() {
       />
     );
     title = `עריכה · ${openedProject.client}`;
+  } else if (openedProject && album) {
+    body = <AlbumStudio onBack={() => setAlbum(false)} />;
+    title = `אלבום · ${openedProject.client}`;
   } else if (openedProject) {
     body = (
       <ProjectScreen
@@ -235,8 +243,11 @@ export default function App() {
             setWorkbench(true);
             return;
           }
-          setStage('album-design');
-          setSection('albums');
+          // The album is a workspace OF this project — it stays inside the
+          // project route and carries its own way back, exactly like the bench.
+          // It used to switch section to 'albums', which dropped the project id
+          // and left the album an island with no return path and no frames.
+          setAlbum(true);
         }}
       />
     );
@@ -288,12 +299,12 @@ export default function App() {
       title={title}
       flush={
         isEditor || isAlbum || isLab
-        || Boolean(openedProject && (workbench || bench))
+        || Boolean(openedProject && (workbench || bench || album))
       }
       // Editing a photograph owns the whole window: the business rail comes off
-      // and the strip it used becomes the set being edited. The bench carries
-      // its own way back, so nothing is stranded.
-      rail={!(openedProject && (workbench || bench))}
+      // and the strip it used becomes the set being edited. The bench and the
+      // album both carry their own way back, so nothing is stranded.
+      rail={!(openedProject && (workbench || bench || album))}
       bare={isAlbum || isLab}
       // Only the pre-direction project routes still carry the tab row.
       stages={!Standalone && !openedProject}

@@ -151,6 +151,25 @@
 .library-head strong { font-size: var(--t-xl); }
 .library-head span { color: var(--ink-3); font-size: var(--t-sm); }
 
+/* Back to the project. An auto margin on the "new" button packs the back button
+ * and the title to the leading edge and keeps "new" at the trailing one, whether
+ * or not the back button is present. */
+.library-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 32px;
+  padding: 0 12px;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--line);
+  background: var(--card-2);
+  color: var(--ink-2);
+  font-size: var(--t-sm);
+  font-weight: 600;
+}
+.library-back:hover { color: var(--ink); border-color: var(--line-strong); }
+.library-head .library-new { margin-inline-start: auto; }
+
 .library-new {
   display: inline-flex;
   align-items: center;

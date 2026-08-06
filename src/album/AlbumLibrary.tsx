@@ -1,11 +1,14 @@
 import { useState } from 'react';
-import { IcBook, IcSparkle } from '../design/Icons';
+import { IcBook, IcChevron, IcSparkle } from '../design/Icons';
 import type { AlbumSummary } from './albumStorage';
 import type { PrintProductProfile } from './model';
 
 interface Props {
   albums: AlbumSummary[];
   profiles: PrintProductProfile[];
+  /** Back to the project this album belongs to. Absent on the legacy standalone
+   *  route, where there is no project to return to. */
+  onBack?(): void;
   onOpen(id: string): void;
   onCreate(name: string, productProfileId: string): void;
   onRename(id: string, name: string): void;
@@ -27,7 +30,7 @@ function whenLabel(iso: string): string {
 }
 
 export default function AlbumLibrary({
-  albums, profiles, onOpen, onCreate, onRename, onDuplicate, onDelete,
+  albums, profiles, onBack, onOpen, onCreate, onRename, onDuplicate, onDelete,
 }: Props) {
   const [creating, setCreating] = useState(false);
   const [name, setName] = useState('');
@@ -45,6 +48,12 @@ export default function AlbumLibrary({
   return (
     <div className="album-library" data-surface="studio">
       <header className="library-head">
+        {onBack && (
+          <button className="library-back" onClick={onBack} title="חזרה לפרויקט">
+            <IcChevron size={16} style={{ transform: 'rotate(180deg)' }} />
+            <span>הפרויקט</span>
+          </button>
+        )}
         <div>
           <strong>האלבומים שלי</strong>
           <span>{albums.length ? `${albums.length} אלבומים` : 'עוד לא נוצרו אלבומים'}</span>

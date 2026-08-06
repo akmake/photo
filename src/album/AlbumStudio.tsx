@@ -130,7 +130,12 @@ function orientationFor(width: number, height: number): AlbumPhoto['orientation'
   return 'square';
 }
 
-export default function AlbumStudio() {
+export default function AlbumStudio({ onBack }: {
+  /** Back to the project this album belongs to. Optional so the legacy
+   *  standalone route (#/albums) still renders without one. The project's frames
+   *  become the album's photo pool in the next slice. */
+  onBack?: () => void;
+} = {}) {
   const [project, setProject] = useState(INITIAL_PROJECT);
   const [photos, setPhotos] = useState(DEMO_PHOTOS);
   const [historyPast, setHistoryPast] = useState<AlbumProject[]>([]);
@@ -1162,6 +1167,7 @@ export default function AlbumStudio() {
       <AlbumLibrary
         albums={albums}
         profiles={printProfiles}
+        onBack={onBack}
         onOpen={(id) => { setHistoryPast([]); setHistoryFuture([]); setActiveAlbumId(id); }}
         onCreate={createAlbum}
         onRename={(id, name) => {
