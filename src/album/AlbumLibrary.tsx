@@ -46,7 +46,7 @@ export default function AlbumLibrary({
   }
 
   return (
-    <div className="album-library" data-surface="studio">
+    <div className="album-library">
       <header className="library-head">
         {onBack && (
           <button className="library-back" onClick={onBack} title="חזרה לפרויקט">
