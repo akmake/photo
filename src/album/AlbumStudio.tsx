@@ -311,17 +311,6 @@ export default function AlbumStudio({ job, onBack }: {
     return undefined;
   }, [job?.id, activeAlbumId, jobFiles.frames]);
 
-  /* Entering a project's album opens the album, not a gallery of album cards.
-   * The library is for the standalone route only; under a project we resolve
-   * straight to that project's one album. */
-  useEffect(() => {
-    if (!job || activeAlbumId) return;
-    openProjectAlbum(job);
-    // openProjectAlbum only reads storage and sets state; re-running it on every
-    // render would fight itself, so it is keyed purely on the project.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [job?.id, activeAlbumId]);
-
   /* The core loop is the keyboard: vertical cycles this spread's candidate
    * layouts, horizontal walks the album. The album reads right-to-left, so
    * LEFT advances — matching the direction the pages actually turn. */
@@ -560,55 +549,9 @@ export default function AlbumStudio({ job, onBack }: {
     setNotice('הוסף את התמונות שייכנסו לאלבום');
   }
 
-  /* A project has ONE album, and you open it by entering the album — never by
-   * picking a card out of a gallery. The album's id is derived from the
-   * project's, so entering resolves to the same album every time: open it if it
-   * exists, create it on the spot if it does not. The photo pool fills itself
-   * from the project's frames either way. */
-  function openProjectAlbum(project: StudioProject) {
-    const id = `album-proj-${project.id}`;
-    if (listAlbums().some((item) => item.id === id)) {
-      setHistoryPast([]);
-      setHistoryFuture([]);
-      setActiveAlbumId(id);
-      setMode('organize');
-      return;
-    }
-    const fresh: AlbumProject = {
-      id,
-      name: `${project.client} — אלבום`,
-      productProfileId: FIRST_PRINT_PROFILE.id,
-      styleName: 'Fine Art',
-      spreads: [{
-        id: 's1', pageStart: 2, layoutId: 'balanced', photoIds: [],
-        background: '#f8f6f1', locked: false, status: 'draft',
-      }],
-      activeSpreadId: 's1',
-    };
-    saveAlbum(fresh, []);
-    setAlbums(listAlbums());
-    setProject(fresh);
-    setPhotos([]);
-    setHistoryPast([]);
-    setHistoryFuture([]);
-    setSelectedSlotIndex(null);
-    setSelectedPhotoId(null);
-    setAlbumSelectedIds(new Set());
-    setSelectionMode(false);
-    setMode('organize');
-    setActiveAlbumId(id);
-    setNotice('האלבום נפתח — הוסף כפולות מהתמונות שמימין');
-  }
-
   function closeAlbum() {
     // flush before leaving; the autosave debounce may not have fired yet
     if (activeAlbumId && isHydrated) saveAlbum(project, photos);
-    // Inside a project there is no library to fall back to — leaving the album
-    // means leaving to the project it belongs to.
-    if (job && onBack) {
-      onBack();
-      return;
-    }
     setAlbums(listAlbums());
     setActiveAlbumId(null);
     setSelectedSlotIndex(null);
@@ -1284,13 +1227,9 @@ export default function AlbumStudio({ job, onBack }: {
     }
   }
 
-  /* No album open. Under a project the resolve effect is opening that project's
-   * one album — show a quiet beat, never the card gallery. The library is the
-   * standalone route's screen only. */
+  /* No album open means the library IS the screen — every overlay below this
+   * point assumes a loaded project, so this has to come first. */
   if (!activeAlbumId) {
-    if (job) {
-      return <div className="album-studio"><p className="album-resolving">פותח את האלבום…</p></div>;
-    }
     return (
       <AlbumLibrary
         albums={albums}
@@ -1413,9 +1352,9 @@ export default function AlbumStudio({ job, onBack }: {
     <div className="album-studio">
       <header className="album-actionbar">
         <div className="album-save-state">
-          <button className="album-back-to-library" onClick={closeAlbum} title={job ? 'חזרה לפרויקט' : 'כל האלבומים'}>
+          <button className="album-back-to-library" onClick={closeAlbum} title="כל האלבומים">
             <IcChevron size={15} style={{ transform: 'rotate(180deg)' }} />
-            <span>{job ? 'הפרויקט' : 'האלבומים'}</span>
+            <span>האלבומים</span>
           </button>
           <div className="album-mode-switch" role="group" aria-label="מצב עבודה">
             {/* Pure entry point — when the timeline is active the studio takes
