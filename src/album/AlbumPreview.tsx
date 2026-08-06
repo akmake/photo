@@ -19,7 +19,7 @@ export default function AlbumPreview({ project, photos, profile, onClose }: Prop
   }, [onClose]);
 
   return (
-    <div className="album-preview-overlay" data-surface="studio" role="dialog" aria-modal="true" aria-label="תצוגה מקדימה של האלבום">
+    <div className="album-preview-overlay" role="dialog" aria-modal="true" aria-label="תצוגה מקדימה של האלבום">
       <header>
         <div>
           <strong>{project.name}</strong>

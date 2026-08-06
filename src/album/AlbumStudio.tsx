@@ -1303,7 +1303,7 @@ export default function AlbumStudio({ job, onBack }: {
   // export/proof chrome that only matters once there is an album to export.
   if (mode === 'timeline') {
     return (
-      <div className="album-timeline-shell" data-surface="studio">
+      <div className="album-timeline-shell">
         <AlbumTimeline
           photos={photos}
           profile={profile}
@@ -1349,7 +1349,7 @@ export default function AlbumStudio({ job, onBack }: {
   }
 
   return (
-    <div className="album-studio" data-surface="studio">
+    <div className="album-studio">
       <header className="album-actionbar">
         <div className="album-save-state">
           <button className="album-back-to-library" onClick={closeAlbum} title="כל האלבומים">

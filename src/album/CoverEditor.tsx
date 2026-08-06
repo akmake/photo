@@ -94,7 +94,7 @@ export default function CoverEditor({
   const bleedInsetY = spec.bleedMm / spec.totalHeightMm * 100;
 
   return (
-    <div className="cover-editor" data-surface="studio" role="dialog" aria-modal="true" aria-label="עורך כריכה">
+    <div className="cover-editor" role="dialog" aria-modal="true" aria-label="עורך כריכה">
       <header>
         <div>
           <strong>עיצוב כריכה</strong>
