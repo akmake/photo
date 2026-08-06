@@ -147,6 +147,14 @@
   background: var(--card);
 }
 
+.album-resolving {
+  height: 100%;
+  display: grid;
+  place-items: center;
+  color: var(--ink-3);
+  font-size: var(--t-md);
+}
+
 .library-head div { display: grid; gap: 2px; }
 .library-head strong { font-size: var(--t-xl); }
 .library-head span { color: var(--ink-3); font-size: var(--t-sm); }
