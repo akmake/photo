@@ -27,6 +27,9 @@ import CoverEditor from './CoverEditor';
 import PreflightPanel from './PreflightPanel';
 import OrganizeView from './OrganizeView';
 import AlbumLibrary from './AlbumLibrary';
+import { useProjectFiles } from '../studio/store';
+import type { Project as StudioProject } from '../studio/store';
+import { framesToPool, enrichPool } from './projectPool';
 import { runAlbumPreflight, type PreflightIssue } from './preflightEngine';
 // 3,000 lines of album styling, loaded with the album and not before. This file
 // is the ONLY way into the album folder from outside it, so importing the sheet
@@ -130,14 +133,18 @@ function orientationFor(width: number, height: number): AlbumPhoto['orientation'
   return 'square';
 }
 
-export default function AlbumStudio({ onBack }: {
-  /** Back to the project this album belongs to. Optional so the legacy
-   *  standalone route (#/albums) still renders without one. The project's frames
-   *  become the album's photo pool in the next slice. */
+export default function AlbumStudio({ job, onBack }: {
+  /** The project this album belongs to. Its frames ARE the album's photo pool,
+   *  served from disk by the engine — nothing is imported or copied. Optional so
+   *  the legacy standalone route (#/albums) still renders on its own photos. */
+  job?: StudioProject;
   onBack?: () => void;
 } = {}) {
   const [project, setProject] = useState(INITIAL_PROJECT);
-  const [photos, setPhotos] = useState(DEMO_PHOTOS);
+  // In project mode the pool is the project's frames (seeded by the effect
+  // below), so there is nothing to demo. The demo set survives only for the
+  // standalone route, which has no project to draw from.
+  const [photos, setPhotos] = useState<AlbumPhoto[]>(job ? [] : DEMO_PHOTOS);
   const [historyPast, setHistoryPast] = useState<AlbumProject[]>([]);
   const [historyFuture, setHistoryFuture] = useState<AlbumProject[]>([]);
   const [isHydrated, setIsHydrated] = useState(false);
@@ -188,6 +195,22 @@ export default function AlbumStudio({ onBack }: {
     }
   });
   const fileInput = useRef<HTMLInputElement>(null);
+  // The project's frames, loaded from disk on demand. Empty id (standalone
+  // route) is a no-op in the store, so this stays an unconditional hook.
+  const jobFiles = useProjectFiles(job?.id ?? '');
+  // Frames whose analysis has already been dispatched this session, so opening
+  // a second album in the same project does not re-analyse the same files.
+  const enrichingRef = useRef<Set<string>>(new Set());
+  /* Liveness is per-COMPONENT, not per-effect. Analysis is dispatched from an
+   * effect that re-runs whenever the frame list changes identity; tying the
+   * "still mounted?" flag to that effect's cleanup meant the first dispatch's
+   * results were thrown away the moment the frames notified again, and every
+   * photo stayed `pending`. This ref is only ever cleared on real unmount. */
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => { mountedRef.current = false; };
+  }, []);
   const panSession = useRef<{
     slotIndex: number;
     startX: number;
@@ -243,6 +266,50 @@ export default function AlbumStudio({ onBack }: {
     }, 600);
     return () => window.clearTimeout(timer);
   }, [activeAlbumId, isHydrated, photos, project]);
+
+  /* THE POOL IS THE PROJECT.
+   *
+   * With an album open under a project, the available photos ARE the project's
+   * frames — re-derived here rather than trusted from the saved copy, because
+   * the disk is the authority on what still exists. Placement survives a
+   * re-derivation because a photo's id is its frame's own file name, which is
+   * also what the spreads reference. Analysis already resolved this session is
+   * kept so a re-open does not blank the dimensions back to pending.
+   *
+   * Enrichment (real size, faces, focal point) runs a few frames at a time and
+   * only once per frame per session. It is gated on an album being open, so
+   * merely browsing the library analyses nothing. */
+  useEffect(() => {
+    if (!job || !activeAlbumId) return undefined;
+    const frames = jobFiles.frames;
+    setPhotos((prev) => {
+      const prior = new Map(prev.map((photo) => [photo.id, photo]));
+      return framesToPool(frames).map((fresh) => {
+        const old = prior.get(fresh.id);
+        // keep a resolved analysis; take the fresh url in case `shown` changed
+        return old && old.analysis?.status === 'ready'
+          ? { ...fresh, orientation: old.orientation, widthPx: old.widthPx, heightPx: old.heightPx, focalPoint: old.focalPoint, analysis: old.analysis }
+          : fresh;
+      });
+    });
+
+    // Skip anything already analysed — a saved album reloads with its analysis
+    // intact, so re-opening it must not put the engine through 23 scans again.
+    const readyIds = new Set(
+      photos.filter((photo) => photo.analysis?.status === 'ready').map((photo) => photo.id),
+    );
+    const toEnrich = framesToPool(frames).filter(
+      (photo) => !readyIds.has(photo.id) && !enrichingRef.current.has(photo.id),
+    );
+    toEnrich.forEach((photo) => enrichingRef.current.add(photo.id));
+    if (toEnrich.length) {
+      void enrichPool(toEnrich, (enriched) => {
+        if (!mountedRef.current) return;
+        setPhotos((prev) => prev.map((photo) => (photo.id === enriched.id ? { ...photo, ...enriched } : photo)));
+      });
+    }
+    return undefined;
+  }, [job?.id, activeAlbumId, jobFiles.frames]);
 
   /* The core loop is the keyboard: vertical cycles this spread's candidate
    * layouts, horizontal walks the album. The album reads right-to-left, so

@@ -41,6 +41,10 @@ export interface AlbumPhoto {
   focalPoint?: { x: number; y: number };
   analysis?: AlbumPhotoAnalysis;
   storageKey?: string;
+  /** The frame's file on disk, when this photo comes from a project. The engine
+   *  serves its pixels and reports its real dimensions — so a project album never
+   *  copies a photograph and never has to guess a size a PPI check could quote. */
+  sourcePath?: string;
 }
 
 export interface NormalizedBox {

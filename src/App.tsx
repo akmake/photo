@@ -219,7 +219,7 @@ export default function App() {
     );
     title = `עריכה · ${openedProject.client}`;
   } else if (openedProject && album) {
-    body = <AlbumStudio onBack={() => setAlbum(false)} />;
+    body = <AlbumStudio job={openedProject} onBack={() => setAlbum(false)} />;
     title = `אלבום · ${openedProject.client}`;
   } else if (openedProject) {
     body = (
