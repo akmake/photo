@@ -15,6 +15,7 @@ interface Props {
   spread: AlbumSpread;
   photos: AlbumPhoto[];
   profile: PrintProductProfile;
+  styleName?: string;
   /** Draw the page numbers over the sheet. */
   showPageNumbers?: boolean;
 }
@@ -26,12 +27,13 @@ interface Props {
  * one way on screen and another in the client's proof. Same geometry, same
  * crop engine, one place. */
 export default function SpreadThumb({
-  spread, photos, profile, showPageNumbers = true,
+  spread, photos, profile, styleName, showPageNumbers = true,
 }: Props) {
   const candidates = buildAlbumLayoutCandidates(
     spread.photoIds,
     photos,
     profile.closedWidthMm / profile.closedHeightMm,
+    styleName,
   );
   const generated = candidates.find((candidate) => candidate.id === spread.layoutId)
     ?? candidates[0]

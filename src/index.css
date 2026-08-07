@@ -25,3 +25,6 @@
 @import './studio/screens/files.css';
 @import './studio/screens/screens.css';
 @import './studio/screens/editor.css';
+/* Loaded last on purpose: one coherent, airy visual language for the complete
+ * project journey, including the tools that still carry older local styles. */
+@import './studio/screens/project-theme.css';

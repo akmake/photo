@@ -293,6 +293,7 @@ export default function App() {
     <Shell
       // A project is a place INSIDE projects — the rail stays lit on the list.
       section={section === 'project' ? 'projects' : section}
+      theme={section}
       onSection={goSection}
       stage={stage}
       onStage={goStage}

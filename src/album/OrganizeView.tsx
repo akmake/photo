@@ -107,6 +107,7 @@ export default function OrganizeView({
                   spread={spread}
                   photos={photos}
                   profile={profile}
+                  styleName={project.styleName}
                   showPageNumbers={false}
                 />
               </button>

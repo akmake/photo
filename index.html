@@ -7,17 +7,23 @@
   flip travels with the rewrite, screen by screen, instead of landing as one
   unverifiable change.
 
-  Fonts: IBM Plex Sans Hebrew (interface) + IBM Plex Mono (filenames, counters,
-  EXIF, every figure that lines up in a column). TODO before packaging —
-  self-host the woff2 files: an installed desktop app must not depend on a CDN
-  to render its own text.
+  Fonts, and they are the design direction rather than a preference — see the
+  header of design/tokens.css:
+    · Rubik — everything meant to be SEEN: the day, a count, a client's name,
+      every control label. Geometric, wide, goes to 800.
+    · Assistant — everything meant to be READ. Narrower, quieter, underneath.
+    · IBM Plex Mono — filenames, EXIF, counters, dates: DATA, visibly a
+      different kind of thing from prose.
+  TODO before packaging — self-host the woff2 files: an installed desktop app
+  must not depend on a CDN to render its own text.
 
   Until then the sheet is loaded NON-BLOCKING (preload + rel-swap on load). As a
   plain <link rel="stylesheet"> it was render-blocking: the browser painted
   nothing at all until fonts.googleapis.com answered, so a slow DNS lookup or a
   throttled CDN turned into seconds of white screen on every single load. The
-  fallback stack in design/tokens.css (Segoe UI / Consolas) carries the first
-  paint, and Plex swaps in when it arrives.
+  fallback stack in design/tokens.css carries the first paint — and note that
+  the serif falls back to a serif, so a title never lands as sans while it
+  waits.
 
   The title lost "מערכת ההפעלה של הצלמות": the market is general and the copy is
   masculine now, and the tagline claimed a category that four of twelve sections
@@ -27,17 +33,23 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- The pre-paint ground, so the first frame is already the app's own
+         surface rather than the UA's default white. -->
+    <meta name="color-scheme" content="light" />
+    <style>
+      html { background: #fcfcfd; }
+    </style>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
-      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Hebrew:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap"
+      href="https://fonts.googleapis.com/css2?family=Rubik:wght@400;500;600;700;800&family=Assistant:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap"
       rel="preload"
       as="style"
       onload="this.onload=null;this.rel='stylesheet'"
     />
     <noscript>
       <link
-        href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Hebrew:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap"
+        href="https://fonts.googleapis.com/css2?family=Rubik:wght@400;500;600;700;800&family=Assistant:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap"
         rel="stylesheet"
       />
     </noscript>

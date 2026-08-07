@@ -30,7 +30,7 @@ export default function AlbumPreview({ project, photos, profile, onClose }: Prop
       <div className="album-preview-list">
         {project.spreads.map((spread) => (
           <section key={spread.id} className="album-preview-item">
-            <SpreadThumb spread={spread} photos={photos} profile={profile} />
+            <SpreadThumb spread={spread} photos={photos} profile={profile} styleName={project.styleName} />
             <small>עמודים {spread.pageStart}–{spread.pageStart + 1}</small>
           </section>
         ))}

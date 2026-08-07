@@ -48,6 +48,7 @@ export default function ReviewWorkspace({
       spread.photoIds,
       photos,
       profile.closedWidthMm / profile.closedHeightMm,
+      project.styleName,
     );
     const generated = candidates.find((candidate) => candidate.id === spread.layoutId)
       ?? candidates[0]
@@ -57,7 +58,7 @@ export default function ReviewWorkspace({
       slots: spread.customSlots,
       photoIds: spread.photoIds,
     } : generated;
-  }, [photos, profile.closedHeightMm, profile.closedWidthMm, spread]);
+  }, [photos, profile.closedHeightMm, profile.closedWidthMm, project.styleName, spread]);
 
   if (!version || (!isCover && !spread)) return null;
 

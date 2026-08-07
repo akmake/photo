@@ -1,9 +1,9 @@
-import { useEffect, useState } from 'react';
+import { useEffect } from 'react';
 import type { ReactNode } from 'react';
 import { SECTIONS, STAGES } from './nav';
 import type { SectionId, StageId } from './nav';
 import {
-  IcBook, IcCalendar, IcChevron, IcFilter, IcFolder, IcGallery, IcGear,
+  IcBook, IcCalendar, IcFilter, IcFolder, IcGallery, IcGear,
   IcHeart, IcHome, IcSliders, IcSparkle, IcUpload, IcUsers,
 } from '../design/Icons';
 
@@ -25,13 +25,9 @@ export function Icon({ name, size = 18 }: { name: string; size?: number }) {
 export function NavRail({
   section,
   onSection,
-  compact,
-  onCompact,
 }: {
   section: SectionId;
   onSection: (s: SectionId) => void;
-  compact: boolean;
-  onCompact: () => void;
 }) {
   const main = SECTIONS.filter((s) => !s.foot);
   const foot = SECTIONS.filter((s) => s.foot);
@@ -41,12 +37,11 @@ export function NavRail({
       key={s.id}
       className={`nav-item ${s.id === section ? 'on' : ''}`}
       onClick={() => onSection(s.id)}
-      title={compact ? s.label : undefined}
-      aria-label={compact ? s.label : undefined}
+      title={s.label}
       aria-current={s.id === section ? 'page' : undefined}
     >
-      <Icon name={s.icon} />
-      <span>{s.label}</span>
+      <span className="nav-icon"><Icon name={s.icon} /></span>
+      <span className="nav-label">{s.label}</span>
     </button>
   );
 
@@ -54,30 +49,26 @@ export function NavRail({
     <nav className="rail" aria-label="ניווט ראשי">
       <div className="rail-head">
         <div className="mark" aria-hidden="true">T</div>
-        {!compact && <div className="mark-name">TEZA</div>}
-        <button
-          className="rail-toggle"
-          onClick={onCompact}
-          aria-label={compact ? 'הרחב תפריט' : 'כווץ תפריט'}
-          title={compact ? 'הרחב תפריט' : 'כווץ תפריט'}
-        >
-          <IcChevron size={15} />
-        </button>
+        <div className="mark-name">TEZA</div>
       </div>
 
-      <button className="rail-search" title="חיפוש" aria-label="חיפוש">
-        <IcSearch />
-        <span>חיפוש</span>
-        <span className="mono key">Ctrl K</span>
-      </button>
+      <div className="rail-main">
+        {main.map(item)}
+      </div>
 
-      {main.map(item)}
-
-      <div className="rail-foot">
+      <div className="rail-actions">
+        <button className="rail-search" title="חיפוש" aria-label="חיפוש">
+          <IcSearch />
+          <span>חיפוש</span>
+          <span className="mono key">Ctrl K</span>
+        </button>
         {foot.map(item)}
         <button className="nav-item who" title="יוסי">
           <span className="avatar" aria-hidden="true">י</span>
-          <span>יוסי</span>
+          <span className="user-copy">
+            <strong>יוסי</strong>
+            <small>החשבון שלי</small>
+          </span>
         </button>
       </div>
     </nav>
@@ -133,6 +124,7 @@ export function StageTabs({
 
 export function Shell({
   section,
+  theme,
   onSection,
   stage,
   onStage,
@@ -144,6 +136,8 @@ export function Shell({
   children,
 }: {
   section: SectionId;
+  /** The route can live under another rail item while owning a distinct theme. */
+  theme?: SectionId;
   onSection: (s: SectionId) => void;
   stage: StageId;
   onStage: (s: StageId) => void;
@@ -158,52 +152,20 @@ export function Shell({
   rail?: boolean;
   children: ReactNode;
 }) {
-  const [navPreference, setNavPreference] = useState<boolean | null>(() => {
-    try {
-      const saved = localStorage.getItem('teza.rail.compact');
-      return saved === null ? null : saved === 'true';
-    } catch {
-      return null;
-    }
-  });
-  const [narrow, setNarrow] = useState(() => window.innerWidth <= 1180);
-
   // The window title is where "which screen am I on" belongs.
   useEffect(() => {
     document.title = title ? `${title} · TEZA` : 'TEZA';
   }, [title]);
 
-  useEffect(() => {
-    const onResize = () => setNarrow(window.innerWidth <= 1180);
-    window.addEventListener('resize', onResize);
-    return () => window.removeEventListener('resize', onResize);
-  }, []);
-
-  // Deep work takes the room back: the rail collapses on its own inside the
-  // canvas screens, and a deliberate preference still wins over that.
-  const compact = navPreference ?? Boolean(flush || bare || narrow);
-
-  function toggleCompact() {
-    const next = !compact;
-    setNavPreference(next);
-    try {
-      localStorage.setItem('teza.rail.compact', String(next));
-    } catch {
-      // the preference is optional; the shell works without storage
-    }
-  }
-
   return (
     <div
       dir="rtl"
-      className={`shell ${compact ? 'shell-compact' : ''} ${flush ? 'shell-workspace' : ''} ${rail ? '' : 'shell-norail'}`}
+      className={`shell shell-section-${theme ?? section} ${flush ? 'shell-workspace' : ''} ${rail ? '' : 'shell-norail'}`}
     >
       {rail && (
       <NavRail
         section={section}
         onSection={onSection}
-        compact={compact}
-        onCompact={toggleCompact}
       />
       )}
       <div className="main">

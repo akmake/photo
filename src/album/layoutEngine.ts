@@ -1,5 +1,6 @@
 import type { AlbumLayoutTemplate, AlbumPhoto, LayoutSlot } from './model';
 import { assessCrop } from './cropEngine';
+import { getAlbumStyle } from './styleEngine';
 
 export interface GeneratedAlbumLayout extends AlbumLayoutTemplate {
   photoIds: string[];
@@ -24,13 +25,12 @@ interface CandidateDefinition {
   order: 'original' | 'landscape-first' | 'portrait-first';
 }
 
-const GAP = 0.025;
-
-function pageBoxes(pageAspect: number): { left: Rect; right: Rect; canvasWidth: number } {
+function pageBoxes(pageAspect: number, margin: number): { left: Rect; right: Rect; canvasWidth: number } {
   const safeAspect = Math.max(0.58, Math.min(1.8, pageAspect));
+  const xMargin = safeAspect * margin;
   return {
-    left: { x: safeAspect * 0.08, y: 0.09, width: safeAspect * 0.84, height: 0.78 },
-    right: { x: safeAspect * 1.08, y: 0.09, width: safeAspect * 0.84, height: 0.78 },
+    left: { x: xMargin, y: margin, width: safeAspect - xMargin * 2, height: 1 - margin * 2 },
+    right: { x: safeAspect + xMargin, y: margin, width: safeAspect - xMargin * 2, height: 1 - margin * 2 },
     canvasWidth: safeAspect * 2,
   };
 }
@@ -122,6 +122,7 @@ function layoutRows(
   box: Rect,
   photosById: Map<string, AlbumPhoto>,
   seed: number,
+  gap: number,
 ): Array<{ photoId: string; rect: Rect }> {
   if (!photoIds.length) return [];
 
@@ -134,15 +135,15 @@ function layoutRows(
     const ids = photoIds.slice(cursor, cursor + count);
     cursor += count;
     const ratios = ids.map((id) => photoAspect(photosById.get(id)));
-    const naturalHeight = (box.width - GAP * Math.max(0, ids.length - 1))
+    const naturalHeight = (box.width - gap * Math.max(0, ids.length - 1))
       / ratios.reduce((sum, ratio) => sum + ratio, 0);
     rows.push({ ids, naturalHeight, ratios });
   });
 
   const naturalContentHeight = rows.reduce((sum, row) => sum + row.naturalHeight, 0);
-  const availableImageHeight = box.height - GAP * Math.max(0, rows.length - 1);
+  const availableImageHeight = box.height - gap * Math.max(0, rows.length - 1);
   const scale = Math.min(1, availableImageHeight / naturalContentHeight);
-  const contentHeight = naturalContentHeight * scale + GAP * Math.max(0, rows.length - 1);
+  const contentHeight = naturalContentHeight * scale + gap * Math.max(0, rows.length - 1);
   let y = box.y + (box.height - contentHeight) / 2;
   const placements: Array<{ photoId: string; rect: Rect }> = [];
 
@@ -150,7 +151,7 @@ function layoutRows(
     const height = row.naturalHeight * scale;
     const widths = row.ratios.map((ratio) => ratio * height);
     const rowWidth = widths.reduce((sum, width) => sum + width, 0)
-      + GAP * Math.max(0, widths.length - 1);
+      + gap * Math.max(0, widths.length - 1);
     let x = box.x + (box.width - rowWidth) / 2;
 
     row.ids.forEach((photoId, index) => {
@@ -158,9 +159,9 @@ function layoutRows(
         photoId,
         rect: { x, y, width: widths[index], height },
       });
-      x += widths[index] + GAP;
+      x += widths[index] + gap;
     });
-    y += height + GAP;
+    y += height + gap;
   });
 
   return placements;
@@ -232,16 +233,18 @@ function buildCandidate(
   photoIds: string[],
   photosById: Map<string, AlbumPhoto>,
   pageAspect: number,
+  styleName?: string,
 ): GeneratedAlbumLayout {
-  const pages = pageBoxes(pageAspect);
+  const style = getAlbumStyle(styleName);
+  const pages = pageBoxes(pageAspect, style.margin);
   const ordered = orderedPhotos(photoIds, photosById, definition.order);
   const groups = splitPhotos(ordered, definition.split);
   const left = groups.left.length === 1
     ? layoutSingle(groups.left[0], pages.left, photosById.get(groups.left[0]))
-    : layoutRows(groups.left, pages.left, photosById, definition.rowSeed);
+    : layoutRows(groups.left, pages.left, photosById, definition.rowSeed, style.gap);
   const right = groups.right.length === 1
     ? layoutSingle(groups.right[0], pages.right, photosById.get(groups.right[0]))
-    : layoutRows(groups.right, pages.right, photosById, definition.rowSeed + 1);
+    : layoutRows(groups.right, pages.right, photosById, definition.rowSeed + 1, style.gap);
   const placements = [...left, ...right];
   const largestArea = Math.max(...placements.map(({ rect }) => rect.width * rect.height), 1);
   const slots = placements.map((placement, index) => (
@@ -269,9 +272,12 @@ function buildCandidate(
     1,
     Math.abs(leftArea - rightArea) / Math.max(0.01, leftArea + rightArea),
   );
+  const styleWeight = style.layoutWeights[definition.id] ?? 0;
+  const densityPenalty = Math.abs(photoIds.length - style.densityTarget) * 1.2;
   const score = Math.round(Math.max(
     0,
-    Math.min(100, 70 + balance * 16 + heroQuality * 14 - unsafe * 20 - unanalyzed * 1.5),
+    Math.min(100, 62 + balance * 14 + heroQuality * 12 + styleWeight
+      - densityPenalty - unsafe * 20 - unanalyzed * 1.5),
   ));
 
   return {
@@ -295,13 +301,14 @@ export function buildAlbumLayoutCandidates(
   photoIds: string[],
   photos: AlbumPhoto[],
   pageAspect = 1,
+  styleName?: string,
 ): GeneratedAlbumLayout[] {
   const uniquePhotoIds = photoIds.filter((id, index, all) => id && all.indexOf(id) === index);
   if (!uniquePhotoIds.length) return [];
 
   const photosById = new Map(photos.map((photo) => [photo.id, photo]));
   const candidates = CANDIDATES.map((definition) => (
-    buildCandidate(definition, uniquePhotoIds, photosById, pageAspect)
+    buildCandidate(definition, uniquePhotoIds, photosById, pageAspect, styleName)
   ));
   const signatures = new Set<string>();
 

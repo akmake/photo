@@ -31,6 +31,7 @@ export default function NewProject({
   onClose: () => void;
   onCreated: (p: Project) => void;
 }) {
+  const [step, setStep] = useState<1 | 2>(1);
   const [client, setClient] = useState('');
   const [event, setEvent] = useState('');
   const [date, setDate] = useState(today());
@@ -61,6 +62,10 @@ export default function NewProject({
   function submit(e: React.FormEvent) {
     e.preventDefault();
     if (!ready) return;
+    if (step === 1) {
+      setStep(2);
+      return;
+    }
     try {
       onCreated(
         createProject({
@@ -81,97 +86,89 @@ export default function NewProject({
   }
 
   return (
-    <div className="scrim" onMouseDown={onClose}>
-      <div
-        className="dialog"
-        role="dialog"
-        aria-modal="true"
-        aria-label="פרויקט חדש"
-        onMouseDown={(e) => e.stopPropagation()}
-      >
+    <div className="project-create-overlay">
+      <div className="project-create" role="dialog" aria-modal="true" aria-label="פרויקט חדש">
         <form onSubmit={submit}>
-          <div className="dialog-head">
-            <h2>פרויקט חדש</h2>
-            <button type="button" className="dialog-x" onClick={onClose} aria-label="סגור">✕</button>
-          </div>
-
-          <div className="dialog-body">
-            <label className="fld fld-wide">
-              <span>למי?</span>
-              <input
-                ref={first}
-                className="field"
-                value={client}
-                list="known-clients"
-                onChange={(e) => setClient(e.target.value)}
-                placeholder="שם הלקוח — קיים או חדש"
-                autoComplete="off"
-              />
-              <datalist id="known-clients">
-                {clients.map((c) => <option key={c} value={c} />)}
-              </datalist>
-              <em>לקוח שאינו קיים ייווצר יחד עם הפרויקט</em>
-            </label>
-
-            <label className="fld">
-              <span>סוג צילום</span>
-              <input
-                className="field"
-                value={event}
-                list="event-types"
-                onChange={(e) => setEvent(e.target.value)}
-                placeholder="חתונה, משפחה…"
-                autoComplete="off"
-              />
-              <datalist id="event-types">
-                {EVENTS.map((c) => <option key={c} value={c} />)}
-              </datalist>
-            </label>
-
-            <label className="fld">
-              <span>תאריך הצילום</span>
-              <input className="field" value={date} onChange={(e) => setDate(e.target.value)} placeholder="dd.mm" />
-            </label>
-
-            <label className="fld">
-              <span>מיקום</span>
-              <input className="field" value={location} onChange={(e) => setLocation(e.target.value)} placeholder="אופציונלי" />
-            </label>
-
-            <label className="fld">
-              <span>מחיר מוסכם</span>
-              <input className="field" value={price} inputMode="numeric" onChange={(e) => setPrice(e.target.value.replace(/\D/g, ''))} placeholder="₪" />
-            </label>
-
-            {/* These two decide which stages the project even has. */}
-            <fieldset className="fld fld-wide deliver">
-              <span>מה מוסרים?</span>
-              <div className="checks">
-                <label>
-                  <input type="checkbox" checked={hasGallery} onChange={(e) => setGallery(e.target.checked)} />
-                  גלריה לבחירת הלקוח
-                </label>
-                <label>
-                  <input type="checkbox" checked={hasAlbum} onChange={(e) => setAlbum(e.target.checked)} />
-                  אלבום מודפס
-                </label>
-              </div>
-              <em>אפשר לשנות בכל שלב. פרויקט בלי אלבום לא יציג שלב אלבום.</em>
-            </fieldset>
-          </div>
-
-          {failed && (
-            <div className="dialog-fault" role="alert">
-              הפרויקט לא נוצר — {failed}
+          <header className="project-create-header">
+            <button type="button" onClick={onClose} aria-label="סגור">×</button>
+            <div className="project-create-steps" aria-label={`שלב ${step} מתוך 2`}>
+              <span className={step === 1 ? 'is-active' : 'is-done'}><b>1</b> הצילום</span>
+              <i />
+              <span className={step === 2 ? 'is-active' : ''}><b>2</b> תוצרים ותשלום</span>
             </div>
-          )}
+          </header>
 
-          <div className="dialog-foot">
-            <button type="button" className="btn" onClick={onClose}>ביטול</button>
-            <button type="submit" className="btn btn-primary" disabled={!ready}>
-              צור ופתח
-            </button>
+          <div className="project-create-body">
+            <aside>
+              <span>פרויקט חדש</span>
+              <h2>{step === 1 ? 'למי מצלמים?' : 'מה יוצא מהפרויקט?'}</h2>
+              <p>{step === 1
+                ? 'נתחיל מהפרטים שמגדירים את העבודה. את התמונות נוסיף מיד לאחר יצירת הפרויקט.'
+                : 'בחר את התוצרים וסגור את הצד העסקי. אפשר לשנות את הכול גם בהמשך.'}</p>
+              {step === 2 && (
+                <div className="project-create-summary">
+                  <small>הפרויקט עבור</small>
+                  <strong>{client}</strong>
+                  <span>{[event, date, location].filter(Boolean).join(' · ')}</span>
+                </div>
+              )}
+            </aside>
+
+            <section className="project-create-form">
+              {step === 1 ? (
+                <>
+                  <label className="project-create-field is-wide">
+                    <span>שם הלקוח</span>
+                    <input ref={first} value={client} list="known-clients" onChange={(e) => setClient(e.target.value)} placeholder="לקוח קיים או חדש" autoComplete="off" />
+                    <small>לקוח חדש ייווצר אוטומטית יחד עם הפרויקט</small>
+                    <datalist id="known-clients">{clients.map((name) => <option key={name} value={name} />)}</datalist>
+                  </label>
+                  <label className="project-create-field is-wide">
+                    <span>סוג הצילום</span>
+                    <input value={event} list="event-types" onChange={(e) => setEvent(e.target.value)} placeholder="משפחה, חתונה, תדמית…" autoComplete="off" />
+                    <datalist id="event-types">{EVENTS.map((name) => <option key={name} value={name} />)}</datalist>
+                  </label>
+                  <label className="project-create-field">
+                    <span>תאריך</span>
+                    <input value={date} onChange={(e) => setDate(e.target.value)} placeholder="dd.mm" />
+                  </label>
+                  <label className="project-create-field">
+                    <span>מיקום</span>
+                    <input value={location} onChange={(e) => setLocation(e.target.value)} placeholder="אופציונלי" />
+                  </label>
+                </>
+              ) : (
+                <>
+                  <label className="project-create-field is-wide">
+                    <span>מחיר מוסכם</span>
+                    <input value={price} inputMode="numeric" onChange={(e) => setPrice(e.target.value.replace(/\D/g, ''))} placeholder="₪ 0" />
+                  </label>
+                  <fieldset className="project-create-deliverables">
+                    <legend>מה מוסרים ללקוח?</legend>
+                    <label className={hasGallery ? 'is-selected' : ''}>
+                      <input type="checkbox" checked={hasGallery} onChange={(e) => setGallery(e.target.checked)} />
+                      <span><strong>גלריה לבחירה</strong><small>הלקוח יוכל לבחור תמונות בקישור אישי</small></span>
+                    </label>
+                    <label className={hasAlbum ? 'is-selected' : ''}>
+                      <input type="checkbox" checked={hasAlbum} onChange={(e) => setAlbum(e.target.checked)} />
+                      <span><strong>אלבום מודפס</strong><small>יופיע שלב אלבום כחלק מתהליך העבודה</small></span>
+                    </label>
+                    <label className="is-selected is-fixed">
+                      <input type="checkbox" checked readOnly />
+                      <span><strong>קבצים סופיים</strong><small>כל פרויקט מסתיים במסירת הקבצים</small></span>
+                    </label>
+                  </fieldset>
+                </>
+              )}
+            </section>
           </div>
+
+          {failed && <div className="project-create-fault" role="alert">הפרויקט לא נוצר — {failed}</div>}
+
+          <footer className="project-create-footer">
+            <button type="button" className="is-quiet" onClick={step === 1 ? onClose : () => setStep(1)}>{step === 1 ? 'ביטול' : 'חזרה'}</button>
+            <button type="submit" className="is-primary" disabled={!ready}>{step === 1 ? 'המשך לפרטי המסירה' : 'יצירת הפרויקט'}</button>
+          </footer>
         </form>
       </div>
     </div>

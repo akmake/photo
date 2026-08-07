@@ -190,7 +190,7 @@ export default function Project({
   const [view, setView] = useState<View>(
     initialStage && stages.some((s) => s.id === initialStage) ? initialStage : 'overview',
   );
-  const [context, setContext] = useState(true);
+  const [context, setContext] = useState(false);
 
   const open = project.price ? project.price - (project.paid ?? 0) : 0;
   const doneCount = project.state === 'done' ? stages.length : project.at;
@@ -201,37 +201,39 @@ export default function Project({
   }
 
   return (
-    <div className="prj">
-      {/* ---- identity: always visible, never scrolls away ---- */}
-      <header className="prj-head">
-        <button className="prj-back" onClick={onBack}>← פרויקטים</button>
-        <h1>{project.client}</h1>
-        <span className="prj-dot">·</span>
-        <span className="prj-event">{project.event}</span>
-        <span className="prj-dot">·</span>
-        <span className="mono prj-date">{project.date}</span>
-
-        <span className={`prj-state s-${project.state}`}>{STATE_LABEL[project.state]}</span>
-
-        <span className="prj-files">
-          <IcCheckCircle size={15} />
-          הקבצים זמינים
-        </span>
-        {view !== 'overview' && (
-          <button className="btn prj-ctx-toggle" onClick={() => setContext((v) => !v)}>
-            {context ? 'הסתר פרטים' : 'פרטי הפרויקט'}
-          </button>
-        )}
+    <div className="project-flow">
+      <header className="project-flow-header">
+        <div className="project-flow-topline">
+          <button className="project-flow-back" onClick={onBack}>← חזרה לפרויקטים</button>
+          <div className="project-flow-actions">
+            <span><IcCheckCircle size={16} /> הקבצים מחוברים</span>
+            {view !== 'overview' && (
+              <button onClick={() => setContext((value) => !value)}>
+                {context ? 'סגירת פרטים' : 'פרטי הפרויקט'}
+              </button>
+            )}
+          </div>
+        </div>
+        <div className="project-flow-identity">
+          <div>
+            <span className="project-flow-eyebrow">{project.event}</span>
+            <h1>{project.client}</h1>
+          </div>
+          <div className="project-flow-meta">
+            <span className={`is-${project.state}`}>{STATE_LABEL[project.state]}</span>
+            <span>{project.date}</span>
+            {project.location && <span>{project.location}</span>}
+          </div>
+        </div>
       </header>
 
-      {/* ---- the measure: סקירה + stage/count, one instrument ---- */}
-      <nav className="measure" aria-label="שלבי הפרויקט">
+      <nav className="project-flow-steps" aria-label="שלבי הפרויקט">
         <button
-          className={`ms ms-home ${view === 'overview' ? 'on' : ''}`}
+          className={`project-flow-step is-overview ${view === 'overview' ? 'is-active' : ''}`}
           onClick={() => setView('overview')}
         >
-          <span className="ms-label">סקירה</span>
-          <span className="ms-value mono">{doneCount}/{stages.length}</span>
+          <span className="project-flow-step-dot">✓</span>
+          <span className="project-flow-step-copy"><strong>סקירה</strong><small>{doneCount}/{stages.length} הושלמו</small></span>
         </button>
         {stages.map((s, i) => {
           const done = i < project.at;
@@ -240,21 +242,28 @@ export default function Project({
           return (
             <button
               key={s.id}
-              className={`ms ${on ? 'on' : ''} ${done ? 'done' : ''} ${current ? 'current' : ''} ${i > project.at ? 'idle' : ''}`}
+              className={`project-flow-step ${on ? 'is-active' : ''} ${done ? 'is-done' : ''} ${current ? 'is-current' : ''} ${i > project.at ? 'is-future' : ''}`}
               onClick={() => setView(s.id)}
             >
-              <span className="ms-label">{s.label}</span>
-              <span className="ms-value mono">{stageValue(project, s.id)}</span>
+              <span className="project-flow-step-dot">{i + 1}</span>
+              <span className="project-flow-step-copy"><strong>{s.label}</strong><small>{stageValue(project, s.id)}</small></span>
             </button>
           );
         })}
       </nav>
 
       {view === 'overview' ? (
-        <Overview project={project} open={open} onRun={run} />
+        <Overview
+          project={project}
+          open={open}
+          doneCount={doneCount}
+          totalStages={stages.length}
+          currentStage={stages[Math.min(project.at, stages.length - 1)]?.label ?? 'הושלם'}
+          onRun={run}
+        />
       ) : (
-        <div className={`prj-body ${context ? 'with-ctx' : ''}`}>
-          <main className="prj-work">
+        <div className="project-flow-body">
+          <main className="project-flow-workspace">
             {view === 'setup' && (
               <Stage title="הכנה" sub="מה העבודה הזאת, ומה יוצא ממנה">
                 <Facts rows={[
@@ -357,7 +366,11 @@ export default function Project({
           </main>
 
           {context && (
-            <aside className="prj-ctx">
+            <aside className="project-flow-details">
+              <div className="project-flow-details-head">
+                <strong>פרטי הפרויקט</strong>
+                <button onClick={() => setContext(false)} aria-label="סגירה">×</button>
+              </div>
               <section>
                 <h3>לקוח</h3>
                 <div className="ctx-row"><span>שם</span><b>{project.client}</b></div>
@@ -479,73 +492,67 @@ function EditStage({
 function Overview({
   project,
   open,
+  doneCount,
+  totalStages,
+  currentStage,
   onRun,
 }: {
   project: ProjectModel;
   open: number;
+  doneCount: number;
+  totalStages: number;
+  currentStage: string;
   onRun: (t: MoveTarget) => void;
 }) {
   const move = nextMove(project);
 
   return (
-    <div className="ov scroll-y">
-      <div className="ov-inner">
-        <section className={`ov-move tone-${move.tone}`}>
-          <span className="ov-eyebrow">{move.eyebrow}</span>
+    <main className="project-overview">
+      <section className="project-overview-focus">
+        <div className="project-overview-copy">
+          <span>{move.eyebrow}</span>
           <h2>{move.title}</h2>
           {move.detail && <p>{move.detail}</p>}
-          {(move.primary || move.secondary) && (
-            <div className="ov-move-actions">
-              {move.primary && (
-                <button className="btn btn-primary" onClick={() => onRun(move.primary!.target)}>
-                  {move.primary.label}
-                </button>
-              )}
-              {move.secondary && (
-                <button className="btn" onClick={() => onRun(move.secondary!.target)}>
-                  {move.secondary.label}
-                </button>
-              )}
-            </div>
-          )}
-        </section>
-
-        <div className="ov-band">
-          <section className="ov-sec">
-            <h3>תשלום</h3>
-            <div className={`ov-open ${open > 0 ? 'due' : ''}`}>
-              <b className="mono">{open > 0 ? `₪${open.toLocaleString('he-IL')}` : 'שולם'}</b>
-              <span>{open > 0 ? 'פתוח לגבייה' : 'במלואו'}</span>
-            </div>
-            <dl className="ov-defs">
-              <div><dt>סוכם</dt><dd className="mono">₪{(project.price ?? 0).toLocaleString('he-IL')}</dd></div>
-              <div><dt>שולם</dt><dd className="mono">₪{(project.paid ?? 0).toLocaleString('he-IL')}</dd></div>
-            </dl>
-          </section>
-
-          <section className="ov-sec">
-            <h3>לקוח</h3>
-            <dl className="ov-defs">
-              <div><dt>שם</dt><dd>{project.client}</dd></div>
-              <div><dt>אירוע</dt><dd>{project.event}</dd></div>
-              <div><dt>מיקום</dt><dd>{project.location ?? '—'}</dd></div>
-              <div><dt>תאריך צילום</dt><dd className="mono">{project.date}</dd></div>
-            </dl>
-          </section>
-
-          <section className="ov-sec">
-            <h3>קבצים</h3>
-            <dl className="ov-defs">
-              <div><dt>מקור</dt><dd className="mono">{project.imported.toLocaleString('he-IL')}</dd></div>
-              <div><dt>בסט</dt><dd className="mono">{project.picked ? project.picked.toLocaleString('he-IL') : '—'}</dd></div>
-              <div><dt>נערכו</dt><dd className="mono">{project.rendered ? project.rendered.toLocaleString('he-IL') : '—'}</dd></div>
-            </dl>
-          </section>
+          <div className="project-overview-actions">
+            {move.primary && <button className="is-primary" onClick={() => onRun(move.primary!.target)}>{move.primary.label}<b>←</b></button>}
+            {move.secondary && <button onClick={() => onRun(move.secondary!.target)}>{move.secondary.label}</button>}
+          </div>
         </div>
 
-        <Activity project={project} />
-      </div>
-    </div>
+        <div className="project-overview-visual">
+          {project.thumb ? <img src={project.thumb} alt="" style={{ objectPosition: project.pos }} /> : <span>{project.client.trim().charAt(0)}</span>}
+          <div className="project-overview-stage">
+            <small>הפרויקט נמצא בשלב</small>
+            <strong>{currentStage}</strong>
+          </div>
+        </div>
+      </section>
+
+      <section className="project-overview-progress" aria-label={`${doneCount} מתוך ${totalStages} שלבים הושלמו`}>
+        <div><span>התקדמות הפרויקט</span><strong>{doneCount} מתוך {totalStages}</strong></div>
+        <div aria-hidden="true"><span style={{ width: `${totalStages ? (doneCount / totalStages) * 100 : 0}%` }} /></div>
+      </section>
+
+      <section className="project-overview-facts">
+        <div>
+          <span>יתרה לתשלום</span>
+          <strong>{open > 0 ? `₪${open.toLocaleString('he-IL')}` : 'שולם במלואו'}</strong>
+          <small>מתוך ₪{(project.price ?? 0).toLocaleString('he-IL')}</small>
+        </div>
+        <div>
+          <span>תמונות בפרויקט</span>
+          <strong>{project.imported.toLocaleString('he-IL')}</strong>
+          <small>{project.picked ? `${project.picked.toLocaleString('he-IL')} נבחרו` : 'עדיין לא בוצעה בחירה'}</small>
+        </div>
+        <div>
+          <span>פרטי הצילום</span>
+          <strong>{project.date}</strong>
+          <small>{[project.event, project.location].filter(Boolean).join(' · ')}</small>
+        </div>
+      </section>
+
+      <Activity project={project} />
+    </main>
   );
 }
 
@@ -576,19 +583,20 @@ function Activity({ project }: { project: ProjectModel }) {
 
 function Stage({ title, sub, children }: { title: string; sub: string; children: React.ReactNode }) {
   return (
-    <section className="stage">
-      <div className="stage-head">
+    <section className="project-stage">
+      <div className="project-stage-head">
+        <span>שלב בתהליך</span>
         <h2>{title}</h2>
         <p>{sub}</p>
       </div>
-      {children}
+      <div className="project-stage-content">{children}</div>
     </section>
   );
 }
 
 function Numbers({ items }: { items: [string, number][] }) {
   return (
-    <div className="numbers">
+    <div className="project-stage-numbers">
       {items.map(([label, n]) => (
         <div key={label}>
           <b className="mono">{n.toLocaleString('he-IL')}</b>
@@ -601,7 +609,7 @@ function Numbers({ items }: { items: [string, number][] }) {
 
 function Facts({ rows }: { rows: [string, string][] }) {
   return (
-    <dl className="facts">
+    <dl className="project-stage-facts">
       {rows.map(([k, v]) => (
         <div key={k}>
           <dt>{k}</dt>

@@ -144,6 +144,7 @@ export function runAlbumPreflight(
       spread.photoIds,
       photos,
       profile.closedWidthMm / profile.closedHeightMm,
+      project.styleName,
     );
     const generated = candidates.find((candidate) => candidate.id === spread.layoutId)
       ?? candidates[0];

@@ -1,5 +1,6 @@
 import { buildAlbumLayoutCandidates } from './layoutEngine';
 import type { AlbumPhoto, AlbumSpread } from './model';
+import { getAlbumStyle } from './styleEngine';
 
 /* The album is a timeline with cuts.
  *
@@ -13,23 +14,17 @@ import type { AlbumPhoto, AlbumSpread } from './model';
  * `1..n-1` where a new spread starts. Index 0 is always a start and never listed.
  */
 
-const BACKGROUNDS = ['#f8f6f1', '#f4efe7', '#e9e2d8'];
-
-/** The default pacing. Busy spreads next to quiet ones is what gives an album a
- *  rhythm rather than a uniform grid — the single-image spreads are the breath
- *  between the crowded ones. */
-const RHYTHM = [1, 4, 5, 3, 6, 4, 5];
-
 /** The default cut positions for a sequence, from the pacing rhythm. Returns the
  *  boundary indices (each in `1..n-1`) where a new spread begins. */
-export function autoCuts(count: number): number[] {
-  if (count <= 6) return [];
+export function autoCuts(count: number, styleName?: string): number[] {
+  if (count <= 0) return [];
+  const rhythm = getAlbumStyle(styleName).rhythm;
   const cuts: number[] = [];
   let cursor = 0;
   let rhythmIndex = 0;
   while (cursor < count) {
     const remaining = count - cursor;
-    let take = Math.min(RHYTHM[rhythmIndex % RHYTHM.length], remaining);
+    let take = Math.min(rhythm[rhythmIndex % rhythm.length], remaining);
     // Never strand a single photo as the last spread — fold it back.
     if (remaining - take === 1 && take < 6) take += 1;
     cursor += take;
@@ -61,17 +56,20 @@ export function buildAlbumFromGroups(
   groups: string[][],
   photos: AlbumPhoto[],
   pageAspect: number,
+  styleName?: string,
 ): AlbumSpread[] {
   const stamp = Date.now();
+  const style = getAlbumStyle(styleName);
   return groups.map((photoIds, index) => {
-    const candidates = buildAlbumLayoutCandidates(photoIds, photos, pageAspect);
+    const candidates = buildAlbumLayoutCandidates(photoIds, photos, pageAspect, style.id);
     const recommended = candidates[0];
     return {
       id: `spread-${stamp}-${index}`,
       pageStart: 2 + index * 2,
       layoutId: recommended?.id ?? 'balanced',
       photoIds: recommended?.photoIds ?? photoIds,
-      background: BACKGROUNDS[index % BACKGROUNDS.length],
+      customSlots: recommended?.slots,
+      background: style.backgrounds[index % style.backgrounds.length],
       locked: false,
       status: 'draft',
       frameSettings: {},
@@ -86,8 +84,9 @@ export function buildAutomaticAlbum(
   selectedPhotoIds: string[],
   photos: AlbumPhoto[],
   pageAspect: number,
+  styleName?: string,
 ): AlbumSpread[] {
   const unique = selectedPhotoIds.filter((id, index, all) => all.indexOf(id) === index);
-  const groups = groupsFromCuts(unique, autoCuts(unique.length));
-  return buildAlbumFromGroups(groups, photos, pageAspect);
+  const groups = groupsFromCuts(unique, autoCuts(unique.length, styleName));
+  return buildAlbumFromGroups(groups, photos, pageAspect, styleName);
 }

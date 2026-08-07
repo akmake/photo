@@ -142,6 +142,8 @@ export interface AlbumProject {
   name: string;
   productProfileId: string;
   styleName: string;
+  openingDirection?: 'rtl' | 'ltr';
+  coverStyle?: 'photo' | 'linen' | 'minimal';
   spreads: AlbumSpread[];
   activeSpreadId: string;
   reviewVersions?: ReviewVersion[];

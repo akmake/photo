@@ -1,213 +1,374 @@
-/* Design system — "a light table in a dark room" (docs/DESIGN-DIRECTION.md).
+/* Design system — TEZA.
  *
- * ONE neutral grey ramp, and the app sits at different points on it depending on
- * the work: the light end is the business half (clients, calendar, delivery),
- * the dark end is where photographs are judged (cull, edit, album). Same
- * components, same spacing, same type — only the height on the ramp changes.
- * That is what keeps four workflows reading as one product.
+ * ══ THE THESIS ═════════════════════════════════════════════════════════════
  *
- * THE GREYS ARE TRUE NEUTRALS (R=G=B) AND THAT IS NOT A STYLE CHOICE. A chrome
- * with a blue bias (every `slate`/`zinc` palette, and the #1b1c20 this file used
- * to ship) makes the photograph beside it read warmer than it is; a warm chrome
- * makes it read colder. The photographer judges white balance against this
- * surface all day, so the surface may not have an opinion.
+ *   COLOUR IS THE STATE OF THE WORK.
  *
- * ONE ACCENT: copper — the darkroom safelight, the one colour allowed to be on
- * in a room where images are judged. It means "act here / this is live" and it
- * appears in five places only: the active stage segment, the primary action, the
- * focus ring, a running indicator, and the edge bar of a changed parameter.
- * Status colours are a separate family and are never used for actions.
+ * A photographer's job moves through stages — before the shoot, importing,
+ * culling, editing, with the client, delivered — and at any moment every job in
+ * the studio is standing in exactly one of them. That is the most useful fact
+ * in the whole product, so it is what colour is spent on. The studio is
+ * colourful because the WORK is; a screen full of jobs is a screen full of
+ * hues, and which hue is which is information, not decoration.
  *
- * The semantic names below (--page, --card, --ink…) are unchanged on purpose —
- * every sheet in the app already consumes them, so the direction lands
- * everywhere at once without a rename sweep.
+ * This replaced an achromatic system where the chrome was white, graphite and
+ * grey and only the photographs carried colour. It was coherent and it was
+ * lifeless: a studio managing forty jobs looked exactly like one managing four.
+ *
+ * ══ THE ROOM ═══════════════════════════════════════════════════════════════
+ *
+ * The rail is a DEEP INDIGO SURFACE, not a black sidebar and not a grey one.
+ * Black separates by brute force and reads as a default; a saturated colour
+ * field is a decision, and it gives the frame a temperature the work sits
+ * inside. The page is a near-white tinted the same way — the greys here are not
+ * neutral, they are the indigo desaturated almost to nothing, which is what
+ * stops a colourful interface from looking like colour dropped onto grey.
+ *
+ * ══ THE SIGNATURE: LIGHT ═══════════════════════════════════════════════════
+ *
+ * Surfaces are LIT, not filled. One key light, from the top, always the same
+ * angle — every raised object carries the same sheen on its upper face and
+ * drops the same soft shadow. Pressed, a control collapses its shadow, sinks
+ * its face and moves down a pixel. It holds on the indigo rail exactly as it
+ * holds on the page, which is why the rail's active item and a button on a
+ * screen read as the same kind of object.
+ *
+ * ══ WHAT THIS SYSTEM REFUSES ═══════════════════════════════════════════════
+ *
+ *   · no nostalgic beige wash, no serif display, no trendy terracotta palette
+ *   · no near-black UI with one acid accent
+ *   · no glassmorphism or backdrop blur
+ *   · no gradient headline text, no gradient-filled brand mark
+ *   · no bordered-rectangle buttons — a control is a lit surface
+ *
+ * Every semantic name from the previous system is preserved — --page, --card,
+ * --ink, --line and friends — so the var() calls across the sheets pick this up
+ * without a rename sweep.
  */
 
 :root {
-  /* ---------------------------------------------------------------- ramp */
-  /* dark end — the darkroom */
-  --n-04: #0b0b0b;
-  --n-08: #141414;
-  --n-12: #1e1e1e;
-  --n-16: #262626;
-  --n-22: #2e2e2e;
-  --n-30: #3d3d3d;
-  --n-55: #8a8a8a;  /* the lightest muted ink that still clears 4.5:1 on --n-12 */
-  --n-72: #b7b7b7;
-  --n-91: #e8e8e8;
+  /* ================================================================ the room */
+  /* Near-white with a restrained mineral warmth. The room stays neutral so the
+   * copper brand colour reads as an intentional signal, never as a tinted UI. */
+  --cyc-000: #ffffff;   /* a lit face */
+  --cyc-050: #fbfaf8;   /* the ground */
+  --cyc-100: #f6f3ef;
+  --cyc-150: #efeae4;   /* falloff — the shaded side, a recess */
+  --cyc-200: #e5dfd7;
+  --cyc-300: #d3cabf;
+  --cyc-400: #b6aa9d;
+  --cyc-500: #8f8275;
 
-  /* light end — the light table */
-  --l-94: #efefef;
-  --l-97: #f7f7f7;
-  --l-99: #fcfcfc;
-  --l-88: #e0e0e0;
-  --l-78: #c7c7c7;
-  --l-45: #737373;
-  --l-10: #1a1a1a;
+  /* ink — warm charcoal, never brown enough to compete with photographs */
+  --gr-900: #211d1a;
+  --gr-800: #332d28;
+  --gr-700: #50473f;
+  --gr-500: #73675d;
+  --gr-400: #93877b;
+  --gr-300: #b0a69c;
 
-  /* Neither #fff nor #000 appears anywhere. Pure white beside a photograph is a
-   * glare bomb; pure black swallows the frame's own blacks and makes them
-   * impossible to judge. */
+  /* the rail — espresso charcoal, with no coloured cast */
+  --rail: #29241f;
+  --rail-deep: #211d19;
+  --rail-sunk: #1d1916;
+  --rail-hover: #3b332c;
+  --rail-ink: #f0e8e1;
+  --rail-ink-2: #c8bbb0;
+  --rail-ink-3: #9d8f83;
 
-  /* -------------------------------------------------------------- accent */
-  --acc-fill: #a65e12;   /* filled control — carries white text at 4.5:1 */
-  --acc-mark: #d98324;   /* 2px marks, active indicators */
-  --acc-ink-light: #8a4e0f;
-  --acc-ink-dark: #e39b4e;
+  /* The dark ramp is still needed: the canvas screens — cull, edit, album —
+   * judge photographs against it, and they address it through the --n-* aliases
+   * below. Those stay near-neutral: a photograph may not be judged against a
+   * coloured wall. */
+  --wall-900: #16181e;
+  --wall-800: #1d2027;
+  --wall-700: #272b34;
+  --wall-600: #343946;
+  --wall-300: #7d8492;
+  --wall-100: #c3c8d2;
+  --wall-000: #eef0f4;
 
-  /* ------------------------------------------------- surfaces (light end) */
-  /* Three steps of depth, and they are what replaces drop shadows: the chrome
-   * is RECESSED below the page, the page sits in the middle, a panel is raised
-   * above it. The rail used to be --card, 2% off the page colour, which made it
-   * invisible as a region. */
-  --chrome: #eaeaea;
-  --chrome-hover: #f0f0f0;  /* halfway to the page — hover lifts, active arrives */
-  --page: #f4f4f4;
-  --card: #fbfbfb;
-  --card-2: #ffffff;
-  --line: var(--l-88);
-  --line-strong: var(--l-78);
+  /* ============================================================ the spectrum */
+  /* ONE HUE PER STATE OF THE WORK. Ordered the way a job actually travels, so
+   * the palette runs warm→cool→warm across the life of a project and a
+   * photographer learns the sequence by looking at it rather than by reading
+   * labels. Each comes in three parts: the FILL (carries white text), the INK
+   * (readable on paper), and a WASH (a tint that works on any surface). */
 
-  /* Type ink. MEASURED against --page, not chosen by eye: #737373 came out at
-   * 4.1:1, which fails the 4.5 this system requires of its own secondary text —
-   * and at 12px that is the difference between reading and squinting. */
-  --ink: var(--l-10);
-  --ink-2: #3f3f3f;  /* 9.4:1 */
-  --ink-3: #666666;  /* 5.2:1 */
+  /* before the shoot — nothing has happened yet */
+  --st-shoot: #5b75ad;
+  --st-shoot-ink: #405b94;
+  --st-shoot-wash: #eaf0fa;
 
-  /* the single accent, in the shape the app already consumes */
-  --accent: var(--acc-fill);
-  --accent-ink: var(--acc-ink-light);
-  --accent-soft: #f2e7dc;
-  --accent-line: #ddc4a8;
+  /* the files are in, the work is yours */
+  --st-work: #0bb3ad;
+  --st-work-ink: #067f7b;
+  --st-work-wash: #e2f8f7;
 
-  /* Status colours come in three parts, the same split --accent uses:
-   *   --x        the FILL, dark enough to carry white text
-   *   --x-ink    TEXT on a page or panel
-   *   --x-soft   a tinted background
-   * Four hues, each with one job. There is deliberately NO blue "info" colour:
-   * most "information" in this product is STATE, and state is grey. Five
-   * semantic hues in one interface is the rainbow that makes dashboards read as
-   * generic. --info is kept as a name only, pointed at the neutral ink, so no
-   * sheet breaks — but nothing should be reaching for it. */
-  --ok: #2c6a4b;
-  --ok-ink: #2c6a4b;
-  --ok-soft: #e6efe9;
-  --warn: #7e6410;
-  --warn-ink: #7e6410;
-  --warn-soft: #f3eddb;
-  --danger: #a33a2b;
-  --danger-ink: #a33a2b;
-  --danger-soft: #f4e6e3;
-  --info: var(--l-45);
-  --info-ink: var(--l-45);
-  --info-soft: var(--l-97);
+  /* it is with the client, and the clock is theirs */
+  --st-wait: #f5476b;
+  --st-wait-ink: #d21f45;
+  --st-wait-wash: #ffecf0;
 
-  /* Text sitting on a saturated fill. Constant in both ends of the ramp —
-   * those backgrounds do not invert, so this must not either. */
+  /* money is owed on something already delivered */
+  --st-money: #f79009;
+  --st-money-ink: #b54708;
+  --st-money-wash: #fff4e5;
+
+  /* closed, paid, done */
+  --st-done: #12b76a;
+  --st-done-ink: #087443;
+  --st-done-wash: #e6f9f0;
+
+  /* The brand, and the primary action. A dry copper orange — closer to printed
+   * ink and leather than to the bright tangerine common in generic AI UIs. */
+  --brand: #b95c2a;
+  --brand-deep: #8f3f1f;
+  --brand-ink: #93431f;
+  --brand-wash: #f8ece5;
+
+  /* ================================================================== flag */
+  /* Reserved for FAILURE, not urgency: a read that did not work, a write that
+   * did not land. Urgency is --st-wait; this is the interface admitting it is
+   * broken, and it must not look like a job that needs chasing. */
+  --flag: #d92d20;
+  --flag-ink: #b42318;
+  --flag-wash: #fef3f2;
+
+  /* ============================================================== surfaces */
+  --page: var(--cyc-050);
+  --card: var(--cyc-000);
+  --card-2: var(--cyc-100);
+  --card-3: var(--cyc-150);
+  --float: var(--cyc-000);
+  --chrome: var(--wall-900);
+  --chrome-hover: var(--wall-700);
+
+  /* Lines exist, but they are the LAST resort. A raised surface is separated by
+   * its own light and shadow; a line is for things that lie flat in the same
+   * plane — a table rule, a divider inside a panel. */
+  --line: var(--cyc-200);
+  --line-strong: var(--cyc-300);
+  --line-loud: var(--cyc-400);
+  --rule: var(--gr-900);
+
+  --ink: var(--gr-900);
+  --ink-2: var(--gr-700);
+  --ink-3: var(--gr-500);
+  --ink-4: var(--gr-400);
+
+  /* ================================================================= light */
+  /* THE KEY. One angle, one softness, applied to everything that is raised.
+   * The inset white line is the lit upper face; the two shadows are the contact
+   * and the falloff. Nothing in the product invents its own shadow. */
+  --lit: inset 0 1px 0 rgba(255, 255, 255, 0.9);
+  --key-1: 0 1px 1px rgba(21, 23, 28, 0.04), 0 2px 6px -2px rgba(21, 23, 28, 0.08);
+  --key-2: 0 1px 2px rgba(21, 23, 28, 0.05), 0 8px 20px -6px rgba(21, 23, 28, 0.1);
+  --key-3: 0 2px 4px rgba(21, 23, 28, 0.06), 0 20px 44px -12px rgba(21, 23, 28, 0.16);
+  --key-4: 0 4px 8px rgba(21, 23, 28, 0.07), 0 40px 80px -20px rgba(21, 23, 28, 0.22);
+
+  /* The falloff across a lit face follows the warm-neutral room. */
+  --face: linear-gradient(180deg, #ffffff 0%, #fdfbf9 100%);
+  --face-sunk: linear-gradient(180deg, #ebe5de 0%, #f4f0eb 100%);
+
+  --shadow-sm: var(--key-1);
+  --shadow: var(--key-2);
+  --shadow-lg: var(--key-4);
+
+  /* ================================================================ status */
+  /* The legacy status names, pointed at the spectrum. Sheets written before the
+   * spectrum existed keep working and pick up the colour for free. */
+  --ok: var(--st-done);
+  --ok-ink: var(--st-done-ink);
+  --ok-soft: var(--st-done-wash);
+  --warn: var(--st-money);
+  --warn-ink: var(--st-money-ink);
+  --warn-soft: var(--st-money-wash);
+  --danger: var(--flag);
+  --danger-ink: var(--flag-ink);
+  --danger-soft: var(--flag-wash);
+  --info: var(--st-work);
+  --info-ink: var(--st-work-ink);
+  --info-soft: var(--st-work-wash);
+
   --on-solid: #ffffff;
 
-  /* ------------------------------------------------------------- type */
-  /* IBM Plex Sans Hebrew carries Hebrew, Latin and figures in one voice; Plex
-   * Mono gives the Latin-and-numeric world (321A5078.CR2, f/1.4, ISO 6400,
-   * 24/96) a declared status: this is DATA, not prose. In an RTL interface full
-   * of Latin filenames, that distinction is what stops every direction change
-   * from reading as a glitch. */
-  --font: 'IBM Plex Sans Hebrew', 'Segoe UI', system-ui, -apple-system, sans-serif;
+  /* legacy accent names, pointed at the copper brand. */
+  --accent: var(--brand);
+  --acc-fill: var(--brand);
+  --acc-mark: var(--brand);
+  --accent-ink: var(--brand-ink);
+  --acc-ink-light: var(--brand-ink);
+  --acc-ink-dark: #b9a4ff;
+  --accent-soft: var(--brand-wash);
+  --accent-line: #e4b59e;
+
+  /* Legacy ramp names, aliased. The chrome sheets address these directly
+   * (--n-12 for the rail, --n-91 for its ink) because the frame does not follow
+   * the content's surface — it frames it. */
+  --n-04: var(--wall-900);
+  --n-08: var(--wall-800);
+  --n-12: var(--wall-900);
+  --n-16: var(--wall-700);
+  --n-22: var(--wall-600);
+  --n-30: var(--wall-600);
+  --n-55: var(--wall-300);
+  --n-72: var(--wall-100);
+  --n-91: var(--wall-000);
+
+  --l-99: var(--cyc-000);
+  --l-97: var(--cyc-050);
+  --l-94: var(--cyc-100);
+  --l-88: var(--cyc-200);
+  --l-78: var(--cyc-300);
+  --l-45: var(--gr-500);
+  --l-10: var(--gr-900);
+
+  /* ================================================================== type */
+  /* Rubik sets everything that is meant to be SEEN — the day, a count, a
+   * client's name. It is geometric and wide, it carries Hebrew and Latin in one
+   * voice, and it goes to 800, which is what makes a 52px headline read as a
+   * headline. Assistant sets everything that is meant to be READ: it is
+   * narrower and quieter and it stays out of the way underneath.
+   *
+   * No serif anywhere. A press serif on a warm ground is the single most
+   * over-produced look in generated design right now, and this product is an
+   * instrument, not a magazine.
+   *
+   * IBM Plex Mono declares DATA — filenames, EXIF, counters, dates — as a
+   * different kind of thing from prose, which in an RTL interface full of Latin
+   * strings is what stops every direction change from reading as a glitch. */
+  --font: 'Assistant', 'Segoe UI', system-ui, -apple-system, sans-serif;
+  --font-display: 'Rubik', 'Segoe UI', system-ui, sans-serif;
   --font-data: 'IBM Plex Mono', 'Consolas', ui-monospace, monospace;
 
-  /* Density is not one number for the whole product. The DARK end is operated —
-   * a slider panel, a filmstrip of 500 frames — and it earns 11–13px the way
-   * Lightroom does. The LIGHT end is READ: a queue, a client, a calendar. The
-   * first version applied the tool's density to the reading screens, and the
-   * result had to be squinted at. These are the reading sizes; the tool panels
-   * step down from --t-sm when they are built. */
-  --t-xs: 13px;   /* units, keyboard hints — the smallest text allowed */
-  --t-sm: 14px;   /* meta, captions, file paths */
-  --t-md: 16px;   /* body, controls, buttons — the base */
-  --t-lg: 20px;   /* panel and section titles */
-  --t-xl: 30px;   /* screen titles */
-  --t-2xl: 40px;  /* a standalone figure that carries meaning */
+  --t-xs: 12px;
+  --t-sm: 13px;
+  --t-md: 15px;   /* body, controls — the base */
+  --t-lg: 17px;
+  --t-xl: 21px;
+  --t-2xl: 28px;
+  --t-3xl: 38px;
+  --t-display: 52px;
 
-  /* ------------------------------------------------------- geometry */
-  /* 3px, not 12–16 (a consumer component kit) and not 0 (the "brutalist
-   * broadsheet" that is its own generic signature). 3px reads as instrument. */
-  --r-sm: 3px;
-  --r: 3px;
-  --r-lg: 3px;
+  --fw-normal: 400;
+  --fw-med: 500;
+  --fw-semi: 600;
+  --fw-bold: 700;
+  --fw-black: 800;
 
-  --sidebar-w: 244px;
-  --sidebar-compact-w: 62px;
+  /* Display sizes take NEGATIVE tracking — at 38px and up the default fit is
+   * loose. Hebrew is a connected script and never takes POSITIVE tracking, so
+   * --track-label is for Latin and figures only. */
+  --track-display: -0.03em;
+  --track-title: -0.015em;
+  --track-label: 0.05em;
+
+  /* ============================================================== geometry */
+  /* Enough radius to read as a modern surface, not enough to read as a bubble.
+   * Photographs get their own, smaller: a frame is nearly square. */
+  --r-xs: 5px;
+  --r-sm: 8px;
+  --r: 10px;
+  --r-lg: 14px;
+  --r-photo: 6px;
+  --r-full: 999px;
+
+  --sidebar-w: 250px;
+  --sidebar-compact-w: 68px;
   --topbar-h: 62px;
-  --projhead-h: 40px;
-  --measure-h: 52px;
-  --strip-h: 108px;
-  --inspector-w: 340px;
+  --projhead-h: 44px;
+  --measure-h: 56px;
+  --strip-h: 112px;
+  --inspector-w: 344px;
 
-  /* Reading rows on the light end. The 30px figure belongs to a dense table of
-   * photographs, not to a queue of six things a person has to decide about. */
-  --row-h: 54px;
-  --row-dense-h: 36px;
-  --control-h: 40px;
+  --row-h: 60px;
+  --row-dense-h: 38px;
+  --control-h: 38px;
+  --control-sm-h: 30px;
 
   /* 4px base. Nothing outside this scale. */
   --s1: 4px;
   --s2: 8px;
   --s3: 12px;
   --s4: 16px;
+  --s5: 20px;
   --s6: 24px;
   --s8: 32px;
+  --s10: 40px;
   --s12: 48px;
+  --s16: 64px;
+  --s20: 80px;
 
-  /* Hierarchy is built from hairlines, space and height on the ramp — not from
-   * elevation. Only things that genuinely float get a shadow. */
-  --shadow-sm: none;
-  --shadow: none;
-  --shadow-lg: 0 8px 28px rgba(0, 0, 0, 0.34);
+  /* ================================================================ motion */
+  /* Short, and it decelerates. Long enough to be seen, short enough that an
+   * instrument never feels like it is waiting for its own animation. */
+  --ease: cubic-bezier(0.2, 0, 0, 1);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --d-1: 110ms;
+  --d-2: 180ms;
+  --d-3: 300ms;
+}
+
+/* The canvas surfaces — cull, edit, album. The lights go out so the photograph
+ * is the only lit thing left; the key still comes from the same angle, it is
+ * just much weaker. */
+[data-surface='studio'] {
+  --page: #101216;
+  --card: var(--wall-900);
+  --card-2: var(--wall-800);
+  --card-3: var(--wall-700);
+  --float: var(--wall-800);
+
+  --line: #2a2e37;
+  --line-strong: #383d48;
+  --line-loud: #4a5060;
+  --rule: var(--wall-100);
+
+  --ink: var(--wall-000);
+  --ink-2: var(--wall-100);
+  --ink-3: var(--wall-300);
+  --ink-4: #666d7b;
+
+  --lit: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  --key-1: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --key-2: 0 2px 4px rgba(0, 0, 0, 0.35), 0 8px 20px -6px rgba(0, 0, 0, 0.5);
+  --key-3: 0 4px 8px rgba(0, 0, 0, 0.35), 0 20px 44px -12px rgba(0, 0, 0, 0.6);
+  --key-4: 0 8px 16px rgba(0, 0, 0, 0.4), 0 40px 80px -20px rgba(0, 0, 0, 0.7);
+  --face: linear-gradient(180deg, #1d2027 0%, #191c22 100%);
+  --face-sunk: linear-gradient(180deg, #131519 0%, #17191f 100%);
+
+  --accent: var(--wall-000);
+  --acc-fill: var(--wall-000);
+  --acc-mark: var(--wall-000);
+  --accent-ink: var(--wall-000);
+  --accent-soft: var(--wall-700);
+  --accent-line: var(--wall-600);
+
+  --ok: var(--wall-100);
+  --ok-ink: var(--wall-100);
+  --ok-soft: var(--wall-700);
+  --warn-ink: var(--wall-100);
+  --warn-soft: var(--wall-700);
+  --danger: #f04438;
+  --danger-ink: #fda29b;
+  --danger-soft: #2a1614;
+  --info: var(--wall-300);
+  --info-ink: var(--wall-300);
+  --info-soft: var(--wall-700);
+
+  --on-solid: var(--wall-900);
 }
 
 /* A surface must restate `color`, not just the tokens. `color` inherits its
- * COMPUTED value from <body>, which resolved against the light tokens — so
- * overriding --ink alone leaves every element that does not name var(--ink)
- * explicitly still painting dark text on a dark panel. */
+ * COMPUTED value from <body>, so overriding --ink alone leaves every element
+ * that does not name var(--ink) explicitly still painting the old ink. */
 [data-surface] {
   color: var(--ink);
   background: var(--page);
 }
 
-/* The dark end of the ramp: canvas, tools, filmstrip, album. Not a "dark mode"
- * — a different working height on the same ramp, chosen by the task. */
-[data-surface='studio'] {
-  --chrome: var(--n-12);
-  --chrome-hover: var(--n-16);
-  --page: var(--n-08);
-  --card: var(--n-12);
-  --card-2: var(--n-16);
-  --line: var(--n-22);
-  --line-strong: var(--n-30);
-  --ink: var(--n-91);
-  --ink-2: var(--n-72);
-  --ink-3: var(--n-55);
-
-  --accent-ink: var(--acc-ink-dark);
-  --accent-soft: #33240f;
-  --accent-line: #4d3517;
-
-  /* Only the INK re-tunes. The fills stay put: they still carry white text, and
-   * lightening them would break every filled control. */
-  --ok-ink: #6bbe93;
-  --ok-soft: #1c2b23;
-  --warn-ink: #d6b95a;
-  --warn-soft: #2c2718;
-  --danger-ink: #e88c7a;
-  --danger-soft: #2e1f1c;
-  --info: var(--n-55);
-  --info-ink: var(--n-55);
-  --info-soft: var(--n-16);
-
-  --shadow: none;
-  --shadow-lg: 0 10px 34px rgba(0, 0, 0, 0.5);
-}
+/* ====================================================================== base */
 
 * {
   box-sizing: border-box;
@@ -226,17 +387,34 @@ body {
   background: var(--page);
   color: var(--ink);
   font-size: var(--t-md);
-  line-height: 1.45;
+  line-height: 1.5;
   -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
 /* Hebrew has no true italic and no case. Synthetic slanting deforms the
- * letterforms, and letter-spacing breaks the reading of a connected script —
- * so emphasis is carried by weight and ink, never by these. */
+ * letterforms, and letter-spacing breaks a connected script — emphasis is
+ * carried by weight, by ink, and by the switch to the display face. */
 em,
 i {
   font-style: normal;
-  font-weight: 500;
+  font-weight: var(--fw-semi);
+}
+
+/* Anything that is meant to be SEEN rather than read is set in the display
+ * face. Applied at the element level so a screen cannot accidentally opt out. */
+h1,
+h2,
+h3 {
+  font-family: var(--font-display);
+  font-weight: var(--fw-semi);
+  line-height: 1.15;
+  letter-spacing: var(--track-title);
+}
+
+h1 {
+  font-weight: var(--fw-bold);
+  letter-spacing: var(--track-display);
 }
 
 button {
@@ -254,9 +432,13 @@ select {
   color: inherit;
 }
 
+::selection {
+  background: var(--brand);
+  color: #fff;
+}
+
 /* Wherever digits line up — counters, parameter values, tables, timings — they
- * must not change width as they change value, or the panel jitters while a
- * slider is dragged. */
+ * must not change width as they change value, or the panel jitters mid-drag. */
 .mono,
 .num {
   font-variant-numeric: tabular-nums;
@@ -266,29 +448,86 @@ select {
   font-family: var(--font-data);
 }
 
-/* ---------------------------------------------------------------- shared */
+/* A quantity that carries meaning — a count, a sum, a frame number — is set in
+ * the display face at weight, not in the mono. The mono is for STRINGS. */
+.figure {
+  font-family: var(--font-display);
+  font-weight: var(--fw-bold);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: var(--track-display);
+}
 
+/* The small label above a group. Latin and figures take the tracking; Hebrew
+ * just goes up in weight and down in ink. */
+.label {
+  font-family: var(--font-display);
+  font-size: var(--t-xs);
+  font-weight: var(--fw-semi);
+  color: var(--ink-3);
+}
+
+.label-lat {
+  text-transform: uppercase;
+  letter-spacing: var(--track-label);
+}
+
+/* ==================================================================== shared */
+
+/* A CARD IS A LIT SURFACE. White face, the key light on its upper edge, a soft
+ * shadow beneath. No border — the light is what separates it from the ground,
+ * and adding a line as well is belt and braces that flattens the whole effect. */
 .card {
-  background: var(--card);
-  border: 1px solid var(--line);
+  background: var(--face);
   border-radius: var(--r);
+  box-shadow: var(--lit), var(--key-2);
 }
 
 .card-pad {
-  padding: var(--s4) var(--s4);
+  padding: var(--s5);
 }
 
 .card-title {
-  font-size: var(--t-lg);
-  font-weight: 600;
+  font-family: var(--font-display);
+  font-size: var(--t-xl);
+  font-weight: var(--fw-semi);
   color: var(--ink);
+  letter-spacing: var(--track-title);
 }
 
 .card-sub {
   font-size: var(--t-sm);
   color: var(--ink-3);
-  margin-top: 2px;
+  margin-top: 4px;
 }
+
+/* A recess — a well, a track, an inset field. The light comes from the same
+ * place, so the highlight moves to the BOTTOM edge and the shadow goes inside. */
+.sunk {
+  background: var(--face-sunk);
+  border-radius: var(--r-sm);
+  box-shadow:
+    inset 0 1px 2px rgba(21, 23, 28, 0.09),
+    0 1px 0 rgba(255, 255, 255, 0.85);
+}
+
+/* Photographs. They are the only chromatic objects in the product, so they get
+ * the light and nothing else competes with them. */
+.print {
+  display: block;
+  border-radius: var(--r-photo);
+  background: var(--cyc-200);
+  box-shadow: var(--key-1);
+}
+
+/* ------------------------------------------------------------------ controls
+ *
+ * A CONTROL IS A LIT SURFACE THAT CAN BE PRESSED. It is not a rectangle with a
+ * border. At rest it is raised: white face, key light on the top edge, contact
+ * shadow beneath. Hovered it rises. Pressed it collapses onto the page —
+ * shadow gone, face sunk, moved down 1px — which is what pressing a physical
+ * thing does, and it is the one piece of feedback every control in the product
+ * shares.
+ */
 
 .btn {
   display: inline-flex;
@@ -298,41 +537,98 @@ select {
   height: var(--control-h);
   padding: 0 var(--s4);
   border-radius: var(--r-sm);
-  font-size: var(--t-md);
-  font-weight: 400;
-  background: transparent;
+  font-family: var(--font-display);
+  font-size: var(--t-sm);
+  font-weight: var(--fw-med);
+  letter-spacing: var(--track-title);
   color: var(--ink-2);
-  border: 1px solid var(--line-strong);
-  transition: color 0.09s ease-out, border-color 0.09s ease-out, background 0.09s ease-out;
+  background: var(--face);
+  box-shadow: var(--lit), var(--key-1);
   white-space: nowrap;
+  transition:
+    box-shadow var(--d-1) var(--ease),
+    transform var(--d-1) var(--ease),
+    color var(--d-1) var(--ease),
+    background var(--d-1) var(--ease);
 }
 
 .btn:hover {
   color: var(--ink);
-  border-color: var(--ink-3);
+  box-shadow: var(--lit), var(--key-2);
+  transform: translateY(-1px);
 }
 
+.btn:active {
+  transform: translateY(1px);
+  background: var(--face-sunk);
+  box-shadow: inset 0 1px 2px rgba(21, 23, 28, 0.1);
+}
+
+/* The primary action is the brand violet, and its shadow is TINTED with the
+ * same hue. A neutral grey shadow under a saturated control is the detail that
+ * makes coloured buttons look pasted onto a page rather than lit by the same
+ * light as everything else on it. */
 .btn-primary {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: var(--on-solid);
-  font-weight: 500;
+  color: #fff;
+  background: linear-gradient(180deg, #6b45ea 0%, var(--brand) 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.22),
+    0 1px 2px rgba(45, 25, 120, 0.2),
+    0 8px 18px -6px rgba(74, 38, 196, 0.45);
 }
 
 .btn-primary:hover {
-  background: #b96c18;
-  border-color: #b96c18;
-  color: var(--on-solid);
+  color: #fff;
+  background: linear-gradient(180deg, #7752f0 0%, #5730d8 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.28),
+    0 2px 4px rgba(45, 25, 120, 0.22),
+    0 14px 28px -8px rgba(74, 38, 196, 0.5);
 }
 
+.btn-primary:active {
+  background: var(--brand-deep);
+  box-shadow: inset 0 2px 5px rgba(30, 14, 90, 0.45);
+}
+
+/* The one control that carries the flag: an action taken because the interface
+ * itself failed — a retry on a read that did not work. Never used for an
+ * ordinary commit, and never for a job that merely needs chasing. */
+.btn-flag {
+  color: #fff;
+  background: linear-gradient(180deg, #e4432f 0%, var(--flag) 100%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.2), var(--key-2);
+}
+
+.btn-flag:hover {
+  color: #fff;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.24), var(--key-3);
+}
+
+/* Flat on the page — no light, because it is not raised. For the third and
+ * fourth action in a group, where a raised surface would be noise. */
 .btn-ghost {
-  border-color: transparent;
   color: var(--ink-3);
+  background: transparent;
+  box-shadow: none;
 }
 
 .btn-ghost:hover {
   color: var(--ink);
-  border-color: var(--line);
+  background: var(--cyc-150);
+  box-shadow: none;
+  transform: none;
+}
+
+.btn-ghost:active {
+  background: var(--cyc-200);
+  box-shadow: none;
+}
+
+.btn-sm {
+  height: var(--control-sm-h);
+  padding: 0 var(--s3);
+  font-size: var(--t-xs);
 }
 
 .btn-wide {
@@ -340,66 +636,110 @@ select {
 }
 
 .btn:disabled {
-  color: var(--ink-3);
-  border-color: var(--line);
+  color: var(--ink-4);
+  background: var(--cyc-150);
+  box-shadow: none;
+  transform: none;
   cursor: not-allowed;
 }
 
-/* Keyboard focus is never removed. Copper, 2px, offset — visible at both ends
- * of the ramp. */
+/* Keyboard focus is never removed. The brand violet, 2px, offset — the same hue
+ * the primary action carries, so "where I am" and "what commits" read as one
+ * family. */
 :where(button, a, input, select, textarea, [tabindex]):focus-visible {
-  outline: 2px solid var(--acc-mark);
-  outline-offset: 1px;
+  outline: 2px solid var(--brand);
+  outline-offset: 2px;
 }
 
+/* ------------------------------------------------------------------- status */
+
+/* Status is a word on a wash of its own state's hue. The wash is light enough
+ * that a column of them still reads as a column of words, and saturated enough
+ * that the state lands before any of them is read — which is the whole reason
+ * the spectrum exists. */
 .pill {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  height: 20px;
+  height: 22px;
   padding: 0 var(--s2);
-  border-radius: var(--r-sm);
-  font-size: var(--t-sm);
-  font-weight: 400;
+  border-radius: var(--r-xs);
+  background: var(--cyc-150);
+  color: var(--ink-3);
+  font-family: var(--font-display);
+  font-size: var(--t-xs);
+  font-weight: var(--fw-semi);
+  white-space: nowrap;
 }
 
 .pill-ok {
-  background: var(--ok-soft);
-  color: var(--ok-ink);
+  background: var(--st-done-wash);
+  color: var(--st-done-ink);
 }
 
 .pill-run {
-  background: var(--accent-soft);
-  color: var(--accent-ink);
+  background: var(--st-wait-wash);
+  color: var(--st-wait-ink);
 }
 
 .pill-idle {
   background: transparent;
-  color: var(--ink-3);
-  border: 1px solid var(--line);
+  color: var(--ink-4);
 }
 
+/* A live process gets one pulsing flag, and it is the only thing in the system
+ * that animates without being touched. */
+.dot-live {
+  width: 6px;
+  height: 6px;
+  border-radius: var(--r-full);
+  background: var(--st-work);
+  animation: pulse 1.6s var(--ease-in-out) infinite;
+}
+
+@keyframes pulse {
+  50% { opacity: 0.3; }
+}
+
+/* ------------------------------------------------------------------- fields */
+
+/* A field is a RECESS: the one place the light inverts, because you are typing
+ * into the surface rather than onto it. */
 .field {
   width: 100%;
   height: var(--control-h);
   padding: 0 var(--s3);
   border-radius: var(--r-sm);
-  border: 1px solid var(--line);
-  background: var(--card-2);
+  background: var(--face-sunk);
+  box-shadow:
+    inset 0 1px 2px rgba(21, 23, 28, 0.09),
+    0 1px 0 rgba(255, 255, 255, 0.85);
   color: var(--ink);
   outline: none;
+  transition: box-shadow var(--d-1) var(--ease), background var(--d-1) var(--ease);
+}
+
+.field::placeholder {
+  color: var(--ink-4);
 }
 
 .field:focus {
-  border-color: var(--acc-mark);
+  background: #fff;
+  box-shadow:
+    inset 0 1px 2px rgba(21, 23, 28, 0.06),
+    0 0 0 1px var(--brand),
+    0 0 0 4px var(--brand-wash);
 }
 
 textarea.field {
   height: auto;
-  min-height: 84px;
-  padding: var(--s2) var(--s3);
+  min-height: 92px;
+  padding: var(--s3);
+  line-height: 1.55;
   resize: vertical;
 }
+
+/* ------------------------------------------------------------------ helpers */
 
 .muted {
   color: var(--ink-3);
@@ -426,20 +766,65 @@ textarea.field {
 .scroll-y {
   overflow-y: auto;
   scrollbar-width: thin;
-  scrollbar-color: var(--line-strong) transparent;
+  scrollbar-color: var(--cyc-300) transparent;
 }
 
 .scroll-y::-webkit-scrollbar {
-  width: 9px;
+  width: 12px;
 }
 
 .scroll-y::-webkit-scrollbar-thumb {
-  background: var(--line-strong);
-  border: 3px solid var(--page);
+  background: var(--cyc-300);
+  border: 4px solid transparent;
+  background-clip: content-box;
+  border-radius: var(--r-full);
 }
 
-/* The product is an instrument, not a website: motion describes cause and
- * effect and nothing else, and everything still works without it. */
+.scroll-y::-webkit-scrollbar-thumb:hover {
+  background: var(--cyc-400);
+  background-clip: content-box;
+}
+
+/* -------------------------------------------------------------------- entry */
+
+@keyframes rise {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: none; }
+}
+
+@keyframes fade {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+.rise {
+  animation: rise var(--d-3) var(--ease) both;
+}
+
+/* Skeletons say "reading", never "empty" — the distinction CLAUDE.md §3
+ * requires. The sweep is what separates a load from a broken layout. */
+.skeleton {
+  position: relative;
+  overflow: hidden;
+  background: var(--cyc-150);
+  border-radius: var(--r-sm);
+}
+
+.skeleton::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.85), transparent);
+  animation: sweep 1.5s var(--ease-in-out) infinite;
+}
+
+@keyframes sweep {
+  to { transform: translateX(100%); }
+}
+
+/* The product is an instrument: motion describes cause and effect and nothing
+ * else, and everything still works without it. */
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

@@ -1,88 +1,258 @@
-/* The business screens — Today first.
+/* The business screens — היום first, and היום is the opening screen.
  *
- * The screen is composed, not stretched. Two earlier versions failed on the
- * same thing: five rows of text were asked to hold a 1400px window, so the
- * panels either inflated into half-empty boxes or left the bottom two thirds
- * blank. The fix was content, not spacing — the desk below carries the screen,
- * and it is made of the photographs this product actually has.
+ * ONE THING, THEN A STREAM. See the header of screens/Today.tsx for why the
+ * four-panel dashboard this replaced could not be fixed by restyling it.
  *
- * Separation is hairline and space. Sections are divided by a rule with a
- * label on it, not by boxes.
+ * What the sheet below has to carry:
+ *   .day      the date, and three totals on one quiet line
+ *   .lead     the single job that most needs the photographer, at full size
+ *   .stream   everything else, ranked, no sub-headings
+ *
+ * SURFACES ARE LIT, NOT BOXED (see design/tokens.css). Raised means a white
+ * face with the key light on its top edge and a soft shadow beneath; recessed
+ * means the same light inverted. Only two things on this screen are raised —
+ * the lead and a stream row under the pointer — and that is the hierarchy.
  */
 
-.today {
+.day-screen {
   display: grid;
   align-content: start;
-  gap: var(--s8);
+  gap: var(--s10);
   width: 100%;
-  max-width: 1440px;   /* the wide monitor gets margin, not stretched rows */
+  max-width: 1240px;   /* the wide monitor gets margin, not stretched rows */
   margin-inline: auto;
-  padding-bottom: var(--s6);
 }
 
-/* ---------------------------------------------------------------- head */
+/* ------------------------------------------------------------------- head */
 
-.today-head {
+.day h1 {
   display: flex;
   align-items: baseline;
   gap: var(--s4);
-  flex-wrap: wrap;
+  font-family: var(--font-display);
+  font-size: var(--t-display);
+  font-weight: var(--fw-bold);
+  letter-spacing: var(--track-display);
+  line-height: 1;
 }
 
-.today-head h1 {
+.day-date {
+  font-size: var(--t-xl);
+  font-weight: var(--fw-normal);
+  letter-spacing: var(--track-title);
+  color: var(--ink-3);
+}
+
+/* The totals, on ONE line, small. They are context for the day — not the
+ * subject of it. A row of four big figures across the top is the dashboard
+ * reflex, and it puts statistics where the work belongs. */
+.day-sum {
   display: flex;
   align-items: baseline;
-  gap: var(--s3);
-  font-size: var(--t-xl);
-  font-weight: 600;
-  letter-spacing: -0.01em;
-}
-
-.today-date {
-  font-size: var(--t-lg);
-  font-weight: 400;
+  gap: var(--s5);
+  flex-wrap: wrap;
+  margin-top: var(--s4);
   color: var(--ink-3);
-}
-
-.today-shoot {
-  margin-inline-start: auto;
-  display: inline-flex;
-  align-items: center;
-  gap: var(--s2);
   font-size: var(--t-sm);
-  color: var(--ink-2);
 }
 
-.today-shoot svg {
-  color: var(--ink-3);
-}
-
-.today-shoot b {
-  font-weight: 500;
+/* Each figure is set in the hue of the thing it counts, so the line is read as
+ * three separate facts rather than as one run of numbers. This is the first
+ * place the spectrum appears on the screen and it is doing the same job it does
+ * everywhere else: naming a state. */
+.day-sum b {
+  font-family: var(--font-display);
+  font-size: var(--t-md);
+  font-weight: var(--fw-bold);
+  font-variant-numeric: tabular-nums;
   color: var(--ink);
 }
 
-/* -------------------------------------------------- section rules */
+.day-sum .n-work b  { color: var(--st-work-ink); }
+.day-sum .n-wait b  { color: var(--st-wait-ink); }
+.day-sum .day-owed b { color: var(--st-money-ink); }
 
-/* A rule with a label on it. The label sits ON the line, which is what makes a
- * section read as a section without drawing a box around it. */
-.sec-bar {
+/* "₪1,456,000" is one token read left-to-right, but the shekel sign is
+ * bidi-neutral — inside an RTL line it was being reordered to the far side of
+ * its own number. The element carries dir="ltr"; this isolates it so it cannot
+ * drag the Hebrew around it. */
+.day-owed b {
+  unicode-bidi: isolate;
+}
+
+/* =================================================================== the lead
+ *
+ * The one job that most needs the photographer, with enough on screen to act on
+ * it without opening anything: the photograph at size, what is true right now
+ * in a sentence, the fact that makes it urgent, and one action.
+ *
+ * It is the only large raised surface in the product. That is deliberate — the
+ * whole screen's hierarchy rests on there being exactly one. */
+
+/* THE STATE IS THE TOP EDGE. A 4px band of the job's own hue across the whole
+ * surface — the one thing on the screen that is read before anything on it is.
+ * It is a band and not a coloured border on all four sides, because a card
+ * outlined in colour reads as an alert; a card with a coloured head reads as a
+ * card that belongs to a category. */
+.lead {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(300px, 0.85fr);
+  align-items: stretch;
+  gap: 0;
+  overflow: hidden;
+  border-radius: var(--r-lg);
+  background: var(--face);
+  box-shadow: var(--lit), var(--key-3);
+  border-top: 4px solid var(--lead-hue, var(--brand));
+}
+
+.lead.k-shoot  { --lead-hue: var(--st-shoot); }
+.lead.k-work   { --lead-hue: var(--st-work); }
+.lead.k-waiting { --lead-hue: var(--st-wait); }
+.lead.k-money  { --lead-hue: var(--st-money); }
+
+@media (max-width: 900px) {
+  .lead {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* Nothing imported yet, so there is no frame to lead with. One column, and the
+ * copy gets a measure instead of being stranded beside an empty plate. */
+.lead-noframe {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.lead-noframe .lead-copy {
+  max-width: 62ch;
+  padding-block: var(--s8);
+}
+
+/* The photograph runs to the edge of the surface on its own side. A frame
+ * inset inside a card with padding all round reads as an illustration OF a
+ * job; a frame that reaches the edge reads as the job itself. */
+.lead-frame {
+  position: relative;
+  display: block;
+  min-height: 320px;
+  padding: 0;
+  overflow: hidden;
+  background: var(--cyc-200);
+}
+
+.lead-img {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: cover;
+  transition: transform var(--d-3) var(--ease);
+}
+
+.lead-frame:hover .lead-img {
+  transform: scale(1.015);
+}
+
+/* A job with nothing imported yet: a recess with a camera in it. Never a broken
+ * image, and never a coloured placeholder pretending to be a frame. */
+.frame-empty {
+  display: grid;
+  place-items: center;
+  background: var(--face-sunk);
+  box-shadow: inset 0 1px 3px rgba(21, 23, 28, 0.09);
+  color: var(--ink-4);
+}
+
+.lead-copy {
+  display: grid;
+  align-content: center;
+  gap: var(--s3);
+  padding: var(--s10);
+}
+
+@media (max-width: 900px) {
+  .lead-copy { padding: var(--s6); }
+  .lead-frame { min-height: 240px; }
+}
+
+/* What KIND of situation this is, as a chip in its own hue. It names the state
+ * so the sentence underneath does not have to spend words on it. */
+.lead-kind {
+  justify-self: start;
+  padding: 3px var(--s2);
+  border-radius: var(--r-xs);
+  font-family: var(--font-display);
+  font-size: var(--t-xs);
+  font-weight: var(--fw-semi);
+  color: var(--ink-3);
+  background: var(--cyc-150);
+}
+
+.lead.k-shoot .lead-kind   { color: var(--st-shoot-ink); background: var(--st-shoot-wash); }
+.lead.k-work .lead-kind    { color: var(--st-work-ink);  background: var(--st-work-wash); }
+.lead.k-waiting .lead-kind { color: var(--st-wait-ink);  background: var(--st-wait-wash); }
+.lead.k-money .lead-kind   { color: var(--st-money-ink); background: var(--st-money-wash); }
+
+.lead-copy h2 {
+  font-family: var(--font-display);
+  font-size: var(--t-2xl);
+  font-weight: var(--fw-bold);
+  letter-spacing: var(--track-display);
+  line-height: 1.2;
+}
+
+.lead-note {
   display: flex;
   align-items: center;
   gap: var(--s2);
-  padding-bottom: var(--s2);
-  margin-bottom: var(--s1);
-  border-bottom: 1px solid var(--ink-3);
-}
-
-.sec-bar h2 {
-  font-size: var(--t-lg);
-  font-weight: 600;
-}
-
-.sec-n {
   color: var(--ink-3);
+  font-size: var(--t-md);
+}
+
+.lead-note i {
+  color: var(--cyc-400);
+  font-style: normal;
+  font-weight: var(--fw-normal);
+}
+
+.lead-do {
+  display: flex;
+  gap: var(--s2);
+  margin-top: var(--s3);
+}
+
+/* ================================================================= the stream
+ *
+ * Everything else, ranked. No sub-headings: the ORDER is the grouping, and each
+ * row names its own kind, so a client waiting and a shoot next week can sit in
+ * one list without either being mistaken for the other. */
+
+.stream ul {
+  list-style: none;
+}
+
+.stream-bar {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s3);
+  padding-bottom: var(--s3);
+  margin-bottom: var(--s2);
+  border-bottom: 1px solid var(--line);
+}
+
+.stream-n {
+  font-family: var(--font-display);
+  font-size: var(--t-lg);
+  font-weight: var(--fw-semi);
+  letter-spacing: var(--track-title);
+}
+
+.stream-c {
+  font-family: var(--font-display);
   font-size: var(--t-sm);
+  font-weight: var(--fw-med);
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-4);
 }
 
 .sec-link {
@@ -92,397 +262,501 @@
   gap: 6px;
   color: var(--ink-3);
   font-size: var(--t-sm);
+  font-weight: var(--fw-med);
+  transition: color var(--d-1) var(--ease);
 }
 
 .sec-link:hover {
   color: var(--ink);
 }
 
-/* ------------------------------------------------------------- the top */
-
-.today-top {
+/* A row lies FLAT on the page and rises under the pointer. That is the whole
+ * control language applied to a row instead of to a button — and it is why no
+ * row carries an "open" link on its end. The row is the control. */
+.fl {
+  position: relative;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 340px;
-  gap: var(--s8);
-  align-items: start;
-}
-
-@media (max-width: 1240px) {
-  .today-top {
-    grid-template-columns: minmax(0, 1fr);
-    gap: var(--s6);
-  }
-}
-
-.queue,
-.up-list {
-  list-style: none;
-}
-
-/* Three parts and no floating columns: what it looks like, what happened, what
- * to do. The previous grid spread one fact across four columns separated by
- * empty space, which is why the rows could not be read at a glance. */
-.q-row {
-  display: grid;
-  grid-template-columns: 62px minmax(0, 1fr) auto;
+  grid-template-columns: 4px 56px minmax(0, 1fr) auto;
   align-items: center;
   gap: var(--s4);
   width: 100%;
   padding: var(--s3);
-  border-bottom: 1px solid var(--line);
-  text-align: start;
-  color: var(--ink);
-  position: relative;
-}
-
-.q-thumb {
-  width: 62px;
-  height: 46px;
-  object-fit: cover;
-  display: block;
-  background: var(--l-88);
-}
-
-.q-row:hover {
-  background: var(--card);
-}
-
-/* Urgency is an edge and an order, not six coloured badges. */
-.q-row::before {
-  content: '';
-  position: absolute;
-  inset-inline-start: 0;
-  top: 0;
-  bottom: 0;
-  width: 2px;
+  border-radius: var(--r);
   background: transparent;
-}
-
-.q-row.u-client::before {
-  background: var(--acc-mark);
-}
-
-.q-row.u-money::before {
-  background: var(--warn-ink);
-}
-
-.q-row.u-deadline::before {
-  background: var(--line-strong);
-}
-
-.q-main {
-  display: grid;
-  gap: 2px;
-  min-width: 0;
-}
-
-.q-main b {
-  font-weight: 500;
-  font-size: var(--t-md);
-}
-
-.q-sub {
-  color: var(--ink-3);
-  font-size: var(--t-sm);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-/* The action is always visible. Hiding it until hover meant the row never said
- * what it was for. */
-.q-action {
-  text-align: end;
-  color: var(--accent-ink);
-  font-size: var(--t-sm);
-  font-weight: 500;
-  white-space: nowrap;
-}
-
-.q-row:hover .q-action {
-  text-decoration: underline;
-  text-underline-offset: 3px;
-}
-
-/* ------------------------------------------------------------ upcoming */
-
-.up-row {
-  display: grid;
-  grid-template-columns: 74px minmax(0, 1fr) auto;
-  align-items: center;
-  gap: var(--s4);
-  width: 100%;
-  padding: var(--s3);
-  border-bottom: 1px solid var(--line);
+  /* A hairline UNDER the row, not around it. At 1240px the note sits a long way
+   * from the name, and without a rule to run along the eye loses the line
+   * between them. It is drawn as an inset shadow so it does not shift the box
+   * when the row lifts, and it disappears the moment the row is raised — a
+   * surface that has left the page does not need the page's rules. */
+  box-shadow: inset 0 -1px 0 var(--line);
   text-align: start;
   color: var(--ink);
+  transition:
+    background var(--d-1) var(--ease),
+    box-shadow var(--d-1) var(--ease),
+    transform var(--d-1) var(--ease);
 }
 
-.up-row:hover {
-  background: var(--card);
+.stream li:last-child .fl {
+  box-shadow: none;
 }
 
-.up-when {
-  display: grid;
-  gap: 1px;
+.fl:hover {
+  transform: translateY(-1px);
+  background: var(--face);
+  box-shadow: var(--lit), var(--key-2);
 }
 
-.up-when b {
-  font-weight: 500;
-  font-size: var(--t-sm);
+.fl:active {
+  transform: translateY(1px);
+  box-shadow: inset 0 1px 2px rgba(21, 23, 28, 0.1);
 }
 
-.up-when span {
-  color: var(--ink-3);
-  font-size: var(--t-sm);
-}
-
-.up-main {
-  display: grid;
-  gap: 2px;
-  min-width: 0;
-}
-
-.up-main b {
-  font-weight: 500;
-  font-size: var(--t-sm);
-}
-
-.up-main span {
-  color: var(--ink-3);
-  font-size: var(--t-sm);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.up-time {
-  color: var(--ink-2);
-  font-size: var(--t-sm);
-}
-
-/* =============================================================== the desk
- * Every active job as a frame from that shoot. This is the content that holds
- * the screen, and the only content in the product that is photographic. */
-
-.jobs {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(330px, 1fr));
-  gap: var(--s6) var(--s4);
-  padding-top: var(--s4);
-}
-
-.job {
-  display: grid;
-  gap: 3px;
-  text-align: start;
-  color: var(--ink);
-  min-width: 0;
-}
-
-/* No frame, no radius, no shadow on a photograph — anywhere in this product. */
-.job-frame {
-  position: relative;
+.fl-img {
+  width: 56px;
+  height: 42px;
   display: block;
-  aspect-ratio: 3 / 2;
-  overflow: hidden;
-  background: var(--l-88);
-  margin-bottom: 6px;
-}
-
-.job-frame img {
-  width: 100%;
-  height: 100%;
   object-fit: cover;
-  display: block;
+  border-radius: var(--r-photo);
+  background: var(--cyc-200);
 }
 
-/* A job with no imported files yet: a neutral plate, not a broken image. */
-.job-frame-empty {
-  position: absolute;
-  inset: 0;
+.fl .frame-empty {
+  width: 56px;
+  height: 42px;
+  border-radius: var(--r-photo);
+}
+
+.fl-copy {
   display: grid;
-  place-items: center;
-  color: var(--ink-3);
+  gap: 2px;
+  min-width: 0;
 }
 
-.job:hover .job-frame::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  outline: 2px solid var(--acc-mark);
-  outline-offset: -2px;
-}
-
-/* The one state that is about someone else's time. */
-.job-wait {
-  position: absolute;
-  inset-block-end: 0;
-  inset-inline-start: 0;
-  padding: 3px 8px;
-  background: var(--acc-fill);
-  color: var(--on-solid);
-  font-size: var(--t-xs);
-  font-weight: 500;
-}
-
-.job-name {
-  font-size: var(--t-lg);
-  font-weight: 500;
+.fl-copy b {
+  font-family: var(--font-display);
+  font-size: var(--t-md);
+  font-weight: var(--fw-semi);
+  letter-spacing: var(--track-title);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
-.job-meta {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  color: var(--ink-3);
-  font-size: var(--t-sm);
+/* THE BAR IS THE STATE. Four pixels at the start of every row, in the hue of
+ * the state that row is in — so an undivided list of four different kinds of
+ * thing can be sorted by eye without a heading above each group, and a studio
+ * with a lot going on looks like it.
+ *
+ * It is also why the ranking needs no sub-headings: the colours group the list
+ * visually while the order still puts the most urgent thing first, which a set
+ * of grouped sections could not do at the same time. */
+.fl-bar {
+  align-self: stretch;
+  min-height: 34px;
+  border-radius: var(--r-full);
+  background: var(--row-hue, var(--cyc-300));
 }
 
-.job-meta i {
-  color: var(--line-strong);
-  font-style: normal;
-}
+.fl.k-shoot   { --row-hue: var(--st-shoot); }
+.fl.k-work    { --row-hue: var(--st-work); }
+.fl.k-waiting { --row-hue: var(--st-wait); }
+.fl.k-money   { --row-hue: var(--st-money); }
 
-/* The measure, at card scale: five segments, everything before the current one
- * filled, the current one copper. The same device the project screen carries
- * full size — so the shape of a job is legible before it is opened. */
-.job-measure {
-  display: grid;
-  grid-template-columns: repeat(5, 1fr);
-  gap: 3px;
-  margin-top: 5px;
-}
-
-.job-measure .seg {
-  height: 3px;
-  background: var(--l-88);
-}
-
-.job-measure .seg.done {
-  background: var(--ink-3);
-}
-
-.job-measure .seg.on {
-  background: var(--acc-mark);
-}
-
-.job-counts {
-  margin-top: 4px;
-  color: var(--ink-3);
-  font-size: var(--t-sm);
-}
-
-/* ----------------------------------------------------------- the foot */
-
-.today-foot {
-  display: flex;
-  align-items: center;
-  gap: var(--s4);
-  flex-wrap: wrap;
-  padding-top: var(--s4);
-  border-top: 1px solid var(--line);
-  color: var(--ink-3);
-  font-size: var(--t-sm);
-}
-
-.today-foot b {
-  color: var(--ink);
-  font-weight: 500;
-  font-size: var(--t-md);
-}
-
-.today-foot i {
-  width: 1px;
-  height: 14px;
-  background: var(--line-strong);
-}
-
-.build-note {
-  margin-inline-start: auto;
-  color: var(--ink-3);
+/* The row names its own kind in words too — colour alone is never the only
+ * carrier of a distinction, or the screen stops working for anyone who cannot
+ * separate these hues. */
+.fl-kind {
   font-size: var(--t-xs);
+  font-weight: var(--fw-med);
+  color: var(--ink-4);
 }
+
+.fl.k-shoot .fl-kind   { color: var(--st-shoot-ink); }
+.fl.k-work .fl-kind    { color: var(--st-work-ink); }
+.fl.k-waiting .fl-kind { color: var(--st-wait-ink); }
+.fl.k-money .fl-kind   { color: var(--st-money-ink); }
+
+/* The fact that makes the row worth a glance — a date, an age, a sum. It sits
+ * in its own column so the eye can run straight down it. */
+.fl-note {
+  justify-self: end;
+  color: var(--ink-3);
+  font-family: var(--font-data);
+  font-size: var(--t-xs);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+@media (max-width: 640px) {
+  .fl {
+    grid-template-columns: 4px 44px minmax(0, 1fr);
+    gap: var(--s3);
+  }
+
+  .fl-img,
+  .fl .frame-empty { width: 44px; height: 34px; }
+
+  .fl-note { display: none; }
+}
+
 
 /* ============================================================= פרויקטים
- * The same tile as the desk on Today — one component, two screens. What is new
- * here is the page chrome: a title that states the count, one primary action,
- * and filters that are STATES rather than tags. */
+ *
+ * THE SCREEN IS A REGISTER, not a grid of cards. Every job the studio has,
+ * ruled onto the sheet in the order it needs attention — because a card grid
+ * makes eight projects look like a gallery and forty look like a search result,
+ * and this is neither. It is the photographer's ledger.
+ *
+ * Each row is numbered, in mono, the way frames are numbered on a contact
+ * sheet. That index is not decoration: it is what makes "the third one" a thing
+ * a person can say out loud, and it is the detail that ties the screen to the
+ * craft rather than to a component library.
+ *
+ * The photograph is a PRINT — square corners, a hairline of ink, a 3px contact
+ * shadow. It identifies the job before any text is read, which is how a
+ * photographer actually finds a job.
+ *
+ * The filters are STATES, not tags: where a job is standing right now. "ממתין
+ * ללקוח" earns its own filter because it is the only state where the work is
+ * out of the photographer's hands, and it is the one that quietly eats weeks.
+ */
 
 .pj {
   display: grid;
   align-content: start;
-  gap: var(--s6);
+  gap: var(--s8);
   width: 100%;
-  max-width: 1440px;
+  max-width: 1320px;
   margin-inline: auto;
-  padding-bottom: var(--s6);
 }
 
+/* The masthead. A 44px serif title against a 13px sans label is the hierarchy —
+ * and the count is set as a SERIF FIGURE beside it, at the same optical weight
+ * as the word, because "how many jobs am I carrying" is the headline, not a
+ * detail of it. */
 .pj-head {
   display: flex;
-  align-items: center;
-  gap: var(--s3);
+  align-items: baseline;
+  gap: var(--s4);
+  padding-bottom: var(--s5);
+  border-bottom: 1px solid #dedada;
 }
 
 .pj-head h1 {
-  font-size: var(--t-xl);
-  font-weight: 600;
-  letter-spacing: -0.01em;
+  font-size: var(--t-3xl);
 }
 
 .pj-total {
-  color: var(--ink-3);
-  font-size: var(--t-lg);
+  font-family: var(--font-display);
+  font-size: var(--t-xl);
+  font-weight: var(--fw-med);
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-4);
 }
 
 .pj-new {
   margin-inline-start: auto;
+  align-self: center;
 }
 
-/* Filters sit on a rule, like every other section marker in the product. The
- * count belongs ON the filter: "how many are waiting on a client" is the
- * question, and putting the answer somewhere else makes it two lookups. */
+/* Filters sit directly under the masthead rule, so the heavy rule reads as
+ * belonging to the whole header block. The count belongs ON the filter: "how
+ * many are waiting on a client" is the question, and putting the answer
+ * somewhere else makes it two lookups. */
 .pj-filters {
   display: flex;
   align-items: center;
   gap: var(--s6);
-  border-bottom: 1px solid var(--ink-3);
-  padding-bottom: var(--s2);
+  margin-top: calc(var(--s8) * -1 + var(--s4));
+  flex-wrap: wrap;
 }
 
 .pj-filter {
   display: inline-flex;
   align-items: baseline;
-  gap: var(--s2);
-  padding-bottom: var(--s2);
-  margin-bottom: calc(var(--s2) * -1 - 1px);
+  gap: 7px;
+  padding-bottom: 3px;
   border-bottom: 2px solid transparent;
   color: var(--ink-3);
   font-size: var(--t-md);
+  font-weight: var(--fw-med);
+  transition: color var(--d-1) var(--ease), border-color var(--d-1) var(--ease);
 }
 
 .pj-filter span {
-  font-size: var(--t-sm);
-  color: var(--ink-3);
+  font-family: var(--font-data);
+  font-size: var(--t-xs);
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-4);
 }
 
 .pj-filter:hover {
   color: var(--ink);
 }
 
+/* The one mark on the screen at rest: which slice of the register you are
+ * reading. */
 .pj-filter.on {
   color: var(--ink);
-  font-weight: 500;
-  border-bottom-color: var(--acc-mark);
+  font-weight: var(--fw-semi);
+  border-bottom-color: var(--gr-900);
 }
 
 .pj-filter.on span {
   color: var(--ink-2);
 }
+
+/* ------------------------------------------------------------- the register */
+
+.pj-list {
+  display: grid;
+}
+
+.pj-row {
+  position: relative;
+  display: grid;
+  grid-template-columns: 30px 132px minmax(220px, 1.35fr) minmax(180px, 1fr) 104px auto;
+  align-items: center;
+  gap: var(--s5);
+  min-width: 0;
+  padding: var(--s4) var(--s3);
+  border-bottom: 1px solid var(--line);
+  transition: background var(--d-1) var(--ease);
+}
+
+/* Hover lifts the row onto the sheet colour and bleeds it past the text margin,
+ * so the whole line reads as one target instead of a strip behind the words. */
+.pj-row::before {
+  content: '';
+  position: absolute;
+  inset: 0 calc(var(--s3) * -1);
+  background: var(--card);
+  opacity: 0;
+  transition: opacity var(--d-1) var(--ease);
+  pointer-events: none;
+}
+
+.pj-row:hover::before {
+  opacity: 1;
+}
+
+/* THE WHOLE ROW OPENS THE JOB, and it does that through one transparent button
+ * stretched across it rather than by wrapping the row in an anchor — the row
+ * contains its own button, and a button inside a button is invalid HTML that
+ * browsers repair by dropping one of them.
+ *
+ * The content sits above the hit target and gives up its pointer events so
+ * clicks fall through to it; only the explicit action takes them back. That
+ * costs text selection inside a row, which is the right trade for a register
+ * whose every line is a destination. */
+.pj-row > *:not(.pj-row-hit) {
+  position: relative;
+  z-index: 2;
+  pointer-events: none;
+}
+
+.pj-row-hit {
+  position: absolute;
+  inset: 0 calc(var(--s3) * -1);
+  z-index: 1;
+  border-radius: var(--r-xs);
+}
+
+.pj-row-hit:focus-visible {
+  outline-offset: -2px;
+}
+
+/* The frame number. Mono, muted, and it does not fight for attention — it is
+ * there when you are looking for it and invisible when you are not. */
+.pj-row-no {
+  font-family: var(--font-data);
+  font-size: var(--t-xs);
+  font-variant-numeric: tabular-nums;
+  color: var(--cyc-500);
+  letter-spacing: -0.02em;
+}
+
+.pj-row-open {
+  pointer-events: auto;
+}
+
+/* THE PRINT. Square corners, a hairline of ink so a blown-out sky still has an
+ * edge, and a contact shadow. 3:2 because that is what came out of the camera —
+ * a 16:10 crop here would be the interface overruling the frame. */
+.pj-row-cover {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 132px;
+  aspect-ratio: 3 / 2;
+  overflow: hidden;
+  border-radius: var(--r-photo);
+  background: var(--cyc-200);
+  box-shadow: 0 0 0 1px rgba(21, 23, 28, 0.06), var(--key-1);
+  color: var(--gr-400);
+  font-family: var(--font-display);
+  font-size: var(--t-2xl);
+  font-weight: var(--fw-med);
+  transition: box-shadow var(--d-2) var(--ease);
+}
+
+.pj-row:hover .pj-row-cover {
+  box-shadow: 0 0 0 1px rgba(21, 23, 28, 0.08), var(--key-2);
+}
+
+.pj-row-cover img {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: cover;
+}
+
+.pj-row-copy {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+/* The client's name is the headline of the row, so it takes the serif. This is
+ * the moment the type system earns itself: a list of names in a press serif
+ * reads as a masthead of jobs, and the same list in the UI sans reads as rows
+ * in a table. */
+.pj-row-copy strong {
+  overflow: hidden;
+  font-family: var(--font-display);
+  font-size: var(--t-xl);
+  font-weight: var(--fw-bold);
+  line-height: 1.2;
+  letter-spacing: var(--track-display);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pj-row-copy > span,
+.pj-row-copy small {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  overflow: hidden;
+  color: var(--ink-3);
+  font-size: var(--t-sm);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pj-row-copy small {
+  color: var(--ink-4);
+}
+
+.pj-row-copy .mono {
+  font-size: var(--t-xs);
+}
+
+.pj-row-copy i {
+  color: var(--cyc-400);
+  font-style: normal;
+  font-weight: var(--fw-normal);
+}
+
+/* --------------------------------------------------------------- the meter */
+
+.pj-row-progress {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.pj-row-stage-label {
+  color: var(--ink-2);
+  font-size: var(--t-sm);
+  font-weight: var(--fw-med);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* A ruler, not a progress bar: separate ticks for separate stages, because the
+ * work does not flow continuously — it stops at each one. Done is ink, the
+ * current stage is the mark, and what is left is paper. */
+.pj-row-meter {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
+  gap: 3px;
+}
+
+.pj-row-meter i {
+  height: 3px;
+  background: var(--cyc-300);
+}
+
+.pj-row-meter i.done {
+  background: var(--gr-400);
+}
+
+.pj-row-meter i.on {
+  background: var(--gr-900);
+}
+
+/* --------------------------------------------------------------- the stamp */
+
+/* Status is a stamped word, in the small label size, aligned to a column so
+ * the eye can run down it. Only "waiting" and "done" take a colour, and only
+ * because those two are the states a photographer scans FOR. */
+.pj-row-status {
+  color: var(--ink-4);
+  font-size: var(--t-xs);
+  font-weight: var(--fw-semi);
+  white-space: nowrap;
+}
+
+.pj-row-status.s-waiting { color: var(--flag-ink); }
+.pj-row-status.s-done { color: var(--ok-ink); }
+
+/* The row's action stays hidden until the row is under the pointer. Forty
+ * identical buttons standing in a column is forty pieces of chrome competing
+ * with forty photographs; the whole row is clickable regardless, so this is
+ * an affordance, not the only way in. */
+.pj-row-open {
+  justify-self: end;
+  white-space: nowrap;
+  opacity: 0;
+  transition: opacity var(--d-1) var(--ease);
+}
+
+.pj-row:hover .pj-row-open,
+.pj-row-open:focus-visible {
+  opacity: 1;
+}
+
+@media (max-width: 1100px) {
+  .pj-row {
+    grid-template-columns: 24px 104px minmax(180px, 1.3fr) minmax(150px, 1fr) auto;
+    gap: var(--s4);
+  }
+
+  .pj-row-cover { width: 104px; }
+  .pj-row-status { display: none; }
+}
+
+@media (max-width: 760px) {
+  .pj-row {
+    grid-template-columns: 84px minmax(0, 1fr) auto;
+    gap: var(--s3);
+  }
+
+  .pj-row-no,
+  .pj-row-progress { display: none; }
+
+  .pj-row-cover { width: 84px; }
+
+  .pj-row-copy strong { font-size: var(--t-lg); }
+
+  .pj-row-open { opacity: 1; }
+}
+
+/* ------------------------------------------------------------ empty states */
 
 .pj-empty {
   padding: var(--s12) 0;
@@ -490,53 +764,886 @@
   font-size: var(--t-md);
 }
 
-/* A section with nothing in it yet — one honest line, not a blank hole. */
+/* A section with nothing in it yet.
+ *
+ * It sits in a RECESS rather than floating as a loose grey line in white space.
+ * An empty section is still a section — giving it a floor is what stops the top
+ * of the screen from reading as a rendering failure on a quiet morning, which
+ * is exactly when a photographer is most likely to be looking at it. */
 .sec-empty {
-  padding: var(--s6) 0;
+  display: grid;
+  place-items: center;
+  min-height: 84px;
+  padding: var(--s5);
+  border-radius: var(--r);
+  background: var(--face-sunk);
+  box-shadow: inset 0 1px 2px rgba(21, 23, 28, 0.05);
   color: var(--ink-3);
   font-size: var(--t-sm);
+  text-align: center;
 }
 
-/* The whole-screen empty state: the studio has no projects at all. Composed,
- * centred, and it carries the one action that starts everything. */
+/* The whole-screen empty state: the studio has no projects at all. It is set
+ * like the opening of a printed page — serif headline, a measure of about 46
+ * characters, one action — because the first screen a new photographer sees
+ * should look composed rather than broken. */
 .pj-blank,
 .today-blank {
   display: grid;
   justify-items: start;
-  gap: var(--s3);
+  gap: var(--s4);
   max-width: 46ch;
-  padding: var(--s12) 0;
+  padding: var(--s16) 0;
 }
 
 .pj-blank h2,
 .today-blank h2 {
-  font-size: var(--t-lg);
-  font-weight: 600;
+  font-size: var(--t-3xl);
+  font-weight: var(--fw-bold);
+  letter-spacing: var(--track-display);
 }
 
 .pj-blank p,
 .today-blank p {
   color: var(--ink-3);
   font-size: var(--t-md);
+  line-height: 1.6;
 }
 
 .pj-blank .btn,
 .today-blank .btn {
-  margin-top: var(--s3);
+  margin-top: var(--s2);
+}
+
+/* ============================================================ פרויקטים
+ *
+ * A QUIET, PHOTO-FORWARD INDEX. The photograph is the only colour on the screen;
+ * everything around it is paper, graphite and one hairline. State is a small dot
+ * and a word — never a coloured card, never a badge: teal for what is in your
+ * hands, amber for what is parked with a client or owed, a plain grey for the
+ * rest. A job with no import yet shows the client's initial on a calm plate,
+ * never a broken frame.
+ *
+ * This replaced a first attempt at a colourful "board" — coloured card edges, a
+ * spectrum bar, saturated pills — that read as a generic dashboard. The work is
+ * what carries the colour here; the interface stays out of its way. */
+
+/* The one filled control on the screen: a graphite button, not a saturated one.
+ * "New" and the first-run "create" share it. */
+.pj-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s2);
+  height: 36px;
+  padding: 0 16px;
+  border-radius: 5px;
+  background: #1d2128;
+  color: #fff;
+  font-family: var(--font-display);
+  font-size: var(--t-sm);
+  font-weight: var(--fw-med);
+  transition: background var(--d-1) var(--ease);
+}
+
+.pj-btn:hover { background: #2c313a; }
+.pj-btn:active { background: #14171c; }
+
+.pj-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: var(--s5);
+}
+
+/* A card is a quiet white surface with a single hairline — no lift, no coloured
+ * edge, no shadow at rest. The whole card opens the job; it is one button, so a
+ * button never sits inside a button. */
+.pj-card {
+  display: flex;
+  flex-direction: column;
+  background: #fff;
+  border: 1px solid #e5e2df;
+  border-radius: 6px;
+  overflow: hidden;
+  text-align: start;
+  transition: border-color var(--d-1) var(--ease), box-shadow var(--d-2) var(--ease);
+}
+
+.pj-card:hover {
+  border-color: #cfc9c3;
+  box-shadow: 0 6px 20px -12px rgba(29, 33, 40, 0.35);
+}
+
+.pj-frame {
+  aspect-ratio: 4 / 3;
+  overflow: hidden;
+  background: #efece9;
+}
+
+.pj-frame img {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: cover;
+}
+
+/* No import yet: the client's initial on a calm plate. Never a broken image,
+ * never a coloured placeholder. */
+.pj-frame.empty {
+  display: grid;
+  place-items: center;
+  color: #cdc7c0;
+  font-family: var(--font-display);
+  font-size: 44px;
+  font-weight: var(--fw-semi);
+}
+
+.pj-card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 14px 15px 15px;
+}
+
+.pj-card-name {
+  font-family: var(--font-display);
+  font-size: var(--t-lg);
+  font-weight: var(--fw-semi);
+  color: #1d2128;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.pj-card-meta {
+  color: #5f646a;
+  font-size: var(--t-sm);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.pj-card-meta i {
+  color: #a9aab0;
+  font-style: normal;
+  margin: 0 5px;
+}
+
+.pj-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+  padding-top: 11px;
+  border-top: 1px solid #eae7e3;
+}
+
+/* The state, said the quiet way: a small dot and a word. Two accents only —
+ * teal for what is in your hands, amber for what is parked — and grey for the
+ * rest. No rainbow, because five saturated hues on one screen is the tell of a
+ * generated dashboard. */
+.pj-dot {
+  width: 7px;
+  height: 7px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: #a9aab0;
+}
+
+.pj-dot.k-work    { background: #215e61; }
+.pj-dot.k-waiting { background: #d88925; }
+.pj-dot.k-shoot   { background: #a9aab0; }
+.pj-dot.k-done    { background: transparent; box-shadow: inset 0 0 0 1.5px #a9aab0; }
+
+.pj-state {
+  color: #5f646a;
+  font-size: var(--t-sm);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Money is the one number allowed a colour, and only when it is owed. */
+.pj-owed {
+  margin-inline-start: auto;
+  flex: 0 0 auto;
+  color: #c56b00;
+  font-size: var(--t-sm);
+  font-weight: var(--fw-med);
+  font-variant-numeric: tabular-nums;
+}
+
+.pj-paid {
+  margin-inline-start: auto;
+  flex: 0 0 auto;
+  color: #85898e;
+  font-size: var(--t-xs);
+}
+
+/* ============================================================= היום החדש
+ * שולחן עבודה יומי, לא דשבורד. המסך מחלק את היום לשלוש שאלות עבודה:
+ * מה דורש טיפול עכשיו, מה קרוב ביומן, ומה תקוע אצל לקוח או בגבייה.
+ */
+
+.today-workdesk {
+  display: grid;
+  align-content: start;
+  gap: 28px;
+  width: 100%;
+  max-width: 1280px;
+  margin-inline: auto;
+}
+
+.today-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 14px 28px;
+  padding-bottom: 18px;
+  border-bottom: 1px solid #d9d6d2;
+}
+
+.today-head p {
+  grid-column: 1;
+  color: #6c7075;
+  font-size: 13px;
+}
+
+.today-head h1 {
+  grid-column: 1;
+  font-family: var(--font-display);
+  font-size: 38px;
+  font-weight: 650;
+  letter-spacing: 0;
+}
+
+.today-head dl {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  display: flex;
+  align-items: end;
+  gap: 26px;
+}
+
+.today-head dl div {
+  display: grid;
+  gap: 2px;
+  min-width: 72px;
+  text-align: end;
+}
+
+.today-head dt {
+  color: #74777c;
+  font-size: 12px;
+}
+
+.today-head dd {
+  color: #1d2128;
+  font-family: var(--font-display);
+  font-size: 19px;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+}
+
+.today-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 330px;
+  gap: 32px;
+  align-items: start;
+}
+
+.today-main,
+.today-side {
+  display: grid;
+  gap: 26px;
+}
+
+.today-focus {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 196px;
+  gap: 26px;
+  align-items: stretch;
+  min-height: 178px;
+  padding: 22px;
+  border: 1px solid #d9d6d2;
+  border-inline-start: 3px solid #d88925;
+  border-radius: 6px;
+  background: #ffffff;
+}
+
+.today-focus-plain {
+  grid-template-columns: minmax(0, 1fr);
+  min-height: 132px;
+  background: #fbfaf9;
+}
+
+.today-focus.today-waiting { border-inline-start-color: #215e61; }
+.today-focus.today-money { border-inline-start-color: #d88925; }
+.today-focus.today-shoot { border-inline-start-color: #1d2128; }
+.today-focus.today-work { border-inline-start-color: #215e61; }
+
+.today-focus-text {
+  display: grid;
+  align-content: center;
+  justify-items: start;
+  gap: 9px;
+  min-width: 0;
+}
+
+.today-label {
+  color: #6c7075;
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.today-focus h2,
+.today-quiet h2,
+.today-empty h2 {
+  font-size: 26px;
+  font-weight: 650;
+  letter-spacing: 0;
+}
+
+.today-focus p,
+.today-quiet p,
+.today-empty p {
+  color: #5f646a;
+  font-size: 15px;
+}
+
+.today-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 36px;
+  margin-top: 8px;
+  padding: 0 15px;
+  border-radius: 4px;
+  background: #1d2128;
+  color: #ffffff;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.today-action:hover {
+  background: #215e61;
+}
+
+.today-focus-frame {
+  min-width: 0;
+  overflow: hidden;
+  border-radius: 4px;
+  background: #f4f2f2;
+}
+
+.today-focus-frame .today-photo {
+  width: 100%;
+  height: 100%;
+  min-height: 132px;
+}
+
+.today-photo {
+  display: block;
+  width: 58px;
+  height: 42px;
+  object-fit: cover;
+  border-radius: 3px;
+  background: #f4f2f2;
+}
+
+.today-photo-empty {
+  display: grid;
+  place-items: center;
+  color: #7f858c;
+}
+
+.today-section,
+.today-side-section,
+.today-quiet,
+.today-empty {
+  display: grid;
+  gap: 12px;
+}
+
+.today-section-head {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding-bottom: 9px;
+  border-bottom: 1px solid #d9d6d2;
+}
+
+.today-section-head h2,
+.today-side-section h2 {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: #1d2128;
+  font-size: 17px;
+  font-weight: 650;
+  letter-spacing: 0;
+}
+
+.today-section-head button {
+  margin-inline-start: auto;
+  color: #60656b;
+  font-size: 13px;
+}
+
+.today-section-head button:hover {
+  color: #1d2128;
+}
+
+.today-list {
+  display: grid;
+}
+
+.today-row {
+  display: grid;
+  grid-template-columns: 3px 58px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 13px;
+  width: 100%;
+  min-height: 66px;
+  padding: 11px 0;
+  border-bottom: 1px solid #e5e2df;
+  color: #1d2128;
+  text-align: start;
+}
+
+.today-row:hover {
+  background: #f7f5f3;
+}
+
+.today-row-mark {
+  align-self: stretch;
+  border-radius: 0;
+  background: #b8b0a8;
+}
+
+.today-row.today-waiting .today-row-mark,
+.today-row.today-work .today-row-mark {
+  background: #215e61;
+}
+
+.today-row.today-money .today-row-mark {
+  background: #d88925;
+}
+
+.today-row.today-shoot .today-row-mark {
+  background: #1d2128;
+}
+
+.today-row-copy {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.today-row-copy b {
+  overflow: hidden;
+  font-family: var(--font-display);
+  font-size: 15px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.today-row-copy span,
+.today-row-kind,
+.today-muted {
+  color: #6c7075;
+  font-size: 13px;
+}
+
+.today-row-kind {
+  justify-self: end;
+  white-space: nowrap;
+}
+
+.today-side {
+  padding-inline-start: 28px;
+  border-inline-start: 1px solid #d9d6d2;
+}
+
+.today-side-section h2 {
+  padding-bottom: 9px;
+  border-bottom: 1px solid #d9d6d2;
+}
+
+.today-mini-list {
+  display: grid;
+}
+
+.today-mini-list button {
+  display: grid;
+  gap: 2px;
+  width: 100%;
+  padding: 10px 0;
+  border-bottom: 1px solid #e5e2df;
+  text-align: start;
+}
+
+.today-mini-list button:hover b {
+  color: #215e61;
+}
+
+.today-mini-list b {
+  overflow: hidden;
+  font-size: 14px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.today-mini-list span {
+  color: #6c7075;
+  font-size: 12px;
+}
+
+.today-empty {
+  max-width: 520px;
+  padding-top: 36px;
+}
+
+@media (max-width: 980px) {
+  .today-head,
+  .today-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .today-head dl {
+    grid-column: 1;
+    grid-row: auto;
+    justify-self: start;
+  }
+
+  .today-head dl div {
+    text-align: start;
+  }
+
+  .today-side {
+    padding-inline-start: 0;
+    border-inline-start: 0;
+    border-top: 1px solid #d9d6d2;
+    padding-top: 24px;
+  }
+}
+
+@media (max-width: 680px) {
+  .today-focus {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .today-row {
+    grid-template-columns: 3px 48px minmax(0, 1fr);
+  }
+
+  .today-row-kind {
+    display: none;
+  }
+
+  .today-photo {
+    width: 48px;
+    height: 36px;
+  }
+}
+
+/* =================================================== היום: register view */
+
+.today-ledgerdesk {
+  display: grid;
+  grid-template-columns: 156px minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr) auto;
+  gap: 0 34px;
+  direction: ltr;
+  width: 100%;
+  max-width: 1320px;
+  min-height: calc(100vh - 170px);
+  margin-inline: auto;
+}
+
+.today-date-rail {
+  direction: rtl;
+  grid-row: 1 / span 2;
+  display: grid;
+  align-content: start;
+  gap: 6px;
+  padding-inline-end: 24px;
+  border-inline-end: 1px solid #d9d6d2;
+}
+
+.today-date-rail span {
+  color: #6c7075;
+  font-size: 13px;
+}
+
+.today-date-rail strong {
+  max-width: 8ch;
+  color: #1d2128;
+  font-family: var(--font-display);
+  font-size: 34px;
+  font-weight: 650;
+  line-height: 1.08;
+  letter-spacing: 0;
+}
+
+.today-date-rail button {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  justify-self: start;
+  margin-top: 18px;
+  color: #4f555c;
+  font-size: 13px;
+}
+
+.today-date-rail button:hover {
+  color: #215e61;
+}
+
+.today-register {
+  direction: rtl;
+  display: grid;
+  align-content: start;
+  gap: 18px;
+  min-width: 0;
+}
+
+.today-register-head {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 20px;
+  padding-bottom: 14px;
+  border-bottom: 2px solid #1d2128;
+}
+
+.today-register-head h1 {
+  font-size: 30px;
+  font-weight: 650;
+  letter-spacing: 0;
+}
+
+.today-register-head p {
+  margin-top: 4px;
+  color: #6c7075;
+  font-size: 14px;
+}
+
+.today-register-head button {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 34px;
+  padding: 0 12px;
+  border: 1px solid #cfcac5;
+  color: #1d2128;
+  font-size: 13px;
+}
+
+.today-register-head button:hover {
+  border-color: #215e61;
+  color: #215e61;
+}
+
+.today-register-table {
+  display: grid;
+  min-width: 0;
+}
+
+.today-register-row {
+  display: grid;
+  grid-template-columns: 44px 104px minmax(160px, 1.1fr) minmax(150px, 0.95fr) minmax(150px, 0.9fr) 100px;
+  align-items: center;
+  gap: 14px;
+  min-height: 58px;
+  padding: 8px 0;
+  border-bottom: 1px solid #dfdbd7;
+  color: #1d2128;
+  text-align: start;
+}
+
+.today-register-labels {
+  min-height: 30px;
+  padding: 0 0 6px;
+  color: #7a7d82;
+  font-size: 12px;
+  font-weight: 650;
+}
+
+button.today-register-row:hover {
+  background: #f7f5f3;
+}
+
+.today-index {
+  color: #8b8e93;
+  font-family: var(--font-data);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.today-state {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: #4f555c;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.today-state::before {
+  content: '';
+  width: 7px;
+  height: 7px;
+  flex: 0 0 auto;
+  background: #9a9da2;
+}
+
+.today-waiting .today-state::before,
+.today-work .today-state::before {
+  background: #215e61;
+}
+
+.today-money .today-state::before {
+  background: #d88925;
+}
+
+.today-shoot .today-state::before {
+  background: #1d2128;
+}
+
+.today-client {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.today-client b {
+  overflow: hidden;
+  font-size: 15px;
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.today-register-row > span:not(.today-client):not(.today-index):not(.today-state):not(.today-open) {
+  overflow: hidden;
+  color: #555b62;
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.today-register-row .today-photo {
+  width: 42px;
+  height: 31px;
+  border-radius: 0;
+}
+
+.today-open {
+  justify-self: end;
+  color: #215e61;
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.today-summary-strip {
+  direction: rtl;
+  grid-column: 2;
+  display: flex;
+  align-items: center;
+  gap: 34px;
+  margin-top: 34px;
+  padding-top: 15px;
+  border-top: 1px solid #d9d6d2;
+}
+
+.today-summary-strip div {
+  display: flex;
+  align-items: baseline;
+  gap: 9px;
+}
+
+.today-summary-strip span {
+  color: #74777c;
+  font-size: 12px;
+}
+
+.today-summary-strip b {
+  color: #1d2128;
+  font-family: var(--font-display);
+  font-size: 18px;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+}
+
+@media (max-width: 1020px) {
+  .today-ledgerdesk {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 22px;
+  }
+
+  .today-date-rail {
+    grid-row: auto;
+    grid-template-columns: auto 1fr auto;
+    align-items: baseline;
+    gap: 10px;
+    padding-inline-end: 0;
+    padding-bottom: 14px;
+    border-inline-end: 0;
+    border-bottom: 1px solid #d9d6d2;
+  }
+
+  .today-date-rail strong {
+    max-width: none;
+    font-size: 24px;
+  }
+
+  .today-date-rail button {
+    margin-top: 0;
+  }
+
+  .today-summary-strip {
+    grid-column: 1;
+  }
+}
+
+@media (max-width: 760px) {
+  .today-register-row {
+    grid-template-columns: 34px minmax(0, 1fr) 86px;
+  }
+
+  .today-register-row > span:nth-child(2),
+  .today-register-row > span:nth-child(4),
+  .today-register-row > span:nth-child(5),
+  .today-register-labels span:nth-child(2),
+  .today-register-labels span:nth-child(4),
+  .today-register-labels span:nth-child(5) {
+    display: none;
+  }
+
+  .today-summary-strip {
+    flex-wrap: wrap;
+  }
 }
 
 /* A finished job is stated, not colour-coded away — but quietly: the frame
- * stays the loudest thing on the tile. */
+ * stays the loudest thing on the tile, and the flag is spent only on things
+ * that need doing. */
 .job-done {
   position: absolute;
   inset-block-end: 0;
   inset-inline-start: 0;
-  padding: 4px 10px;
-  background: var(--n-12);
-  color: var(--n-91);
+  padding: 3px 8px;
+  background: var(--gr-900);
+  color: #fff;
   font-size: var(--t-xs);
-  font-weight: 500;
+  font-weight: var(--fw-semi);
 }
+
 
 /* ======================================================= dialog (rare)
  * The scrim isolates; the dialog is a plain surface with a hairline. It is not
@@ -838,9 +1945,9 @@
 .prj-head {
   display: flex;
   align-items: center;
-  gap: var(--s3);
-  padding: 0 var(--s4);
-  height: 54px;
+  gap: var(--s4);
+  padding: var(--s3) var(--s4);
+  min-height: 84px;
   flex: 0 0 auto;
   background: var(--card);
   border-bottom: 1px solid var(--line);
@@ -859,18 +1966,51 @@
 }
 
 .prj-head h1 {
-  font-size: var(--t-lg);
+  font-size: var(--t-xl);
   font-weight: 600;
+  line-height: 1.05;
 }
 
-.prj-dot {
+.prj-identity {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.prj-kicker {
+  color: var(--ink-3);
+  font-size: var(--t-xs);
+  font-weight: 600;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+
+.prj-titleline,
+.prj-meta,
+.prj-head-tools {
+  display: flex;
+  align-items: center;
+}
+
+.prj-titleline {
+  gap: var(--s2);
+}
+
+.prj-meta {
+  gap: 0;
+  color: var(--ink-3);
+  font-size: var(--t-sm);
+}
+
+.prj-meta span + span::before {
+  content: '·';
+  padding: 0 8px;
   color: var(--line-strong);
 }
 
-.prj-event,
-.prj-date {
-  color: var(--ink-2);
-  font-size: var(--t-md);
+.prj-head-tools {
+  margin-inline-start: auto;
+  gap: var(--s3);
 }
 
 .prj-state {
@@ -901,7 +2041,6 @@
 }
 
 .prj-files {
-  margin-inline-start: auto;
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -944,6 +2083,13 @@
 .ms-label {
   font-size: var(--t-sm);
   font-weight: 500;
+}
+
+.ms-index {
+  margin-inline-end: 8px;
+  color: var(--ink-3);
+  font-size: var(--t-xs);
+  font-weight: 400;
 }
 
 .ms-value {
@@ -1005,10 +2151,72 @@
 .ov-inner {
   display: grid;
   align-content: start;
-  gap: var(--s8);
+  gap: var(--s6);
   width: 100%;
   max-width: 1180px;
   margin-inline: auto;
+}
+
+.ov-statusline {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(260px, .48fr);
+  align-items: end;
+  gap: var(--s8);
+  padding-bottom: var(--s5);
+  border-bottom: 1px solid var(--ink);
+}
+
+.ov-status-kicker {
+  display: block;
+  color: var(--accent-ink);
+  font-size: var(--t-sm);
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+
+.ov-statusline h2 {
+  font-size: clamp(30px, 4vw, 52px);
+  font-weight: 600;
+  line-height: .98;
+  letter-spacing: -.035em;
+}
+
+.ov-statusline p {
+  color: var(--ink-3);
+  font-size: var(--t-md);
+  margin-top: var(--s2);
+}
+
+.ov-progress {
+  display: grid;
+  gap: var(--s2);
+}
+
+.ov-progress-copy {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--s3);
+  color: var(--ink-3);
+  font-size: var(--t-sm);
+}
+
+.ov-progress-copy b {
+  color: var(--ink);
+  font-size: var(--t-xl);
+  font-weight: 600;
+}
+
+.ov-progress-track {
+  height: 6px;
+  overflow: hidden;
+  background: var(--line);
+}
+
+.ov-progress-track span {
+  display: block;
+  height: 100%;
+  background: var(--acc-mark);
 }
 
 /* הצעד הבא — the one raised, copper-edged element on the light end. This is
@@ -1017,12 +2225,15 @@
 .ov-move {
   position: relative;
   background: var(--card);
-  border: 1px solid var(--line);
-  border-inline-start: 2px solid var(--acc-mark);
+  border: 1px solid var(--line-strong);
+  border-inline-start: 6px solid var(--acc-mark);
   border-radius: var(--r);
-  padding: var(--s6);
+  padding: var(--s6) var(--s8);
   display: grid;
-  gap: var(--s2);
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: var(--s2) var(--s6);
+  box-shadow: 0 16px 36px rgba(20, 18, 16, .07);
 }
 
 .ov-move.tone-done {
@@ -1030,6 +2241,7 @@
 }
 
 .ov-eyebrow {
+  grid-column: 1 / -1;
   font-size: var(--t-sm);
   font-weight: 500;
   color: var(--accent-ink);
@@ -1046,14 +2258,43 @@
 }
 
 .ov-move p {
+  grid-column: 1;
   color: var(--ink-3);
   font-size: var(--t-md);
 }
 
 .ov-move-actions {
+  grid-column: 2;
+  grid-row: 2 / span 2;
   display: flex;
   gap: var(--s2);
   margin-top: var(--s3);
+}
+
+@media (max-width: 760px) {
+  .prj-head {
+    align-items: flex-start;
+  }
+
+  .prj-files,
+  .prj-meta span:last-child {
+    display: none;
+  }
+
+  .ov-statusline {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--s4);
+  }
+
+  .ov-move {
+    grid-template-columns: minmax(0, 1fr);
+    padding: var(--s5);
+  }
+
+  .ov-move-actions {
+    grid-column: 1;
+    grid-row: auto;
+  }
 }
 
 /* the business band — hairline sections, no boxes, divided by space */

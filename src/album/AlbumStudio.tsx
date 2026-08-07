@@ -5,7 +5,7 @@ import {
 } from '../design/Icons';
 import type {
   AlbumPhoto, AlbumPhotoAnalysis, AlbumProject, AlbumSpread, LayoutSlot,
-  PhotoFitMode, PhotoFrameSettings,
+  PhotoFitMode, PhotoFrameSettings, PrintProductProfile,
 } from './model';
 import { FIRST_PRINT_PROFILE, PRINT_PROFILES } from './model';
 import {
@@ -15,8 +15,11 @@ import { assessCrop } from './cropEngine';
 import { LAYOUT_TEMPLATES, TEMPLATE_PHOTO_COUNTS } from './layoutTemplates';
 import { analyzeAlbumPhoto } from '../api';
 import { exportAlbumForPrint, exportAlbumProof } from './exportEngine';
-import { buildAutomaticAlbum } from './albumFlow';
+import { buildAlbumFromGroups, buildAutomaticAlbum } from './albumFlow';
+import { ALBUM_STYLES } from './styleEngine';
 import AlbumTimeline from './AlbumTimeline';
+import AlbumPhotoPicker from './AlbumPhotoPicker';
+import SpreadThumb from './SpreadThumb';
 import {
   deleteAlbum, duplicateAlbum, listAlbums, loadAlbum, renameAlbum, saveAlbum, storePhotoBlob,
   type AlbumSummary,
@@ -26,7 +29,7 @@ import ReviewWorkspace from './ReviewWorkspace';
 import CoverEditor from './CoverEditor';
 import PreflightPanel from './PreflightPanel';
 import OrganizeView from './OrganizeView';
-import AlbumLibrary from './AlbumLibrary';
+import AlbumLibrary, { type AlbumCreateInput } from './AlbumLibrary';
 import { useProjectFiles } from '../studio/store';
 import type { Project as StudioProject } from '../studio/store';
 import { framesToPool, enrichPool } from './projectPool';
@@ -166,23 +169,30 @@ export default function AlbumStudio({ job, onBack }: {
   const [showProfileEditor, setShowProfileEditor] = useState(false);
   /* `organize` is the album; `design` is one spread. The module opens on the
    * album, because that is the question a photographer actually asks first. */
-  const [mode, setMode] = useState<'timeline' | 'organize' | 'design'>('organize');
+  const [mode, setMode] = useState<'select' | 'timeline' | 'organize' | 'design'>('organize');
+  const [timelineRequested, setTimelineRequested] = useState(false);
   /* Null means the library is showing. An album is a saved thing you come back
    * to, so nothing is open until the photographer picks one. */
   const [activeAlbumId, setActiveAlbumId] = useState<string | null>(null);
   const [albums, setAlbums] = useState<AlbumSummary[]>(() => listAlbums());
   const [showPreview, setShowPreview] = useState(false);
   const [showReview, setShowReview] = useState(false);
+  const [showOutputMenu, setShowOutputMenu] = useState(false);
+  const [showAlbumSettings, setShowAlbumSettings] = useState(false);
+  const [settingsWidthCm, setSettingsWidthCm] = useState(30);
+  const [settingsHeightCm, setSettingsHeightCm] = useState(30);
   const [showCover, setShowCover] = useState(false);
   const [showPreflight, setShowPreflight] = useState(false);
   const [printProfiles, setPrintProfiles] = useState(() => {
     try {
       const saved = JSON.parse(localStorage.getItem('album-print-profiles') ?? '[]');
       if (!Array.isArray(saved) || !saved.length) return PRINT_PROFILES;
-      return PRINT_PROFILES.map((base) => ({
+      const builtIn = PRINT_PROFILES.map((base) => ({
         ...base,
         ...(saved.find((item) => item.id === base.id) ?? {}),
       }));
+      const custom = saved.filter((item) => !PRINT_PROFILES.some((base) => base.id === item.id));
+      return [...builtIn, ...custom];
     } catch {
       return PRINT_PROFILES;
     }
@@ -211,6 +221,12 @@ export default function AlbumStudio({ job, onBack }: {
     mountedRef.current = true;
     return () => { mountedRef.current = false; };
   }, []);
+
+  // A timeline left mounted by hot reload used to keep showing the retired
+  // post-creation screen. It is now an opt-in tool only.
+  useEffect(() => {
+    if (activeAlbumId && mode === 'timeline' && !timelineRequested) setMode('design');
+  }, [activeAlbumId, mode, timelineRequested]);
   const panSession = useRef<{
     slotIndex: number;
     startX: number;
@@ -244,7 +260,24 @@ export default function AlbumStudio({ job, onBack }: {
       .then((saved) => {
         if (!alive || !saved) return;
         setProject(saved.project);
-        setPhotos(saved.photos);
+        if (job) {
+          const savedById = new Map(saved.photos.map((photo) => [photo.id, photo]));
+          setPhotos(framesToPool(jobFiles.frames).map((fresh) => {
+            const prior = savedById.get(fresh.id);
+            return prior?.analysis?.status === 'ready'
+              ? {
+                  ...fresh,
+                  orientation: prior.orientation,
+                  widthPx: prior.widthPx,
+                  heightPx: prior.heightPx,
+                  focalPoint: prior.focalPoint,
+                  analysis: prior.analysis,
+                }
+              : fresh;
+          }));
+        } else {
+          setPhotos(saved.photos);
+        }
         setNotice(`${saved.project.name} נפתח`);
       })
       .catch(() => setNotice('לא ניתן היה לפתוח את האלבום'))
@@ -347,8 +380,9 @@ export default function AlbumStudio({ job, onBack }: {
       spread.photoIds,
       photos,
       profile.closedWidthMm / profile.closedHeightMm,
+      project.styleName,
     ),
-    [photos, profile.closedHeightMm, profile.closedWidthMm, spread.photoIds],
+    [photos, profile.closedHeightMm, profile.closedWidthMm, project.styleName, spread.photoIds],
   );
   const generatedLayout = layoutCandidates.find((candidate) => candidate.id === spread.layoutId)
     ?? layoutCandidates[0]
@@ -517,36 +551,168 @@ export default function AlbumStudio({ job, onBack }: {
     setNotice('הכפולה נמחקה; התמונות נשארו במאגר');
   }
 
-  function createAlbum(name: string, productProfileId: string) {
+  function ensurePrintProfile(
+    closedWidthMm: number,
+    closedHeightMm: number,
+    baseProfileId?: string,
+  ): PrintProductProfile {
+    const width = Math.max(100, Math.min(1000, Math.round(closedWidthMm)));
+    const height = Math.max(100, Math.min(1000, Math.round(closedHeightMm)));
+    const existing = printProfiles.find((item) => (
+      item.productType === 'layflat'
+      && item.closedWidthMm === width
+      && item.closedHeightMm === height
+    ));
+    if (existing) return existing;
+
+    const base = printProfiles.find((item) => item.id === baseProfileId)
+      ?? printProfiles[0]
+      ?? FIRST_PRINT_PROFILE;
+    const orientation = width === height ? 'מרובע' : width > height ? 'רוחב' : 'אורך';
+    const custom: PrintProductProfile = {
+      ...base,
+      id: `custom-layflat-${width}x${height}`,
+      name: `אלבום ${orientation} ${width / 10}×${height / 10}`,
+      labName: 'מידה מותאמת — דורש אימות מול בית הדפוס',
+      closedWidthMm: width,
+      closedHeightMm: height,
+      spreadWidthMm: width * 2,
+      spreadHeightMm: height,
+      verified: false,
+      profileVersion: 'טיוטה',
+      coverSpec: {
+        ...base.coverSpec,
+        totalWidthMm: width * 2 + base.coverSpec.spineWidthMm,
+        totalHeightMm: height,
+        verified: false,
+      },
+    };
+    const next = [...printProfiles, custom];
+    setPrintProfiles(next);
+    localStorage.setItem('album-print-profiles', JSON.stringify(next));
+    return custom;
+  }
+
+  function createAlbum({
+    name, baseProfileId, closedWidthMm, closedHeightMm, styleName, background,
+    selectedPhotoIds = [], openingDirection = 'rtl', coverStyle = 'photo',
+  }: AlbumCreateInput) {
+    const selectedProfile = ensurePrintProfile(closedWidthMm, closedHeightMm, baseProfileId);
     const id = `album-${Date.now()}`;
+    const initialPhotos = job ? framesToPool(jobFiles.frames) : photos;
+    const knownIds = new Set(initialPhotos.map((photo) => photo.id));
+    const chosenIds = selectedPhotoIds.filter((photoId) => knownIds.has(photoId));
+    const initialSpreads = chosenIds.length
+      ? buildAutomaticAlbum(
+        chosenIds,
+        initialPhotos,
+        selectedProfile.closedWidthMm / selectedProfile.closedHeightMm,
+        styleName,
+      )
+      : [{
+        id: 's1', pageStart: 2, layoutId: 'balanced', photoIds: [],
+        background, locked: false, status: 'draft' as const,
+      }];
     const fresh: AlbumProject = {
       id,
       name,
-      productProfileId,
-      styleName: 'Fine Art',
-      /* One empty spread, so the album opens on a page rather than on nothing.
-       * Photos are chosen next, from the tray. */
-      spreads: [{
-        id: 's1', pageStart: 2, layoutId: 'balanced', photoIds: [],
-        background: '#f8f6f1', locked: false, status: 'draft',
-      }],
-      activeSpreadId: 's1',
+      productProfileId: selectedProfile.id,
+      styleName,
+      openingDirection,
+      coverStyle,
+      spreads: initialSpreads,
+      activeSpreadId: initialSpreads[0].id,
     };
-    saveAlbum(fresh, []);
+    saveAlbum(fresh, initialPhotos);
     setAlbums(listAlbums());
     setProject(fresh);
-    setPhotos([]);
+    setPhotos(initialPhotos);
     setHistoryPast([]);
     setHistoryFuture([]);
     setSelectedSlotIndex(null);
     setSelectedPhotoId(null);
-    setAlbumSelectedIds(new Set());
+    setAlbumSelectedIds(new Set(chosenIds));
     setSelectionMode(false);
-    // Straight to the timeline — add photos, and they pace themselves into
-    // spreads. No empty spread staring back.
-    setMode('timeline');
+    setTimelineRequested(false);
+    setMode(chosenIds.length ? 'design' : 'select');
     setActiveAlbumId(id);
-    setNotice('הוסף את התמונות שייכנסו לאלבום');
+    setNotice(chosenIds.length
+      ? `${chosenIds.length} תמונות שובצו · האלבום מוכן לעריכה`
+      : 'בחרו את התמונות שייכנסו לאלבום');
+  }
+
+  function openAlbumSettings() {
+    setSettingsWidthCm(profile.closedWidthMm / 10);
+    setSettingsHeightCm(profile.closedHeightMm / 10);
+    setShowAlbumSettings(true);
+  }
+
+  function applyAlbumDimensions(widthCm = settingsWidthCm, heightCm = settingsHeightCm) {
+    if (widthCm < 10 || widthCm > 100 || heightCm < 10 || heightCm > 100) {
+      setNotice('המידות חייבות להיות בין 10 ל־100 ס״מ');
+      return;
+    }
+    const nextProfile = ensurePrintProfile(widthCm * 10, heightCm * 10, profile.id);
+    commitProject((current) => ({
+      ...current,
+      productProfileId: nextProfile.id,
+      spreads: current.spreads.map((candidate) => ({
+        ...candidate,
+        layoutId: 'balanced',
+        customSlots: undefined,
+        frameSettings: {},
+      })),
+    }));
+    setSelectedSlotIndex(null);
+    setNotice(`האלבום הותאם למידה ${widthCm}×${heightCm} ס״מ`);
+  }
+
+  function applyAlbumStyle(nextStyleName: string) {
+    const nonEmptySpreads = project.spreads.filter((candidate) => candidate.photoIds.length > 0);
+    if (!nonEmptySpreads.length) {
+      commitProject((current) => ({ ...current, styleName: nextStyleName }));
+      setNotice(`סגנון ${nextStyleName} יוחל כשיתווספו תמונות`);
+      return;
+    }
+    const hasLockedSpreads = nonEmptySpreads.some((candidate) => candidate.locked);
+    const restyled = hasLockedSpreads
+      ? buildAlbumFromGroups(
+        nonEmptySpreads.map((candidate) => candidate.photoIds),
+        photos,
+        profile.closedWidthMm / profile.closedHeightMm,
+        nextStyleName,
+      )
+      : buildAutomaticAlbum(
+        nonEmptySpreads.flatMap((candidate) => candidate.photoIds),
+        photos,
+        profile.closedWidthMm / profile.closedHeightMm,
+        nextStyleName,
+      );
+    let generatedIndex = 0;
+    commitProject((current) => ({
+      ...current,
+      styleName: nextStyleName,
+      activeSpreadId: hasLockedSpreads
+        ? current.activeSpreadId
+        : restyled[0]?.id ?? current.activeSpreadId,
+      spreads: hasLockedSpreads ? current.spreads.map((candidate) => {
+        if (!candidate.photoIds.length) return candidate;
+        const styled = restyled[generatedIndex++];
+        if (!styled || candidate.locked) return candidate;
+        return {
+          ...styled,
+          id: candidate.id,
+          pageStart: candidate.pageStart,
+          locked: candidate.locked,
+          status: candidate.status,
+        };
+      }) : restyled,
+    }));
+    setSelectedSlotIndex(null);
+    setSelectedPhotoId(null);
+    setNotice(hasLockedSpreads
+      ? `סגנון ${nextStyleName} הוחל · כפולות נעולות נשמרו`
+      : `סגנון ${nextStyleName} בנה מחדש את קצב האלבום ל־${restyled.length} כפולות`);
   }
 
   function closeAlbum() {
@@ -556,6 +722,7 @@ export default function AlbumStudio({ job, onBack }: {
     setActiveAlbumId(null);
     setSelectedSlotIndex(null);
     setSelectedPhotoId(null);
+    setTimelineRequested(false);
     setMode('organize');
   }
 
@@ -616,6 +783,7 @@ export default function AlbumStudio({ job, onBack }: {
       orderedIds,
       photos,
       profile.closedWidthMm / profile.closedHeightMm,
+      project.styleName,
     );
     commitProject((current) => ({
       ...current,
@@ -1159,6 +1327,7 @@ export default function AlbumStudio({ job, onBack }: {
         item.photoIds,
         photos,
         profile.closedWidthMm / profile.closedHeightMm,
+        project.styleName,
       );
       const generated = candidates.find((candidate) => candidate.id === item.layoutId)
         ?? candidates[0]
@@ -1234,8 +1403,9 @@ export default function AlbumStudio({ job, onBack }: {
       <AlbumLibrary
         albums={albums}
         profiles={printProfiles}
+        photos={job ? framesToPool(jobFiles.frames) : photos}
         onBack={onBack}
-        onOpen={(id) => { setHistoryPast([]); setHistoryFuture([]); setActiveAlbumId(id); }}
+        onOpen={(id) => { setHistoryPast([]); setHistoryFuture([]); setTimelineRequested(false); setActiveAlbumId(id); }}
         onCreate={createAlbum}
         onRename={(id, name) => {
           renameAlbum(id, name);
@@ -1299,6 +1469,37 @@ export default function AlbumStudio({ job, onBack }: {
     );
   }
 
+  if (mode === 'select') {
+    const currentPhotoIds = project.spreads.flatMap((spread) => spread.photoIds);
+    return (
+      <AlbumPhotoPicker
+        photos={photos}
+        albumName={project.name}
+        initialSelectedIds={currentPhotoIds}
+        onCancel={() => currentPhotoIds.length ? setMode('design') : closeAlbum()}
+        onContinue={(photoIds) => {
+          const spreads = buildAutomaticAlbum(
+            photoIds,
+            photos,
+            profile.closedWidthMm / profile.closedHeightMm,
+            project.styleName,
+          );
+          commitProject((current) => ({
+            ...current,
+            spreads,
+            activeSpreadId: spreads[0]?.id ?? current.activeSpreadId,
+          }));
+          setAlbumSelectedIds(new Set(photoIds));
+          setSelectionMode(false);
+          setSelectedPhotoId(null);
+          setSelectedSlotIndex(null);
+          setMode('design');
+          setNotice(`${photoIds.length} תמונות שובצו · האלבום מוכן לעריכה`);
+        }}
+      />
+    );
+  }
+
   // The timeline is the front door: full-bleed, its own header, none of the
   // export/proof chrome that only matters once there is an album to export.
   if (mode === 'timeline') {
@@ -1307,8 +1508,10 @@ export default function AlbumStudio({ job, onBack }: {
         <AlbumTimeline
           photos={photos}
           profile={profile}
+          styleName={project.styleName}
           initialOrder={project.spreads.flatMap((spread) => spread.photoIds)}
-          onAddPhotos={() => fileInput.current?.click()}
+          strictInitialOrder
+          onAddPhotos={() => job ? setMode('select') : fileInput.current?.click()}
           onCancel={closeAlbum}
           onBuild={(spreads) => {
             commitProject((current) => ({
@@ -1360,7 +1563,7 @@ export default function AlbumStudio({ job, onBack }: {
             {/* Pure entry point — when the timeline is active the studio takes
                 the full-bleed timeline branch above, so this is never "on" here. */}
             <button
-              onClick={() => setMode('timeline')}
+              onClick={() => { setTimelineRequested(true); setMode('timeline'); }}
               title="ציר הזמן — חלוקת התמונות לכפולות"
             >
               <IcSparkle size={15} />ציר הזמן
@@ -1382,29 +1585,63 @@ export default function AlbumStudio({ job, onBack }: {
           <span>{notice}</span>
         </div>
         <div className="album-actionbar-main">
-          <button className="album-action secondary" onClick={() => setShowPreview(true)}>
-            <IcEye size={17} />תצוגה מקדימה
-          </button>
-          <button
-            className="album-action secondary"
-            onClick={handleExportProof}
-            disabled={isExporting}
-          >
-            <IcDownload size={17} />{isExporting ? 'מייצא הגהה…' : 'ייצוא הגהה'}
-          </button>
-          <button
-            className="album-action print"
-            onClick={handlePrintExport}
-            disabled={isExporting || preflight.total > 0}
-            title={preflight.total > 0 ? 'יש להשלים את בדיקת הדפוס' : 'ייצוא קבצים מוכנים לדפוס'}
-          >
-            <IcDownload size={17} />ייצוא לדפוס
-          </button>
-          <button className="album-action secondary" onClick={openReviewWorkspace}>
-            שיתוף ואישור
-            {(project.reviewVersions?.some((item) => item.status === 'changes-requested')) && (
-              <span className="review-alert-dot" />
+          <div className="album-output">
+            <button
+              className="album-action secondary album-output-trigger"
+              aria-haspopup="menu"
+              aria-expanded={showOutputMenu}
+              onClick={() => setShowOutputMenu((current) => !current)}
+            >
+              <IcDownload size={17} />
+              תצוגה ומסירה
+              <IcChevron
+                size={13}
+                style={{ transform: showOutputMenu ? 'rotate(-90deg)' : 'rotate(90deg)' }}
+              />
+              {(project.reviewVersions?.some((item) => item.status === 'changes-requested')) && (
+                <span className="review-alert-dot" />
+              )}
+            </button>
+            {showOutputMenu && (
+              <div className="album-output-popover" role="menu">
+                <span className="album-output-label">בדיקה ומסירה</span>
+                <button role="menuitem" onClick={() => { setShowOutputMenu(false); setShowPreview(true); }}>
+                  <IcEye size={18} />
+                  <span><strong>תצוגה מקדימה</strong><small>מעבר על האלבום לפני המסירה</small></span>
+                </button>
+                <button
+                  role="menuitem"
+                  onClick={() => { setShowOutputMenu(false); void handleExportProof(); }}
+                  disabled={isExporting}
+                >
+                  <IcDownload size={18} />
+                  <span><strong>{isExporting ? 'מייצא הגהה…' : 'ייצוא הגהה'}</strong><small>קובץ לבדיקה ולאישור</small></span>
+                </button>
+                <button
+                  role="menuitem"
+                  onClick={() => { setShowOutputMenu(false); void handlePrintExport(); }}
+                  disabled={isExporting || preflight.total > 0}
+                  title={preflight.total > 0 ? 'יש להשלים את בדיקת הדפוס' : 'ייצוא קבצים מוכנים לדפוס'}
+                >
+                  <IcDownload size={18} />
+                  <span>
+                    <strong>ייצוא לדפוס</strong>
+                    <small>{preflight.total > 0 ? `${preflight.total} בעיות מונעות ייצוא` : 'קבצים מוכנים לבית הדפוס'}</small>
+                  </span>
+                </button>
+                <i className="album-output-rule" />
+                <button role="menuitem" onClick={() => { setShowOutputMenu(false); openReviewWorkspace(); }}>
+                  <IcCheck size={18} />
+                  <span><strong>שיתוף ואישור</strong><small>שליחה ללקוח ומעקב אחר הערות</small></span>
+                  {(project.reviewVersions?.some((item) => item.status === 'changes-requested')) && (
+                    <span className="review-alert-dot" />
+                  )}
+                </button>
+              </div>
             )}
+          </div>
+          <button className="album-action secondary" onClick={openAlbumSettings}>
+            <IcBook size={17} />הגדרות אלבום
           </button>
           <button className="album-action secondary" onClick={() => setShowCover(true)}>
             כריכה ושדרה
@@ -1423,11 +1660,13 @@ export default function AlbumStudio({ job, onBack }: {
       </header>
 
       <div className={`album-workspace ${mode}`}>
-        {mode === 'organize' && (
+        {showAlbumSettings && (
+        <div className="album-settings-backdrop">
         <aside className="album-settings-panel">
           <div className="album-panel-title">
             <IcBook size={18} />
             <span>הגדרות אלבום</span>
+            <button className="album-settings-close" onClick={() => setShowAlbumSettings(false)} aria-label="סגירה">×</button>
           </div>
 
           <label className="album-field-label">סוג אלבום</label>
@@ -1436,24 +1675,46 @@ export default function AlbumStudio({ job, onBack }: {
           </select>
 
           <div className="album-field-label">גודל סגור</div>
+          <div className="album-dimension-editor">
+            <label>
+              <span>רוחב בס״מ</span>
+              <input
+                type="number"
+                min="10"
+                max="100"
+                step="0.5"
+                value={settingsWidthCm}
+                onChange={(event) => setSettingsWidthCm(Number(event.target.value))}
+              />
+            </label>
+            <span aria-hidden="true">×</span>
+            <label>
+              <span>גובה בס״מ</span>
+              <input
+                type="number"
+                min="10"
+                max="100"
+                step="0.5"
+                value={settingsHeightCm}
+                onChange={(event) => setSettingsHeightCm(Number(event.target.value))}
+              />
+            </label>
+          </div>
+          <button className="album-apply-dimensions" onClick={() => applyAlbumDimensions()}>
+            החלת המידה
+          </button>
+          <div className="album-dimension-shortcuts-label">מידות שמורות</div>
           <div className="album-size-options">
             {printProfiles.map((item) => (
               <button
                 key={item.id}
                 className={item.id === profile.id ? 'on' : ''}
                 onClick={() => {
-                  commitProject((current) => ({
-                    ...current,
-                    productProfileId: item.id,
-                    spreads: current.spreads.map((candidate) => ({
-                      ...candidate,
-                      layoutId: 'balanced',
-                      customSlots: undefined,
-                      frameSettings: {},
-                    })),
-                  }));
-                  setSelectedSlotIndex(null);
-                  setNotice(`האלבום הותאם לפורמט ${item.name}`);
+                  const width = item.closedWidthMm / 10;
+                  const height = item.closedHeightMm / 10;
+                  setSettingsWidthCm(width);
+                  setSettingsHeightCm(height);
+                  applyAlbumDimensions(width, height);
                 }}
               >
                 {item.closedWidthMm / 10}×{item.closedHeightMm / 10} ס״מ
@@ -1463,11 +1724,15 @@ export default function AlbumStudio({ job, onBack }: {
           </div>
 
           <label className="album-field-label">סגנון</label>
-          <select className="album-select" value={project.styleName} onChange={(event) => commitProject({ ...project, styleName: event.target.value })}>
-            <option>Fine Art</option>
-            <option>נקי ומודרני</option>
-            <option>קלאסי</option>
+          <select className="album-select" value={project.styleName} onChange={(event) => applyAlbumStyle(event.target.value)}>
+            {ALBUM_STYLES.map((albumStyle) => (
+              <option key={albumStyle.id} value={albumStyle.id}>{albumStyle.label}</option>
+            ))}
           </select>
+          <small className="album-style-help">
+            {ALBUM_STYLES.find((albumStyle) => albumStyle.id === project.styleName)?.description}
+            {' · '}שינוי סגנון מסדר מחדש כפולות שאינן נעולות
+          </small>
 
           <div className="album-field-label">רקע הכפולה</div>
           <div className="album-palette">
@@ -1627,6 +1892,7 @@ export default function AlbumStudio({ job, onBack }: {
             </div>
           )}
         </aside>
+        </div>
         )}
 
         {mode === 'organize' ? (
@@ -1653,10 +1919,6 @@ export default function AlbumStudio({ job, onBack }: {
               <strong>עמודים {spread.pageStart}–{spread.pageStart + 1}</strong>
               <span>מתוך {project.spreads.length * 2 + 1}</span>
               <button onClick={() => setActiveSpread(spreadIndex + 1)} disabled={spreadIndex === project.spreads.length - 1} aria-label="כפולה הבאה"><IcChevron size={16} style={{ transform: 'rotate(180deg)' }} /></button>
-              <button onClick={addSpread}>+ כפולה</button>
-              <button onClick={() => moveSpread(-1)} disabled={spreadIndex === 0}>הזזה אחורה</button>
-              <button onClick={() => moveSpread(1)} disabled={spreadIndex === project.spreads.length - 1}>הזזה קדימה</button>
-              <button className="remove-spread" onClick={removeSpread}>מחיקה</button>
             </div>
             <div className="album-canvas-tools">
               <button onClick={addFrame} title="הוסף מסגרת חדשה — אפשר להניח אחת על השנייה"><IcGallery size={16} />+ מסגרת</button>
@@ -1912,6 +2174,46 @@ export default function AlbumStudio({ job, onBack }: {
             </div>
           </section>
         </main>
+
+        <aside className="album-spread-navigator" aria-label="כפולות האלבום">
+          <header>
+            <div>
+              <strong>כפולות</strong>
+              <span>{project.spreads.length}</span>
+            </div>
+            <button onClick={addSpread} aria-label="הוספת כפולה">+</button>
+          </header>
+          <div className="album-spread-nav-list">
+            {project.spreads.map((candidate, index) => (
+              <button
+                key={candidate.id}
+                className={`album-spread-nav-item${index === spreadIndex ? ' active' : ''}`}
+                onClick={() => setActiveSpread(index)}
+                aria-label={`פתיחת עמודים ${candidate.pageStart}–${candidate.pageStart + 1}`}
+              >
+                <span className="album-spread-nav-number">{index + 1}</span>
+                <span className="album-spread-nav-preview">
+                  <SpreadThumb
+                    spread={candidate}
+                    photos={photos}
+                    profile={profile}
+                    styleName={project.styleName}
+                    showPageNumbers={false}
+                  />
+                </span>
+                <span className="album-spread-nav-meta">
+                  <b>עמ׳ {candidate.pageStart}–{candidate.pageStart + 1}</b>
+                  <small>{candidate.photoIds.length} תמונות</small>
+                </span>
+              </button>
+            ))}
+          </div>
+          <footer>
+            <button onClick={() => moveSpread(-1)} disabled={spreadIndex === 0}>הזזה למעלה</button>
+            <button onClick={() => moveSpread(1)} disabled={spreadIndex === project.spreads.length - 1}>הזזה למטה</button>
+            <button className="danger" onClick={removeSpread}>מחיקת כפולה</button>
+          </footer>
+        </aside>
 
         <aside className="album-layout-panel">
         {selectedSlot && selectedFrameSettings ? (

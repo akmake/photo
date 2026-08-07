@@ -20,7 +20,9 @@ import { IcBook, IcGallery, IcSparkle, IcUpload } from '../design/Icons';
 interface Props {
   photos: AlbumPhoto[];
   profile: PrintProductProfile;
+  styleName?: string;
   initialOrder?: string[];
+  strictInitialOrder?: boolean;
   onBuild(spreads: AlbumSpread[]): void;
   onDesignSpread(spreads: AlbumSpread[], index: number): void;
   onCancel(): void;
@@ -28,7 +30,8 @@ interface Props {
 }
 
 export default function AlbumTimeline({
-  photos, profile, initialOrder, onBuild, onDesignSpread, onCancel, onAddPhotos,
+  photos, profile, styleName, initialOrder, strictInitialOrder = false,
+  onBuild, onDesignSpread, onCancel, onAddPhotos,
 }: Props) {
   const pageAspect = profile.closedWidthMm / profile.closedHeightMm;
   const byId = useMemo(() => new Map(photos.map((p) => [p.id, p])), [photos]);
@@ -36,6 +39,7 @@ export default function AlbumTimeline({
   const [order, setOrder] = useState<string[]>(() => {
     const known = new Set(photos.map((p) => p.id));
     const seeded = (initialOrder ?? []).filter((id) => known.has(id));
+    if (strictInitialOrder) return seeded;
     const rest = photos.map((p) => p.id).filter((id) => !seeded.includes(id));
     return [...seeded, ...rest];
   });
@@ -44,20 +48,21 @@ export default function AlbumTimeline({
     setOrder((prev) => {
       const known = new Set(photos.map((p) => p.id));
       const kept = prev.filter((id) => known.has(id));
+      if (strictInitialOrder) return kept;
       const added = photos.map((p) => p.id).filter((id) => !kept.includes(id));
       if (!added.length && kept.length === prev.length) return prev;
       return [...kept, ...added];
     });
-  }, [photos]);
+  }, [photos, strictInitialOrder]);
 
-  const [cuts, setCuts] = useState<number[]>(() => autoCuts(order.length));
+  const [cuts, setCuts] = useState<number[]>(() => autoCuts(order.length, styleName));
   const [dragId, setDragId] = useState<string | null>(null);
   const [overId, setOverId] = useState<string | null>(null);
 
   const groups = useMemo(() => groupsFromCuts(order, cuts), [order, cuts]);
   const spreads = useMemo(
-    () => buildAlbumFromGroups(groups, photos, pageAspect),
-    [groups, photos, pageAspect],
+    () => buildAlbumFromGroups(groups, photos, pageAspect, styleName),
+    [groups, photos, pageAspect, styleName],
   );
 
   const cutSet = useMemo(() => new Set(cuts), [cuts]);
@@ -68,7 +73,7 @@ export default function AlbumTimeline({
     setCuts((prev) => prev.filter((c) => c !== globalIndex));
   }
   function repace() {
-    setCuts(autoCuts(order.length));
+    setCuts(autoCuts(order.length, styleName));
   }
   function movePhoto(fromId: string, targetId: string | null) {
     if (fromId === targetId) return;
@@ -83,7 +88,7 @@ export default function AlbumTimeline({
     });
   }
 
-  if (!photos.length) {
+  if (!order.length) {
     return (
       <div className="abm">
         <div className="abm-blank">
@@ -116,7 +121,7 @@ export default function AlbumTimeline({
         </button>
         <div className="abm-title">
           <h1>האלבום</h1>
-          <span className="abm-sub">{photos.length} תמונות · {groups.length} כפולות</span>
+          <span className="abm-sub">{order.length} תמונות · {groups.length} כפולות</span>
         </div>
         <span className="abm-spacer" />
         <button className="abm-ghost" onClick={repace} title="החזר את החלוקה לקצב המומלץ">
@@ -164,6 +169,7 @@ export default function AlbumTimeline({
                   spread={spreads[gi]}
                   photos={photos}
                   profile={profile}
+                  styleName={styleName}
                   showPageNumbers
                 />
               </button>
@@ -176,7 +182,7 @@ export default function AlbumTimeline({
       <div className="abm-strip">
         <div className="abm-strip-head">
           <b>התמונות</b>
-          <span className="abm-strip-n">{photos.length}</span>
+          <span className="abm-strip-n">{order.length}</span>
           <span className="abm-spacer" />
           <span className="abm-strip-hint">גרור לסידור · לחץ בין תמונות לפצל, על הקו לאחד</span>
           <button className="abm-ghost" onClick={onAddPhotos}>
