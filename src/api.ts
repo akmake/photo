@@ -371,6 +371,31 @@ export async function applyAiTool(
   return r.json();
 }
 
+/** Visual fingerprints for a set — the album's קליטה stage.
+ *
+ * One 384-d DINOv2 vector per frame, computed and cached by the engine off the
+ * files on disk. Called with a CHUNK of paths at a time so the screen can count
+ * in items and cancel between chunks; cached frames return instantly. A 503
+ * means the model was never fetched (run setup_models.py) — surfaced, not
+ * swallowed, so "not installed" never reads as "no photos". */
+export interface AlbumEmbedResult {
+  results: { path: string; ok: boolean; cached?: boolean; error?: string }[];
+  embedded: number;
+  cached: number;
+  dim: number;
+}
+
+export async function embedAlbum(paths: string[]): Promise<AlbumEmbedResult> {
+  const r = await fetch(`${ENGINE}/album/embed`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ paths }),
+  });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j?.error ?? `engine ${r.status}`);
+  return j;
+}
+
 /** List the image files in a folder on disk.
  *
  * The browser cannot enumerate a directory, and a batch screen needs the real

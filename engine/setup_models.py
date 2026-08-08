@@ -49,13 +49,17 @@ MODELS = {
 }
 
 # name -> (source file it is exported from, export_onnx model id)
+#
+# `source` is None when the exporter fetches its own weights: DINOv2 comes from
+# torch.hub, not from a file in models/, so there is nothing to download first.
 DERIVED = {
     "abpn_unet.onnx": ("pytorch_model.pt", "abpn"),
+    "dinov2_vits14.onnx": (None, "dinov2"),
 }
 
 
 def _derive(name, source, model_id):
-    """Export a graph from downloaded weights. Needs torch; dev machines have it.
+    """Export a graph from weights. Needs torch; dev machines have it.
 
     A failure here is loud on purpose. The old behaviour when a model file was
     absent was for the tool to return `{"error": "weights missing"}` into a meta
@@ -64,9 +68,14 @@ def _derive(name, source, model_id):
     """
     import export_onnx
 
-    print(f"exporting {name} from {source} ...")
+    print(f"exporting {name} from {source or 'torch.hub'} ...")
     try:
-        export_onnx.export_abpn(17)
+        if model_id == "abpn":
+            export_onnx.export_abpn(17)
+        elif model_id == "dinov2":
+            export_onnx.export_dinov2(17)
+        else:
+            raise SystemExit(f"cannot export {name}: unknown model id {model_id!r}")
     except ImportError as e:
         raise SystemExit(
             f"cannot export {name}: {e}\n"
@@ -91,7 +100,7 @@ if __name__ == "__main__":
         if os.path.exists(dest):
             print(f"skip {name} (already present)")
             continue
-        if not os.path.exists(os.path.join(MODELS_DIR, source)):
+        if source is not None and not os.path.exists(os.path.join(MODELS_DIR, source)):
             raise SystemExit(f"cannot export {name}: {source} was not downloaded")
         _derive(name, source, model_id)
         print(f"  {os.path.getsize(dest) / 1e6:.1f} MB")

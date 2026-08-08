@@ -16,7 +16,7 @@
  */
 
 import { useState } from 'react';
-import { listImages, pickFolder, thumbUrl } from '../api';
+import { embedAlbum, listImages, pickFolder, thumbUrl } from '../api';
 import { IcChevron, IcFolderOpen, IcSparkle } from '../design/Icons';
 
 type Status = 'idle' | 'loading' | 'ready' | 'error';
@@ -42,11 +42,20 @@ function baseName(path: string): string {
   return path.split(/[\\/]/).pop() ?? path;
 }
 
+// The קליטה run — real progress over the set, counted in items. `null` until it
+// is started; `done` when every frame carries a vector.
+type Ingest = { phase: 'running' | 'done'; done: number; total: number; failed: number };
+
+// One HTTP call per chunk so the counter moves and a cancel can land between them.
+const INGEST_CHUNK = 8;
+
 export default function AlbumAI({ onBack }: { onBack: () => void }) {
   const [status, setStatus] = useState<Status>('idle');
   const [folder, setFolder] = useState<string | null>(null);
   const [files, setFiles] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [ingest, setIngest] = useState<Ingest | null>(null);
+  const [ingestError, setIngestError] = useState<string | null>(null);
 
   async function choose() {
     let picked: string | null;
@@ -62,6 +71,8 @@ export default function AlbumAI({ onBack }: { onBack: () => void }) {
     setFolder(picked);
     setStatus('loading');
     setError(null);
+    setIngest(null); // a new folder starts with no fingerprints
+    setIngestError(null);
     try {
       const { files: found } = await listImages(picked);
       setFiles(found);
@@ -72,9 +83,37 @@ export default function AlbumAI({ onBack }: { onBack: () => void }) {
     }
   }
 
-  // Only the first stage lights up, and only once a folder is actually read.
-  // The rest wear "בבנייה" because they are — no invented progress.
-  const activeStage = status === 'ready' && files.length ? 'ingest' : null;
+  async function runIngest() {
+    setIngestError(null);
+    setIngest({ phase: 'running', done: 0, total: files.length, failed: 0 });
+    let done = 0;
+    let failed = 0;
+    try {
+      for (let i = 0; i < files.length; i += INGEST_CHUNK) {
+        const chunk = files.slice(i, i + INGEST_CHUNK);
+        const r = await embedAlbum(chunk);
+        done += r.results.length;
+        failed += r.results.filter((x) => !x.ok).length;
+        setIngest({ phase: 'running', done, total: files.length, failed });
+      }
+      setIngest({ phase: 'done', done, total: files.length, failed });
+    } catch (e) {
+      // A 503 here means the model was never fetched — say so, do not pretend the
+      // run finished. The partial progress stays on screen.
+      setIngestError((e as Error).message);
+      setIngest(null);
+    }
+  }
+
+  // The pipeline's first stage is the only real one; the rest SAY "בבנייה".
+  // קליטה moves through ready → running → done as the fingerprints come in.
+  function stageStatus(id: string): { label: string; cls: string } {
+    if (id !== 'ingest') return { label: 'בבנייה', cls: 'pill-idle' };
+    if (ingest?.phase === 'done') return { label: 'הושלם', cls: 'pill-ok' };
+    if (ingest?.phase === 'running') return { label: 'פעיל', cls: 'pill-run' };
+    if (status === 'ready' && files.length) return { label: 'מוכן', cls: '' };
+    return { label: 'בבנייה', cls: 'pill-idle' };
+  }
 
   return (
     <div className="albumx">
@@ -101,17 +140,16 @@ export default function AlbumAI({ onBack }: { onBack: () => void }) {
           <p className="label">הצנרת</p>
           <ol className="albumx-stages">
             {PIPELINE.map((s, i) => {
-              const on = s.id === activeStage;
+              const st = stageStatus(s.id);
+              const live = st.cls === 'pill-run' || st.cls === 'pill-ok';
               return (
-                <li key={s.id} className={`albumx-stage ${on ? 'on' : ''}`}>
+                <li key={s.id} className={`albumx-stage ${live ? 'on' : ''}`}>
                   <span className="albumx-step">{i + 1}</span>
                   <div className="albumx-stage-copy">
                     <b>{s.label}</b>
                     <small>{s.note}</small>
                   </div>
-                  <span className={`pill ${on ? 'pill-run' : 'pill-idle'}`}>
-                    {on ? 'פעיל' : 'בבנייה'}
-                  </span>
+                  <span className={`pill ${st.cls}`}>{st.label}</span>
                 </li>
               );
             })}
@@ -161,6 +199,31 @@ export default function AlbumAI({ onBack }: { onBack: () => void }) {
                   <b className="figure">{files.length}</b> תמונות
                 </p>
               </div>
+
+              {files.length > 0 && (
+                <div className="albumx-ingest">
+                  {ingest?.phase === 'done' ? (
+                    <p className="albumx-ingest-done">
+                      קליטה הושלמה — <b>{ingest.done}</b> פריימים הוטבעו
+                      {ingest.failed ? ` · ${ingest.failed} נכשלו` : ''}. הצנרת מוכנה
+                      לשלב הבא.
+                    </p>
+                  ) : ingest?.phase === 'running' ? (
+                    <p className="albumx-ingest-run">
+                      <span className="dot-live" />
+                      קולט… <b>{ingest.done}</b>/{ingest.total}
+                    </p>
+                  ) : (
+                    <button className="btn btn-primary" onClick={runIngest}>
+                      <IcSparkle size={16} />
+                      הרץ קליטה — טביעת אצבע ויזואלית
+                    </button>
+                  )}
+                  {ingestError && (
+                    <p className="albumx-fault mono" dir="ltr">{ingestError}</p>
+                  )}
+                </div>
+              )}
 
               {files.length === 0 ? (
                 <p className="albumx-note">לא נמצאו תמונות בתיקייה הזאת.</p>

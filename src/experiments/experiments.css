@@ -340,6 +340,36 @@
   margin-inline-end: 4px;
 }
 
+/* The קליטה runner — one button, then a live counter, then the honest result. */
+.albumx-ingest {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2);
+  margin-bottom: var(--s5);
+}
+
+.albumx-ingest-run {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s2);
+  color: var(--st-wait-ink);
+  font-family: var(--font-display);
+  font-weight: var(--fw-med);
+}
+
+.albumx-ingest-run b {
+  font-variant-numeric: tabular-nums;
+}
+
+.albumx-ingest-done {
+  color: var(--ink-2);
+}
+
+.albumx-ingest-done b {
+  color: var(--ink);
+  font-family: var(--font-display);
+}
+
 .albumx-shelf {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));

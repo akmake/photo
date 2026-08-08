@@ -58,6 +58,7 @@ import recipe_fit
 import pixel_color
 import album_analysis
 import album_export
+import embed
 import workspace
 import cloud_sources
 import storage_locations
@@ -787,6 +788,9 @@ class Handler(BaseHTTPRequestHandler):
         if self.path == "/album/finalize-jpeg":
             self._album_finalize_jpeg()
             return
+        if self.path == "/album/embed":
+            self._album_embed()
+            return
         parts = self.path.strip("/").split("/")
         if len(parts) == 3 and parts[0] == "tools" and parts[2] == "apply":
             tool_id = parts[1]
@@ -1500,6 +1504,46 @@ if ($path) {
                 else common.b64_to_image(body["image"])
             )
             self._json(200, on_worker(album_analysis.analyze, image))
+        except Exception as e:  # noqa: BLE001
+            self._json(500, {"error": str(e)})
+
+    def _album_embed(self):
+        """Visual fingerprints for a set. { paths:[...] } -> per-path results.
+
+        The first stage of the auto-album: a 384-d DINOv2 vector per frame, the
+        ground everything downstream (dedup, moments, hero) stands on. Called
+        with a CHUNK of paths at a time so the UI shows a real counter in items,
+        not a spinner, and a cancel between chunks means something. Cached
+        vectors come back instantly; the first pass pays DINOv2 once per frame,
+        and never again unless the file changes.
+
+        A missing model is a fact about the whole run, not a per-file failure:
+        it answers 503 once (run setup_models.py) instead of N identical errors.
+        The pixels never cross the wire — the engine opens each file itself and
+        stores only the 384 floats.
+        """
+        try:
+            body = self._body()
+            paths = body.get("paths", [])
+            results = []
+            embedded = cached = 0
+            for p in paths:
+                try:
+                    _, was_cached = on_worker(embed.embed_path, p)
+                    results.append({"path": p, "ok": True, "cached": was_cached})
+                    if was_cached:
+                        cached += 1
+                    else:
+                        embedded += 1
+                except embed.ModelMissing as e:
+                    self._json(503, {"error": str(e)})
+                    return
+                except Exception as e:  # noqa: BLE001 — one bad frame, not the set
+                    results.append({"path": p, "ok": False, "error": str(e)})
+            self._json(
+                200,
+                {"results": results, "embedded": embedded, "cached": cached, "dim": embed.DIM},
+            )
         except Exception as e:  # noqa: BLE001
             self._json(500, {"error": str(e)})
 

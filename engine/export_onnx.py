@@ -70,6 +70,43 @@ def export_abpn(opset: int) -> str:
     return dst
 
 
+def export_dinov2(opset: int) -> str:
+    """DINOv2 ViT-S/14 -> models/dinov2_vits14.onnx.
+
+    Unlike abpn, the weights are not a file in models/: torch.hub fetches both the
+    model code and the pretrained checkpoint (Apache 2.0, ungated) on this dev
+    machine, and only the exported graph is kept. The engine then runs it on
+    onnxruntime with no torch, exactly like MiDaS.
+
+    The graph takes a 1x3x224x224 ImageNet-normalised tensor and returns the CLS
+    embedding, 1x384. Batch is left dynamic so a later stage can embed several
+    frames in one call without a re-export.
+    """
+    import torch
+
+    dst = os.path.join(MODELS, "dinov2_vits14.onnx")
+    print(f"  loading facebookresearch/dinov2:dinov2_vits14 via torch.hub ...")
+    net = torch.hub.load("facebookresearch/dinov2", "dinov2_vits14", trust_repo=True)
+    net.eval()
+    dummy = torch.randn(1, 3, 224, 224)
+
+    print(f"  target  {dst}")
+    print(f"  input   {tuple(dummy.shape)}  opset {opset}")
+
+    torch.onnx.export(
+        net,
+        dummy,
+        dst,
+        input_names=["input"],
+        output_names=["embedding"],
+        opset_version=opset,
+        do_constant_folding=True,
+        dynamo=False,
+        dynamic_axes={"input": {0: "batch"}, "embedding": {0: "batch"}},
+    )
+    return dst
+
+
 def smoke(dst: str, shape, runs: int = 3):
     """Same tensors through both engines. Catches a broken export, not a subtle one.
 
@@ -106,17 +143,54 @@ def smoke(dst: str, shape, runs: int = 3):
     return worst
 
 
+def smoke_dinov2(dst: str, runs: int = 3):
+    """Same tensors through torch and onnxruntime. A graph-correctness check —
+    it catches a broken export, and 384-d cosine ≈ 1.0 is what a good one looks
+    like even on random input, which is a coarser bar than a face-image parity."""
+    import torch
+
+    net = torch.hub.load("facebookresearch/dinov2", "dinov2_vits14", trust_repo=True)
+    net.eval()
+
+    import onnxruntime as ort
+
+    sess = ort.InferenceSession(dst, providers=["CPUExecutionProvider"])
+    in_name = sess.get_inputs()[0].name
+    out_name = sess.get_outputs()[0].name
+
+    worst = 0.0
+    rng = np.random.default_rng(0)
+    for i in range(runs):
+        x = rng.standard_normal((1, 3, 224, 224), dtype=np.float32)
+        with torch.no_grad():
+            want = net(torch.from_numpy(x)).numpy().reshape(-1)
+        got = np.asarray(sess.run([out_name], {in_name: x})[0]).reshape(-1)
+        cos = float(want @ got / (np.linalg.norm(want) * np.linalg.norm(got) + 1e-9))
+        d = float(np.abs(got - want).max())
+        worst = max(worst, d)
+        print(f"  random {i + 1}/{runs}   cosine {cos:.5f}   max |delta| {d:.3e}")
+
+    size_mb = os.path.getsize(dst) / (1 << 20)
+    print(f"\n  {os.path.basename(dst)}  {size_mb:.1f} MB   worst delta {worst:.3e}")
+    return worst
+
+
 def main():
     p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    p.add_argument("model", choices=("abpn",))
+    p.add_argument("model", choices=("abpn", "dinov2"))
     p.add_argument("--opset", type=int, default=17)
     args = p.parse_args()
 
     print(f"exporting {args.model}")
-    dst = export_abpn(args.opset)
-    print("\nsmoke test - random tensors through both engines")
-    smoke(dst, (1, 3, ABPN_TILE, ABPN_TILE))
-    print("\nNow run the real gate:  python test_onnx_parity.py check")
+    if args.model == "abpn":
+        dst = export_abpn(args.opset)
+        print("\nsmoke test - random tensors through both engines")
+        smoke(dst, (1, 3, ABPN_TILE, ABPN_TILE))
+        print("\nNow run the real gate:  python test_onnx_parity.py check")
+    else:
+        dst = export_dinov2(args.opset)
+        print("\nsmoke test - random tensors through both engines")
+        smoke_dinov2(dst)
 
 
 if __name__ == "__main__":
