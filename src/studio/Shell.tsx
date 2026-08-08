@@ -3,7 +3,7 @@ import type { ReactNode } from 'react';
 import { SECTIONS, STAGES } from './nav';
 import type { SectionId, StageId } from './nav';
 import {
-  IcBook, IcCalendar, IcFilter, IcFolder, IcGallery, IcGear,
+  IcBook, IcCalendar, IcFilter, IcFlask, IcFolder, IcGallery, IcGear,
   IcHeart, IcHome, IcSliders, IcSparkle, IcUpload, IcUsers,
 } from '../design/Icons';
 
@@ -11,7 +11,7 @@ const ICONS: Record<string, (p: { size?: number }) => JSX.Element> = {
   home: IcHome, folder: IcFolder, users: IcUsers, calendar: IcCalendar,
   gear: IcGear, gallery: IcGallery, filter: IcFilter, sliders: IcSliders,
   book: IcBook, upload: IcUpload, heart: IcHeart, lab: IcSparkle,
-  compare: IcFilter,
+  flask: IcFlask, compare: IcFilter,
 };
 
 export function Icon({ name, size = 18 }: { name: string; size?: number }) {

@@ -19,6 +19,13 @@
  * finished. It sits LAST, next to settings, because it is a workshop and not a
  * place the day passes through.
  *
+ * A SECOND item breaks the rule the same way: כלים בניסיון. It is the room where
+ * a whole new capability is built and tried before it earns a place inside a
+ * project — decoupled from the working tools on purpose, so a half-built feature
+ * can never touch a real job's files. Its first resident is the AI album. It
+ * sits beside the lab, because both are workshops and not places the day passes
+ * through.
+ *
  * There is deliberately no "tasks" item: a task always belongs to a project or a
  * client, so it lives in Today's queue and inside the project. A six-item rail
  * stays readable; a twelve-item one does not.
@@ -31,6 +38,7 @@ export type SectionId =
   | 'project'
   | 'clients'
   | 'calendar'
+  | 'experiments'
   | 'lab'
   | 'settings'
   /* Not rail destinations. Still reachable by hash while the screens that will
@@ -66,6 +74,7 @@ export const SECTIONS: SectionDef[] = [
   { id: 'clients', label: 'לקוחות', icon: 'users' },
   { id: 'calendar', label: 'יומן', icon: 'calendar' },
   { id: 'lab', label: 'מעבדה', icon: 'lab' },
+  { id: 'experiments', label: 'כלים בניסיון', icon: 'flask' },
   { id: 'settings', label: 'הגדרות', icon: 'gear', foot: true },
 ];
 

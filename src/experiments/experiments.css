@@ -1,0 +1,374 @@
+/* כלים בניסיון — the experimental-tools room and its first resident, the AI
+ * album. Stays on the LIGHT business surface (the album module moved off the
+ * dark editing wall on purpose), and spends nothing on colour it did not earn:
+ * one copper accent for the experimental flag, the rest is the room. */
+
+/* ===================================================================== hub */
+
+.exp {
+  height: 100%;
+  padding: var(--s10) var(--s8) var(--s16);
+  max-width: 1100px;
+  margin-inline: auto;
+}
+
+.exp-head {
+  margin-bottom: var(--s8);
+}
+
+.exp-head h1 {
+  font-size: var(--t-3xl);
+  margin: var(--s2) 0;
+}
+
+.exp-lede {
+  color: var(--ink-3);
+  max-width: 62ch;
+  font-size: var(--t-lg);
+  line-height: 1.55;
+}
+
+.exp-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: var(--s5);
+}
+
+/* A card is a lit surface, and it is a button — the whole tile opens the tool. */
+.exp-card {
+  position: relative;
+  text-align: right;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2);
+  padding: var(--s6);
+  border-radius: var(--r-lg);
+  background: var(--face);
+  box-shadow: var(--lit), var(--key-2);
+  transition:
+    box-shadow var(--d-2) var(--ease),
+    transform var(--d-2) var(--ease);
+}
+
+.exp-card:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--lit), var(--key-3);
+}
+
+.exp-card:active {
+  transform: translateY(0);
+}
+
+.exp-badge {
+  position: absolute;
+  inset-inline-start: var(--s6);
+  top: var(--s6);
+  height: 22px;
+  padding: 0 var(--s2);
+  display: inline-flex;
+  align-items: center;
+  border-radius: var(--r-xs);
+  background: var(--brand-wash);
+  color: var(--brand-ink);
+  font-family: var(--font-display);
+  font-size: var(--t-xs);
+  font-weight: var(--fw-semi);
+}
+
+.exp-card-mark {
+  width: 46px;
+  height: 46px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--r);
+  background: var(--brand-wash);
+  color: var(--brand-ink);
+  margin-bottom: var(--s2);
+}
+
+.exp-card h2 {
+  font-size: var(--t-2xl);
+}
+
+.exp-card-tag {
+  color: var(--brand-ink);
+  font-weight: var(--fw-semi);
+  font-size: var(--t-sm);
+}
+
+.exp-card-blurb {
+  color: var(--ink-3);
+  line-height: 1.6;
+}
+
+.exp-open {
+  margin-top: var(--s3);
+  color: var(--ink-2);
+  font-family: var(--font-display);
+  font-weight: var(--fw-med);
+}
+
+/* =============================================================== the AI album */
+
+.albumx {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.albumx-top {
+  display: flex;
+  align-items: center;
+  gap: var(--s4);
+  padding: var(--s4) var(--s6);
+  border-bottom: 1px solid var(--line);
+}
+
+.albumx-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--ink-3);
+  font-family: var(--font-display);
+  font-weight: var(--fw-med);
+}
+
+.albumx-back:hover {
+  color: var(--ink);
+}
+
+.albumx-title {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  margin-inline-start: var(--s2);
+}
+
+.albumx-title h1 {
+  font-size: var(--t-2xl);
+}
+
+.albumx-mark {
+  width: 34px;
+  height: 34px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--r-sm);
+  background: var(--brand-wash);
+  color: var(--brand-ink);
+}
+
+.albumx-flag {
+  height: 22px;
+  padding: 0 var(--s2);
+  display: inline-flex;
+  align-items: center;
+  border-radius: var(--r-xs);
+  background: var(--cyc-150);
+  color: var(--ink-3);
+  font-family: var(--font-display);
+  font-size: var(--t-xs);
+  font-weight: var(--fw-semi);
+}
+
+.albumx-choose {
+  margin-inline-start: auto;
+}
+
+.albumx-body {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+}
+
+/* The pipeline, down the inside edge. A roadmap, not a status board. */
+.albumx-rail {
+  width: 288px;
+  flex-shrink: 0;
+  padding: var(--s5);
+  border-inline-start: 1px solid var(--line);
+  overflow-y: auto;
+}
+
+.albumx-rail .label {
+  margin-bottom: var(--s3);
+}
+
+.albumx-stages {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2);
+}
+
+.albumx-stage {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--s3);
+  padding: var(--s3);
+  border-radius: var(--r-sm);
+  background: var(--card-2);
+}
+
+.albumx-stage.on {
+  background: var(--st-wait-wash);
+}
+
+.albumx-step {
+  width: 24px;
+  height: 24px;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--r-full);
+  background: var(--card);
+  box-shadow: var(--lit), var(--key-1);
+  font-family: var(--font-display);
+  font-weight: var(--fw-bold);
+  font-size: var(--t-sm);
+  color: var(--ink-3);
+}
+
+.albumx-stage.on .albumx-step {
+  color: var(--st-wait-ink);
+}
+
+.albumx-stage-copy {
+  flex: 1;
+  min-width: 0;
+}
+
+.albumx-stage-copy b {
+  font-family: var(--font-display);
+  display: block;
+}
+
+.albumx-stage-copy small {
+  color: var(--ink-3);
+  font-size: var(--t-xs);
+  line-height: 1.4;
+}
+
+.albumx-stage .pill {
+  margin-top: 2px;
+}
+
+.albumx-main {
+  flex: 1;
+  padding: var(--s6);
+}
+
+/* Empty and error share a shape but never a message. */
+.albumx-empty {
+  max-width: 46ch;
+  margin: var(--s16) auto 0;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--s3);
+}
+
+.albumx-empty-mark {
+  width: 66px;
+  height: 66px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--r-lg);
+  background: var(--brand-wash);
+  color: var(--brand-ink);
+}
+
+.albumx-empty h2 {
+  font-size: var(--t-2xl);
+}
+
+.albumx-empty p {
+  color: var(--ink-3);
+  line-height: 1.6;
+}
+
+.albumx-empty .btn {
+  margin-top: var(--s2);
+}
+
+.albumx-fault {
+  color: var(--flag-ink);
+  font-size: var(--t-sm);
+  word-break: break-word;
+}
+
+.albumx-note {
+  color: var(--ink-3);
+  padding: var(--s8) 0;
+  text-align: center;
+}
+
+.albumx-folderbar {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--s4);
+  padding-bottom: var(--s4);
+  margin-bottom: var(--s5);
+  border-bottom: 1px solid var(--line);
+}
+
+.albumx-folder {
+  min-width: 0;
+}
+
+.albumx-path {
+  color: var(--ink-2);
+  font-size: var(--t-sm);
+  word-break: break-all;
+}
+
+.albumx-count {
+  color: var(--ink-3);
+  white-space: nowrap;
+}
+
+.albumx-count .figure {
+  font-size: var(--t-xl);
+  color: var(--ink);
+  margin-inline-end: 4px;
+}
+
+.albumx-shelf {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: var(--s4);
+}
+
+.albumx-photo {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.albumx-photo img {
+  width: 100%;
+  aspect-ratio: 1;
+  object-fit: cover;
+}
+
+.albumx-photo figcaption {
+  font-size: 11px;
+  color: var(--ink-4);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* On a narrow window the roadmap yields to the photographs. */
+@media (max-width: 900px) {
+  .albumx-rail {
+    display: none;
+  }
+}

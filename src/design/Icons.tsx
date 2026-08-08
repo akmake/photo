@@ -227,3 +227,12 @@ export const IcExpand = ({ size, className, style }: P) => (
     <path d="M9 4.5H4.5V9M15 4.5h4.5V9M9 19.5H4.5V15M15 19.5h4.5V15" />
   </svg>
 );
+
+/** A lab flask — the experimental-tools room, where a capability is tried
+ *  before it earns a place inside a project. */
+export const IcFlask = ({ size, className, style }: P) => (
+  <svg {...base(size)} className={className} style={style}>
+    <path d="M9.5 3h5M10.5 3v6L5.2 17.4A2 2 0 0 0 6.9 20.5h10.2a2 2 0 0 0 1.7-3.1L13.5 9V3" />
+    <path d="M7.6 14h8.8" />
+  </svg>
+);
