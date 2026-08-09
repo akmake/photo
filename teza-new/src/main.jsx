@@ -34,6 +34,7 @@ const assetNav = [
 function Sidebar() {
   return (
     <aside className="sidebar">
+      <div className="brand"><span>tz</span><strong>TEZA</strong><small>STUDIO</small></div>
       <div className="account">
         <span className="account-avatar">י</span>
         <span><strong>יוסי</strong><small>הסטודיו שלי</small></span>
@@ -60,17 +61,26 @@ function Sidebar() {
       </nav>
 
       <button className="help"><Icon name="help" /><span>מרכז העזרה</span></button>
-      <small className="legal">תנאי שימוש · פרטיות</small>
+      <small className="legal">תצוגת דמו · תנאי שימוש · פרטיות</small>
     </aside>
   );
 }
 
-function ProjectPlaceholder({ muted = false }) {
+const projects = [
+  { image: '/images/wedding-field.webp', title: 'נועה ואורי', kind: 'חתונת שטח', meta: '428 תמונות · עודכן היום', tone: 'gold' },
+  { image: '/images/editorial-portrait.webp', title: 'Lumen / מערכת', kind: 'דיוקן מסחרי', meta: '86 תמונות · לפני שעה', tone: 'ink' },
+  { image: '/images/family-coast.webp', title: 'משפחת רז', kind: 'צילומי משפחה', meta: '214 תמונות · אתמול', tone: 'sea' },
+];
+
+function ProjectCard({ project }) {
   return (
-    <button className={`project-card ${muted ? 'muted' : ''}`}>
-      <span className="project-preview"><Icon name={muted ? 'image' : 'plus'} size={20} /></span>
-      <strong>{muted ? 'העבודות שלך יופיעו כאן' : 'פרויקט חדש'}</strong>
-      <small>{muted ? 'עדיין לא נוצרו פרויקטים' : 'פתיחת סביבת עבודה חדשה'}</small>
+    <button className={`project-card ${project.tone}`}>
+      <span className="project-preview"><img src={project.image} alt="" /></span>
+      <span className="project-card-copy">
+        <span><strong>{project.title}</strong><small>{project.kind}</small></span>
+        <span className="project-arrow">↗</span>
+      </span>
+      <small className="project-meta">{project.meta}</small>
     </button>
   );
 }
@@ -82,25 +92,28 @@ function App() {
       <main className="workspace">
         <header className="topbar">
           <label className="search"><Icon name="search" /><input aria-label="חיפוש" placeholder="חיפוש בפרויקטים ובנכסים" /></label>
-          <div className="top-actions"><button>שדרוג</button><span className="credit">0 קרדיטים</span><span className="mini-avatar">י</span></div>
+          <div className="top-actions"><button className="upgrade">שדרוג</button><span className="credit">240 קרדיטים</span><button className="notification" aria-label="התראות">●</button><span className="mini-avatar">י</span></div>
         </header>
 
         <div className="dashboard" dir="rtl">
+          <header className="dashboard-head">
+            <div><span>יום ראשון, 9 באוגוסט</span><h1>בוקר טוב, יוסי</h1><p>שלוש עבודות מחכות להמשך היום.</p></div>
+            <button className="primary-create"><Icon name="plus" /> פרויקט חדש</button>
+          </header>
+
           <section className="new-session">
             <div className="session-actions">
               <span className="section-kicker">עבודה חדשה</span>
               <h1>מה יוצרים היום?</h1>
-              <button><Icon name="image" /> ייבוא ועריכת תמונות <span>←</span></button>
-              <button><Icon name="video" /> יצירת וידאו <span>←</span></button>
-              <button><Icon name="sparkle" /> פתיחת פרויקט AI <span>←</span></button>
+              <button><span className="action-icon violet"><Icon name="image" /></span><span className="action-copy"><strong>ייבוא ועריכת תמונות</strong><small>בחירה, צבע וייצוא</small></span><span>←</span></button>
+              <button><span className="action-icon coral"><Icon name="video" /></span><span className="action-copy"><strong>יצירת וידאו</strong><small>קליפ קצר מתמונות</small></span><span>←</span></button>
+              <button><span className="action-icon blue"><Icon name="sparkle" /></span><span className="action-copy"><strong>פתיחת פרויקט AI</strong><small>סינון ועריכה חכמה</small></span><span>←</span></button>
             </div>
 
             <div className="recent-projects">
               <div className="section-title"><h2>פרויקטים אחרונים</h2><button>הצגת הכול</button></div>
               <div className="project-grid">
-                <ProjectPlaceholder />
-                <ProjectPlaceholder muted />
-                <div className="project-card blank" aria-hidden="true" />
+                {projects.map((project) => <ProjectCard key={project.title} project={project} />)}
               </div>
             </div>
           </section>
@@ -108,8 +121,10 @@ function App() {
           <section className="recent-assets">
             <div className="section-title"><h2>עריכות אחרונות</h2><button>הצגת הכול</button></div>
             <div className="asset-strip">
-              <button className="asset-empty"><Icon name="image" size={22}/><span>התמונות האחרונות יופיעו כאן</span></button>
-              <div className="asset-blank"/><div className="asset-blank"/><div className="asset-blank"/>
+              <button className="asset-card"><img src="/images/wedding-field.webp" alt=""/><span>בחירת זהב</span></button>
+              <button className="asset-card portrait"><img src="/images/editorial-portrait.webp" alt=""/><span>גרסה מונוכרומטית</span></button>
+              <button className="asset-card coast"><img src="/images/family-coast.webp" alt=""/><span>מסירת גלריה</span></button>
+              <button className="asset-card detail"><img src="/images/wedding-field.webp" alt=""/><span>סטורי 9:16</span></button>
             </div>
           </section>
         </div>
