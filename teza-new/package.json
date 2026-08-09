@@ -1,0 +1,10 @@
+{
+  "name": "teza-new",
+  "private": true,
+  "version": "0.0.1",
+  "type": "module",
+  "scripts": {
+    "dev": "node ../node_modules/vite/bin/vite.js --host ::1 --port 5175 --strictPort",
+    "build": "node ../node_modules/vite/bin/vite.js build"
+  }
+}
