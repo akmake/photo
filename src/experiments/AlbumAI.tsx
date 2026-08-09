@@ -38,6 +38,30 @@ const PIPELINE: Stage[] = [
   { id: 'layout', label: 'פריסה', note: 'סידור לכפולות מעוצבות' },
 ];
 
+// After the selection you pick what to do — not a forced path. Only "בנה אלבום"
+// is real today; the rest SAY "בבנייה" rather than dead-end silently.
+type AlbumOption = 'album' | 'cleanup' | 'moments' | 'export' | null;
+
+const HUB: { id: Exclude<AlbumOption, null>; label: string; note: string; ready: boolean }[] = [
+  { id: 'album', label: 'בנה אלבום', note: 'סדר את הבחירה לכפולות', ready: true },
+  { id: 'cleanup', label: 'ניקוי', note: 'עור, עיניים וכתמים על הסט', ready: false },
+  { id: 'moments', label: 'קבץ לרגעים', note: 'חלוקה לפי דמיון וזמן', ready: false },
+  { id: 'export', label: 'ייצוא', note: 'שמירת הבחירה לדיסק', ready: false },
+];
+
+// The album's SELECTION: every unique frame, plus one representative from each
+// near-dup burst. The rest are demoted, not deleted — reversible by design.
+function selectionOf(files: string[], groups: string[][]): string[] {
+  const demoted = new Set(groups.flatMap((g) => g.slice(1)));
+  return files.filter((f) => !demoted.has(f));
+}
+
+function spreadsOf(selection: string[], perSpread = 4): string[][] {
+  const out: string[][] = [];
+  for (let i = 0; i < selection.length; i += perSpread) out.push(selection.slice(i, i + perSpread));
+  return out;
+}
+
 function baseName(path: string): string {
   return path.split(/[\\/]/).pop() ?? path;
 }
@@ -69,6 +93,7 @@ export default function AlbumAI({ onBack }: { onBack: () => void }) {
   const [dedup, setDedup] = useState<Dedup | null>(null);
   const [dedupRunning, setDedupRunning] = useState(false);
   const [dedupError, setDedupError] = useState<string | null>(null);
+  const [option, setOption] = useState<AlbumOption>(null);
 
   async function choose() {
     let picked: string | null;
@@ -88,6 +113,7 @@ export default function AlbumAI({ onBack }: { onBack: () => void }) {
     setIngestError(null);
     setDedup(null);
     setDedupError(null);
+    setOption(null);
     try {
       const { files: found } = await listImages(picked);
       setFiles(found);
@@ -295,7 +321,64 @@ export default function AlbumAI({ onBack }: { onBack: () => void }) {
                 </div>
               )}
 
-              {dedup && dedup.groups.length > 0 && (
+              {dedup && !option && (
+                <section className="albumx-hub">
+                  <p className="label">אחרי הבחירה — בחר מה לעשות</p>
+                  <div className="albumx-hub-grid">
+                    {HUB.map((o) => (
+                      <button
+                        key={o.id}
+                        className="albumx-hub-card"
+                        onClick={() => setOption(o.id)}
+                      >
+                        <b>{o.label}</b>
+                        <small>{o.note}</small>
+                        {!o.ready && <span className="albumx-hub-soon">בבנייה</span>}
+                      </button>
+                    ))}
+                  </div>
+                </section>
+              )}
+
+              {option && (
+                <section className="albumx-option">
+                  <button className="albumx-back" onClick={() => setOption(null)}>
+                    <IcChevron size={18} />
+                    <span>חזרה לבחירה</span>
+                  </button>
+                  {option === 'album' ? (() => {
+                    const sel = selectionOf(files, dedup ? dedup.groups : []);
+                    const spreads = spreadsOf(sel);
+                    return (
+                      <>
+                        <p className="albumx-option-lede">
+                          אלבום גס — <b>{sel.length}</b> מתוך {files.length} (הכפולות אוחדו,
+                          אחת לכל רצף). מכאן משפרים.
+                        </p>
+                        <div className="albumx-spreads">
+                          {spreads.map((s, i) => (
+                            <div key={i} className="albumx-spread">
+                              <span className="albumx-spread-no mono">{i + 1}</span>
+                              <div className="albumx-spread-photos" data-n={s.length}>
+                                {s.map((f) => (
+                                  <img key={f} className="print" src={thumbUrl(f, 320)} alt="" loading="lazy" />
+                                ))}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </>
+                    );
+                  })() : (
+                    <p className="albumx-note">
+                      {HUB.find((o) => o.id === option)?.label} — בבנייה. עוד לא בניתי את
+                      השלב הזה; חוזרים לבחירה בינתיים.
+                    </p>
+                  )}
+                </section>
+              )}
+
+              {!option && dedup && dedup.groups.length > 0 && (
                 <section className="albumx-groups">
                   {dedup.groups.map((g, i) => (
                     <div key={g[0]} className="albumx-group">
@@ -316,7 +399,7 @@ export default function AlbumAI({ onBack }: { onBack: () => void }) {
                 </section>
               )}
 
-              {files.length === 0 ? (
+              {!option && (files.length === 0 ? (
                 <p className="albumx-note">לא נמצאו תמונות בתיקייה הזאת.</p>
               ) : (
                 <div className="albumx-shelf">
@@ -327,7 +410,7 @@ export default function AlbumAI({ onBack }: { onBack: () => void }) {
                     </figure>
                   ))}
                 </div>
-              )}
+              ))}
             </div>
           )}
         </main>

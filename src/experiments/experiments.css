@@ -370,6 +370,128 @@
   font-family: var(--font-display);
 }
 
+/* After the selection: the fork. Cards you pick from, not a forced path. */
+.albumx-hub {
+  margin-bottom: var(--s6);
+}
+
+.albumx-hub .label {
+  margin-bottom: var(--s3);
+}
+
+.albumx-hub-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: var(--s3);
+}
+
+.albumx-hub-card {
+  position: relative;
+  text-align: right;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: var(--s4);
+  border-radius: var(--r);
+  background: var(--face);
+  box-shadow: var(--lit), var(--key-1);
+  transition: box-shadow var(--d-2) var(--ease), transform var(--d-2) var(--ease);
+}
+
+.albumx-hub-card:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--lit), var(--key-2);
+}
+
+.albumx-hub-card b {
+  font-family: var(--font-display);
+  font-size: var(--t-lg);
+}
+
+.albumx-hub-card small {
+  color: var(--ink-3);
+}
+
+.albumx-hub-soon {
+  position: absolute;
+  inset-inline-start: var(--s3);
+  top: var(--s3);
+  height: 20px;
+  padding: 0 var(--s2);
+  display: inline-flex;
+  align-items: center;
+  border-radius: var(--r-xs);
+  background: var(--cyc-150);
+  color: var(--ink-4);
+  font-family: var(--font-display);
+  font-size: var(--t-xs);
+  font-weight: var(--fw-semi);
+}
+
+/* An opened option — a focused view with its own way back to the selection. */
+.albumx-option {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s4);
+}
+
+.albumx-option-lede {
+  color: var(--ink-2);
+}
+
+.albumx-option-lede b {
+  color: var(--ink);
+  font-family: var(--font-display);
+}
+
+/* The rough album — one card per spread, the frames laid inside it. */
+.albumx-spreads {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s4);
+}
+
+.albumx-spread {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--s3);
+}
+
+.albumx-spread-no {
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--r-full);
+  background: var(--card-2);
+  color: var(--ink-3);
+  font-size: var(--t-sm);
+  font-weight: var(--fw-bold);
+}
+
+.albumx-spread-photos {
+  flex: 1;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: var(--s2);
+  padding: var(--s3);
+  border-radius: var(--r);
+  background: var(--card-2);
+  box-shadow: var(--lit), var(--key-1);
+}
+
+.albumx-spread-photos[data-n='1'] { grid-template-columns: 1fr; }
+.albumx-spread-photos[data-n='2'] { grid-template-columns: repeat(2, 1fr); }
+.albumx-spread-photos[data-n='3'] { grid-template-columns: repeat(3, 1fr); }
+
+.albumx-spread-photos img {
+  width: 100%;
+  aspect-ratio: 3 / 2;
+  object-fit: cover;
+}
+
 /* The near-duplicate groups — each burst pulled out of the set into its own
  * strip, so the eye sees the redundancy the numbers claim. */
 .albumx-groups {
