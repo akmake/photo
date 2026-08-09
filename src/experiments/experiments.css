@@ -444,20 +444,22 @@
   font-family: var(--font-display);
 }
 
-/* The rough album — one card per spread, the frames laid inside it. */
-.albumx-spreads {
+/* The album — real spreads. Each is a wide white page (2:1, like an open book)
+ * with the frames COMPOSED inside it, not a row of thumbnails: the count picks a
+ * template, and a faint spine down the middle sells the open-book read. */
+.albumx-book {
   display: flex;
   flex-direction: column;
-  gap: var(--s4);
+  gap: var(--s5);
 }
 
-.albumx-spread {
+.albumx-page-wrap {
   display: flex;
   align-items: flex-start;
   gap: var(--s3);
 }
 
-.albumx-spread-no {
+.albumx-page-no {
   flex-shrink: 0;
   width: 28px;
   height: 28px;
@@ -471,26 +473,44 @@
   font-weight: var(--fw-bold);
 }
 
-.albumx-spread-photos {
+.albumx-page {
+  position: relative;
   flex: 1;
+  aspect-ratio: 2 / 1;
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: var(--s2);
-  padding: var(--s3);
-  border-radius: var(--r);
-  background: var(--card-2);
-  box-shadow: var(--lit), var(--key-1);
+  gap: 5px;
+  padding: 7px;
+  background: #fff;
+  border-radius: var(--r-sm);
+  box-shadow: var(--lit), var(--key-2);
 }
 
-.albumx-spread-photos[data-n='1'] { grid-template-columns: 1fr; }
-.albumx-spread-photos[data-n='2'] { grid-template-columns: repeat(2, 1fr); }
-.albumx-spread-photos[data-n='3'] { grid-template-columns: repeat(3, 1fr); }
+/* the spine down the middle of the open book */
+.albumx-page::after {
+  content: '';
+  position: absolute;
+  top: 6%;
+  bottom: 6%;
+  left: 50%;
+  width: 1px;
+  transform: translateX(-50%);
+  background: rgba(21, 23, 28, 0.06);
+  pointer-events: none;
+}
 
-.albumx-spread-photos img {
+.albumx-page img {
   width: 100%;
-  aspect-ratio: 3 / 2;
+  height: 100%;
   object-fit: cover;
+  border-radius: 2px;
+  display: block;
 }
+
+.albumx-page[data-n='1'] { grid-template-columns: 1fr; grid-template-rows: 1fr; }
+.albumx-page[data-n='2'] { grid-template-columns: 1fr 1fr; grid-template-rows: 1fr; }
+.albumx-page[data-n='3'] { grid-template-columns: 2fr 1fr; grid-template-rows: 1fr 1fr; }
+.albumx-page[data-n='3'] img:first-child { grid-row: 1 / span 2; }
+.albumx-page[data-n='4'] { grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; }
 
 /* The near-duplicate groups — each burst pulled out of the set into its own
  * strip, so the eye sees the redundancy the numbers claim. */

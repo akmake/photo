@@ -56,9 +56,22 @@ function selectionOf(files: string[], groups: string[][]): string[] {
   return files.filter((f) => !demoted.has(f));
 }
 
-function spreadsOf(selection: string[], perSpread = 4): string[][] {
+// The album's pulse — how many frames share a spread, cycled. Varying the count
+// is what stops a book from being a uniform grid: a single hero, then a busy
+// spread, then a pair. (docs/ALBUM-MACHINE.md's RHYTHM, trimmed to ≤4 so every
+// count has a real composition template.)
+const RHYTHM = [1, 3, 2, 4, 2, 3];
+
+function spreadsOf(selection: string[]): string[][] {
   const out: string[][] = [];
-  for (let i = 0; i < selection.length; i += perSpread) out.push(selection.slice(i, i + perSpread));
+  let i = 0;
+  let r = 0;
+  while (i < selection.length) {
+    const n = Math.min(RHYTHM[r % RHYTHM.length], selection.length - i);
+    out.push(selection.slice(i, i + n));
+    i += n;
+    r += 1;
+  }
   return out;
 }
 
@@ -352,16 +365,16 @@ export default function AlbumAI({ onBack }: { onBack: () => void }) {
                     return (
                       <>
                         <p className="albumx-option-lede">
-                          אלבום גס — <b>{sel.length}</b> מתוך {files.length} (הכפולות אוחדו,
-                          אחת לכל רצף). מכאן משפרים.
+                          אלבום — <b>{sel.length}</b> תמונות ב-<b>{spreads.length}</b> כפולות
+                          (הכפולות אוחדו, אחת לכל רצף). מכאן משפרים את הפריסה.
                         </p>
-                        <div className="albumx-spreads">
+                        <div className="albumx-book">
                           {spreads.map((s, i) => (
-                            <div key={i} className="albumx-spread">
-                              <span className="albumx-spread-no mono">{i + 1}</span>
-                              <div className="albumx-spread-photos" data-n={s.length}>
+                            <div key={i} className="albumx-page-wrap">
+                              <span className="albumx-page-no mono">{i + 1}</span>
+                              <div className="albumx-page" data-n={s.length}>
                                 {s.map((f) => (
-                                  <img key={f} className="print" src={thumbUrl(f, 320)} alt="" loading="lazy" />
+                                  <img key={f} src={thumbUrl(f, 640)} alt="" loading="lazy" />
                                 ))}
                               </div>
                             </div>
