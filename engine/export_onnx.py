@@ -88,13 +88,29 @@ def export_dinov2(opset: int) -> str:
     print(f"  loading facebookresearch/dinov2:dinov2_vits14 via torch.hub ...")
     net = torch.hub.load("facebookresearch/dinov2", "dinov2_vits14", trust_repo=True)
     net.eval()
+
+    # DINOv2's own forward is `forward(self, *args, is_training=False, **kwargs)`,
+    # and forward_features carries a `masks=None` parameter. Exported directly, the
+    # var-args make the tracer expose a phantom second input named `masks` that
+    # onnxruntime then demands on every run. Wrap it in a module with ONE explicit
+    # input that returns the global image embedding — the normalised CLS token —
+    # and the graph has exactly the one input the engine feeds.
+    class _CLSEmbedding(torch.nn.Module):
+        def __init__(self, backbone):
+            super().__init__()
+            self.backbone = backbone
+
+        def forward(self, x):
+            return self.backbone.forward_features(x)["x_norm_clstoken"]
+
+    model = _CLSEmbedding(net).eval()
     dummy = torch.randn(1, 3, 224, 224)
 
     print(f"  target  {dst}")
     print(f"  input   {tuple(dummy.shape)}  opset {opset}")
 
     torch.onnx.export(
-        net,
+        model,
         dummy,
         dst,
         input_names=["input"],
