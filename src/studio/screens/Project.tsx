@@ -32,7 +32,7 @@ import SetRecipe from './SetRecipe';
 import ApplySet from './ApplySet';
 import DeliverSet from './DeliverSet';
 import {
-  IcCalendar, IcCamera, IcCheckCircle, IcLink, IcMail, IcSliders, IcSparkle,
+  IcCalendar, IcCamera, IcLink, IcMail, IcSliders, IcSparkle,
 } from '../../design/Icons';
 
 /** `bench` is the lab on a frame of this project — the primary way to edit a
@@ -202,31 +202,6 @@ export default function Project({
 
   return (
     <div className="project-flow">
-      <header className="project-flow-header">
-        <div className="project-flow-topline">
-          <button className="project-flow-back" onClick={onBack}>← חזרה לפרויקטים</button>
-          <div className="project-flow-actions">
-            <span><IcCheckCircle size={16} /> הקבצים מחוברים</span>
-            {view !== 'overview' && (
-              <button onClick={() => setContext((value) => !value)}>
-                {context ? 'סגירת פרטים' : 'פרטי הפרויקט'}
-              </button>
-            )}
-          </div>
-        </div>
-        <div className="project-flow-identity">
-          <div>
-            <span className="project-flow-eyebrow">{project.event}</span>
-            <h1>{project.client}</h1>
-          </div>
-          <div className="project-flow-meta">
-            <span className={`is-${project.state}`}>{STATE_LABEL[project.state]}</span>
-            <span>{project.date}</span>
-            {project.location && <span>{project.location}</span>}
-          </div>
-        </div>
-      </header>
-
       <nav className="project-flow-steps" aria-label="שלבי הפרויקט">
         <button
           className={`project-flow-step is-overview ${view === 'overview' ? 'is-active' : ''}`}
@@ -331,6 +306,22 @@ export default function Project({
 
             {view === 'album' && (
               <Stage title="אלבום" sub="כפולות, הגהה ללקוח, ואז דפוס">
+                {project.albumPlan && (
+                  <div className="project-album-plan">
+                    <div>
+                      <span>מידה סגורה</span>
+                      <strong>{project.albumPlan.closedWidthCm}×{project.albumPlan.closedHeightCm} ס״מ</strong>
+                    </div>
+                    <div>
+                      <span>סגנון</span>
+                      <strong>{project.albumPlan.styleName}</strong>
+                    </div>
+                    <div>
+                      <span>כריכה</span>
+                      <strong>{project.albumPlan.coverStyle === 'photo' ? 'כריכת תמונה' : project.albumPlan.coverStyle === 'linen' ? 'כריכת בד' : 'נקייה'}</strong>
+                    </div>
+                  </div>
+                )}
                 {project.hasAlbum ? (
                   <Numbers items={[['כפולות', 18], ['גרסאות שנשלחו', 1]]} />
                 ) : (
@@ -361,8 +352,6 @@ export default function Project({
                 </div>
               </Stage>
             )}
-
-            <Activity project={project} />
           </main>
 
           {context && (
@@ -550,34 +539,7 @@ function Overview({
           <small>{[project.event, project.location].filter(Boolean).join(' · ')}</small>
         </div>
       </section>
-
-      <Activity project={project} />
     </main>
-  );
-}
-
-function Activity({ project }: { project: ProjectModel }) {
-  const rows: [string, string, string][] = [];
-  if (project.rendered) rows.push(['הרינדור הסתיים', `${project.rendered} קבצים`, 'הבוקר 07:12']);
-  if (project.waitingSince) rows.push(['הגלריה נשלחה ללקוח', `${project.kept} תמונות`, project.waitingSince]);
-  if (project.picked) rows.push(['הלקוח סיים לבחור', `${project.picked} מתוך ${project.kept}`, '12.07']);
-  if (project.kept) rows.push(['הסינון הסתיים', `נשארו ${project.kept}`, '11.07']);
-  if (project.imported) rows.push(['הייבוא הסתיים', `${project.imported} קבצים`, '11.07']);
-  rows.push(['הפרויקט נוצר', project.event, project.createdAt]);
-
-  return (
-    <section className="activity">
-      <h3>פעילות</h3>
-      <ul>
-        {rows.map(([what, detail, when]) => (
-          <li key={what + when}>
-            <b>{what}</b>
-            <span>{detail}</span>
-            <span className="mono when">{when}</span>
-          </li>
-        ))}
-      </ul>
-    </section>
   );
 }
 

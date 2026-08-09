@@ -791,6 +791,9 @@ class Handler(BaseHTTPRequestHandler):
         if self.path == "/album/embed":
             self._album_embed()
             return
+        if self.path == "/album/dedup":
+            self._album_dedup()
+            return
         parts = self.path.strip("/").split("/")
         if len(parts) == 3 and parts[0] == "tools" and parts[2] == "apply":
             tool_id = parts[1]
@@ -1544,6 +1547,24 @@ if ($path) {
                 200,
                 {"results": results, "embedded": embedded, "cached": cached, "dim": embed.DIM},
             )
+        except Exception as e:  # noqa: BLE001
+            self._json(500, {"error": str(e)})
+
+    def _album_dedup(self):
+        """Near-duplicate groups over the set's cached vectors.
+
+        { paths:[...], threshold? } -> { groups, missing, embedded, ... }
+
+        Reads only the cache — קליטה supplies the vectors — so it is instant and
+        cheap to re-run at a new threshold. `missing` names frames not embedded
+        yet, kept apart from "has no duplicate" on purpose (CLAUDE.md §3). No
+        pixels move; the answer is paths.
+        """
+        try:
+            body = self._body()
+            paths = body.get("paths", [])
+            threshold = float(body.get("threshold", embed.DEDUP_THRESHOLD))
+            self._json(200, embed.group_near_duplicates(paths, threshold))
         except Exception as e:  # noqa: BLE001
             self._json(500, {"error": str(e)})
 

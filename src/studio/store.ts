@@ -77,6 +77,12 @@ export interface Project {
    *  in every project, sold or not. */
   hasAlbum: boolean;
   hasGallery: boolean;
+  albumPlan?: {
+    closedWidthCm: number;
+    closedHeightCm: number;
+    styleName: string;
+    coverStyle: 'photo' | 'linen' | 'minimal';
+  };
   /** Counters — the spine of the project header. */
   imported: number;
   kept: number;
@@ -285,6 +291,7 @@ export interface NewProjectInput {
   price?: number;
   hasGallery: boolean;
   hasAlbum: boolean;
+  albumPlan?: Project['albumPlan'];
 }
 
 /** Creates the project and returns it, so the caller can walk straight into it.
@@ -319,6 +326,7 @@ export function createProject(input: NewProjectInput): Project {
     state: 'shoot',
     hasAlbum: input.hasAlbum,
     hasGallery: input.hasGallery,
+    albumPlan: input.hasAlbum ? input.albumPlan : undefined,
     imported: 0,
     kept: 0,
     picked: 0,
@@ -592,6 +600,17 @@ export function renameBatch(projectId: string, id: string, name: string) {
   write(projectId, {
     ...current,
     batches: current.batches.map((s) => (s.id === id ? { ...s, name } : s)),
+  });
+}
+
+/** Choose which frame is the batch's face, by frame NAME. The UI falls back to
+ *  the first frame when this is empty or points at a frame that has since left
+ *  the batch, so there is nothing to clean up when a frame goes. */
+export function setBatchCover(projectId: string, id: string, frame: string) {
+  const current = stateOf(projectId);
+  write(projectId, {
+    ...current,
+    batches: current.batches.map((s) => (s.id === id ? { ...s, cover: frame } : s)),
   });
 }
 

@@ -16,8 +16,14 @@
 import { useEffect, useRef, useState } from 'react';
 import { createProject, knownClients } from '../store';
 import type { Project } from '../store';
+import { ALBUM_STYLES } from '../../album/styleEngine';
 
 const EVENTS = ['חתונה', 'בר/בת מצווה', 'צילומי משפחה', 'ניו בורן', 'הריון', 'בוק תדמית', 'צילומי מוצר', 'אירוע'];
+const COVER_STYLES = [
+  { id: 'photo', label: 'כריכת תמונה' },
+  { id: 'linen', label: 'כריכת בד' },
+  { id: 'minimal', label: 'נקייה' },
+] as const;
 
 function today(): string {
   const d = new Date();
@@ -39,6 +45,10 @@ export default function NewProject({
   const [price, setPrice] = useState('');
   const [hasGallery, setGallery] = useState(true);
   const [hasAlbum, setAlbum] = useState(false);
+  const [albumWidth, setAlbumWidth] = useState('30');
+  const [albumHeight, setAlbumHeight] = useState('30');
+  const [albumStyle, setAlbumStyle] = useState('Fine Art');
+  const [coverStyle, setCoverStyle] = useState<'photo' | 'linen' | 'minimal'>('photo');
   /* createProject refuses when the database is unreachable, because the only
    * thing it could do then is add a row to the in-memory mirror — which looks
    * exactly like success and is gone on the next reload. The refusal has to
@@ -76,6 +86,12 @@ export default function NewProject({
           price: price ? Number(price) : undefined,
           hasGallery,
           hasAlbum,
+          albumPlan: hasAlbum ? {
+            closedWidthCm: Number(albumWidth) || 30,
+            closedHeightCm: Number(albumHeight) || 30,
+            styleName: albumStyle,
+            coverStyle,
+          } : undefined,
         }),
       );
     } catch (err) {
@@ -153,6 +169,40 @@ export default function NewProject({
                       <input type="checkbox" checked={hasAlbum} onChange={(e) => setAlbum(e.target.checked)} />
                       <span><strong>אלבום מודפס</strong><small>יופיע שלב אלבום כחלק מתהליך העבודה</small></span>
                     </label>
+                    {hasAlbum && (
+                      <div className="project-create-album-plan">
+                        <div className="project-create-size-grid">
+                          <label>
+                            <span>רוחב סגור</span>
+                            <input value={albumWidth} inputMode="decimal" onChange={(e) => setAlbumWidth(e.target.value.replace(/[^\d.]/g, ''))} />
+                            <small>ס״מ</small>
+                          </label>
+                          <label>
+                            <span>גובה סגור</span>
+                            <input value={albumHeight} inputMode="decimal" onChange={(e) => setAlbumHeight(e.target.value.replace(/[^\d.]/g, ''))} />
+                            <small>ס״מ</small>
+                          </label>
+                        </div>
+                        <label className="project-create-select">
+                          <span>סגנון פתיחה</span>
+                          <select value={albumStyle} onChange={(event) => setAlbumStyle(event.target.value)}>
+                            {ALBUM_STYLES.map((style) => <option key={style.id} value={style.id}>{style.label}</option>)}
+                          </select>
+                        </label>
+                        <div className="project-create-cover-choice" role="group" aria-label="סוג כריכה">
+                          {COVER_STYLES.map((cover) => (
+                            <button
+                              type="button"
+                              key={cover.id}
+                              className={coverStyle === cover.id ? 'is-selected' : ''}
+                              onClick={() => setCoverStyle(cover.id)}
+                            >
+                              {cover.label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
                     <label className="is-selected is-fixed">
                       <input type="checkbox" checked readOnly />
                       <span><strong>קבצים סופיים</strong><small>כל פרויקט מסתיים במסירת הקבצים</small></span>

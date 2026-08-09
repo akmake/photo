@@ -4161,3 +4161,353 @@
   .album-load-more { flex-basis: 140px; height: 110px; font-size: 13px; }
   .album-photo-name { padding: 13px 7px 6px; font-size: 11px !important; }
 }
+
+/* ------------------------------------------------------------------------
+ * Project-folder redesign pass. The album editor now behaves like a focused
+ * presentation workspace: active spread in the middle, spread navigator on the
+ * right, layout/tools on the left, and photos as a supporting strip.
+ */
+.shell-section-project .album-studio,
+.album-studio {
+  --album-work-bg: #f6f7f4;
+  --album-panel-bg: #ffffff;
+  --album-panel-soft: #eef6f3;
+  --album-line-ui: #dde6e1;
+  --album-ink-ui: #18211e;
+  --album-muted-ui: #65726d;
+  --album-green-ui: #47786e;
+  --album-green-dark-ui: #2f5c53;
+  --album-shadow-ui: 0 24px 58px rgba(35, 49, 45, .12);
+  grid-template-rows: 64px minmax(0, 1fr);
+  background: var(--album-work-bg);
+  color: var(--album-ink-ui);
+  font-family: Assistant, "Segoe UI", system-ui, sans-serif;
+}
+
+.album-actionbar {
+  grid-template-columns: minmax(210px, 1fr) auto minmax(160px, .8fr);
+  padding: 0 22px;
+  border-bottom-color: var(--album-line-ui);
+  background: rgba(255,255,255,.96);
+  box-shadow: none;
+}
+
+.album-action,
+.album-back-to-library,
+.album-mode-switch button,
+.album-history button,
+.album-page-nav button,
+.album-canvas-tools button,
+.album-selection-tools button,
+.album-photo-commit,
+.album-import,
+.album-spread-navigator > footer button {
+  border-radius: 8px;
+}
+
+.album-action.primary {
+  background: var(--album-green-ui);
+  border-color: var(--album-green-ui);
+  color: #fff;
+}
+
+.album-action.primary:hover {
+  background: var(--album-green-dark-ui);
+}
+
+.album-actionbar-main {
+  gap: 8px;
+}
+
+.album-output-trigger,
+.album-action.secondary {
+  background: #fff;
+}
+
+.album-workspace.design {
+  grid-template-columns: 292px minmax(620px, 1fr) 250px;
+  grid-template-areas: "inspector canvas navigator";
+  gap: 14px;
+  padding: 14px;
+  background: var(--album-work-bg);
+}
+
+.album-layout-panel,
+.album-spread-navigator {
+  overflow: hidden;
+  border: 1px solid var(--album-line-ui);
+  border-radius: 8px;
+  background: var(--album-panel-bg);
+  box-shadow: none;
+}
+
+.album-layout-panel {
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
+}
+
+.album-panel-tabs {
+  padding: 8px;
+  gap: 6px;
+  border-bottom: 1px solid var(--album-line-ui);
+}
+
+.album-panel-tabs button {
+  height: 42px;
+  border-radius: 7px;
+  font-size: 14px;
+}
+
+.album-layout-title {
+  padding: 18px 18px 12px;
+}
+
+.album-layout-title strong {
+  font-size: 18px;
+  letter-spacing: 0;
+}
+
+.album-layout-title span {
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.template-counts {
+  margin: 0 16px 14px;
+}
+
+.template-counts button {
+  min-width: 34px;
+  height: 34px;
+  border-radius: 50%;
+}
+
+.album-layout-list {
+  padding: 0 14px 18px;
+}
+
+.album-layout-card {
+  grid-template-columns: minmax(0, 1fr) 88px;
+  min-height: 86px;
+  border-radius: 8px;
+}
+
+.album-layout-card.on {
+  border-color: var(--album-green-ui);
+  box-shadow: inset 0 0 0 1px var(--album-green-ui);
+}
+
+.album-center {
+  grid-template-rows: 52px minmax(0, 1fr) 144px;
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid var(--album-line-ui);
+  border-radius: 8px;
+  background: #f1f3ef;
+}
+
+.album-canvas-toolbar {
+  padding: 0 18px;
+  border-bottom: 1px solid var(--album-line-ui);
+  background: rgba(255,255,255,.94);
+}
+
+.album-page-nav strong {
+  font-size: 16px;
+  letter-spacing: 0;
+}
+
+.album-page-nav span {
+  font-size: 12px;
+}
+
+.album-page-nav button,
+.album-canvas-tools button {
+  height: 34px;
+  font-size: 12px;
+}
+
+.album-canvas-area {
+  display: grid;
+  place-items: center;
+  gap: 10px;
+  min-height: 0;
+  padding: 28px 44px 18px;
+  background:
+    radial-gradient(circle at 50% 38%, rgba(71,120,110,.12), transparent 34%),
+    #f1f3ef;
+}
+
+.album-spread {
+  box-shadow: var(--album-shadow-ui);
+}
+
+.album-photo-tray {
+  grid-template-rows: 46px minmax(0, 1fr);
+  padding: 8px 14px 12px;
+  border-top: 1px solid var(--album-line-ui);
+  background: rgba(255,255,255,.96);
+}
+
+.album-photo-tray-head {
+  gap: 12px;
+  flex-wrap: nowrap;
+}
+
+.album-photo-summary {
+  gap: 8px;
+}
+
+.album-photo-tray-head strong {
+  font-size: 14px;
+}
+
+.album-photo-tray-head span {
+  font-size: 11px;
+}
+
+.album-photo-filters {
+  gap: 4px;
+  padding: 3px;
+  border-radius: 8px;
+}
+
+.album-photo-filters button {
+  height: 28px;
+  border-radius: 6px;
+  font-size: 11px;
+}
+
+.album-selection-tools {
+  gap: 6px;
+}
+
+.album-selection-tools button,
+.album-photo-commit {
+  height: 30px;
+  font-size: 11px;
+}
+
+.album-photos {
+  gap: 10px;
+  padding-top: 4px;
+}
+
+.album-photo-thumb {
+  flex-basis: 96px;
+  height: 78px;
+  border-radius: 7px;
+}
+
+.album-load-more {
+  flex-basis: 104px;
+  height: 78px;
+  border-radius: 7px;
+}
+
+.album-spread-navigator {
+  grid-template-rows: 54px minmax(0, 1fr) auto;
+}
+
+.album-spread-navigator > header {
+  padding-inline: 16px;
+  border-bottom: 1px solid var(--album-line-ui);
+}
+
+.album-spread-navigator > header strong {
+  font-size: 17px;
+  letter-spacing: 0;
+}
+
+.album-spread-navigator > header span {
+  font-size: 12px;
+}
+
+.album-spread-nav-list {
+  padding: 14px 12px 22px;
+}
+
+.album-spread-nav-item {
+  grid-template-columns: 22px minmax(0, 1fr);
+  gap: 8px;
+  margin-bottom: 12px;
+  padding: 9px;
+  border-radius: 8px;
+}
+
+.album-spread-nav-item.active {
+  border-color: var(--album-green-ui);
+  box-shadow: inset 0 0 0 1px var(--album-green-ui);
+}
+
+.album-spread-nav-number {
+  font-size: 12px;
+}
+
+.album-spread-nav-meta b {
+  font-size: 11px;
+}
+
+.album-spread-nav-meta small {
+  font-size: 10px;
+}
+
+.album-spread-navigator > footer {
+  gap: 7px;
+  padding: 10px;
+  border-top: 1px solid var(--album-line-ui);
+}
+
+@media (min-width: 1381px) {
+  .album-studio {
+    grid-template-rows: 68px minmax(0, 1fr);
+  }
+
+  .album-workspace.design {
+    grid-template-columns: 320px minmax(720px, 1fr) 286px;
+    gap: 18px;
+    padding: 18px;
+  }
+
+  .album-center {
+    grid-template-rows: 58px minmax(0, 1fr) 158px;
+  }
+
+  .album-canvas-area {
+    padding: 34px 64px 20px;
+  }
+
+  .album-spread {
+    width: min(96%, 1240px, calc((100cqh - 82px) * var(--spread-aspect, 2)));
+  }
+
+  .album-photo-thumb {
+    flex-basis: 108px;
+    height: 86px;
+  }
+}
+
+@media (max-height: 760px) and (min-width: 1000px) {
+  .album-studio {
+    grid-template-rows: 58px minmax(0, 1fr);
+  }
+
+  .album-workspace.design {
+    padding: 10px;
+    gap: 10px;
+  }
+
+  .album-center {
+    grid-template-rows: 46px minmax(0, 1fr) 118px;
+  }
+
+  .album-canvas-area {
+    padding: 20px 34px 12px;
+  }
+
+  .album-photo-thumb,
+  .album-load-more {
+    flex-basis: 84px;
+    height: 66px;
+  }
+}

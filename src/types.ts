@@ -145,6 +145,10 @@ export interface Batch {
   name: string;
   /** the order the photographer put them in, not the order they were made */
   order: number;
+  /** the frame the photographer chose as this batch's face, by NAME (same
+   *  reason perFrame is keyed by name — project.json travels with the folder).
+   *  Empty means "no choice yet"; the UI falls back to the first frame. */
+  cover?: string;
 }
 
 /** WHAT HAS BEEN DONE TO A PROJECT'S SET.

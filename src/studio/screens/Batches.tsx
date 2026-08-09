@@ -29,7 +29,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   addBatch, assignFrames, framesInBatch, removeBatch, renameBatch,
-  unassignedFrames, useProjectFiles, useBatches,
+  setBatchCover, unassignedFrames, useProjectFiles, useBatches,
 } from '../store';
 import type { Frame } from '../store';
 import { useSetPreview } from '../preview';
@@ -118,46 +118,79 @@ export default function Batches({ projectId }: { projectId: string }) {
           {batches.map((s) => {
             const inside = framesInBatch(projectId, s.id);
             const isOpen = open === s.id;
+            const coverName = s.cover && inside.some((f) => f.name === s.cover)
+              ? s.cover
+              : inside[0]?.name;
+            const coverFrame = inside.find((f) => f.name === coverName) ?? inside[0];
             return (
               <li key={s.id} className={`bat-row ${isOpen ? 'on' : ''}`}>
                 <div className="bat-bar">
-                  <input
-                    className="bat-name"
-                    value={s.name}
-                    onChange={(e) => renameBatch(projectId, s.id, e.target.value)}
-                    aria-label="שם המקבץ"
-                  />
-                  <span className="bat-count mono">
-                    {inside.length.toLocaleString('he-IL')}
-                  </span>
-                  {inside.length > 0 && (
-                    <span className="bat-when mono">
-                      {clock(inside[0].shot)}–{clock(inside[inside.length - 1].shot)}
+                  <div className="bat-cover">
+                    {inside.length > 0 ? (
+                      <img className="bat-cover-img" src={preview.url(coverFrame.path, 480)} alt="" loading="lazy" />
+                    ) : (
+                      <div className="bat-cover-empty" />
+                    )}
+                    <span className="bat-count">
+                      <b className="mono">{inside.length.toLocaleString('he-IL')}</b> תמונות
                     </span>
-                  )}
-                  <button className="btn" onClick={() => setOpen(isOpen ? null : s.id)}>
-                    {isOpen ? 'סגור' : 'פתח'}
-                  </button>
-                  <button className="bat-drop" onClick={() => removeBatch(projectId, s.id)}>
-                    פרק
-                  </button>
+                  </div>
+
+                  <div className="bat-foot">
+                    <input
+                      className="bat-name"
+                      value={s.name}
+                      onChange={(e) => renameBatch(projectId, s.id, e.target.value)}
+                      aria-label="שם המקבץ"
+                      placeholder="ללא שם"
+                    />
+                    <div className="bat-foot-row">
+                      {inside.length > 0 ? (
+                        <span className="bat-when mono">
+                          {clock(inside[0].shot)}–{clock(inside[inside.length - 1].shot)}
+                        </span>
+                      ) : (
+                        <span />
+                      )}
+                      <div className="bat-actions">
+                        <button className="btn" onClick={() => setOpen(isOpen ? null : s.id)}>
+                          {isOpen ? 'סגור' : 'פתח'}
+                        </button>
+                        <button className="bat-drop" onClick={() => removeBatch(projectId, s.id)}>
+                          פרק
+                        </button>
+                      </div>
+                    </div>
+                  </div>
                 </div>
 
                 {isOpen && (
                   <div className="pf-grid">
-                    {inside.map((f) => (
-                      <figure className="pf-shot" key={f.path}>
-                        <img src={preview.url(f.path, 320)} alt="" loading="lazy" />
-                        {preview.pending(f.path) && <i className="pf-pending">המראה נטען…</i>}
-                        <figcaption className="mono" dir="ltr">{f.name}</figcaption>
-                        <button
-                          className="pf-use"
-                          onClick={() => assignFrames(projectId, [f.name], null)}
-                        >
-                          החזר לבריכה
-                        </button>
-                      </figure>
-                    ))}
+                    {inside.map((f) => {
+                      const isCover = f.name === coverName;
+                      return (
+                        <figure className={`pf-shot ${isCover ? 'is-cover' : ''}`} key={f.path}>
+                          <img src={preview.url(f.path, 320)} alt="" loading="lazy" />
+                          {preview.pending(f.path) && <i className="pf-pending">המראה נטען…</i>}
+                          {isCover && <span className="pf-cover-badge">שער</span>}
+                          <button
+                            className="pf-use"
+                            onClick={() => assignFrames(projectId, [f.name], null)}
+                          >
+                            החזר לבריכה
+                          </button>
+                          {!isCover && (
+                            <button
+                              className="pf-cover-set"
+                              onClick={() => setBatchCover(projectId, s.id, f.name)}
+                            >
+                              קבע כתמונת שער
+                            </button>
+                          )}
+                          <figcaption className="mono" dir="ltr">{f.name}</figcaption>
+                        </figure>
+                      );
+                    })}
                   </div>
                 )}
               </li>

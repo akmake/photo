@@ -73,13 +73,22 @@ def _cache_dir():
 
 def _cache_path(path):
     """Keyed by mtime as well as path: re-editing the file in another program has
-    to invalidate its vector, and the version guards against a code change."""
+    to invalidate its vector, and the version guards against a code change.
+
+    The path is NORMALISED first — same file, same key, whether it arrived with
+    forward or back slashes and whatever the drive-letter case. On Windows the two
+    spellings are the same file, and a cache keyed on the raw string would embed
+    it twice and never hit."""
+    try:
+        norm = os.path.normcase(os.path.abspath(path))
+    except (OSError, ValueError):
+        norm = path
     try:
         stamp = os.path.getmtime(path)
     except OSError:
         stamp = 0
     ident = hashlib.sha1(
-        f"{EMBED_VERSION}|{MODEL_ID}|{path}|{stamp}".encode("utf-8")
+        f"{EMBED_VERSION}|{MODEL_ID}|{norm}|{stamp}".encode("utf-8")
     ).hexdigest()
     return os.path.join(_cache_dir(), f"{ident}.npy")
 
@@ -137,3 +146,69 @@ def load_cached(path):
         return np.load(_cache_path(path))
     except (OSError, ValueError):
         return None
+
+
+# Cosine at or above this is "the same shot again" — a burst frame, a re-take.
+# Measured (docs/RESEARCH-album-ai.md, verify_embed): exact/exposure/small-crop
+# near-dups sit 0.98-1.0, a different scene sits under 0.1, so the boundary is
+# wide and 0.92 sits safely inside it. Exposed so the UI can widen or tighten it.
+DEDUP_THRESHOLD = 0.92
+
+
+def group_near_duplicates(paths, threshold=DEDUP_THRESHOLD):
+    """Cluster a set into near-duplicate groups over the cached vectors.
+
+    Reads vectors from the cache only — קליטה must have run — so this is cheap to
+    re-run at a new threshold. Frames with no vector yet come back in `missing`,
+    NOT silently dropped: a frame that was never embedded is a different fact from
+    a frame with no duplicate, and collapsing the two would tell the photographer
+    a set is unique when it was merely unread (CLAUDE.md §3).
+
+    Vectors are L2-normalised, so cosine is a plain dot product. A frame joins a
+    group when it is within `threshold` of ANY member (single-link), which is what
+    makes a slow pan across a burst end up in one group rather than a chain of
+    barely-overlapping pairs. Only groups of two or more are returned — a unique
+    frame is not a "group of one".
+    """
+    vecs, missing, embedded = {}, [], []
+    for p in paths:
+        v = load_cached(p)
+        if v is None:
+            missing.append(p)
+        else:
+            vecs[p] = v
+            embedded.append(p)
+
+    n = len(embedded)
+    parent = list(range(n))
+
+    def find(i):
+        while parent[i] != i:
+            parent[i] = parent[parent[i]]
+            i = parent[i]
+        return i
+
+    if n:
+        mat = np.stack([vecs[p] for p in embedded]).astype(np.float32)
+        sims = mat @ mat.T
+        iu = np.triu_indices(n, k=1)
+        for h in np.where(sims[iu] >= threshold)[0]:
+            a, b = int(iu[0][h]), int(iu[1][h])
+            ra, rb = find(a), find(b)
+            if ra != rb:
+                parent[ra] = rb
+
+    buckets = {}
+    for idx, p in enumerate(embedded):
+        buckets.setdefault(find(idx), []).append(p)
+    # Real duplicate groups only; keep members in the order given (capture order),
+    # and put the biggest bursts first.
+    groups = sorted((g for g in buckets.values() if len(g) > 1), key=lambda g: -len(g))
+    in_dups = sum(len(g) for g in groups)
+    return {
+        "groups": groups,
+        "missing": missing,
+        "embedded": n,
+        "duplicateFrames": in_dups,
+        "threshold": float(threshold),
+    }

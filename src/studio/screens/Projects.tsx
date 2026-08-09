@@ -80,10 +80,10 @@ function ProjectLine({ project, onOpen }: { project: Project; onOpen: (id: strin
         </div>
       </div>
 
-      <button className="project-index-open" onClick={() => onOpen(project.id)}>
+      <span className="project-index-open" aria-hidden="true">
         פתיחת הפרויקט
-        <span aria-hidden="true">←</span>
-      </button>
+        <span>←</span>
+      </span>
     </article>
   );
 }

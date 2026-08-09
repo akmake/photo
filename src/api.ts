@@ -396,6 +396,30 @@ export async function embedAlbum(paths: string[]): Promise<AlbumEmbedResult> {
   return j;
 }
 
+/** Near-duplicate groups over a set's cached vectors — the album's דה-דופ stage.
+ *
+ * Reads only what קליטה already cached, so it is instant and cheap to re-run at a
+ * new threshold. `groups` holds only real duplicate clusters (2+ frames); frames
+ * with no vector yet come back in `missing`, apart from "has no duplicate". */
+export interface AlbumDedupResult {
+  groups: string[][];
+  missing: string[];
+  embedded: number;
+  duplicateFrames: number;
+  threshold: number;
+}
+
+export async function dedupAlbum(paths: string[], threshold?: number): Promise<AlbumDedupResult> {
+  const r = await fetch(`${ENGINE}/album/dedup`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(threshold == null ? { paths } : { paths, threshold }),
+  });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j?.error ?? `engine ${r.status}`);
+  return j;
+}
+
 /** List the image files in a folder on disk.
  *
  * The browser cannot enumerate a directory, and a batch screen needs the real

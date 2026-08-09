@@ -1,4 +1,4 @@
-/* A completely new project experience. No selectors from the previous
+﻿/* A completely new project experience. No selectors from the previous
  * register/dashboard layout are reused here. */
 
 .shell-section-projects,
@@ -204,9 +204,8 @@
   transform: translateY(-2px);
 }
 
-.project-index-hit { position: absolute; inset: 0; z-index: 1; }
+.project-index-hit { position: absolute; inset: 0; z-index: 1; cursor: pointer; }
 .project-index-line > *:not(.project-index-hit) { position: relative; z-index: 2; pointer-events: none; }
-.project-index-open { pointer-events: auto !important; }
 
 .project-index-photo {
   display: grid;
@@ -493,9 +492,94 @@
 .shell-section-project .pf-grid { grid-template-columns: repeat(auto-fill, minmax(220px,1fr)); gap: 12px; }
 .shell-section-project .pf-shot { overflow: hidden; border: 1px solid var(--px-line); border-radius: 12px; }
 .shell-section-project .pf-shot figcaption { padding: 9px 10px; }
-.shell-section-project .bat-list { display: grid; gap: 12px; }
+.shell-section-project .pf-shot.is-cover { outline: 2px solid var(--px-green); outline-offset: -2px; }
+.shell-section-project .pf-cover-badge {
+  position: absolute;
+  z-index: 2;
+  inset-block-start: 8px;
+  inset-inline-end: 8px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: var(--px-green);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 650;
+  box-shadow: 0 2px 6px rgba(28, 45, 40, .22);
+}
+.shell-section-project .pf-cover-set {
+  position: absolute;
+  z-index: 2;
+  inset-inline: 0;
+  inset-block-end: 0;
+  padding: 7px;
+  border: 0;
+  background: rgba(28, 45, 40, .85);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+  opacity: 0;
+  transition: opacity .1s ease;
+}
+.shell-section-project .pf-shot:hover .pf-cover-set,
+.shell-section-project .pf-cover-set:focus { opacity: 1; }
+.shell-section-project .bat-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
 .shell-section-project .bat-row { overflow: hidden; border: 1px solid var(--px-line); border-radius: 14px; background: #fff; }
-.shell-section-project .bat-bar { min-height: 64px; padding: 10px 16px; }
+/* The tile IS a stack of photos: the real card sits over two paper layers that
+ * peek out behind it. The cover is a full-bleed frame, not a floating thumb. */
+.shell-section-project .bat-row {
+  position: relative;
+  flex: 1 1 240px;
+  max-width: 360px;
+  overflow: visible;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+.shell-section-project .bat-row::before,
+.shell-section-project .bat-row::after {
+  content: '';
+  position: absolute;
+  z-index: 0;
+  inset: 0;
+  border-radius: 14px;
+  border: 1px solid var(--px-line);
+  background: #fff;
+  transform-origin: center bottom;
+}
+.shell-section-project .bat-row::after { transform: translateY(5px) rotate(-1.4deg); opacity: .7; }
+.shell-section-project .bat-row::before { transform: translateY(9px) rotate(1.8deg); opacity: .45; }
+.shell-section-project .bat-row.on::before,
+.shell-section-project .bat-row.on::after { display: none; }
+
+.shell-section-project .bat-bar {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  min-height: 0;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid var(--px-line);
+  border-radius: 14px;
+  background: #fff;
+  box-shadow: 0 6px 18px rgba(28, 45, 40, .08);
+  transition: transform .18s ease, box-shadow .18s ease, border-color .18s ease;
+}
+.shell-section-project .bat-row:hover .bat-bar {
+  transform: translateY(-3px);
+  border-color: #b9ccc7;
+  box-shadow: 0 14px 30px rgba(28, 45, 40, .13);
+}
+.shell-section-project .bat-row.on { flex: 1 1 100%; max-width: none; }
+.shell-section-project .bat-row.on .bat-bar { width: 260px; }
+.shell-section-project .bat-row.on .pf-grid { margin-top: 14px; }
+.shell-section-project .bat-row.on:hover .bat-bar { transform: none; }
 .shell-section-project .bat-mark,
 .shell-section-project .setr,
 .shell-section-project .apl,
@@ -503,6 +587,63 @@
 .shell-section-project .bat-pick { gap: 8px; padding: 6px; border: 1px solid var(--px-line); border-radius: 16px; background: #fff; }
 .shell-section-project .bat-tab { margin: 0; padding: 10px 16px; border: 0; border-radius: 12px; }
 .shell-section-project .bat-tab.on { background: var(--px-mint-soft); color: var(--px-green-dark); }
+
+.shell-section-project .bat-cover {
+  position: relative;
+  height: 152px;
+  background: var(--px-mint-soft);
+}
+.shell-section-project .bat-cover-img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.shell-section-project .bat-cover-empty {
+  width: 100%;
+  height: 100%;
+  background: repeating-linear-gradient(45deg, var(--px-ground) 0 10px, #e9f0ec 10px 20px);
+}
+.shell-section-project .bat-cover .bat-count {
+  position: absolute;
+  inset-block-start: 10px;
+  inset-inline-start: 10px;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, .92);
+  color: var(--px-green-dark);
+  font-size: 11px;
+  font-weight: 600;
+  box-shadow: 0 2px 8px rgba(28, 45, 40, .18);
+  backdrop-filter: blur(4px);
+}
+
+.shell-section-project .bat-foot { display: grid; gap: 9px; align-content: start; padding: 12px 14px; }
+.shell-section-project .bat-name {
+  max-width: 100%;
+  margin-inline-start: -6px;
+  padding: 2px 6px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--px-ink);
+  font: inherit;
+  font-size: 16px;
+  font-weight: 650;
+}
+.shell-section-project .bat-name:hover { background: var(--px-ground); }
+.shell-section-project .bat-name:focus { outline: none; background: #fff; box-shadow: 0 0 0 3px var(--px-mint-soft); }
+
+.shell-section-project .bat-foot-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.shell-section-project .bat-when {
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: var(--px-ground);
+  color: var(--px-muted);
+  font-size: 12px;
+}
+.shell-section-project .bat-actions { display: flex; align-items: center; gap: 6px; }
+.shell-section-project .bat-actions .btn { min-height: 34px; padding: 0 13px; border-radius: 8px; font-size: 13px; }
+.shell-section-project .bat-drop { padding: 7px 11px; border-radius: 8px; color: #a6352c; font-size: 13px; }
+.shell-section-project .bat-drop:hover { background: #fff1f0; }
 
 /* New project: a two-step product flow, not the old utility form. */
 .project-create-overlay {
@@ -626,3 +767,459 @@
   .project-create-form { grid-template-columns: 1fr; padding: 30px 24px; }
   .project-create-field.is-wide { grid-column: 1; }
 }
+
+/* ------------------------------------------------------------------------
+ * Frontend-design-review pass: project work should feel like an operating
+ * surface, not a landing page. The first viewport must show context, the main
+ * action, and the first useful row without scrolling.
+ */
+.shell-section-projects,
+.shell-section-project {
+  --px-ink: #18211e;
+  --px-muted: #63706b;
+  --px-green: #47786e;
+  --px-green-dark: #2f5c53;
+  --px-mint: #c7ded8;
+  --px-mint-soft: #eef6f3;
+  --px-ground: #f6f8f5;
+  --px-line: #dfe7e2;
+  --px-white: #fff;
+  --px-shadow: 0 18px 42px rgba(37, 54, 49, .08);
+  font-family: Assistant, "Segoe UI", system-ui, sans-serif;
+}
+
+.project-index-hero h1,
+.project-flow-identity h1,
+.project-overview-copy h2,
+.project-stage-head h2,
+.project-create-body > aside h2 {
+  letter-spacing: 0;
+}
+
+.project-index {
+  width: min(100%, 1500px);
+  padding: 22px clamp(22px, 4vw, 58px) 44px;
+}
+
+.project-index-hero {
+  align-items: center;
+  gap: 26px;
+  padding-bottom: 14px;
+}
+
+.project-index-eyebrow,
+.project-index-section-label {
+  margin-bottom: 5px;
+  color: var(--px-green-dark);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.project-index-hero h1 {
+  font-size: clamp(32px, 3.2vw, 46px);
+  line-height: 1.05;
+}
+
+.project-index-hero p {
+  max-width: 56ch;
+  margin-top: 6px;
+  font-size: 14px;
+  line-height: 1.45;
+}
+
+.project-index-create {
+  min-height: 44px;
+  padding: 0 18px;
+  border-radius: 8px;
+  box-shadow: none;
+  font-size: 14px;
+}
+
+.project-index-create:hover {
+  transform: none;
+  box-shadow: var(--px-shadow);
+}
+
+.project-index-overview {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin-bottom: 16px;
+  border-radius: 8px;
+}
+
+.project-index-overview > div {
+  min-height: 58px;
+  padding: 13px 18px;
+}
+
+.project-index-overview strong {
+  font-size: 24px;
+}
+
+.project-index-overview span {
+  font-size: 13px;
+}
+
+.project-index-toolbar {
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+.project-index-toolbar > div > strong {
+  font-size: 19px;
+}
+
+.project-index-filters {
+  border-radius: 8px;
+}
+
+.project-index-filters button {
+  min-height: 34px;
+  border-radius: 6px;
+  font-size: 13px;
+}
+
+.project-index-line {
+  grid-template-columns: 140px minmax(220px, 1fr) minmax(230px, .75fr) 136px;
+  min-height: 104px;
+  gap: 18px;
+  padding: 12px;
+  border-radius: 8px;
+  box-shadow: none;
+}
+
+.project-index-line:hover {
+  box-shadow: var(--px-shadow);
+}
+
+.project-index-photo {
+  width: 126px;
+  border-radius: 6px;
+}
+
+.project-index-main h2 {
+  margin-top: 6px;
+  font-size: 22px;
+  letter-spacing: 0;
+}
+
+.project-index-journey {
+  gap: 10px;
+}
+
+.project-index-summary {
+  display: none;
+}
+
+.project-index-open {
+  min-height: 38px;
+  border-radius: 7px;
+}
+
+.project-flow-header {
+  padding: 10px clamp(24px, 4vw, 56px) 12px;
+}
+
+.project-flow-identity {
+  margin-top: 7px;
+}
+
+.project-flow-identity h1 {
+  font-size: clamp(26px, 2.7vw, 34px);
+}
+
+.project-flow-steps {
+  justify-content: flex-start;
+  padding: 8px clamp(24px, 4vw, 56px) 9px;
+}
+
+.project-flow-step {
+  min-width: 118px;
+}
+
+.project-overview {
+  padding: 18px clamp(24px, 5vw, 70px) 52px;
+}
+
+.project-overview-focus {
+  min-height: 245px;
+  gap: clamp(32px, 6vw, 80px);
+}
+
+.project-overview-copy h2 {
+  max-width: 18ch;
+  font-size: clamp(30px, 3.3vw, 42px);
+  line-height: 1.12;
+}
+
+.project-overview-visual {
+  min-height: 220px;
+  border-radius: 8px;
+}
+
+.project-overview-actions button,
+.project-flow-actions button,
+.project-stage-content :where(.btn, .field) {
+  border-radius: 8px;
+}
+
+.project-overview-facts > div,
+.project-stage-numbers > div,
+.project-stage-facts,
+.deliverables,
+.shell-section-project .bat-row,
+.shell-section-project .bat-mark,
+.shell-section-project .setr,
+.shell-section-project .apl,
+.shell-section-project .dlv,
+.shell-section-project .pf-add {
+  border-radius: 8px;
+}
+
+.project-flow-workspace {
+  padding: 20px clamp(24px, 5vw, 70px) 56px;
+}
+
+.project-stage-head {
+  grid-template-columns: minmax(190px, .55fr) minmax(360px, 1fr);
+  gap: 3px 34px;
+  margin-bottom: 14px;
+}
+
+.project-stage-head h2 {
+  font-size: clamp(30px, 3.4vw, 42px);
+}
+
+.project-stage-head > span {
+  margin-bottom: 5px;
+}
+
+.project-stage-head p {
+  font-size: 14px;
+  line-height: 1.45;
+}
+
+.project-album-plan {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1px;
+  overflow: hidden;
+  border: 1px solid var(--px-line);
+  border-radius: 8px;
+  background: var(--px-line);
+}
+
+.project-album-plan > div {
+  display: grid;
+  gap: 7px;
+  min-height: 84px;
+  padding: 18px 20px;
+  background: #fff;
+}
+
+.project-album-plan span {
+  color: var(--px-muted);
+  font-size: 12px;
+}
+
+.project-album-plan strong {
+  font-size: 20px;
+  font-weight: 650;
+}
+
+.project-create {
+  width: min(980px, 100%);
+  height: min(640px, calc(100vh - 32px));
+  border-radius: 12px;
+}
+
+.project-create form {
+  grid-template-rows: 58px minmax(0,1fr) 62px;
+}
+
+.project-create-header {
+  padding: 10px 24px;
+}
+
+.project-create-body > aside {
+  padding: 28px 34px;
+}
+
+.project-create-body > aside h2 {
+  max-width: 10ch;
+  font-size: 32px;
+  line-height: 1.12;
+}
+
+.project-create-form {
+  align-content: start;
+  gap: 14px 18px;
+  padding: 24px 34px;
+}
+
+.project-create-field input {
+  min-height: 46px;
+  border-radius: 8px;
+}
+
+.project-create-deliverables {
+  gap: 9px;
+}
+
+.project-create-deliverables > label {
+  min-height: 54px;
+  border-radius: 8px;
+}
+
+.project-create-album-plan {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid #cbded8;
+  border-radius: 8px;
+  background: #f7fbf9;
+}
+
+.project-create-size-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.project-create-size-grid label,
+.project-create-select {
+  display: grid;
+  gap: 6px;
+}
+
+.project-create-size-grid span,
+.project-create-select span {
+  color: var(--px-muted);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.project-create-size-grid label {
+  grid-template-columns: minmax(0, 1fr) 44px;
+  align-items: center;
+}
+
+.project-create-size-grid label span,
+.project-create-size-grid label input {
+  grid-column: 1;
+}
+
+.project-create-size-grid label small {
+  grid-column: 2;
+  grid-row: 2;
+  color: var(--px-muted);
+}
+
+.project-create-size-grid input,
+.project-create-select select {
+  min-height: 38px;
+  padding: 0 10px;
+  border: 1px solid var(--px-line);
+  border-radius: 7px;
+  background: #fff;
+  color: var(--px-ink);
+  font: inherit;
+}
+
+.project-create-cover-choice {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.project-create-cover-choice button {
+  min-height: 34px;
+  padding: 0 12px;
+  border: 1px solid var(--px-line);
+  border-radius: 7px;
+  color: var(--px-muted);
+  background: #fff;
+}
+
+.project-create-cover-choice button.is-selected {
+  border-color: var(--px-green);
+  color: var(--px-green-dark);
+  background: var(--px-mint-soft);
+  font-weight: 650;
+}
+
+.project-create-footer button {
+  min-height: 42px;
+  border-radius: 8px;
+}
+
+@media (max-height: 760px) and (min-width: 821px) {
+  .project-index {
+    padding-top: 16px;
+  }
+
+  .project-index-hero p {
+    display: none;
+  }
+
+  .project-index-overview {
+    margin-bottom: 10px;
+  }
+
+  .project-index-line {
+    min-height: 96px;
+  }
+
+  .project-flow-header {
+    padding-block: 8px;
+  }
+
+  .project-flow-step-copy small {
+    display: none;
+  }
+
+  .project-overview-focus {
+    min-height: 220px;
+  }
+
+  .project-overview-facts > div {
+    min-height: 108px;
+    padding: 18px;
+  }
+}
+
+/* ------------------------------------------------------------------------
+ * critique-ux pass. The projects list is a business operating surface, so
+ * the outstanding balance has to be scannable — not hidden. Restored on the
+ * desktop widths the photographer actually works at; narrow behaviour is
+ * left exactly as it was (summary stays hidden below 1181px). Also: the row
+ * is one focusable control now (the full-row hit), the "פתיחת הפרויקט" pill
+ * is a visual cue only, and the filter counts meet WCAG AA.
+ */
+@media (min-width: 1181px) {
+  .project-index-line {
+    grid-template-columns: 140px minmax(210px, 1fr) minmax(200px, .7fr) 120px 128px;
+  }
+
+  .project-index-summary {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 8px;
+    align-content: center;
+  }
+
+  .project-index-summary div { gap: 3px; }
+  .project-index-summary span { font-size: 12px; }
+  .project-index-summary strong { font-size: 16px; }
+  .project-index-summary div:nth-child(2) strong { color: var(--px-green-dark); }
+}
+
+/* Static pill still answers to row hover, so the whole row reads as one
+ * live target even though only the hit layer is clickable. */
+.project-index-line:hover .project-index-open {
+  border-color: var(--px-green);
+  background: var(--px-mint-soft);
+  color: var(--px-green-dark);
+}
+
+/* Filter counts: full opacity so 11px text clears AA (muted on white = 5.18:1). */
+.project-index-filters span { opacity: 1; }
