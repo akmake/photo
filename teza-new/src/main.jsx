@@ -34,13 +34,13 @@ const assetNav = [
 function Sidebar() {
   return (
     <aside className="sidebar">
-      <div className="brand"><span>tz</span><strong>TEZA</strong><small>STUDIO</small></div>
-      <div className="account">
-        <span className="account-avatar">י</span>
-        <span><strong>יוסי</strong><small>הסטודיו שלי</small></span>
-        <button aria-label="תפריט חשבון">⌄</button>
+      <div className="account-card">
+        <div className="account">
+          <span className="account-avatar">י</span>
+          <span><strong>יוסי</strong><small>אישי · Standard</small></span>
+        </div>
+        <button className="invite"><Icon name="users" /> הזמנת חברי צוות</button>
       </div>
-      <button className="invite"><Icon name="users" /> הזמנת חברי צוות</button>
 
       <nav className="nav-group" aria-label="ניווט ראשי">
         {mainNav.map(([icon, label], index) => (
@@ -61,7 +61,7 @@ function Sidebar() {
       </nav>
 
       <button className="help"><Icon name="help" /><span>מרכז העזרה</span></button>
-      <small className="legal">תצוגת דמו · תנאי שימוש · פרטיות</small>
+      <small className="legal">תנאי שימוש ומדיניות פרטיות<br/>העדפות הפרטיות שלך</small>
     </aside>
   );
 }
@@ -72,14 +72,12 @@ const projects = [
   { image: '/images/family-coast.webp', title: 'משפחת רז', kind: 'צילומי משפחה', meta: '214 תמונות · אתמול', tone: 'sea' },
 ];
 
-function ProjectCard({ project }) {
+function ProjectCard({ project, portrait = false }) {
   return (
-    <button className={`project-card ${project.tone}`}>
+    <button className={`project-card ${portrait ? 'portrait' : ''}`}>
       <span className="project-preview"><img src={project.image} alt="" /></span>
-      <span className="project-card-copy">
-        <span><strong>{project.title}</strong><small>{project.kind}</small></span>
-        <span className="project-arrow">↗</span>
-      </span>
+      <strong>{project.title}</strong>
+      <small>{project.kind}</small>
       <small className="project-meta">{project.meta}</small>
     </button>
   );
@@ -91,40 +89,40 @@ function App() {
       <Sidebar />
       <main className="workspace">
         <header className="topbar">
-          <label className="search"><Icon name="search" /><input aria-label="חיפוש" placeholder="חיפוש בפרויקטים ובנכסים" /></label>
-          <div className="top-actions"><button className="upgrade">שדרוג</button><span className="credit">240 קרדיטים</span><button className="notification" aria-label="התראות">●</button><span className="mini-avatar">י</span></div>
+          <div className="top-actions"><span className="mini-avatar">י</span><button className="top-help" aria-label="עזרה"><Icon name="help" /></button></div>
         </header>
 
+        <div className="search-panel">
+          <div className="search-panel-head"><strong>mobbin</strong><button aria-label="סגירה">×</button></div>
+          <div className="search-panel-empty">לא נמצאו כלים, נכסים או פרויקטים.</div>
+        </div>
+
         <div className="dashboard" dir="rtl">
-          <header className="dashboard-head">
-            <div><span>יום ראשון, 9 באוגוסט</span><h1>בוקר טוב, יוסי</h1><p>שלוש עבודות מחכות להמשך היום.</p></div>
-            <button className="primary-create"><Icon name="plus" /> פרויקט חדש</button>
-          </header>
-
-          <section className="new-session">
-            <div className="session-actions">
-              <span className="section-kicker">עבודה חדשה</span>
-              <h1>מה יוצרים היום?</h1>
-              <button><span className="action-icon violet"><Icon name="image" /></span><span className="action-copy"><strong>ייבוא ועריכת תמונות</strong><small>בחירה, צבע וייצוא</small></span><span>←</span></button>
-              <button><span className="action-icon coral"><Icon name="video" /></span><span className="action-copy"><strong>יצירת וידאו</strong><small>קליפ קצר מתמונות</small></span><span>←</span></button>
-              <button><span className="action-icon blue"><Icon name="sparkle" /></span><span className="action-copy"><strong>פתיחת פרויקט AI</strong><small>סינון ועריכה חכמה</small></span><span>←</span></button>
+          <div className="dashboard-see-all">הצגת הכול</div>
+          <section className="project-matrix">
+            <div className="new-session-card">
+              <h2>עבודה חדשה</h2>
+              <button><Icon name="image" /> יצירת תמונה</button>
+              <button><Icon name="video" /> יצירת וידאו</button>
+              <button><Icon name="sparkle" /> עריכה חכמה</button>
             </div>
-
-            <div className="recent-projects">
-              <div className="section-title"><h2>פרויקטים אחרונים</h2><button>הצגת הכול</button></div>
-              <div className="project-grid">
-                {projects.map((project) => <ProjectCard key={project.title} project={project} />)}
-              </div>
-            </div>
+            <ProjectCard project={projects[1]} portrait />
+            <ProjectCard project={projects[2]} />
+            <ProjectCard project={projects[0]} />
+            <ProjectCard project={{...projects[2], title:'סקירת מערכות גוף', kind:'0 עריכות', meta:'לפני 3 ימים'}} />
+            <ProjectCard project={{...projects[0], title:'עבודה בחוץ', kind:'עריכה אחת', meta:'לפני 4 ימים'}} />
+            <div className="project-card empty" />
+            <div className="project-card empty" />
           </section>
 
           <section className="recent-assets">
-            <div className="section-title"><h2>עריכות אחרונות</h2><button>הצגת הכול</button></div>
+            <div className="section-title"><h2><span>◷</span> יצירות אחרונות</h2><button>הצגת הכול</button></div>
             <div className="asset-strip">
-              <button className="asset-card"><img src="/images/wedding-field.webp" alt=""/><span>בחירת זהב</span></button>
-              <button className="asset-card portrait"><img src="/images/editorial-portrait.webp" alt=""/><span>גרסה מונוכרומטית</span></button>
-              <button className="asset-card coast"><img src="/images/family-coast.webp" alt=""/><span>מסירת גלריה</span></button>
-              <button className="asset-card detail"><img src="/images/wedding-field.webp" alt=""/><span>סטורי 9:16</span></button>
+              <button className="asset-card detail"><img src="/images/wedding-field.webp" alt=""/></button>
+              <button className="asset-card portrait"><img src="/images/editorial-portrait.webp" alt=""/></button>
+              <button className="asset-card coast"><img src="/images/family-coast.webp" alt=""/></button>
+              <button className="asset-card"><img src="/images/wedding-field.webp" alt=""/></button>
+              <button className="asset-card portrait-alt"><img src="/images/editorial-portrait.webp" alt=""/></button>
             </div>
           </section>
         </div>
