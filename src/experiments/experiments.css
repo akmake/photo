@@ -370,6 +370,54 @@
   font-family: var(--font-display);
 }
 
+/* The near-duplicate groups — each burst pulled out of the set into its own
+ * strip, so the eye sees the redundancy the numbers claim. */
+.albumx-groups {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s3);
+  margin-bottom: var(--s6);
+}
+
+.albumx-group {
+  padding: var(--s3);
+  border-radius: var(--r-sm);
+  background: var(--card-2);
+}
+
+.albumx-group-head {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  margin-bottom: var(--s2);
+  font-family: var(--font-display);
+  font-weight: var(--fw-semi);
+  color: var(--ink-2);
+}
+
+.albumx-group-head .mono {
+  color: var(--st-wait-ink);
+  font-size: var(--t-sm);
+}
+
+.albumx-group-head small {
+  margin-inline-start: auto;
+  color: var(--ink-4);
+  font-weight: var(--fw-normal);
+}
+
+.albumx-group-strip {
+  display: flex;
+  gap: var(--s3);
+  overflow-x: auto;
+  padding-bottom: var(--s1);
+}
+
+.albumx-group-strip .albumx-photo {
+  width: 128px;
+  flex: 0 0 auto;
+}
+
 .albumx-shelf {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));

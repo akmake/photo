@@ -16,7 +16,7 @@
  */
 
 import { useState } from 'react';
-import { embedAlbum, listImages, pickFolder, thumbUrl } from '../api';
+import { dedupAlbum, embedAlbum, listImages, pickFolder, thumbUrl } from '../api';
 import { IcChevron, IcFolderOpen, IcSparkle } from '../design/Icons';
 
 type Status = 'idle' | 'loading' | 'ready' | 'error';
@@ -46,6 +46,16 @@ function baseName(path: string): string {
 // is started; `done` when every frame carries a vector.
 type Ingest = { phase: 'running' | 'done'; done: number; total: number; failed: number };
 
+// The near-duplicate result — clusters of 2+ frames, plus the counts the summary
+// line reads off. Held whole so re-rendering never recomputes.
+type Dedup = {
+  groups: string[][];
+  embedded: number;
+  duplicateFrames: number;
+  missing: number;
+  threshold: number;
+};
+
 // One HTTP call per chunk so the counter moves and a cancel can land between them.
 const INGEST_CHUNK = 8;
 
@@ -56,6 +66,9 @@ export default function AlbumAI({ onBack }: { onBack: () => void }) {
   const [error, setError] = useState<string | null>(null);
   const [ingest, setIngest] = useState<Ingest | null>(null);
   const [ingestError, setIngestError] = useState<string | null>(null);
+  const [dedup, setDedup] = useState<Dedup | null>(null);
+  const [dedupRunning, setDedupRunning] = useState(false);
+  const [dedupError, setDedupError] = useState<string | null>(null);
 
   async function choose() {
     let picked: string | null;
@@ -73,6 +86,8 @@ export default function AlbumAI({ onBack }: { onBack: () => void }) {
     setError(null);
     setIngest(null); // a new folder starts with no fingerprints
     setIngestError(null);
+    setDedup(null);
+    setDedupError(null);
     try {
       const { files: found } = await listImages(picked);
       setFiles(found);
@@ -85,6 +100,8 @@ export default function AlbumAI({ onBack }: { onBack: () => void }) {
 
   async function runIngest() {
     setIngestError(null);
+    setDedup(null); // fingerprints changed — any earlier grouping is now stale
+    setDedupError(null);
     setIngest({ phase: 'running', done: 0, total: files.length, failed: 0 });
     let done = 0;
     let failed = 0;
@@ -105,13 +122,40 @@ export default function AlbumAI({ onBack }: { onBack: () => void }) {
     }
   }
 
-  // The pipeline's first stage is the only real one; the rest SAY "בבנייה".
-  // קליטה moves through ready → running → done as the fingerprints come in.
+  async function runDedup() {
+    setDedupError(null);
+    setDedupRunning(true);
+    try {
+      const r = await dedupAlbum(files);
+      setDedup({
+        groups: r.groups,
+        embedded: r.embedded,
+        duplicateFrames: r.duplicateFrames,
+        missing: r.missing.length,
+        threshold: r.threshold,
+      });
+    } catch (e) {
+      setDedupError((e as Error).message);
+    } finally {
+      setDedupRunning(false);
+    }
+  }
+
+  // Two real stages now — קליטה and דה-דופ. The rest SAY "בבנייה". Each moves
+  // ready → running → done, and דה-דופ only unlocks once the fingerprints exist.
   function stageStatus(id: string): { label: string; cls: string } {
-    if (id !== 'ingest') return { label: 'בבנייה', cls: 'pill-idle' };
-    if (ingest?.phase === 'done') return { label: 'הושלם', cls: 'pill-ok' };
-    if (ingest?.phase === 'running') return { label: 'פעיל', cls: 'pill-run' };
-    if (status === 'ready' && files.length) return { label: 'מוכן', cls: '' };
+    if (id === 'ingest') {
+      if (ingest?.phase === 'done') return { label: 'הושלם', cls: 'pill-ok' };
+      if (ingest?.phase === 'running') return { label: 'פעיל', cls: 'pill-run' };
+      if (status === 'ready' && files.length) return { label: 'מוכן', cls: '' };
+      return { label: 'בבנייה', cls: 'pill-idle' };
+    }
+    if (id === 'dedup') {
+      if (dedup) return { label: 'הושלם', cls: 'pill-ok' };
+      if (dedupRunning) return { label: 'פעיל', cls: 'pill-run' };
+      if (ingest?.phase === 'done') return { label: 'מוכן', cls: '' };
+      return { label: 'בבנייה', cls: 'pill-idle' };
+    }
     return { label: 'בבנייה', cls: 'pill-idle' };
   }
 
@@ -223,6 +267,53 @@ export default function AlbumAI({ onBack }: { onBack: () => void }) {
                     <p className="albumx-fault mono" dir="ltr">{ingestError}</p>
                   )}
                 </div>
+              )}
+
+              {ingest?.phase === 'done' && (
+                <div className="albumx-ingest">
+                  {dedup ? (
+                    <p className="albumx-ingest-done">
+                      דה-דופ: <b>{dedup.groups.length}</b> קבוצות כפולות ·{' '}
+                      <b>{dedup.duplicateFrames}</b> פריימים כפולים ·{' '}
+                      <b>{dedup.embedded - dedup.duplicateFrames}</b> ייחודיים
+                      {dedup.missing ? ` · ${dedup.missing} לא נקלטו` : ''}.
+                    </p>
+                  ) : dedupRunning ? (
+                    <p className="albumx-ingest-run">
+                      <span className="dot-live" />
+                      מחפש כפולות…
+                    </p>
+                  ) : (
+                    <button className="btn btn-primary" onClick={runDedup}>
+                      <IcSparkle size={16} />
+                      מצא כפולות
+                    </button>
+                  )}
+                  {dedupError && (
+                    <p className="albumx-fault mono" dir="ltr">{dedupError}</p>
+                  )}
+                </div>
+              )}
+
+              {dedup && dedup.groups.length > 0 && (
+                <section className="albumx-groups">
+                  {dedup.groups.map((g, i) => (
+                    <div key={g[0]} className="albumx-group">
+                      <p className="albumx-group-head">
+                        כמעט-כפולות <span className="mono">×{g.length}</span>
+                        <small>קבוצה {i + 1}</small>
+                      </p>
+                      <div className="albumx-group-strip">
+                        {g.map((f) => (
+                          <figure key={f} className="albumx-photo">
+                            <img className="print" src={thumbUrl(f, 320)} alt="" loading="lazy" />
+                            <figcaption className="mono" dir="ltr">{baseName(f)}</figcaption>
+                          </figure>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </section>
               )}
 
               {files.length === 0 ? (
