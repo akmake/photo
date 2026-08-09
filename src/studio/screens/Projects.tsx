@@ -27,6 +27,15 @@ function currentStage(project: Project): string {
   return stagesOf(project)[Math.min(project.at, stagesOf(project).length - 1)]?.label ?? 'הכנה';
 }
 
+function SearchIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true">
+      <circle cx="11" cy="11" r="6.5" />
+      <path d="m16 16 4.5 4.5" />
+    </svg>
+  );
+}
+
 function ProjectLine({ project, onOpen }: { project: Project; onOpen: (id: string) => void }) {
   const stages = stagesOf(project);
   const current = Math.max(0, Math.min(project.at, stages.length - 1));
@@ -51,7 +60,7 @@ function ProjectLine({ project, onOpen }: { project: Project; onOpen: (id: strin
       <div className="project-index-main">
         <div className="project-index-state-row">
           <span className={`project-index-state is-${project.state}`}>{STATE_LABEL[project.state]}</span>
-          <span>{project.date}</span>
+          <span className="mono">{project.date}</span>
         </div>
         <h2>{project.client}</h2>
         <p>{[project.event, project.location].filter(Boolean).join(' · ')}</p>
@@ -59,7 +68,7 @@ function ProjectLine({ project, onOpen }: { project: Project; onOpen: (id: strin
 
       <div className="project-index-journey">
         <div className="project-index-journey-copy">
-          <span>השלב הנוכחי</span>
+          <span>עכשיו בפרויקט</span>
           <strong>{currentStage(project)}</strong>
         </div>
         <div className="project-index-track" aria-label={`שלב ${current + 1} מתוך ${stages.length}`}>
@@ -81,7 +90,7 @@ function ProjectLine({ project, onOpen }: { project: Project; onOpen: (id: strin
       </div>
 
       <span className="project-index-open" aria-hidden="true">
-        פתיחת הפרויקט
+        <span>פתיחה</span>
         <span>←</span>
       </span>
     </article>
@@ -91,6 +100,7 @@ function ProjectLine({ project, onOpen }: { project: Project; onOpen: (id: strin
 export default function Projects({ onOpen }: { onOpen: (id: string) => void }) {
   const { projects, status, fault, saveFault } = useStudio();
   const [filter, setFilter] = useState<Filter>('all');
+  const [query, setQuery] = useState('');
   const [creating, setCreating] = useState(false);
 
   const counts = useMemo(() => {
@@ -101,8 +111,14 @@ export default function Projects({ onOpen }: { onOpen: (id: string) => void }) {
 
   const shown = useMemo(() => {
     const list = filter === 'all' ? projects : projects.filter((project) => project.state === filter);
-    return [...list].sort((a, b) => SORT[a.state] - SORT[b.state]);
-  }, [projects, filter]);
+    const needle = query.trim().toLocaleLowerCase('he-IL');
+    const searched = needle
+      ? list.filter((project) => [project.client, project.event, project.location]
+        .filter(Boolean)
+        .some((value) => value!.toLocaleLowerCase('he-IL').includes(needle)))
+      : list;
+    return [...searched].sort((a, b) => SORT[a.state] - SORT[b.state]);
+  }, [projects, filter, query]);
 
   if (status === 'down') return <CannotRead what="את הפרויקטים" fault={fault} />;
   if (status === 'loading' && projects.length === 0) return <StillReading what="את הפרויקטים" />;
@@ -111,9 +127,9 @@ export default function Projects({ onOpen }: { onOpen: (id: string) => void }) {
     <main className="project-index">
       <header className="project-index-hero">
         <div>
-          <span className="project-index-eyebrow">הסטודיו שלי</span>
+          <span className="project-index-eyebrow">TEZA / WORKSPACE</span>
           <h1>פרויקטים</h1>
-          <p>כל עבודות הסטודיו, מסודרות לפי המקום שבו הן עומדות עכשיו.</p>
+          <p>כל הפקות הסטודיו, התמונות והשלב הבא — במקום אחד.</p>
         </div>
         <button className="project-index-create" onClick={() => setCreating(true)}>
           <IcFolderOpen size={19} />
@@ -139,10 +155,16 @@ export default function Projects({ onOpen }: { onOpen: (id: string) => void }) {
       ) : (
         <>
           <div className="project-index-toolbar">
-            <div>
-              <span className="project-index-section-label">העבודות שלי</span>
-              <strong>{shown.length} פרויקטים</strong>
-            </div>
+            <label className="project-index-search">
+              <SearchIcon />
+              <input
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                placeholder="חיפוש בפרויקטים"
+                aria-label="חיפוש בפרויקטים"
+              />
+              <kbd>⌘ K</kbd>
+            </label>
             <nav className="project-index-filters" aria-label="סינון לפי מצב">
               {FILTERS.map((item) => (
                 <button
@@ -158,8 +180,21 @@ export default function Projects({ onOpen }: { onOpen: (id: string) => void }) {
             </nav>
           </div>
 
+          <div className="project-index-heading">
+            <div>
+              <span className="project-index-section-label">העבודות שלי</span>
+              <strong>{shown.length} פרויקטים</strong>
+            </div>
+            <span>ממוינים לפי השלב הבא בעבודה</span>
+          </div>
+
           {shown.length ? (
             <section className="project-index-list">
+              <button className="project-index-new-card" onClick={() => setCreating(true)}>
+                <span aria-hidden="true">＋</span>
+                <strong>פרויקט חדש</strong>
+                <small>פתיחת עבודה והוספת תמונות</small>
+              </button>
               {shown.map((project) => <ProjectLine key={project.id} project={project} onOpen={onOpen} />)}
             </section>
           ) : (
