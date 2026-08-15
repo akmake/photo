@@ -61,6 +61,7 @@ import album_export
 import album_render
 import cull
 import embed
+import identity
 import workspace
 import cloud_sources
 import storage_locations
@@ -801,6 +802,9 @@ class Handler(BaseHTTPRequestHandler):
             return
         if self.path == "/album/cull":
             self._album_cull()
+            return
+        if self.path == "/album/identities":
+            self._album_identities()
             return
         if self.path == "/album/render":
             self._album_render()
@@ -1599,6 +1603,31 @@ if ($path) {
                 float(body.get("threshold", embed.MOMENT_THRESHOLD)),
                 float(body.get("timeGap", embed.MOMENT_TIME_GAP)),
             ))
+        except Exception as e:  # noqa: BLE001
+            self._json(500, {"error": str(e)})
+
+    def _album_identities(self):
+        """Cluster every readable face in the set into people.
+
+        { frames:[{path, faces:[box,...]}], threshold?, totalFrames? }
+          -> { identities, principals, ... }
+
+        Reads the vectors the culling pass already stored, so it is instant and
+        cheap to re-run at a different threshold. Nobody is named: the answer is
+        "person 1 appears in 143 frames".
+        """
+        try:
+            body = self._body()
+            frames = body.get("frames", [])
+            result = identity.cluster(
+                frames,
+                float(body.get("threshold", identity.SAME_PERSON)),
+            )
+            result["principals"] = identity.principals(
+                result["identities"],
+                int(body.get("totalFrames") or len(frames)),
+            )
+            self._json(200, result)
         except Exception as e:  # noqa: BLE001
             self._json(500, {"error": str(e)})
 

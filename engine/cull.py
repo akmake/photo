@@ -31,6 +31,7 @@ import numpy as np
 
 import album_analysis
 import common
+import identity
 import masks
 import workspace
 
@@ -42,7 +43,7 @@ RIGHT_IRIS = (473, 474, 475, 476, 477)
 
 # Bump on ANY change to what is measured or how it is judged: the disk cache is
 # keyed on it, and a stale verdict from older thresholds is worse than no cache.
-CULL_VERSION = 5
+CULL_VERSION = 6
 
 # MediaPipe face-mesh indices. Mid-lid pairs and the corners that scale them.
 # `masks` already names the eye rings; these are the four points that measure an
@@ -444,6 +445,15 @@ def judge(path):
         faces, key=lambda f: f["box"]["width"] * f["box"]["height"], default=None,
     ) if faces else None
     gaze = main_face["gaze"] if main_face else None
+
+    # Identity vectors, computed here because this is the one place the frame is
+    # already open at full resolution with its faces located. They are stored
+    # beside the frame, not inside this payload: 512 floats per face would bloat
+    # every cached verdict for a question only the clustering pass asks.
+    try:
+        identity.faces_of(path, face_boxes, rgb)
+    except Exception:  # noqa: BLE001 — identity is an enrichment, not a gate
+        pass
 
     payload = {
         "widthPx": w,

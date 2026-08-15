@@ -68,9 +68,17 @@ export interface BuiltAlbum {
   bleedRatio: number;
 }
 
-/* A frame earns a spread of its own when it is both technically strong and
- * about someone. Quality alone promotes a sharp photo of a chair; faces alone
- * promote a blurry one. */
+/* A frame earns a spread of its own when it is technically strong, about
+ * someone, and about the RIGHT someone.
+ *
+ * That last clause is the one that was missing, and it was the worst hole in
+ * the album: with only sharpness and face size to go on, a crisp frame of a
+ * stranger at the back of the room outscored the couple and took a full spread.
+ * No layout quality survives a book whose protagonist is a guest.
+ *
+ * A frame with nobody central is not condemned — a venue, a detail, a table are
+ * all real album frames — it simply stops competing for the openings that
+ * belong to the people the album is about. */
 function heroScore(photo: Frame): number {
   const analysis = photo.analysis;
   if (!analysis || analysis.status !== 'ready') return 0;
@@ -80,7 +88,12 @@ function heroScore(photo: Frame): number {
     0,
   );
   const presence = faces === 0 ? 0 : Math.min(1, biggestFace * 6) * (faces <= 3 ? 1 : 0.7);
-  return analysis.qualityScore * 0.55 + analysis.sharpnessScore * 0.15 + presence * 0.3;
+  const base = analysis.qualityScore * 0.55
+    + analysis.sharpnessScore * 0.15
+    + presence * 0.3;
+
+  if (photo.principalRank === null) return base * 0.55;
+  return base * (photo.principalRank === 0 ? 1 : 0.82);
 }
 
 /* The rhythm of the book.

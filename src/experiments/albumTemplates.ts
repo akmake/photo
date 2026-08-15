@@ -48,6 +48,10 @@ export interface Frame extends AlbumPhoto {
   gaze: number | null;
   /** The side the air is on. */
   negativeSpace: 'left' | 'right' | 'centre';
+  /** 0 = the album's leading protagonist, 1 the next, null = nobody central is
+   *  in this frame. Null is not "a bad frame" — a venue or a detail has no
+   *  protagonist and must not be punished for it. */
+  principalRank: number | null;
 }
 
 export type SlotRole = 'hero' | 'support' | 'detail';

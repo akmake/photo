@@ -563,6 +563,46 @@ export async function renderAlbum(
   return j;
 }
 
+/* זהות — who the album is about.
+ *
+ * No face-recognition model is downloaded: ArcFace/InsightFace weights are
+ * licensed for non-commercial research only, the same objection that kept
+ * DINOv3 out of this stack. The clustering runs on DINOv2 over face+shoulders
+ * crops, which is far stronger than it sounds within ONE event — same day, same
+ * clothes, a handful of people, and the question is "who recurs", not "who is
+ * this person". Nobody is named; the answer is "person 1 is in 143 frames". */
+export interface AlbumIdentity {
+  id: string;
+  /** The frames this person appears in. */
+  frames: string[];
+  faces: number;
+  /** Only on principals: their share of the set. */
+  share?: number;
+}
+
+export interface AlbumIdentitiesResult {
+  identities: AlbumIdentity[];
+  /** The protagonists — capped, and empty when nobody carries the event. */
+  principals: AlbumIdentity[];
+  readableFaces: number;
+  /** Faces too small to read. NOT the same as "not a principal". */
+  unreadableFaces: number;
+  threshold: number;
+}
+
+export async function albumIdentities(
+  frames: Array<{ path: string; faces: Array<{ x: number; y: number; width: number; height: number }> }>,
+): Promise<AlbumIdentitiesResult> {
+  const r = await fetch(`${ENGINE}/album/identities`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ frames, totalFrames: frames.length }),
+  });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j?.error ?? `engine ${r.status}`);
+  return j;
+}
+
 /* רגעים — the set split into the scenes it was shot in.
  *
  * The DINOv2 vectors finally answering something bigger than "is this the same

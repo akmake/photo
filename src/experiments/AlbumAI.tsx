@@ -19,6 +19,7 @@
 
 import { useMemo, useState } from 'react';
 import {
+  albumIdentities,
   albumMoments,
   cullAlbum,
   dedupAlbum,
@@ -28,6 +29,7 @@ import {
   renderAlbum,
   renderAlbumPdf,
   thumbUrl,
+  type AlbumIdentitiesResult,
   type AlbumMomentsResult,
   type AlbumPdfReport,
   type AlbumRenderManifest,
@@ -65,6 +67,7 @@ const PIPELINE: Stage[] = [
   { id: 'dedup', label: 'דה-דופ', note: 'איחוד רצפים כמעט-זהים לטובה שבהן' },
   { id: 'cull', label: 'סינון', note: 'עיניים עצומות, ראש מסובב, פוקוס וחשיפה — על הפנים' },
   { id: 'cluster', label: 'קיבוץ', note: 'חלוקה לרגעים לפי דמיון ויזואלי וזמן צילום' },
+  { id: 'people', label: 'דמויות', note: 'מי חוזר לאורך האירוע — ומי הנושא שלו' },
   { id: 'curate', label: 'אצירה', note: 'גיבור לכפולה משלו, השאר תומכות' },
   { id: 'layout', label: 'פריסה', note: 'סוג צילום, כיוון מבט, ציר ורזולוציה' },
 ];
@@ -92,7 +95,7 @@ function baseName(path: string): string {
 
 /** The judged frame, in the shape the layout reads — geometry plus the
  *  editorial facts (when it was taken, what kind of shot it is, where it looks). */
-function toAlbumPhoto({ path, data }: Judged): Frame {
+function toAlbumPhoto({ path, data }: Judged, principalOf: Map<string, number>): Frame {
   return {
     id: path,
     name: baseName(path),
@@ -108,6 +111,7 @@ function toAlbumPhoto({ path, data }: Judged): Frame {
     shotScale: data.shotScale,
     gaze: data.gaze,
     negativeSpace: data.negativeSpace,
+    principalRank: principalOf.has(path) ? (principalOf.get(path) as number) : null,
     analysis: {
       status: 'ready',
       faces: data.faces ?? [],
@@ -166,6 +170,7 @@ export default function AlbumAI({ onBack }: { onBack: () => void }) {
   const [cullError, setCullError] = useState<string | null>(null);
   const [judged, setJudged] = useState<Judged[]>([]);
   const [moments, setMoments] = useState<AlbumMomentsResult | null>(null);
+  const [people, setPeople] = useState<AlbumIdentitiesResult | null>(null);
   // Paths the photographer put back in against the judge's verdict. The machine
   // gets a vote, not the last word.
   const [overrides, setOverrides] = useState<Set<string>>(new Set());
@@ -181,6 +186,7 @@ export default function AlbumAI({ onBack }: { onBack: () => void }) {
     setCullError(null);
     setJudged([]);
     setMoments(null);
+    setPeople(null);
     setOverrides(new Set());
   }
 
@@ -299,6 +305,17 @@ export default function AlbumAI({ onBack }: { onBack: () => void }) {
         // capture order, and the panel says which one it used.
         setMoments(null);
       }
+
+      // Who the album is about. The face vectors were stored during the judging
+      // pass, so this only clusters what is already on disk.
+      try {
+        const kept = out.filter((j) => j.data.verdict === 'keep');
+        setPeople(await albumIdentities(
+          kept.map((j) => ({ path: j.path, faces: j.data.faces })),
+        ));
+      } catch {
+        setPeople(null);
+      }
     } catch (e) {
       setCullError((e as Error).message);
       setCull(null);
@@ -340,6 +357,11 @@ export default function AlbumAI({ onBack }: { onBack: () => void }) {
       if (cull?.phase === 'done') return { label: 'מוכן', cls: '' };
       return { label: 'בבנייה', cls: 'pill-idle' };
     }
+    if (id === 'people') {
+      if (people) return { label: 'הושלם', cls: 'pill-ok' };
+      if (cull?.phase === 'done') return { label: 'מוכן', cls: '' };
+      return { label: 'בבנייה', cls: 'pill-idle' };
+    }
     // אצירה has no screen of its own: the hero promotion lives inside the build,
     // so it is done exactly when a book exists.
     if (id === 'curate' || id === 'layout') {
@@ -354,11 +376,24 @@ export default function AlbumAI({ onBack }: { onBack: () => void }) {
   const rejected = judged.filter((j) => j.data.verdict === 'reject');
   // Memoised together: a fresh array identity here would defeat the build's own
   // memo below and re-run every layout candidate on every keystroke.
+  /* Which frames hold a protagonist, and which one. Built from the identity
+   * pass; empty when nobody carries enough of the event, which is a real answer
+   * for a venue or a product day rather than a failure. */
+  const principalOf = useMemo(() => {
+    const map = new Map<string, number>();
+    (people?.principals ?? []).forEach((person, rank) => {
+      person.frames.forEach((path) => {
+        if (!map.has(path)) map.set(path, rank);
+      });
+    });
+    return map;
+  }, [people]);
+
   const photos = useMemo(
     () => judged
       .filter((j) => j.data.verdict === 'keep' || overrides.has(j.path))
-      .map(toAlbumPhoto),
-    [judged, overrides],
+      .map((j) => toAlbumPhoto(j, principalOf)),
+    [judged, overrides, principalOf],
   );
   // Every candidate composition is generated and re-scored in here — it is not a
   // render-cheap call, and only these three inputs can change its answer.
@@ -546,6 +581,7 @@ export default function AlbumAI({ onBack }: { onBack: () => void }) {
                       overrides={overrides}
                       onToggleOverride={toggleOverride}
                       moments={moments}
+                      people={people}
                       photos={photos}
                       draft={draft}
                       onDraft={setDraft}
@@ -610,6 +646,7 @@ function AlbumBuilder(props: {
   overrides: Set<string>;
   onToggleOverride: (path: string) => void;
   moments: AlbumMomentsResult | null;
+  people: AlbumIdentitiesResult | null;
   photos: Frame[];
   draft: SpecDraft;
   onDraft: (draft: SpecDraft) => void;
@@ -620,7 +657,7 @@ function AlbumBuilder(props: {
 }) {
   const {
     selection, cull, cullError, onCull, rejected, overrides, onToggleOverride,
-    moments, photos, draft, onDraft, onSpec, spec, album, onEditSpec,
+    moments, people, photos, draft, onDraft, onSpec, spec, album, onEditSpec,
   } = props;
 
   if (cull?.phase !== 'done') {
@@ -660,6 +697,7 @@ function AlbumBuilder(props: {
       onToggleOverride={onToggleOverride}
       kept={photos.length}
       moments={moments}
+      people={people}
     />
   );
 
@@ -773,7 +811,7 @@ function AlbumBuilder(props: {
  * overruled — which is exactly what a photographer will want to do the first
  * few times, and the only way the thresholds ever get calibrated. */
 function CullReport({
-  cull, rejected, overrides, onToggleOverride, kept, moments,
+  cull, rejected, overrides, onToggleOverride, kept, moments, people,
 }: {
   cull: Ingest;
   rejected: Judged[];
@@ -781,6 +819,7 @@ function CullReport({
   onToggleOverride: (path: string) => void;
   kept: number;
   moments: AlbumMomentsResult | null;
+  people: AlbumIdentitiesResult | null;
 }) {
   const [open, setOpen] = useState(false);
   const restored = rejected.filter((j) => overrides.has(j.path)).length;
@@ -806,6 +845,22 @@ function CullReport({
           נכנסים לאלבום ולא מופיעים ברשימה למטה.
         </p>
       )}
+
+      <p className="albumx-note-inline">
+        {people
+          ? (people.principals.length
+            ? <>
+                האלבום מזהה <b>{people.principals.length}</b> דמויות מרכזיות
+                {' '}(מתוך <b>{people.identities.length}</b> אנשים שנמצאו) —
+                {' '}הבולטת מופיעה ב-<b>{Math.round((people.principals[0].share ?? 0) * 100)}%</b>
+                {' '}מהסט. הן שמקבלות את הכפולות הגדולות.
+                {people.unreadableFaces > 0 && (
+                  <> {people.unreadableFaces} פנים היו קטנות מכדי לזהות — לא נספרו לאף אחד.</>
+                )}
+              </>
+            : <>לא נמצאה דמות מרכזית — אף אחד לא מופיע בחלק מספיק גדול מהסט. הגיבורים ייבחרו לפי איכות בלבד.</>)
+          : 'לא בוצע זיהוי דמויות — הגיבורים ייבחרו לפי איכות בלבד.'}
+      </p>
 
       {/* Which ORDER the book is told in, and by what. A split made without
           timestamps is a weaker split, and saying so costs nothing. */}

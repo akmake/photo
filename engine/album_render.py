@@ -30,6 +30,11 @@ import common
 
 MM_PER_INCH = 25.4
 
+# How close to the trim edge counts as "on it". Slot fractions arrive rounded,
+# so an exact 0.0 / 1.0 comparison would miss a bleed edge by a hair and leave a
+# white line down the side of a printed spread.
+EDGE_EPS = 1e-4
+
 # The lab gets one file per spread at this quality. 4:4:4 and q97 are not
 # negotiable for print: chroma subsampling is visible on a skin edge at A3.
 JPEG_QUALITY = 97
@@ -91,10 +96,33 @@ def _render_spread(spread, spec, ppi, background):
     for frame in spread.get("frames", []):
         path = frame["path"]
         slot = frame["slot"]
-        slot_w = max(1, int(round(float(slot["width"]) * trim_w)))
-        slot_h = max(1, int(round(float(slot["height"]) * trim_h)))
-        x = bleed + int(round(float(slot["x"]) * trim_w))
-        y = bleed + int(round(float(slot["y"]) * trim_h))
+
+        x0 = float(slot["x"])
+        y0 = float(slot["y"])
+        x1 = x0 + float(slot["width"])
+        y1 = y0 + float(slot["height"])
+
+        # FULL BLEED. A slot whose edge lands on the trim edge is meant to run
+        # off the page, so it is extended into the bleed on that side — this is
+        # the difference between a printed album and a page with a white border,
+        # and it is geometry, not styling. The guillotine cuts at the trim; the
+        # extra millimetres exist to be thrown away.
+        left = bleed + int(round(x0 * trim_w))
+        top = bleed + int(round(y0 * trim_h))
+        right = bleed + int(round(x1 * trim_w))
+        bottom = bleed + int(round(y1 * trim_h))
+        if x0 <= EDGE_EPS:
+            left = 0
+        if y0 <= EDGE_EPS:
+            top = 0
+        if x1 >= 1.0 - EDGE_EPS:
+            right = trim_w + bleed * 2
+        if y1 >= 1.0 - EDGE_EPS:
+            bottom = trim_h + bleed * 2
+
+        slot_w = max(1, right - left)
+        slot_h = max(1, bottom - top)
+        x, y = left, top
 
         src = common.load_image(path).convert("RGB")
         placed = _cover_crop(src, slot_w, slot_h, frame.get("focalPoint") or {})
@@ -105,9 +133,9 @@ def _render_spread(spread, spec, ppi, background):
 
         # The effective resolution is measured from what was actually used, not
         # from the file's dimensions — the crop threw pixels away and the
-        # photographer is entitled to the honest number.
-        printed_mm = float(slot["width"]) * spec["pageWidthMm"] * 2
-        effective_ppi = used[0] / (printed_mm / MM_PER_INCH) if printed_mm > 0 else 0
+        # photographer is entitled to the honest number. Expressed against the
+        # RENDERED width so a bleed-extended slot is accounted for too.
+        effective_ppi = used[0] / slot_w * ppi if slot_w > 0 else 0
         frames_meta.append({
             "path": path,
             "slotPx": [slot_w, slot_h],
