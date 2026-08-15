@@ -796,6 +796,9 @@ class Handler(BaseHTTPRequestHandler):
         if self.path == "/album/dedup":
             self._album_dedup()
             return
+        if self.path == "/album/moments":
+            self._album_moments()
+            return
         if self.path == "/album/cull":
             self._album_cull()
             return
@@ -1577,6 +1580,25 @@ if ($path) {
             paths = body.get("paths", [])
             threshold = float(body.get("threshold", embed.DEDUP_THRESHOLD))
             self._json(200, embed.group_near_duplicates(paths, threshold))
+        except Exception as e:  # noqa: BLE001
+            self._json(500, {"error": str(e)})
+
+    def _album_moments(self):
+        """Split the set into the scenes it was shot in.
+
+        { paths:[...], times?:[...], threshold?, timeGap? } -> { moments, ... }
+
+        Reads the cached vectors only, like /album/dedup — קליטה supplies them —
+        so it is instant and cheap to re-run at a different threshold.
+        """
+        try:
+            body = self._body()
+            self._json(200, embed.group_moments(
+                body.get("paths", []),
+                body.get("times"),
+                float(body.get("threshold", embed.MOMENT_THRESHOLD)),
+                float(body.get("timeGap", embed.MOMENT_TIME_GAP)),
+            ))
         except Exception as e:  # noqa: BLE001
             self._json(500, {"error": str(e)})
 

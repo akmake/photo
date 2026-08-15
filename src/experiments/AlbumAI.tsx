@@ -19,6 +19,7 @@
 
 import { useMemo, useState } from 'react';
 import {
+  albumMoments,
   cullAlbum,
   dedupAlbum,
   embedAlbum,
@@ -27,6 +28,7 @@ import {
   renderAlbum,
   renderAlbumPdf,
   thumbUrl,
+  type AlbumMomentsResult,
   type AlbumPdfReport,
   type AlbumRenderManifest,
   type CullResult,
@@ -34,7 +36,7 @@ import {
   type RenderSpreadPayload,
 } from '../api';
 import { IcChevron, IcFolderOpen, IcSparkle } from '../design/Icons';
-import type { AlbumPhoto } from '../album/model';
+
 import SpecForm from './SpecForm';
 import {
   EMPTY_DRAFT,
@@ -45,6 +47,7 @@ import {
   type SpecDraft,
 } from './printSpec';
 import { buildAlbum, type BuiltAlbum, type BuiltFrame } from './albumBuild';
+import type { Frame } from './albumTemplates';
 
 type Status = 'idle' | 'loading' | 'ready' | 'error';
 
@@ -54,15 +57,16 @@ interface Stage {
   note: string;
 }
 
-/* The pipeline, in the order the research doc lays it out. Two stages are still
- * empty and the rail says so rather than implying a full machine. */
+/* The pipeline, in the order the research doc lays it out. Every stage here now
+ * has code behind it; a stage with none would say "בבנייה" rather than borrow a
+ * neighbour's progress. */
 const PIPELINE: Stage[] = [
   { id: 'ingest', label: 'קליטה', note: 'קריאת התיקייה וטביעת אצבע ויזואלית לכל פריים' },
   { id: 'dedup', label: 'דה-דופ', note: 'איחוד רצפים כמעט-זהים לטובה שבהן' },
   { id: 'cull', label: 'סינון', note: 'עיניים עצומות, ראש מסובב, פוקוס וחשיפה — על הפנים' },
-  { id: 'cluster', label: 'קיבוץ', note: 'חלוקה לרגעים לפי דמיון וזמן' },
+  { id: 'cluster', label: 'קיבוץ', note: 'חלוקה לרגעים לפי דמיון ויזואלי וזמן צילום' },
   { id: 'curate', label: 'אצירה', note: 'גיבור לכפולה משלו, השאר תומכות' },
-  { id: 'layout', label: 'פריסה', note: 'תבנית לפי תוכן, ציר ובדיקת רזולוציה' },
+  { id: 'layout', label: 'פריסה', note: 'סוג צילום, כיוון מבט, ציר ורזולוציה' },
 ];
 
 // After the selection you pick what to do — not a forced path. Only "בנה אלבום"
@@ -86,8 +90,9 @@ function baseName(path: string): string {
   return path.split(/[\\/]/).pop() ?? path;
 }
 
-/** The judged frame, in the shape the layout engine reads. */
-function toAlbumPhoto({ path, data }: Judged): AlbumPhoto {
+/** The judged frame, in the shape the layout reads — geometry plus the
+ *  editorial facts (when it was taken, what kind of shot it is, where it looks). */
+function toAlbumPhoto({ path, data }: Judged): Frame {
   return {
     id: path,
     name: baseName(path),
@@ -99,6 +104,10 @@ function toAlbumPhoto({ path, data }: Judged): AlbumPhoto {
     heightPx: data.heightPx,
     focalPoint: data.focalPoint,
     sourcePath: path,
+    shotTime: data.shotTime,
+    shotScale: data.shotScale,
+    gaze: data.gaze,
+    negativeSpace: data.negativeSpace,
     analysis: {
       status: 'ready',
       faces: data.faces ?? [],
@@ -156,6 +165,7 @@ export default function AlbumAI({ onBack }: { onBack: () => void }) {
   const [cull, setCull] = useState<Ingest | null>(null);
   const [cullError, setCullError] = useState<string | null>(null);
   const [judged, setJudged] = useState<Judged[]>([]);
+  const [moments, setMoments] = useState<AlbumMomentsResult | null>(null);
   // Paths the photographer put back in against the judge's verdict. The machine
   // gets a vote, not the last word.
   const [overrides, setOverrides] = useState<Set<string>>(new Set());
@@ -170,6 +180,7 @@ export default function AlbumAI({ onBack }: { onBack: () => void }) {
     setCull(null);
     setCullError(null);
     setJudged([]);
+    setMoments(null);
     setOverrides(new Set());
   }
 
@@ -273,6 +284,21 @@ export default function AlbumAI({ onBack }: { onBack: () => void }) {
       }
       setJudged(out);
       setCull({ phase: 'done', done, total: selection.length, failed });
+
+      // The scenes, straight after the judging: the vectors are already cached
+      // and the capture times just came back with the verdicts, so this is the
+      // one place both halves exist at once.
+      try {
+        const kept = out.filter((j) => j.data.verdict === 'keep');
+        setMoments(await albumMoments(
+          kept.map((j) => j.path),
+          kept.map((j) => j.data.shotTime),
+        ));
+      } catch {
+        // A failed split is not a failed run — the book falls back to plain
+        // capture order, and the panel says which one it used.
+        setMoments(null);
+      }
     } catch (e) {
       setCullError((e as Error).message);
       setCull(null);
@@ -309,6 +335,11 @@ export default function AlbumAI({ onBack }: { onBack: () => void }) {
       if (dedup) return { label: 'מוכן', cls: '' };
       return { label: 'בבנייה', cls: 'pill-idle' };
     }
+    if (id === 'cluster') {
+      if (moments) return { label: 'הושלם', cls: 'pill-ok' };
+      if (cull?.phase === 'done') return { label: 'מוכן', cls: '' };
+      return { label: 'בבנייה', cls: 'pill-idle' };
+    }
     // אצירה has no screen of its own: the hero promotion lives inside the build,
     // so it is done exactly when a book exists.
     if (id === 'curate' || id === 'layout') {
@@ -332,8 +363,10 @@ export default function AlbumAI({ onBack }: { onBack: () => void }) {
   // Every candidate composition is generated and re-scored in here — it is not a
   // render-cheap call, and only these three inputs can change its answer.
   const album: BuiltAlbum | null = useMemo(
-    () => (spec && photos.length ? buildAlbum(photos, spec) : null),
-    [spec, photos],
+    () => (spec && photos.length
+      ? buildAlbum(photos, spec, moments?.moments ?? [])
+      : null),
+    [spec, photos, moments],
   );
 
   return (
@@ -512,6 +545,7 @@ export default function AlbumAI({ onBack }: { onBack: () => void }) {
                       rejected={rejected}
                       overrides={overrides}
                       onToggleOverride={toggleOverride}
+                      moments={moments}
                       photos={photos}
                       draft={draft}
                       onDraft={setDraft}
@@ -575,7 +609,8 @@ function AlbumBuilder(props: {
   rejected: Judged[];
   overrides: Set<string>;
   onToggleOverride: (path: string) => void;
-  photos: AlbumPhoto[];
+  moments: AlbumMomentsResult | null;
+  photos: Frame[];
   draft: SpecDraft;
   onDraft: (draft: SpecDraft) => void;
   onSpec: () => void;
@@ -585,7 +620,7 @@ function AlbumBuilder(props: {
 }) {
   const {
     selection, cull, cullError, onCull, rejected, overrides, onToggleOverride,
-    photos, draft, onDraft, onSpec, spec, album, onEditSpec,
+    moments, photos, draft, onDraft, onSpec, spec, album, onEditSpec,
   } = props;
 
   if (cull?.phase !== 'done') {
@@ -624,6 +659,7 @@ function AlbumBuilder(props: {
       overrides={overrides}
       onToggleOverride={onToggleOverride}
       kept={photos.length}
+      moments={moments}
     />
   );
 
@@ -737,13 +773,14 @@ function AlbumBuilder(props: {
  * overruled — which is exactly what a photographer will want to do the first
  * few times, and the only way the thresholds ever get calibrated. */
 function CullReport({
-  cull, rejected, overrides, onToggleOverride, kept,
+  cull, rejected, overrides, onToggleOverride, kept, moments,
 }: {
   cull: Ingest;
   rejected: Judged[];
   overrides: Set<string>;
   onToggleOverride: (path: string) => void;
   kept: number;
+  moments: AlbumMomentsResult | null;
 }) {
   const [open, setOpen] = useState(false);
   const restored = rejected.filter((j) => overrides.has(j.path)).length;
@@ -769,6 +806,20 @@ function CullReport({
           נכנסים לאלבום ולא מופיעים ברשימה למטה.
         </p>
       )}
+
+      {/* Which ORDER the book is told in, and by what. A split made without
+          timestamps is a weaker split, and saying so costs nothing. */}
+      <p className="albumx-note-inline">
+        {moments
+          ? <>
+              הספר מחולק ל-<b>{moments.moments.length}</b> רגעים
+              {moments.usedTime
+                ? ' — לפי דמיון ויזואלי וזמן צילום מה-EXIF.'
+                : ' — לפי דמיון ויזואלי בלבד; לרוב הפריימים אין זמן צילום קריא, אז הסדר חלש יותר.'}
+              {' '}כפולה לא חוצה רגע.
+            </>
+          : 'לא בוצעה חלוקה לרגעים — הספר יסודר לפי זמן צילום בלבד.'}
+      </p>
 
       {open && (
         <div className="cullrep-grid">

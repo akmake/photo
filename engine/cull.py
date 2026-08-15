@@ -32,10 +32,17 @@ import numpy as np
 import album_analysis
 import common
 import masks
+import workspace
+
+# The iris ring, which the 478-point landmarker gives us for free. `eyes.py`
+# already relies on it for the sparkle tool; here it answers a different and
+# much cheaper question — which way the person is actually looking.
+LEFT_IRIS = (468, 469, 470, 471, 472)
+RIGHT_IRIS = (473, 474, 475, 476, 477)
 
 # Bump on ANY change to what is measured or how it is judged: the disk cache is
 # keyed on it, and a stale verdict from older thresholds is worse than no cache.
-CULL_VERSION = 3
+CULL_VERSION = 5
 
 # MediaPipe face-mesh indices. Mid-lid pairs and the corners that scale them.
 # `masks` already names the eye rings; these are the four points that measure an
@@ -143,6 +150,107 @@ def _yaw(landmarks, w, h):
     return float(abs(d_left - d_right) / total)
 
 
+# ------------------------------------------------------- the editorial reads
+#
+# The facts a designer takes from a photograph in about half a second, every one
+# of them computable from landmarks we already have.
+#
+# Until now this module measured only whether a frame was GOOD. That is a
+# gatekeeper, not an eye. These three answer what the frame IS, which is what
+# decides where it belongs on a page:
+#
+#   * scale — close-up, medium, wide, detail. The variable that paces a book.
+#   * gaze  — which way the subject faces. A portrait must look INTO the spread;
+#             one looking off the outer edge pushes the reader out of the book,
+#             and it is the most recognisable amateur mistake in album design.
+#   * space — which side of the frame is empty, so a picture can be placed with
+#             its air pointing inward rather than into the fold.
+
+# Face height as a fraction of the frame height. The bands follow the ordinary
+# shot vocabulary — head-and-shoulders, waist-up, full-length — rather than
+# numbers tuned to any one set.
+SCALE_CLOSEUP = 0.30
+SCALE_MEDIUM = 0.12
+SCALE_WIDE = 0.04
+
+
+def _shot_scale(faces, subject):
+    """close-up / medium / wide / detail, from what actually fills the frame."""
+    if faces:
+        tallest = max(f["box"]["height"] for f in faces)
+        if tallest >= SCALE_CLOSEUP:
+            return "closeup", round(tallest, 4)
+        if tallest >= SCALE_MEDIUM:
+            return "medium", round(tallest, 4)
+        if tallest >= SCALE_WIDE:
+            return "wide", round(tallest, 4)
+    # No readable face. A big isolated subject is still a wide shot of
+    # something; anything smaller is a detail — a ring, a shoe, a hand.
+    area = (subject["width"] * subject["height"]) if subject else 0.0
+    if area >= 0.16:
+        return "wide", round(area, 4)
+    return "detail", round(area, 4)
+
+
+def _iris_offset(landmarks, iris, outer, inner):
+    """Where the iris sits between the eye corners: -1 inner-most … +1 outer."""
+    xs = [float(landmarks[i].x) for i in iris]
+    if not xs:
+        return None
+    centre = sum(xs) / len(xs)
+    a = float(landmarks[outer].x)
+    b = float(landmarks[inner].x)
+    lo, hi = min(a, b), max(a, b)
+    if hi - lo < 1e-6:
+        return None
+    return float((centre - lo) / (hi - lo) * 2 - 1)
+
+
+def _gaze(landmarks):
+    """Which way the subject faces: -1 hard left of frame … +1 hard right.
+
+    Two signals, because either alone is wrong half the time. The head's
+    rotation dominates — a person turned away is facing away whatever the eyes
+    do — but a frontal head with the eyes cut sideways is looking sideways, and
+    only the irises show it."""
+    left = float(landmarks[masks.FACE_LEFT].x)
+    right = float(landmarks[masks.FACE_RIGHT].x)
+    nose = float(landmarks[masks.NOSE_TIP].x)
+    d_left = abs(nose - left)
+    d_right = abs(right - nose)
+    total = d_left + d_right
+    if total < 1e-6:
+        return None
+    # Nose crowded toward the left edge means the face points left.
+    head = (d_left - d_right) / total
+
+    irises = [
+        _iris_offset(landmarks, LEFT_IRIS, masks.LEFT_EYE[0], masks.LEFT_EYE[8]),
+        _iris_offset(landmarks, RIGHT_IRIS, masks.RIGHT_EYE[0], masks.RIGHT_EYE[8]),
+    ]
+    seen = [v for v in irises if v is not None]
+    eyes = sum(seen) / len(seen) if seen else 0.0
+
+    return float(max(-1.0, min(1.0, head * 0.68 + eyes * 0.32)))
+
+
+def _negative_space(faces, subject):
+    """Which side of the frame the air is on: 'left', 'right' or 'centre'."""
+    box = None
+    if faces:
+        box = max(faces, key=lambda f: f["box"]["width"] * f["box"]["height"])["box"]
+    elif subject:
+        box = subject
+    if not box:
+        return "centre"
+    centre = box["x"] + box["width"] / 2
+    if centre < 0.44:
+        return "right"   # subject sits left, the air is on the right
+    if centre > 0.56:
+        return "left"
+    return "centre"
+
+
 def _sharpness_score(gray):
     """The same log-normalised Laplacian album_analysis uses, on any crop."""
     if gray.size < 64:
@@ -182,6 +290,7 @@ def _judge_face(rgb, landmarks, w, h):
     openness = min(left, right) if eyes_readable else None
 
     yaw = _yaw(landmarks, w, h)
+    gaze = _gaze(landmarks)
     crop = _face_crop(rgb, landmarks, w, h)
 
     sharp = None
@@ -213,6 +322,7 @@ def _judge_face(rgb, landmarks, w, h):
         "yaw": None if yaw is None else round(yaw, 4),
         "turnedAway": None if yaw is None else bool(yaw >= YAW_AWAY),
         "profile": None if yaw is None else bool(YAW_TURNED <= yaw < YAW_AWAY),
+        "gaze": None if gaze is None else round(gaze, 4),
         "faceSharpness": None if sharp is None else round(sharp, 4),
         "faceSoft": None if sharp is None else bool(sharp < FACE_SOFT),
         "blownFraction": None if blown is None else round(blown, 4),
@@ -326,6 +436,15 @@ def judge(path):
     sharpness_score = main_sharp if main_sharp is not None else (frame_sharpness or 0.0)
     quality = 0.72 * sharpness_score + 0.28 * exposure_score
 
+    scale, scale_value = _shot_scale(faces, subject)
+
+    # The frame's gaze is the MAIN subject's gaze. Averaging a crowd's faces
+    # cancels out to zero and says nothing about where the picture points.
+    main_face = max(
+        faces, key=lambda f: f["box"]["width"] * f["box"]["height"], default=None,
+    ) if faces else None
+    gaze = main_face["gaze"] if main_face else None
+
     payload = {
         "widthPx": w,
         "heightPx": h,
@@ -333,6 +452,12 @@ def judge(path):
         "faceDetail": faces,
         "subject": subject,
         "focalPoint": album_analysis._weighted_focal(face_boxes, subject),
+        # ---- the editorial reads ----
+        "shotTime": workspace._shot_time(path),
+        "shotScale": scale,
+        "shotScaleValue": scale_value,
+        "gaze": gaze,
+        "negativeSpace": _negative_space(faces, subject),
         "frameSharpness": None if frame_sharpness is None else round(frame_sharpness, 4),
         "sharpnessScore": round(float(sharpness_score), 4),
         "qualityScore": round(float(quality), 4),

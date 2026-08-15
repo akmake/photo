@@ -155,6 +155,96 @@ def load_cached(path):
 DEDUP_THRESHOLD = 0.92
 
 
+# A moment is a scene, not a shot: the getting-ready room, the ceremony, the
+# first dance. Far looser than dedup, because two frames from the same scene
+# shot minutes apart share very little pixel-wise and a great deal semantically.
+MOMENT_THRESHOLD = 0.55
+
+# A gap in the shooting this long ends a scene regardless of what the pictures
+# look like. Photographers stop shooting when the event moves.
+MOMENT_TIME_GAP = 12 * 60.0
+
+
+def group_moments(paths, times=None, threshold=MOMENT_THRESHOLD,
+                  time_gap=MOMENT_TIME_GAP):
+    """Split a set into the SCENES it was shot in — the album's chapters.
+
+    This is what the DINOv2 vectors were computed for. Until now they answered
+    only "is this the same shot twice", which is the smallest question they can
+    answer; the same numbers know that forty frames belong to the ceremony and
+    the next twelve to the cake.
+
+    The rule is a sequential one, not a free clustering, and that is deliberate:
+    an album is a story told in the order it happened, so a scene must be a
+    CONTIGUOUS run of frames. Free clustering would happily put the last dance
+    beside the first one because they look alike, and reorder the evening.
+
+    A frame continues the current moment when it is close enough to that
+    moment's running centre AND was taken soon enough after the last frame.
+    Either test can end a scene: the camera turning to something else, or the
+    photographer stopping.
+
+    `times` is capture time in epoch seconds, aligned with `paths`. Without it
+    the split is visual only — honest, but weaker; the caller says so rather
+    than this function inventing timestamps.
+    """
+    vecs, missing, order = {}, [], []
+    for p in paths:
+        v = load_cached(p)
+        if v is None:
+            missing.append(p)
+        else:
+            vecs[p] = v
+            order.append(p)
+
+    if not order:
+        return {
+            "moments": [], "missing": missing, "embedded": 0,
+            "threshold": float(threshold), "usedTime": False,
+        }
+
+    time_by_path = {}
+    if times:
+        for p, t in zip(paths, times):
+            if t:
+                time_by_path[p] = float(t)
+    used_time = len(time_by_path) >= max(2, len(order) // 2)
+
+    # Capture order is the story's order. Without times, the given order stands.
+    if used_time:
+        order = sorted(order, key=lambda p: time_by_path.get(p, 0.0))
+
+    moments = [[order[0]]]
+    centre = vecs[order[0]].astype(np.float32).copy()
+
+    for previous, current in zip(order, order[1:]):
+        v = vecs[current].astype(np.float32)
+        # The centre is a running mean of the moment so far, renormalised — one
+        # outlier frame cannot drag a scene, and a slow pan stays in it.
+        norm = float(np.linalg.norm(centre)) or 1.0
+        similarity = float(v @ (centre / norm))
+
+        broke_time = False
+        if used_time and previous in time_by_path and current in time_by_path:
+            broke_time = (time_by_path[current] - time_by_path[previous]) > time_gap
+
+        if similarity >= threshold and not broke_time:
+            moments[-1].append(current)
+            centre += v
+        else:
+            moments.append([current])
+            centre = v.copy()
+
+    return {
+        "moments": moments,
+        "missing": missing,
+        "embedded": len(order),
+        "threshold": float(threshold),
+        "timeGap": float(time_gap),
+        "usedTime": used_time,
+    }
+
+
 def group_near_duplicates(paths, threshold=DEDUP_THRESHOLD):
     """Cluster a set into near-duplicate groups over the cached vectors.
 

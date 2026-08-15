@@ -440,6 +440,7 @@ export interface CullReason {
 export interface CullFaceDetail {
   box: { x: number; y: number; width: number; height: number };
   faceWidthPx: number;
+  gaze: number | null;
   /** null means "the face was too small to read" — not "the eyes were open". */
   eyeOpenness: number | null;
   eyesShut: boolean | null;
@@ -456,6 +457,14 @@ export interface CullFaceDetail {
 export interface CullResult {
   widthPx: number;
   heightPx: number;
+  /** Capture time, epoch seconds — EXIF first, file mtime as the honest fallback. */
+  shotTime: number;
+  /** What the frame IS, not just whether it is good. Paces the book. */
+  shotScale: 'closeup' | 'medium' | 'wide' | 'detail';
+  shotScaleValue: number;
+  /** -1 the subject faces frame-left … +1 frame-right. null when unreadable. */
+  gaze: number | null;
+  negativeSpace: 'left' | 'right' | 'centre';
   faces: Array<{ x: number; y: number; width: number; height: number }>;
   faceDetail: CullFaceDetail[];
   subject?: { x: number; y: number; width: number; height: number } | null;
@@ -548,6 +557,36 @@ export async function renderAlbum(
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ spec, spreads, outDir, ...options }),
+  });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j?.error ?? `engine ${r.status}`);
+  return j;
+}
+
+/* רגעים — the set split into the scenes it was shot in.
+ *
+ * The DINOv2 vectors finally answering something bigger than "is this the same
+ * shot twice". A moment is a CONTIGUOUS run in capture order, because an album
+ * is a story told in the order it happened; free clustering would put the last
+ * dance beside the first one and reorder the evening. */
+export interface AlbumMomentsResult {
+  moments: string[][];
+  missing: string[];
+  embedded: number;
+  threshold: number;
+  timeGap: number;
+  /** False when too few frames carried a usable timestamp — the split was visual only. */
+  usedTime: boolean;
+}
+
+export async function albumMoments(
+  paths: string[],
+  times?: number[],
+): Promise<AlbumMomentsResult> {
+  const r = await fetch(`${ENGINE}/album/moments`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(times ? { paths, times } : { paths }),
   });
   const j = await r.json().catch(() => ({}));
   if (!r.ok) throw new Error(j?.error ?? `engine ${r.status}`);

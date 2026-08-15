@@ -33,6 +33,23 @@
 
 import type { AlbumPhoto } from '../album/model';
 
+export type ShotScale = 'closeup' | 'medium' | 'wide' | 'detail';
+
+/* A frame with the editorial reads attached.
+ *
+ * `AlbumPhoto` carries what the studio needs to PLACE a picture — size, focal
+ * point, faces. These four are what it needs to place it WELL, and they are the
+ * difference between fitting shapes and making a page. */
+export interface Frame extends AlbumPhoto {
+  /** Capture time, epoch seconds. The story's order — not the filename's. */
+  shotTime: number;
+  shotScale: ShotScale;
+  /** -1 the subject faces frame-left … +1 frame-right. null when unreadable. */
+  gaze: number | null;
+  /** The side the air is on. */
+  negativeSpace: 'left' | 'right' | 'centre';
+}
+
 export type SlotRole = 'hero' | 'support' | 'detail';
 export type Want = 'portrait' | 'landscape' | 'any';
 
@@ -320,4 +337,36 @@ export function wantsMatch(photo: AlbumPhoto, want: Want): boolean {
   if (want === 'any') return true;
   return photo.orientation === want
     || (want === 'landscape' && photo.orientation === 'square');
+}
+
+/* How badly a frame points OUT of the book.
+ *
+ * The oldest rule in album design: a subject must look into the spread. A
+ * portrait on the left page facing left walks the reader off the page, and it is
+ * the mistake that most reliably marks a book as laid out by a machine — which
+ * is exactly what this album is trying not to be.
+ *
+ * Returns 0 when the frame faces inward or the slot straddles the fold (where
+ * there is no "outward"), rising to 1 for a subject staring off the outer edge.
+ * `negativeSpace` votes alongside the gaze, more weakly: air on the outer side
+ * is the same error made with composition instead of a face. */
+export function outwardPenalty(frame: Frame, slotX: number, slotWidth: number): number {
+  const centre = slotX + slotWidth / 2;
+  // A slot centred on the fold, or spanning most of the spread, has no outer
+  // side to face away from.
+  if (slotWidth > 0.62 || Math.abs(centre - 0.5) < 0.06) return 0;
+
+  // On the left page, "inward" is to the right (+). On the right page, left (−).
+  const inward = centre < 0.5 ? 1 : -1;
+
+  let penalty = 0;
+  if (frame.gaze !== null) {
+    const alignment = frame.gaze * inward; // +1 looks in, −1 looks out
+    if (alignment < 0) penalty += Math.min(1, -alignment);
+  }
+  if (frame.negativeSpace !== 'centre') {
+    const airInward = frame.negativeSpace === 'right' ? 1 : -1;
+    if (airInward * inward < 0) penalty += 0.35;
+  }
+  return Math.min(1, penalty);
 }
