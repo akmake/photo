@@ -21,12 +21,17 @@
 
 import { useMemo, useState } from 'react';
 import {
-  analyzeAlbumFrame,
+  cullAlbum,
   dedupAlbum,
   embedAlbum,
   listImages,
   pickFolder,
+  renderAlbum,
   thumbUrl,
+  type AlbumRenderManifest,
+  type CullResult,
+  type RenderFileMeta,
+  type RenderSpreadPayload,
 } from '../api';
 import { IcChevron, IcFolderOpen, IcSparkle } from '../design/Icons';
 import { ALBUM_STYLES, type AlbumStyleId } from '../album/styleEngine';
@@ -54,10 +59,10 @@ interface Stage {
  * empty and the rail says so rather than implying a full machine. */
 const PIPELINE: Stage[] = [
   { id: 'ingest', label: 'קליטה', note: 'קריאת התיקייה וטביעת אצבע ויזואלית לכל פריים' },
-  { id: 'cull', label: 'סינון', note: 'עיניים עצומות, ראש הצידה, טשטוש, חשיפה' },
   { id: 'dedup', label: 'דה-דופ', note: 'איחוד רצפים כמעט-זהים לטובה שבהן' },
+  { id: 'cull', label: 'סינון', note: 'עיניים עצומות, ראש מסובב, פוקוס וחשיפה — על הפנים' },
   { id: 'cluster', label: 'קיבוץ', note: 'חלוקה לרגעים לפי דמיון וזמן' },
-  { id: 'measure', label: 'מדידה', note: 'מידות אמיתיות, פנים ונקודת מוקד לכל פריים' },
+  { id: 'curate', label: 'אצירה', note: 'גיבור לכפולה משלו, השאר תומכות' },
   { id: 'layout', label: 'פריסה', note: 'תבנית לפי תוכן, ציר ובדיקת רזולוציה' },
 ];
 
@@ -66,10 +71,9 @@ const PIPELINE: Stage[] = [
 type AlbumOption = 'album' | 'cleanup' | 'moments' | 'export' | null;
 
 const HUB: { id: Exclude<AlbumOption, null>; label: string; note: string; ready: boolean }[] = [
-  { id: 'album', label: 'בנה אלבום', note: 'מידות דפוס ופריסה מעוצבת', ready: true },
+  { id: 'album', label: 'בנה אלבום', note: 'סינון, מידות, פריסה ויצוא לדפוס', ready: true },
   { id: 'cleanup', label: 'ניקוי', note: 'עור, עיניים וכתמים על הסט', ready: false },
   { id: 'moments', label: 'קבץ לרגעים', note: 'חלוקה לפי דמיון וזמן', ready: false },
-  { id: 'export', label: 'ייצוא', note: 'חבילת דפוס לדיסק', ready: false },
 ];
 
 // The album's SELECTION: every unique frame, plus one representative from each
@@ -81,6 +85,31 @@ function selectionOf(files: string[], groups: string[][]): string[] {
 
 function baseName(path: string): string {
   return path.split(/[\\/]/).pop() ?? path;
+}
+
+/** The judged frame, in the shape the layout engine reads. */
+function toAlbumPhoto({ path, data }: Judged): AlbumPhoto {
+  return {
+    id: path,
+    name: baseName(path),
+    url: thumbUrl(path, 1400),
+    orientation: data.widthPx > data.heightPx
+      ? 'landscape'
+      : data.widthPx < data.heightPx ? 'portrait' : 'square',
+    widthPx: data.widthPx,
+    heightPx: data.heightPx,
+    focalPoint: data.focalPoint,
+    sourcePath: path,
+    analysis: {
+      status: 'ready',
+      faces: data.faces ?? [],
+      subject: data.subject ?? null,
+      focalPoint: data.focalPoint,
+      sharpnessScore: data.sharpnessScore,
+      qualityScore: data.qualityScore,
+      analyzedBy: data.analyzedBy,
+    },
+  };
 }
 
 // The קליטה run — real progress over the set, counted in items. `null` until it
@@ -99,9 +128,16 @@ type Dedup = {
 
 // One HTTP call per chunk so the counter moves and a cancel can land between them.
 const INGEST_CHUNK = 8;
-// Measuring opens the full file and runs the face model; three at a time keeps
-// the engine busy without queueing a hundred requests it will serialise anyway.
-const MEASURE_CHUNK = 3;
+// Culling opens the full file and runs the face model; three at a time keeps the
+// engine busy without queueing a hundred requests it will serialise anyway.
+const CULL_CHUNK = 3;
+
+/* A frame the judge measured, kept whole so the screen can always show WHY.
+ * The verdict is stored, never applied — see `overrides`. */
+interface Judged {
+  path: string;
+  data: CullResult;
+}
 
 export default function AlbumAI({ onBack }: { onBack: () => void }) {
   const [status, setStatus] = useState<Status>('idle');
@@ -119,9 +155,12 @@ export default function AlbumAI({ onBack }: { onBack: () => void }) {
   const [draft, setDraft] = useState<SpecDraft>(EMPTY_DRAFT);
   const [spec, setSpec] = useState<PrintSpec | null>(null);
   const [style, setStyle] = useState<AlbumStyleId>(ALBUM_STYLES[0].id);
-  const [measure, setMeasure] = useState<Ingest | null>(null);
-  const [measureError, setMeasureError] = useState<string | null>(null);
-  const [photos, setPhotos] = useState<AlbumPhoto[]>([]);
+  const [cull, setCull] = useState<Ingest | null>(null);
+  const [cullError, setCullError] = useState<string | null>(null);
+  const [judged, setJudged] = useState<Judged[]>([]);
+  // Paths the photographer put back in against the judge's verdict. The machine
+  // gets a vote, not the last word.
+  const [overrides, setOverrides] = useState<Set<string>>(new Set());
 
   function resetRun() {
     setIngest(null);
@@ -130,9 +169,10 @@ export default function AlbumAI({ onBack }: { onBack: () => void }) {
     setDedupError(null);
     setOption(null);
     setSpec(null);
-    setMeasure(null);
-    setMeasureError(null);
-    setPhotos([]);
+    setCull(null);
+    setCullError(null);
+    setJudged([]);
+    setOverrides(new Set());
   }
 
   async function choose() {
@@ -203,66 +243,51 @@ export default function AlbumAI({ onBack }: { onBack: () => void }) {
     }
   }
 
-  /* מדידה — the geometry pass.
+  /* סינון — the judgement pass, which is also the geometry pass.
    *
-   * The layout cannot be decided without it: the real pixel dimensions set every
-   * PPI check, the orientation picks the template, and the focal point decides
-   * what survives the crop. A frame that fails here is DROPPED from the album and
-   * counted — it is never placed with guessed dimensions. */
-  async function runMeasure(selection: string[]) {
-    setMeasureError(null);
-    setMeasure({ phase: 'running', done: 0, total: selection.length, failed: 0 });
-    const measured: AlbumPhoto[] = [];
+   * One call per frame answers both: is it good enough to print, and what is its
+   * shape. The layout cannot be decided without the second half — real pixel
+   * dimensions set every PPI check, orientation picks the template, and the focal
+   * point decides what survives the crop.
+   *
+   * A frame that FAILS to be read is a different fact from a frame that was read
+   * and rejected. The first is counted as a failure and never placed with guessed
+   * dimensions; the second is kept in full, with its reasons, and can be put back. */
+  async function runCull(selection: string[]) {
+    setCullError(null);
+    setCull({ phase: 'running', done: 0, total: selection.length, failed: 0 });
+    const out: Judged[] = [];
     let done = 0;
     let failed = 0;
 
     try {
-      for (let i = 0; i < selection.length; i += MEASURE_CHUNK) {
-        const chunk = selection.slice(i, i + MEASURE_CHUNK);
-        const results = await Promise.all(chunk.map(async (path) => {
-          try {
-            return { path, data: await analyzeAlbumFrame(path) };
-          } catch {
-            return { path, data: null };
-          }
-        }));
-
-        for (const { path, data } of results) {
+      for (let i = 0; i < selection.length; i += CULL_CHUNK) {
+        const r = await cullAlbum(selection.slice(i, i + CULL_CHUNK));
+        for (const item of r.results) {
           done += 1;
-          if (!data || !data.widthPx || !data.heightPx) {
+          if (!item.ok || !item.data?.widthPx || !item.data.heightPx) {
             failed += 1;
             continue;
           }
-          measured.push({
-            id: path,
-            name: baseName(path),
-            url: thumbUrl(path, 1400),
-            orientation: data.widthPx > data.heightPx
-              ? 'landscape'
-              : data.widthPx < data.heightPx ? 'portrait' : 'square',
-            widthPx: data.widthPx,
-            heightPx: data.heightPx,
-            focalPoint: data.focalPoint,
-            sourcePath: path,
-            analysis: {
-              status: 'ready',
-              faces: data.faces ?? [],
-              subject: data.subject ?? null,
-              focalPoint: data.focalPoint,
-              sharpnessScore: data.sharpnessScore,
-              qualityScore: data.qualityScore,
-              analyzedBy: data.analyzedBy,
-            },
-          });
+          out.push({ path: item.path, data: item.data });
         }
-        setMeasure({ phase: 'running', done, total: selection.length, failed });
+        setCull({ phase: 'running', done, total: selection.length, failed });
       }
-      setPhotos(measured);
-      setMeasure({ phase: 'done', done, total: selection.length, failed });
+      setJudged(out);
+      setCull({ phase: 'done', done, total: selection.length, failed });
     } catch (e) {
-      setMeasureError((e as Error).message);
-      setMeasure(null);
+      setCullError((e as Error).message);
+      setCull(null);
     }
+  }
+
+  function toggleOverride(path: string) {
+    setOverrides((prev) => {
+      const next = new Set(prev);
+      if (next.has(path)) next.delete(path);
+      else next.add(path);
+      return next;
+    });
   }
 
   // Each stage moves ready → running → done. A stage with no code behind it says
@@ -280,21 +305,32 @@ export default function AlbumAI({ onBack }: { onBack: () => void }) {
       if (ingest?.phase === 'done') return { label: 'מוכן', cls: '' };
       return { label: 'בבנייה', cls: 'pill-idle' };
     }
-    if (id === 'measure') {
-      if (measure?.phase === 'done') return { label: 'הושלם', cls: 'pill-ok' };
-      if (measure?.phase === 'running') return { label: 'פעיל', cls: 'pill-run' };
+    if (id === 'cull') {
+      if (cull?.phase === 'done') return { label: 'הושלם', cls: 'pill-ok' };
+      if (cull?.phase === 'running') return { label: 'פעיל', cls: 'pill-run' };
       if (dedup) return { label: 'מוכן', cls: '' };
       return { label: 'בבנייה', cls: 'pill-idle' };
     }
-    if (id === 'layout') {
+    // אצירה has no screen of its own: the hero promotion lives inside the build,
+    // so it is done exactly when a book exists.
+    if (id === 'curate' || id === 'layout') {
       if (spec && photos.length) return { label: 'הושלם', cls: 'pill-ok' };
-      if (measure?.phase === 'done') return { label: 'מוכן', cls: '' };
+      if (cull?.phase === 'done') return { label: 'מוכן', cls: '' };
       return { label: 'בבנייה', cls: 'pill-idle' };
     }
     return { label: 'בבנייה', cls: 'pill-idle' };
   }
 
   const selection = dedup ? selectionOf(files, dedup.groups) : [];
+  const rejected = judged.filter((j) => j.data.verdict === 'reject');
+  // Memoised together: a fresh array identity here would defeat the build's own
+  // memo below and re-run every layout candidate on every keystroke.
+  const photos = useMemo(
+    () => judged
+      .filter((j) => j.data.verdict === 'keep' || overrides.has(j.path))
+      .map(toAlbumPhoto),
+    [judged, overrides],
+  );
   // Every candidate composition is generated and re-scored in here — it is not a
   // render-cheap call, and only these three inputs can change its answer.
   const album: BuiltAlbum | null = useMemo(
@@ -472,9 +508,12 @@ export default function AlbumAI({ onBack }: { onBack: () => void }) {
                   ) : (
                     <AlbumBuilder
                       selection={selection}
-                      measure={measure}
-                      measureError={measureError}
-                      onMeasure={() => runMeasure(selection)}
+                      cull={cull}
+                      cullError={cullError}
+                      onCull={() => runCull(selection)}
+                      rejected={rejected}
+                      overrides={overrides}
+                      onToggleOverride={toggleOverride}
                       photos={photos}
                       draft={draft}
                       onDraft={setDraft}
@@ -534,9 +573,12 @@ export default function AlbumAI({ onBack }: { onBack: () => void }) {
  * one genuinely needs the one before it. */
 function AlbumBuilder(props: {
   selection: string[];
-  measure: Ingest | null;
-  measureError: string | null;
-  onMeasure: () => void;
+  cull: Ingest | null;
+  cullError: string | null;
+  onCull: () => void;
+  rejected: Judged[];
+  overrides: Set<string>;
+  onToggleOverride: (path: string) => void;
   photos: AlbumPhoto[];
   draft: SpecDraft;
   onDraft: (draft: SpecDraft) => void;
@@ -548,53 +590,65 @@ function AlbumBuilder(props: {
   onEditSpec: () => void;
 }) {
   const {
-    selection, measure, measureError, onMeasure, photos,
-    draft, onDraft, onSpec, spec, style, onStyle, album, onEditSpec,
+    selection, cull, cullError, onCull, rejected, overrides, onToggleOverride,
+    photos, draft, onDraft, onSpec, spec, style, onStyle, album, onEditSpec,
   } = props;
 
-  if (measure?.phase !== 'done') {
+  if (cull?.phase !== 'done') {
     return (
       <div className="albumx-gate">
         <p className="albumx-option-lede">
-          הבחירה: <b>{selection.length}</b> תמונות. לפני פריסה צריך למדוד כל פריים —
-          מידות אמיתיות בפיקסלים, פנים ונקודת מוקד. בלי זה אי אפשר לדעת מה שורד
-          חיתוך ומה יוצא רך בדפוס.
+          הבחירה: <b>{selection.length}</b> תמונות. עכשיו כל פריים נשפט ונמדד
+          בקריאה אחת — עיניים, זווית ראש, פוקוס וחשיפה <b>על הפנים</b>, ובאותה
+          הזדמנות המידות האמיתיות ונקודת המוקד שהפריסה צריכה.
         </p>
-        {measure?.phase === 'running' ? (
+        <p className="albumx-note-inline">
+          שום דבר לא נמחק ולא זז. פסילה היא תווית עם המספרים שהובילו אליה, ואפשר
+          להחזיר כל פריים בלחיצה.
+        </p>
+        {cull?.phase === 'running' ? (
           <p className="albumx-ingest-run">
             <span className="dot-live" />
-            מודד… <b>{measure.done}</b>/{measure.total}
-            {measure.failed ? ` · ${measure.failed} נכשלו` : ''}
+            שופט… <b>{cull.done}</b>/{cull.total}
+            {cull.failed ? ` · ${cull.failed} נכשלו` : ''}
           </p>
         ) : (
-          <button className="btn btn-primary" onClick={onMeasure}>
+          <button className="btn btn-primary" onClick={onCull}>
             <IcSparkle size={16} />
-            מדוד את הבחירה
+            סנן ומדוד את הבחירה
           </button>
         )}
-        {measureError && <p className="albumx-fault mono" dir="ltr">{measureError}</p>}
+        {cullError && <p className="albumx-fault mono" dir="ltr">{cullError}</p>}
       </div>
     );
   }
 
+  const cullPanel = (
+    <CullReport
+      cull={cull}
+      rejected={rejected}
+      overrides={overrides}
+      onToggleOverride={onToggleOverride}
+      kept={photos.length}
+    />
+  );
+
   if (!photos.length) {
     return (
-      <p className="albumx-note">
-        אף פריים לא נמדד בהצלחה — {measure.failed} כשלונות מתוך {measure.total}. זו
-        תקלה, לא סט ריק. ודא שהמנוע רץ ונסה שוב.
-      </p>
+      <>
+        {cullPanel}
+        <p className="albumx-note">
+          לא נשאר אף פריים לאלבום. אם הפסילות נראות לך שגויות — החזר פריימים
+          מהרשימה למעלה.
+        </p>
+      </>
     );
   }
 
   if (!spec) {
     return (
       <>
-        {measure.failed > 0 && (
-          <p className="albumx-note">
-            {measure.failed} פריימים לא נמדדו ולכן לא ייכנסו לאלבום. נמדדו{' '}
-            <b>{photos.length}</b>.
-          </p>
-        )}
+        {cullPanel}
         <SpecForm draft={draft} onChange={onDraft} onSubmit={onSpec} />
       </>
     );
@@ -609,6 +663,7 @@ function AlbumBuilder(props: {
 
   return (
     <div className="albumx-built">
+      {cullPanel}
       <div className="albumx-built-head">
         <div>
           <p className="albumx-option-lede">
@@ -644,6 +699,8 @@ function AlbumBuilder(props: {
           <button className="btn btn-flag" onClick={onEditSpec}>שנה מידות</button>
         </div>
       </div>
+
+      <ExportPanel spec={spec} album={album} />
 
       <div className="albumx-book">
         {album.spreads.map((spread) => (
@@ -683,6 +740,234 @@ function AlbumBuilder(props: {
         ))}
       </div>
     </div>
+  );
+}
+
+/* The סינון report — the rejected frames, each with the reason and the number.
+ *
+ * This panel is the whole reason the stage is trustworthy. A culler that only
+ * says "42 rejected" is asking to be believed; one that shows the frame, names
+ * the fault and prints the measurement can be checked, argued with, and
+ * overruled — which is exactly what a photographer will want to do the first
+ * few times, and the only way the thresholds ever get calibrated. */
+function CullReport({
+  cull, rejected, overrides, onToggleOverride, kept,
+}: {
+  cull: Ingest;
+  rejected: Judged[];
+  overrides: Set<string>;
+  onToggleOverride: (path: string) => void;
+  kept: number;
+}) {
+  const [open, setOpen] = useState(false);
+  const restored = rejected.filter((j) => overrides.has(j.path)).length;
+
+  return (
+    <section className="cullrep">
+      <div className="cullrep-head">
+        <p className="cullrep-line">
+          סינון: <b>{kept}</b> נכנסות · <b>{rejected.length - restored}</b> נפסלו
+          {restored ? <> · <b>{restored}</b> הוחזרו ידנית</> : null}
+          {cull.failed ? <> · <b>{cull.failed}</b> לא ניתן היה לקרוא</> : null}
+        </p>
+        {rejected.length > 0 && (
+          <button className="btn btn-flag" onClick={() => setOpen(!open)}>
+            {open ? 'הסתר את הפסולות' : 'הראה מה נפסל ולמה'}
+          </button>
+        )}
+      </div>
+
+      {cull.failed > 0 && (
+        <p className="albumx-note-inline">
+          {cull.failed} פריימים לא נקראו כלל — זו תקלת קריאה, לא פסילה. הם לא
+          נכנסים לאלבום ולא מופיעים ברשימה למטה.
+        </p>
+      )}
+
+      {open && (
+        <div className="cullrep-grid">
+          {rejected.map((j) => {
+            const back = overrides.has(j.path);
+            const main = j.data.faceDetail.length
+              ? j.data.faceDetail.reduce((a, b) => (
+                a.box.width * a.box.height >= b.box.width * b.box.height ? a : b
+              ))
+              : null;
+            return (
+              <figure key={j.path} className={`cullrep-card ${back ? 'back' : ''}`}>
+                <img src={thumbUrl(j.path, 420)} alt="" loading="lazy" />
+                <figcaption>
+                  <p className="cullrep-name mono" dir="ltr">{baseName(j.path)}</p>
+                  <div className="cullrep-reasons">
+                    {j.data.reasons.map((r) => (
+                      <span key={r.code} className={`cullrep-why ${r.hard ? 'hard' : ''}`}>
+                        {r.label}
+                        {r.value !== null && (
+                          <b className="mono" dir="ltr">{r.value.toFixed(2)}</b>
+                        )}
+                      </span>
+                    ))}
+                  </div>
+                  {main && (
+                    <p className="cullrep-nums mono" dir="ltr">
+                      face {Math.round(main.faceWidthPx)}px
+                      {main.eyeOpenness !== null && ` · eyes ${main.eyeOpenness.toFixed(2)}`}
+                      {main.faceSharpness !== null && ` · sharp ${main.faceSharpness.toFixed(2)}`}
+                      {main.yaw !== null && ` · yaw ${main.yaw.toFixed(2)}`}
+                    </p>
+                  )}
+                  <button className="cullrep-undo" onClick={() => onToggleOverride(j.path)}>
+                    {back ? 'הוצא שוב מהאלבום' : 'החזר לאלבום'}
+                  </button>
+                </figcaption>
+              </figure>
+            );
+          })}
+        </div>
+      )}
+    </section>
+  );
+}
+
+/* יצוא — the print package.
+ *
+ * Two gates before a single file is written, and neither is ceremony. The
+ * spec must be CONFIRMED against the lab's sheet, because everything here was
+ * computed from numbers typed by hand and a transposed digit is an album
+ * printed at the wrong size. And the destination is picked by the photographer:
+ * the engine never invents a folder to write into.
+ */
+const RENDER_CHUNK = 2;
+
+function ExportPanel({ spec, album }: { spec: PrintSpec; album: BuiltAlbum }) {
+  const [confirmed, setConfirmed] = useState(false);
+  const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
+  const [manifest, setManifest] = useState<AlbumRenderManifest | null>(null);
+  const [target, setTarget] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const payload: RenderSpreadPayload[] = album.spreads.map((spread) => ({
+    frames: spread.frames.map((frame) => ({
+      path: frame.photo.sourcePath ?? frame.photo.id,
+      slot: {
+        x: frame.slot.x,
+        y: frame.slot.y,
+        width: frame.slot.width,
+        height: frame.slot.height,
+      },
+      focalPoint: frame.photo.analysis?.focalPoint ?? { x: 0.5, y: 0.5 },
+    })),
+  }));
+
+  async function run() {
+    setError(null);
+    setManifest(null);
+
+    let outDir: string | null;
+    try {
+      outDir = await pickFolder();
+    } catch (e) {
+      setError((e as Error).message);
+      return;
+    }
+    // A cancelled dialog is an answer, not a failure.
+    if (!outDir) return;
+    setTarget(outDir);
+    setProgress({ done: 0, total: payload.length });
+
+    const files: RenderFileMeta[] = [];
+    try {
+      for (let i = 0; i < payload.length; i += RENDER_CHUNK) {
+        const chunk = payload.slice(i, i + RENDER_CHUNK);
+        const last = i + RENDER_CHUNK >= payload.length;
+        const result = await renderAlbum(
+          spec as unknown as Record<string, number>,
+          chunk,
+          outDir,
+          {
+            startIndex: i + 1,
+            manifestFiles: files,
+            writeManifest: last,
+          },
+        );
+        // Each call returns the accumulated list; keep the engine's copy as
+        // the truth so the manifest it finally writes is the one shown here.
+        files.length = 0;
+        files.push(...result.files);
+        setProgress({ done: Math.min(i + chunk.length, payload.length), total: payload.length });
+        if (last) setManifest(result);
+      }
+      setProgress(null);
+    } catch (e) {
+      setError((e as Error).message);
+      setProgress(null);
+    }
+  }
+
+  return (
+    <section className="albumx-export">
+      <div className="albumx-export-head">
+        <div>
+          <p className="label">יצוא לדפוס</p>
+          <p className="albumx-export-lede">
+            JPEG לכל כפולה, {spec.targetPpi} PPI, sRGB מוטבע, איכות 97 בלי דגימת
+            צבע. הכפולות מורכבות במנוע מהקבצים המקוריים — לא מהתצוגה — כך שיש
+            דגימה אחת וקידוד אחד.
+          </p>
+        </div>
+      </div>
+
+      <label className="albumx-confirm">
+        <input
+          type="checkbox"
+          checked={confirmed}
+          onChange={(e) => setConfirmed(e.target.checked)}
+        />
+        <span>
+          בדקתי את המידות מול דף המפרט של בית הדפוס
+          <small>
+            הכול כאן חושב מהמספרים שהזנת. ספרה אחת הפוכה = אלבום בגודל הלא נכון.
+          </small>
+        </span>
+      </label>
+
+      {progress ? (
+        <p className="albumx-ingest-run">
+          <span className="dot-live" />
+          מרנדר… <b>{progress.done}</b>/{progress.total} כפולות
+        </p>
+      ) : (
+        <button className="btn btn-primary" disabled={!confirmed} onClick={run}>
+          <IcFolderOpen size={16} />
+          בחר תיקיית יעד וייצא
+        </button>
+      )}
+
+      {error && <p className="albumx-fault mono" dir="ltr">{error}</p>}
+
+      {manifest && (
+        <div className="albumx-export-done">
+          <p>
+            נכתבו <b>{manifest.spreads}</b> כפולות + manifest.json אל
+            <span className="mono" dir="ltr"> {target}</span>
+          </p>
+          <p className="albumx-note-inline">
+            {manifest.files[0]?.widthPx}×{manifest.files[0]?.heightPx} פיקסלים לכפולה
+            (כולל בליד) · {manifest.colorProfile} · {manifest.subsampling}
+            {manifest.upscaledFrames > 0 && (
+              <span className="albumx-flagged">
+                {' '}· {manifest.upscaledFrames} מסגרות הוגדלו מעל גודל המקור
+              </span>
+            )}
+            {manifest.softFrames > 0 && (
+              <span className="albumx-flagged">
+                {' '}· {manifest.softFrames} מתחת ל-{spec.minPpi} PPI
+              </span>
+            )}
+          </p>
+        </div>
+      )}
+    </section>
   );
 }
 

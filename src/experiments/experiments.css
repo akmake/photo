@@ -456,6 +456,124 @@
   border-radius: var(--r);
 }
 
+.albumx-note-inline {
+  color: var(--ink-4);
+  font-size: var(--t-xs);
+  line-height: 1.55;
+  max-width: 68ch;
+}
+
+/* The סינון report. The counts read first; the evidence opens on demand, because
+ * a rejected frame is only believable when you can see it next to its reason. */
+.cullrep {
+  margin-bottom: var(--s5);
+  padding: var(--s4) var(--s5);
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+}
+
+.cullrep-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s4);
+  flex-wrap: wrap;
+}
+
+.cullrep-line {
+  color: var(--ink-2);
+}
+
+.cullrep-line b {
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+
+.cullrep-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+  gap: var(--s4);
+  margin-top: var(--s4);
+  padding-top: var(--s4);
+  border-top: 1px solid var(--line);
+}
+
+.cullrep-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2);
+}
+
+/* A rejected frame is shown WHOLE and unobscured — the point is that the eye can
+ * check the machine. The verdict lives in the caption, never over the picture. */
+.cullrep-card img {
+  width: 100%;
+  aspect-ratio: 3 / 2;
+  object-fit: cover;
+  border-radius: var(--r-photo);
+  display: block;
+  opacity: 0.62;
+}
+
+.cullrep-card.back img {
+  opacity: 1;
+  outline: 2px solid var(--ok);
+  outline-offset: 2px;
+}
+
+.cullrep-name {
+  color: var(--ink-3);
+  font-size: var(--t-xs);
+  word-break: break-all;
+}
+
+.cullrep-reasons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 4px 0;
+}
+
+.cullrep-why {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 7px;
+  border-radius: var(--r-full);
+  background: var(--card-2);
+  color: var(--ink-3);
+  font-size: var(--t-xs);
+}
+
+.cullrep-why.hard {
+  background: var(--flag-wash);
+  color: var(--flag-ink);
+}
+
+.cullrep-why b {
+  opacity: 0.72;
+  font-size: 10px;
+}
+
+.cullrep-nums {
+  color: var(--ink-4);
+  font-size: 10px;
+}
+
+.cullrep-undo {
+  align-self: flex-start;
+  margin-top: 2px;
+  color: var(--brand-ink);
+  font-family: var(--font-display);
+  font-weight: var(--fw-med);
+  font-size: var(--t-sm);
+}
+
+.cullrep-undo:hover {
+  text-decoration: underline;
+}
+
 /* מפרט הדפוס — seven empty fields. It reads as a form you fill from a spec
  * sheet, not a settings panel: every field carries the sentence that tells you
  * where the number comes from. */
@@ -586,6 +704,67 @@
   border: 1px solid var(--line);
   border-radius: var(--r-sm);
   font: inherit;
+  color: var(--ink);
+}
+
+/* יצוא — the last screen before a file exists. It reads like a checklist, not a
+ * toolbar: the confirmation is a real gate, not a formality. */
+.albumx-export {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--s3);
+  margin-bottom: var(--s6);
+  padding: var(--s4) var(--s5);
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+}
+
+.albumx-export-lede {
+  margin-top: 4px;
+  max-width: 70ch;
+  color: var(--ink-3);
+  font-size: var(--t-sm);
+  line-height: 1.6;
+}
+
+.albumx-confirm {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--s2);
+  cursor: pointer;
+}
+
+.albumx-confirm input {
+  margin-top: 3px;
+  width: 16px;
+  height: 16px;
+  accent-color: var(--brand);
+  flex-shrink: 0;
+}
+
+.albumx-confirm span {
+  font-size: var(--t-sm);
+  color: var(--ink-2);
+}
+
+.albumx-confirm small {
+  display: block;
+  color: var(--ink-4);
+  font-size: var(--t-xs);
+  line-height: 1.5;
+}
+
+.albumx-export-done {
+  padding: var(--s3) var(--s4);
+  border-radius: var(--r-sm);
+  background: var(--ok-soft);
+  color: var(--ink-2);
+  font-size: var(--t-sm);
+}
+
+.albumx-export-done b {
   color: var(--ink);
 }
 

@@ -58,6 +58,8 @@ import recipe_fit
 import pixel_color
 import album_analysis
 import album_export
+import album_render
+import cull
 import embed
 import workspace
 import cloud_sources
@@ -794,6 +796,13 @@ class Handler(BaseHTTPRequestHandler):
         if self.path == "/album/dedup":
             self._album_dedup()
             return
+        if self.path == "/album/cull":
+            self._album_cull()
+            return
+        if self.path == "/album/render":
+            self._album_render()
+            return
+
         parts = self.path.strip("/").split("/")
         if len(parts) == 3 and parts[0] == "tools" and parts[2] == "apply":
             tool_id = parts[1]
@@ -1565,6 +1574,63 @@ if ($path) {
             paths = body.get("paths", [])
             threshold = float(body.get("threshold", embed.DEDUP_THRESHOLD))
             self._json(200, embed.group_near_duplicates(paths, threshold))
+        except Exception as e:  # noqa: BLE001
+            self._json(500, {"error": str(e)})
+
+    def _album_cull(self):
+        """Judge a chunk of frames for the album. { paths:[...] } -> results.
+
+        One pass per frame answers both questions the album asks: is this frame
+        good enough to print, and what is its geometry. Finding the face
+        landmarks is the expensive part and both answers come out of it, so
+        splitting this into two endpoints would double the slowest stage.
+
+        A frame that fails is reported as a failure against its own path — the
+        set keeps going. `verdict` is never a deletion; the caller shows it and
+        the photographer overrides it.
+        """
+        try:
+            body = self._body()
+            paths = body.get("paths", [])
+            results = []
+            for p in paths:
+                try:
+                    results.append({"path": p, "ok": True, "data": on_worker(cull.judge, p)})
+                except Exception as e:  # noqa: BLE001 — one bad frame, not the set
+                    results.append({"path": p, "ok": False, "error": str(e)})
+            self._json(200, {"results": results})
+        except Exception as e:  # noqa: BLE001
+            self._json(500, {"error": str(e)})
+
+    def _album_render(self):
+        """Render the album to print-ready JPEGs on disk.
+
+        { spec, spreads, outDir, ppi?, background?, naming? } -> manifest
+
+        The browser cannot write to D:\\Albums and cannot read the originals, so
+        the whole job belongs here: source pixels in, finished sRGB JPEG out, one
+        resample and one encode. Files land in a folder the photographer picked;
+        the engine never invents a destination.
+        """
+        try:
+            body = self._body()
+            out_dir = body.get("outDir") or ""
+            if not out_dir or not os.path.isdir(out_dir):
+                self._json(400, {"error": "תיקיית היעד לא קיימת"})
+                return
+            manifest = on_worker(
+                album_render.render_album,
+                body["spec"],
+                body.get("spreads", []),
+                out_dir,
+                body.get("ppi"),
+                body.get("background", "#ffffff"),
+                body.get("naming", "spread-{index}.jpg"),
+                body.get("startIndex", 1),
+                body.get("manifestFiles"),
+                bool(body.get("writeManifest", True)),
+            )
+            self._json(200, manifest)
         except Exception as e:  # noqa: BLE001
             self._json(500, {"error": str(e)})
 

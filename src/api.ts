@@ -420,6 +420,140 @@ export async function dedupAlbum(paths: string[], threshold?: number): Promise<A
   return j;
 }
 
+/* סינון — the album's culling judge, and the geometry pass in the same call.
+ *
+ * `verdict` is a LABEL, never an action: nothing is moved or deleted, and every
+ * rejection carries the reasons and the numbers that produced it so the screen
+ * can show the photographer what was measured and let them overrule it.
+ *
+ * The geometry (dimensions, faces, focal point) rides along because finding the
+ * face landmarks is the expensive part of both answers — asking twice would
+ * double the slowest stage of the album. */
+export interface CullReason {
+  code: string;
+  label: string;
+  value: number | null;
+  /** A hard reason rejects the frame; a soft one only annotates it. */
+  hard: boolean;
+}
+
+export interface CullFaceDetail {
+  box: { x: number; y: number; width: number; height: number };
+  faceWidthPx: number;
+  /** null means "the face was too small to read" — not "the eyes were open". */
+  eyeOpenness: number | null;
+  eyesShut: boolean | null;
+  eyesNarrow: boolean | null;
+  yaw: number | null;
+  turnedAway: boolean | null;
+  profile: boolean | null;
+  faceSharpness: number | null;
+  faceSoft: boolean | null;
+  blownFraction: number | null;
+  crushedFraction: number | null;
+}
+
+export interface CullResult {
+  widthPx: number;
+  heightPx: number;
+  faces: Array<{ x: number; y: number; width: number; height: number }>;
+  faceDetail: CullFaceDetail[];
+  subject?: { x: number; y: number; width: number; height: number } | null;
+  focalPoint: { x: number; y: number };
+  frameSharpness: number | null;
+  sharpnessScore: number;
+  qualityScore: number;
+  exposure: number;
+  blownFraction: number;
+  crushedFraction: number;
+  verdict: 'keep' | 'reject';
+  reasons: CullReason[];
+  analyzedBy: string;
+}
+
+export interface AlbumCullResponse {
+  results: { path: string; ok: boolean; data?: CullResult; error?: string }[];
+}
+
+export async function cullAlbum(paths: string[]): Promise<AlbumCullResponse> {
+  const r = await fetch(`${ENGINE}/album/cull`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ paths }),
+  });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j?.error ?? `engine ${r.status}`);
+  return j;
+}
+
+/* יצוא לדפוס — the engine composites the spreads from the ORIGINAL files.
+ *
+ * Not the browser: `src/album/exportEngine.ts` renders from `/thumb`, which is a
+ * q82 JPEG capped at the requested width — right for a proof, wrong for print.
+ * Here the source pixels are resampled once and encoded once, at 300 PPI with an
+ * embedded sRGB profile and no chroma subsampling.
+ *
+ * Sent a CHUNK of spreads at a time so a forty-spread album has a counter in
+ * items. The manifest is written on the final call only, so an interrupted run
+ * leaves no manifest and can never be mistaken for a finished package. */
+export interface RenderFrameMeta {
+  path: string;
+  slotPx: [number, number];
+  usedSourcePx: [number, number];
+  effectivePpi: number;
+  upscaled: boolean;
+}
+
+export interface RenderFileMeta {
+  name: string;
+  widthPx: number;
+  heightPx: number;
+  bytes: number;
+  sha256: string;
+  frames: RenderFrameMeta[];
+}
+
+export interface AlbumRenderManifest {
+  spreads: number;
+  ppi: number;
+  quality: number;
+  subsampling: string;
+  colorProfile: string;
+  files: RenderFileMeta[];
+  softFrames: number;
+  upscaledFrames: number;
+}
+
+export interface RenderSpreadPayload {
+  frames: Array<{
+    path: string;
+    slot: { x: number; y: number; width: number; height: number };
+    focalPoint: { x: number; y: number };
+  }>;
+}
+
+export async function renderAlbum(
+  spec: Record<string, number>,
+  spreads: RenderSpreadPayload[],
+  outDir: string,
+  options: {
+    startIndex?: number;
+    manifestFiles?: RenderFileMeta[];
+    writeManifest?: boolean;
+    background?: string;
+    naming?: string;
+  } = {},
+): Promise<AlbumRenderManifest> {
+  const r = await fetch(`${ENGINE}/album/render`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ spec, spreads, outDir, ...options }),
+  });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j?.error ?? `engine ${r.status}`);
+  return j;
+}
+
 /** List the image files in a folder on disk.
  *
  * The browser cannot enumerate a directory, and a batch screen needs the real
