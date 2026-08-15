@@ -768,6 +768,16 @@
   color: var(--ink);
 }
 
+/* The two products are separated by a rule, not a heading weight — a viewing
+ * PDF and a print package must never be mistaken for one another. */
+.albumx-export-rule {
+  width: 100%;
+  height: 1px;
+  border: 0;
+  margin: var(--s2) 0;
+  background: var(--line);
+}
+
 /* The album — real spreads at the album's OWN aspect ratio. The frames are
  * absolutely placed from the layout engine's fractions, so what is on screen is
  * the same geometry that would be rendered for print. */

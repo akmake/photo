@@ -27,7 +27,9 @@ import {
   listImages,
   pickFolder,
   renderAlbum,
+  renderAlbumPdf,
   thumbUrl,
+  type AlbumPdfReport,
   type AlbumRenderManifest,
   type CullResult,
   type RenderFileMeta,
@@ -845,6 +847,8 @@ function ExportPanel({ spec, album }: { spec: PrintSpec; album: BuiltAlbum }) {
   const [manifest, setManifest] = useState<AlbumRenderManifest | null>(null);
   const [target, setTarget] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [pdfBusy, setPdfBusy] = useState(false);
+  const [pdf, setPdf] = useState<AlbumPdfReport | null>(null);
 
   const payload: RenderSpreadPayload[] = album.spreads.map((spread) => ({
     frames: spread.frames.map((frame) => ({
@@ -904,11 +908,70 @@ function ExportPanel({ spec, album }: { spec: PrintSpec; album: BuiltAlbum }) {
     }
   }
 
+  async function runPdf() {
+    setError(null);
+    setPdf(null);
+    let outDir: string | null;
+    try {
+      outDir = await pickFolder();
+    } catch (e) {
+      setError((e as Error).message);
+      return;
+    }
+    if (!outDir) return;
+    setPdfBusy(true);
+    try {
+      setPdf(await renderAlbumPdf(spec as unknown as Record<string, number>, payload, outDir));
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setPdfBusy(false);
+    }
+  }
+
   return (
     <section className="albumx-export">
+      {/* Two different products, kept apart on purpose. */}
       <div className="albumx-export-head">
         <div>
-          <p className="label">יצוא לדפוס</p>
+          <p className="label">PDF לצפייה</p>
+          <p className="albumx-export-lede">
+            כל האלבום כמסמך אחד, בגודל הפיזי האמיתי של הספר — לדפדף, להראות
+            ללקוח, לשלוח להגהה. <b>זה לא קובץ לבית דפוס</b>: אין סימני חיתוך ואין
+            הפרדת תיבות. לזה יש את החבילה למטה.
+          </p>
+        </div>
+      </div>
+
+      {pdfBusy ? (
+        <p className="albumx-ingest-run">
+          <span className="dot-live" />
+          בונה PDF של {album.spreads.length} כפולות…
+        </p>
+      ) : (
+        <button className="btn btn-flag" onClick={runPdf}>
+          <IcFolderOpen size={16} />
+          שמור PDF לצפייה
+        </button>
+      )}
+
+      {pdf && (
+        <div className="albumx-export-done">
+          <p>
+            <b>{pdf.pages}</b> עמודים ·{' '}
+            {Math.round(pdf.pagePx[0] / pdf.ppi * 25.4)}×
+            {Math.round(pdf.pagePx[1] / pdf.ppi * 25.4)} מ״מ לעמוד ·{' '}
+            {(pdf.bytes / 1e6).toFixed(1)}MB
+            <span className="mono" dir="ltr"> {pdf.path}</span>
+          </p>
+        </div>
+      )}
+
+      <hr className="albumx-export-rule" />
+
+      <div className="albumx-export-head">
+        <div>
+          <p className="label">חבילת דפוס</p>
           <p className="albumx-export-lede">
             JPEG לכל כפולה, {spec.targetPpi} PPI, sRGB מוטבע, איכות 97 בלי דגימת
             צבע. הכפולות מורכבות במנוע מהקבצים המקוריים — לא מהתצוגה — כך שיש

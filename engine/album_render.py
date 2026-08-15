@@ -119,6 +119,62 @@ def _render_spread(spread, spec, ppi, background):
     return canvas, frames_meta
 
 
+"""A viewing PDF is a different product from the print package, and conflating
+them is how a lab ends up with the wrong file.
+
+The JPEGs above are the deliverable: one file per spread, 300 PPI, sRGB, no
+subsampling, checksummed. A PDF built here embeds those same rendered spreads as
+pages at the album's true physical size — it is for FLIPPING THROUGH: showing a
+client, checking the flow, mailing a proof. It carries no trim marks, no
+separate bleed box and no PDF/X intent, so it is not a print master unless a
+particular lab has said it wants exactly this. Hence its own default PPI: a
+40-spread album at 300 PPI is a file nobody can open twice."""
+
+PDF_VIEW_PPI = 150
+
+
+def render_pdf(spec, spreads, out_path, ppi=None, background="#ffffff"):
+    """Every spread as one page of a single PDF, at the album's real page size.
+
+    Returns the same shape of report the JPEG path returns, minus the per-file
+    checksums, so the screen can read one summary either way."""
+    ppi = int(ppi or PDF_VIEW_PPI)
+    parent = os.path.dirname(out_path)
+    if parent and not os.path.isdir(parent):
+        raise ValueError(f"תיקיית היעד לא קיימת: {parent}")
+    if not spreads:
+        raise ValueError("אין כפולות לייצא")
+
+    pages = []
+    frames_all = []
+    for spread in spreads:
+        canvas, frames_meta = _render_spread(spread, spec, ppi, background)
+        pages.append(canvas)
+        frames_all.extend(frames_meta)
+
+    # `resolution` is what tells a reader the page is 606mm wide and not merely
+    # 3578 pixels — without it the PDF opens at an arbitrary physical size.
+    pages[0].save(
+        out_path,
+        format="PDF",
+        save_all=True,
+        append_images=pages[1:],
+        resolution=float(ppi),
+    )
+
+    return {
+        "path": out_path,
+        "pages": len(pages),
+        "ppi": ppi,
+        "pagePx": [pages[0].width, pages[0].height],
+        "bytes": os.path.getsize(out_path),
+        "softFrames": sum(
+            1 for fr in frames_all if fr["effectivePpi"] < spec.get("minPpi", 0)
+        ),
+        "upscaledFrames": sum(1 for fr in frames_all if fr["upscaled"]),
+    }
+
+
 def _sha256(data):
     digest = hashlib.sha256()
     digest.update(data)

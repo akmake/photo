@@ -554,6 +554,37 @@ export async function renderAlbum(
   return j;
 }
 
+/* PDF לצפייה — the whole album as one browsable document.
+ *
+ * Not a substitute for the JPEG package: no trim marks, no separate bleed box,
+ * no PDF/X intent. It exists to be flipped through — shown to a client, checked
+ * for flow, mailed as a proof — and it opens at the album's true physical size. */
+export interface AlbumPdfReport {
+  path: string;
+  pages: number;
+  ppi: number;
+  pagePx: [number, number];
+  bytes: number;
+  softFrames: number;
+  upscaledFrames: number;
+}
+
+export async function renderAlbumPdf(
+  spec: Record<string, number>,
+  spreads: RenderSpreadPayload[],
+  outDir: string,
+  options: { name?: string; ppi?: number; background?: string } = {},
+): Promise<AlbumPdfReport> {
+  const r = await fetch(`${ENGINE}/album/pdf`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ spec, spreads, outDir, ...options }),
+  });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j?.error ?? `engine ${r.status}`);
+  return j;
+}
+
 /** List the image files in a folder on disk.
  *
  * The browser cannot enumerate a directory, and a batch screen needs the real

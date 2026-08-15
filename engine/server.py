@@ -802,6 +802,9 @@ class Handler(BaseHTTPRequestHandler):
         if self.path == "/album/render":
             self._album_render()
             return
+        if self.path == "/album/pdf":
+            self._album_pdf()
+            return
 
         parts = self.path.strip("/").split("/")
         if len(parts) == 3 and parts[0] == "tools" and parts[2] == "apply":
@@ -1631,6 +1634,34 @@ if ($path) {
                 bool(body.get("writeManifest", True)),
             )
             self._json(200, manifest)
+        except Exception as e:  # noqa: BLE001
+            self._json(500, {"error": str(e)})
+
+    def _album_pdf(self):
+        """One PDF of the whole album, at the album's real page size.
+
+        { spec, spreads, outDir, name?, ppi? } -> report
+
+        A viewing document, not the print package — see album_render.render_pdf.
+        """
+        try:
+            body = self._body()
+            out_dir = body.get("outDir") or ""
+            if not out_dir or not os.path.isdir(out_dir):
+                self._json(400, {"error": "תיקיית היעד לא קיימת"})
+                return
+            name = os.path.basename(body.get("name") or "album.pdf")
+            if not name.lower().endswith(".pdf"):
+                name += ".pdf"
+            report = on_worker(
+                album_render.render_pdf,
+                body["spec"],
+                body.get("spreads", []),
+                os.path.join(out_dir, name),
+                body.get("ppi"),
+                body.get("background", "#ffffff"),
+            )
+            self._json(200, report)
         except Exception as e:  # noqa: BLE001
             self._json(500, {"error": str(e)})
 
