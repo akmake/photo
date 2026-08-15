@@ -444,19 +444,171 @@
   font-family: var(--font-display);
 }
 
-/* The album — real spreads. Each is a wide white page (2:1, like an open book)
- * with the frames COMPOSED inside it, not a row of thumbnails: the count picks a
- * template, and a faint spine down the middle sells the open-book read. */
+/* The measure gate — one screen, one action, before any page can be drawn. */
+.albumx-gate {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--s3);
+  padding: var(--s5);
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+}
+
+/* מפרט הדפוס — seven empty fields. It reads as a form you fill from a spec
+ * sheet, not a settings panel: every field carries the sentence that tells you
+ * where the number comes from. */
+.specform {
+  padding: var(--s5);
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+}
+
+.specform-head h2 {
+  margin: var(--s1) 0 var(--s2);
+  font-family: var(--font-display);
+  font-size: var(--t-xl);
+}
+
+.specform-lede {
+  max-width: 62ch;
+  color: var(--ink-3);
+  font-size: var(--t-sm);
+  line-height: 1.65;
+}
+
+.specform-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+  gap: var(--s4);
+  margin: var(--s5) 0;
+}
+
+.specfield {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.specfield-label {
+  font-size: var(--t-sm);
+  font-weight: var(--fw-bold);
+  color: var(--ink);
+}
+
+.specfield-input {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  padding: 0 var(--s3);
+  background: var(--card-2);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+}
+
+.specfield-input:focus-within {
+  border-color: var(--brand);
+  box-shadow: 0 0 0 3px var(--brand-wash);
+}
+
+.specfield-input input {
+  flex: 1;
+  min-width: 0;
+  padding: 10px 0;
+  background: none;
+  border: 0;
+  outline: none;
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+}
+
+.specfield-unit {
+  flex-shrink: 0;
+  color: var(--ink-4);
+  font-size: var(--t-xs);
+}
+
+.specfield-hint {
+  color: var(--ink-4);
+  font-size: var(--t-xs);
+  line-height: 1.5;
+}
+
+.specform-foot {
+  display: flex;
+  align-items: center;
+  gap: var(--s4);
+  flex-wrap: wrap;
+}
+
+.specform-missing {
+  color: var(--ink-4);
+  font-size: var(--t-xs);
+}
+
+/* The built album — the head line reads the physical facts back, so the page
+ * on screen is always traceable to numbers the photographer typed. */
+.albumx-built-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--s4);
+  flex-wrap: wrap;
+  margin-bottom: var(--s5);
+}
+
+.albumx-built-sub {
+  margin-top: 6px;
+  font-size: var(--t-xs);
+}
+
+.albumx-okline { color: var(--ok-ink); }
+.albumx-flagged { color: var(--flag-ink); }
+
+.albumx-built-controls {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--s3);
+}
+
+.albumx-style {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.albumx-style select {
+  padding: 8px var(--s3);
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  font: inherit;
+  color: var(--ink);
+}
+
+/* The album — real spreads at the album's OWN aspect ratio. The frames are
+ * absolutely placed from the layout engine's fractions, so what is on screen is
+ * the same geometry that would be rendered for print. */
 .albumx-book {
   display: flex;
   flex-direction: column;
-  gap: var(--s5);
+  gap: var(--s6, 32px);
 }
 
-.albumx-page-wrap {
+.albumx-spread-wrap {
   display: flex;
-  align-items: flex-start;
+  flex-direction: column;
+  gap: var(--s2);
+}
+
+.albumx-spread-head {
+  display: flex;
+  align-items: center;
   gap: var(--s3);
+  flex-wrap: wrap;
 }
 
 .albumx-page-no {
@@ -473,44 +625,90 @@
   font-weight: var(--fw-bold);
 }
 
-.albumx-page {
+.albumx-spread-name {
+  font-size: var(--t-sm);
+  color: var(--ink-2);
+}
+
+.albumx-warn {
+  padding: 2px 8px;
+  border-radius: var(--r-full);
+  background: var(--flag-wash);
+  color: var(--flag-ink);
+  font-size: var(--t-xs);
+}
+
+.albumx-spread {
   position: relative;
-  flex: 1;
-  aspect-ratio: 2 / 1;
-  display: grid;
-  gap: 5px;
-  padding: 7px;
+  width: 100%;
   background: #fff;
   border-radius: var(--r-sm);
   box-shadow: var(--lit), var(--key-2);
+  overflow: hidden;
 }
 
-/* the spine down the middle of the open book */
-.albumx-page::after {
-  content: '';
+.albumx-slot {
   position: absolute;
-  top: 6%;
-  bottom: 6%;
-  left: 50%;
-  width: 1px;
-  transform: translateX(-50%);
-  background: rgba(21, 23, 28, 0.06);
-  pointer-events: none;
+  overflow: hidden;
+  border-radius: 2px;
 }
 
-.albumx-page img {
+.albumx-slot img {
   width: 100%;
   height: 100%;
   object-fit: cover;
-  border-radius: 2px;
   display: block;
 }
 
-.albumx-page[data-n='1'] { grid-template-columns: 1fr; grid-template-rows: 1fr; }
-.albumx-page[data-n='2'] { grid-template-columns: 1fr 1fr; grid-template-rows: 1fr; }
-.albumx-page[data-n='3'] { grid-template-columns: 2fr 1fr; grid-template-rows: 1fr 1fr; }
-.albumx-page[data-n='3'] img:first-child { grid-row: 1 / span 2; }
-.albumx-page[data-n='4'] { grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; }
+/* A problem is marked with a hairline, never a wash — the frame it is warning
+ * about is exactly the thing you need to be able to see. */
+.albumx-slot.flag {
+  outline: 1px solid var(--flag);
+  outline-offset: -1px;
+}
+
+.albumx-slot-flag {
+  position: absolute;
+  inset-inline-end: 4px;
+  bottom: 4px;
+  padding: 1px 5px;
+  border-radius: 3px;
+  background: var(--flag);
+  color: #fff;
+  font-size: 10px;
+  line-height: 1.5;
+}
+
+/* The physical guides: trim-safe area, the fold's risk band, and the fold. */
+.albumx-safe,
+.albumx-gutterband,
+.albumx-fold {
+  position: absolute;
+  pointer-events: none;
+}
+
+.albumx-safe {
+  border: 1px dashed rgba(21, 23, 28, 0.22);
+}
+
+.albumx-gutterband {
+  top: 0;
+  bottom: 0;
+  background: repeating-linear-gradient(
+    45deg,
+    rgba(21, 23, 28, 0.05) 0 3px,
+    transparent 3px 6px
+  );
+}
+
+.albumx-fold {
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 1px;
+  transform: translateX(-50%);
+  background: rgba(21, 23, 28, 0.16);
+}
 
 /* The near-duplicate groups — each burst pulled out of the set into its own
  * strip, so the eye sees the redundancy the numbers claim. */

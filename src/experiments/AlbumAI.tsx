@@ -5,19 +5,42 @@
  * understanding→selection→layout pipeline is built from nothing, on a folder the
  * photographer points at, so it can move fast without touching a real project.
  *
- * It reuses only the low-level engine plumbing — pickFolder, listImages, thumb —
- * never a project tool. The pixels stay on disk; the engine serves the
- * thumbnails.
+ * It reuses the low-level engine plumbing — pickFolder, listImages, thumb,
+ * embed, analyze — and, for the composition itself, the album layout engine in
+ * `src/album/`. Building a second layout engine here would be the real mistake:
+ * that one already generates and scores candidate compositions. What this file
+ * adds is the physical book — the spec the photographer types in, the fold, the
+ * bleed, and the resolution of every frame once it is cropped into its slot.
  *
  * The pipeline on the side (docs/RESEARCH-album-ai.md §5) is the roadmap, and it
- * SAYS so: only קליטה is real today. Nothing here draws a result it did not
- * compute — an empty folder reads "no photos here", a failed read reads "could
- * not read", and the two are never the same screen (CLAUDE.md §3).
+ * SAYS so: the culling and clustering stages are still empty. Nothing here draws
+ * a result it did not compute — an empty folder reads "no photos here", a failed
+ * read reads "could not read", and the two are never the same screen
+ * (CLAUDE.md §3).
  */
 
-import { useState } from 'react';
-import { dedupAlbum, embedAlbum, listImages, pickFolder, thumbUrl } from '../api';
+import { useMemo, useState } from 'react';
+import {
+  analyzeAlbumFrame,
+  dedupAlbum,
+  embedAlbum,
+  listImages,
+  pickFolder,
+  thumbUrl,
+} from '../api';
 import { IcChevron, IcFolderOpen, IcSparkle } from '../design/Icons';
+import { ALBUM_STYLES, type AlbumStyleId } from '../album/styleEngine';
+import type { AlbumPhoto } from '../album/model';
+import SpecForm from './SpecForm';
+import {
+  EMPTY_DRAFT,
+  gutterFraction,
+  parseSpec,
+  spreadSize,
+  type PrintSpec,
+  type SpecDraft,
+} from './printSpec';
+import { buildAlbum, type BuiltAlbum, type BuiltFrame } from './albumBuild';
 
 type Status = 'idle' | 'loading' | 'ready' | 'error';
 
@@ -27,15 +50,15 @@ interface Stage {
   note: string;
 }
 
-/* The seven-agent pipeline, minus the person-head that only exists once there is
- * data to train it. Order follows the research doc. */
+/* The pipeline, in the order the research doc lays it out. Two stages are still
+ * empty and the rail says so rather than implying a full machine. */
 const PIPELINE: Stage[] = [
   { id: 'ingest', label: 'קליטה', note: 'קריאת התיקייה וטביעת אצבע ויזואלית לכל פריים' },
   { id: 'cull', label: 'סינון', note: 'עיניים עצומות, ראש הצידה, טשטוש, חשיפה' },
   { id: 'dedup', label: 'דה-דופ', note: 'איחוד רצפים כמעט-זהים לטובה שבהן' },
   { id: 'cluster', label: 'קיבוץ', note: 'חלוקה לרגעים לפי דמיון וזמן' },
-  { id: 'curate', label: 'אצירה', note: 'גיבור ותומכות לכל רגע' },
-  { id: 'layout', label: 'פריסה', note: 'סידור לכפולות מעוצבות' },
+  { id: 'measure', label: 'מדידה', note: 'מידות אמיתיות, פנים ונקודת מוקד לכל פריים' },
+  { id: 'layout', label: 'פריסה', note: 'תבנית לפי תוכן, ציר ובדיקת רזולוציה' },
 ];
 
 // After the selection you pick what to do — not a forced path. Only "בנה אלבום"
@@ -43,10 +66,10 @@ const PIPELINE: Stage[] = [
 type AlbumOption = 'album' | 'cleanup' | 'moments' | 'export' | null;
 
 const HUB: { id: Exclude<AlbumOption, null>; label: string; note: string; ready: boolean }[] = [
-  { id: 'album', label: 'בנה אלבום', note: 'סדר את הבחירה לכפולות', ready: true },
+  { id: 'album', label: 'בנה אלבום', note: 'מידות דפוס ופריסה מעוצבת', ready: true },
   { id: 'cleanup', label: 'ניקוי', note: 'עור, עיניים וכתמים על הסט', ready: false },
   { id: 'moments', label: 'קבץ לרגעים', note: 'חלוקה לפי דמיון וזמן', ready: false },
-  { id: 'export', label: 'ייצוא', note: 'שמירת הבחירה לדיסק', ready: false },
+  { id: 'export', label: 'ייצוא', note: 'חבילת דפוס לדיסק', ready: false },
 ];
 
 // The album's SELECTION: every unique frame, plus one representative from each
@@ -54,25 +77,6 @@ const HUB: { id: Exclude<AlbumOption, null>; label: string; note: string; ready:
 function selectionOf(files: string[], groups: string[][]): string[] {
   const demoted = new Set(groups.flatMap((g) => g.slice(1)));
   return files.filter((f) => !demoted.has(f));
-}
-
-// The album's pulse — how many frames share a spread, cycled. Varying the count
-// is what stops a book from being a uniform grid: a single hero, then a busy
-// spread, then a pair. (docs/ALBUM-MACHINE.md's RHYTHM, trimmed to ≤4 so every
-// count has a real composition template.)
-const RHYTHM = [1, 3, 2, 4, 2, 3];
-
-function spreadsOf(selection: string[]): string[][] {
-  const out: string[][] = [];
-  let i = 0;
-  let r = 0;
-  while (i < selection.length) {
-    const n = Math.min(RHYTHM[r % RHYTHM.length], selection.length - i);
-    out.push(selection.slice(i, i + n));
-    i += n;
-    r += 1;
-  }
-  return out;
 }
 
 function baseName(path: string): string {
@@ -95,6 +99,9 @@ type Dedup = {
 
 // One HTTP call per chunk so the counter moves and a cancel can land between them.
 const INGEST_CHUNK = 8;
+// Measuring opens the full file and runs the face model; three at a time keeps
+// the engine busy without queueing a hundred requests it will serialise anyway.
+const MEASURE_CHUNK = 3;
 
 export default function AlbumAI({ onBack }: { onBack: () => void }) {
   const [status, setStatus] = useState<Status>('idle');
@@ -107,6 +114,26 @@ export default function AlbumAI({ onBack }: { onBack: () => void }) {
   const [dedupRunning, setDedupRunning] = useState(false);
   const [dedupError, setDedupError] = useState<string | null>(null);
   const [option, setOption] = useState<AlbumOption>(null);
+
+  // — the physical book —
+  const [draft, setDraft] = useState<SpecDraft>(EMPTY_DRAFT);
+  const [spec, setSpec] = useState<PrintSpec | null>(null);
+  const [style, setStyle] = useState<AlbumStyleId>(ALBUM_STYLES[0].id);
+  const [measure, setMeasure] = useState<Ingest | null>(null);
+  const [measureError, setMeasureError] = useState<string | null>(null);
+  const [photos, setPhotos] = useState<AlbumPhoto[]>([]);
+
+  function resetRun() {
+    setIngest(null);
+    setIngestError(null);
+    setDedup(null);
+    setDedupError(null);
+    setOption(null);
+    setSpec(null);
+    setMeasure(null);
+    setMeasureError(null);
+    setPhotos([]);
+  }
 
   async function choose() {
     let picked: string | null;
@@ -122,11 +149,7 @@ export default function AlbumAI({ onBack }: { onBack: () => void }) {
     setFolder(picked);
     setStatus('loading');
     setError(null);
-    setIngest(null); // a new folder starts with no fingerprints
-    setIngestError(null);
-    setDedup(null);
-    setDedupError(null);
-    setOption(null);
+    resetRun();
     try {
       const { files: found } = await listImages(picked);
       setFiles(found);
@@ -180,8 +203,70 @@ export default function AlbumAI({ onBack }: { onBack: () => void }) {
     }
   }
 
-  // Two real stages now — קליטה and דה-דופ. The rest SAY "בבנייה". Each moves
-  // ready → running → done, and דה-דופ only unlocks once the fingerprints exist.
+  /* מדידה — the geometry pass.
+   *
+   * The layout cannot be decided without it: the real pixel dimensions set every
+   * PPI check, the orientation picks the template, and the focal point decides
+   * what survives the crop. A frame that fails here is DROPPED from the album and
+   * counted — it is never placed with guessed dimensions. */
+  async function runMeasure(selection: string[]) {
+    setMeasureError(null);
+    setMeasure({ phase: 'running', done: 0, total: selection.length, failed: 0 });
+    const measured: AlbumPhoto[] = [];
+    let done = 0;
+    let failed = 0;
+
+    try {
+      for (let i = 0; i < selection.length; i += MEASURE_CHUNK) {
+        const chunk = selection.slice(i, i + MEASURE_CHUNK);
+        const results = await Promise.all(chunk.map(async (path) => {
+          try {
+            return { path, data: await analyzeAlbumFrame(path) };
+          } catch {
+            return { path, data: null };
+          }
+        }));
+
+        for (const { path, data } of results) {
+          done += 1;
+          if (!data || !data.widthPx || !data.heightPx) {
+            failed += 1;
+            continue;
+          }
+          measured.push({
+            id: path,
+            name: baseName(path),
+            url: thumbUrl(path, 1400),
+            orientation: data.widthPx > data.heightPx
+              ? 'landscape'
+              : data.widthPx < data.heightPx ? 'portrait' : 'square',
+            widthPx: data.widthPx,
+            heightPx: data.heightPx,
+            focalPoint: data.focalPoint,
+            sourcePath: path,
+            analysis: {
+              status: 'ready',
+              faces: data.faces ?? [],
+              subject: data.subject ?? null,
+              focalPoint: data.focalPoint,
+              sharpnessScore: data.sharpnessScore,
+              qualityScore: data.qualityScore,
+              analyzedBy: data.analyzedBy,
+            },
+          });
+        }
+        setMeasure({ phase: 'running', done, total: selection.length, failed });
+      }
+      setPhotos(measured);
+      setMeasure({ phase: 'done', done, total: selection.length, failed });
+    } catch (e) {
+      setMeasureError((e as Error).message);
+      setMeasure(null);
+    }
+  }
+
+  // Each stage moves ready → running → done. A stage with no code behind it says
+  // "בבנייה" and never borrows a neighbour's progress.
   function stageStatus(id: string): { label: string; cls: string } {
     if (id === 'ingest') {
       if (ingest?.phase === 'done') return { label: 'הושלם', cls: 'pill-ok' };
@@ -195,8 +280,27 @@ export default function AlbumAI({ onBack }: { onBack: () => void }) {
       if (ingest?.phase === 'done') return { label: 'מוכן', cls: '' };
       return { label: 'בבנייה', cls: 'pill-idle' };
     }
+    if (id === 'measure') {
+      if (measure?.phase === 'done') return { label: 'הושלם', cls: 'pill-ok' };
+      if (measure?.phase === 'running') return { label: 'פעיל', cls: 'pill-run' };
+      if (dedup) return { label: 'מוכן', cls: '' };
+      return { label: 'בבנייה', cls: 'pill-idle' };
+    }
+    if (id === 'layout') {
+      if (spec && photos.length) return { label: 'הושלם', cls: 'pill-ok' };
+      if (measure?.phase === 'done') return { label: 'מוכן', cls: '' };
+      return { label: 'בבנייה', cls: 'pill-idle' };
+    }
     return { label: 'בבנייה', cls: 'pill-idle' };
   }
+
+  const selection = dedup ? selectionOf(files, dedup.groups) : [];
+  // Every candidate composition is generated and re-scored in here — it is not a
+  // render-cheap call, and only these three inputs can change its answer.
+  const album: BuiltAlbum | null = useMemo(
+    () => (spec && photos.length ? buildAlbum(photos, spec, style) : null),
+    [spec, photos, style],
+  );
 
   return (
     <div className="albumx">
@@ -359,34 +463,28 @@ export default function AlbumAI({ onBack }: { onBack: () => void }) {
                     <IcChevron size={18} />
                     <span>חזרה לבחירה</span>
                   </button>
-                  {option === 'album' ? (() => {
-                    const sel = selectionOf(files, dedup ? dedup.groups : []);
-                    const spreads = spreadsOf(sel);
-                    return (
-                      <>
-                        <p className="albumx-option-lede">
-                          אלבום — <b>{sel.length}</b> תמונות ב-<b>{spreads.length}</b> כפולות
-                          (הכפולות אוחדו, אחת לכל רצף). מכאן משפרים את הפריסה.
-                        </p>
-                        <div className="albumx-book">
-                          {spreads.map((s, i) => (
-                            <div key={i} className="albumx-page-wrap">
-                              <span className="albumx-page-no mono">{i + 1}</span>
-                              <div className="albumx-page" data-n={s.length}>
-                                {s.map((f) => (
-                                  <img key={f} src={thumbUrl(f, 640)} alt="" loading="lazy" />
-                                ))}
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      </>
-                    );
-                  })() : (
+
+                  {option !== 'album' ? (
                     <p className="albumx-note">
                       {HUB.find((o) => o.id === option)?.label} — בבנייה. עוד לא בניתי את
                       השלב הזה; חוזרים לבחירה בינתיים.
                     </p>
+                  ) : (
+                    <AlbumBuilder
+                      selection={selection}
+                      measure={measure}
+                      measureError={measureError}
+                      onMeasure={() => runMeasure(selection)}
+                      photos={photos}
+                      draft={draft}
+                      onDraft={setDraft}
+                      onSpec={() => setSpec(parseSpec(draft))}
+                      spec={spec}
+                      style={style}
+                      onStyle={setStyle}
+                      album={album}
+                      onEditSpec={() => setSpec(null)}
+                    />
                   )}
                 </section>
               )}
@@ -428,6 +526,193 @@ export default function AlbumAI({ onBack }: { onBack: () => void }) {
           )}
         </main>
       </div>
+    </div>
+  );
+}
+
+/* The build screen: measure → spec → book. Three gates in order, because each
+ * one genuinely needs the one before it. */
+function AlbumBuilder(props: {
+  selection: string[];
+  measure: Ingest | null;
+  measureError: string | null;
+  onMeasure: () => void;
+  photos: AlbumPhoto[];
+  draft: SpecDraft;
+  onDraft: (draft: SpecDraft) => void;
+  onSpec: () => void;
+  spec: PrintSpec | null;
+  style: AlbumStyleId;
+  onStyle: (style: AlbumStyleId) => void;
+  album: BuiltAlbum | null;
+  onEditSpec: () => void;
+}) {
+  const {
+    selection, measure, measureError, onMeasure, photos,
+    draft, onDraft, onSpec, spec, style, onStyle, album, onEditSpec,
+  } = props;
+
+  if (measure?.phase !== 'done') {
+    return (
+      <div className="albumx-gate">
+        <p className="albumx-option-lede">
+          הבחירה: <b>{selection.length}</b> תמונות. לפני פריסה צריך למדוד כל פריים —
+          מידות אמיתיות בפיקסלים, פנים ונקודת מוקד. בלי זה אי אפשר לדעת מה שורד
+          חיתוך ומה יוצא רך בדפוס.
+        </p>
+        {measure?.phase === 'running' ? (
+          <p className="albumx-ingest-run">
+            <span className="dot-live" />
+            מודד… <b>{measure.done}</b>/{measure.total}
+            {measure.failed ? ` · ${measure.failed} נכשלו` : ''}
+          </p>
+        ) : (
+          <button className="btn btn-primary" onClick={onMeasure}>
+            <IcSparkle size={16} />
+            מדוד את הבחירה
+          </button>
+        )}
+        {measureError && <p className="albumx-fault mono" dir="ltr">{measureError}</p>}
+      </div>
+    );
+  }
+
+  if (!photos.length) {
+    return (
+      <p className="albumx-note">
+        אף פריים לא נמדד בהצלחה — {measure.failed} כשלונות מתוך {measure.total}. זו
+        תקלה, לא סט ריק. ודא שהמנוע רץ ונסה שוב.
+      </p>
+    );
+  }
+
+  if (!spec) {
+    return (
+      <>
+        {measure.failed > 0 && (
+          <p className="albumx-note">
+            {measure.failed} פריימים לא נמדדו ולכן לא ייכנסו לאלבום. נמדדו{' '}
+            <b>{photos.length}</b>.
+          </p>
+        )}
+        <SpecForm draft={draft} onChange={onDraft} onSubmit={onSpec} />
+      </>
+    );
+  }
+
+  if (!album) return <p className="albumx-note">אין מספיק נתונים לבנות כפולות.</p>;
+
+  const size = spreadSize(spec);
+  const band = gutterFraction(spec);
+  const safeX = spec.safeMarginMm / size.trimWidthMm;
+  const safeY = spec.safeMarginMm / size.trimHeightMm;
+
+  return (
+    <div className="albumx-built">
+      <div className="albumx-built-head">
+        <div>
+          <p className="albumx-option-lede">
+            <b>{photos.length}</b> תמונות ב-<b>{album.spreads.length}</b> כפולות ·{' '}
+            <span className="mono" dir="ltr">
+              {size.trimWidthMm}×{size.trimHeightMm}mm
+            </span>{' '}
+            · בליד {spec.bleedMm} · ציר {spec.gutterMm} · יעד {spec.targetPpi} PPI
+          </p>
+          <p className="albumx-built-sub">
+            {album.softFrames > 0 ? (
+              <span className="albumx-flagged">
+                {album.softFrames} מסגרות מתחת ל-{spec.minPpi} PPI — יצאו רכות בדפוס
+              </span>
+            ) : (
+              <span className="albumx-okline">כל המסגרות עומדות ב-{spec.minPpi} PPI</span>
+            )}
+            {album.facesOnFold > 0 && (
+              <span className="albumx-flagged"> · {album.facesOnFold} פנים קרובות לציר</span>
+            )}
+          </p>
+        </div>
+
+        <div className="albumx-built-controls">
+          <label className="albumx-style">
+            <span className="label">סגנון</span>
+            <select value={style} onChange={(e) => onStyle(e.target.value as AlbumStyleId)}>
+              {ALBUM_STYLES.map((s) => (
+                <option key={s.id} value={s.id}>{s.label}</option>
+              ))}
+            </select>
+          </label>
+          <button className="btn btn-flag" onClick={onEditSpec}>שנה מידות</button>
+        </div>
+      </div>
+
+      <div className="albumx-book">
+        {album.spreads.map((spread) => (
+          <article key={spread.number} className="albumx-spread-wrap">
+            <header className="albumx-spread-head">
+              <span className="albumx-page-no mono">{spread.number}</span>
+              <span className="albumx-spread-name">{spread.layoutName}</span>
+              {spread.warnings.map((w) => (
+                <span key={w} className="albumx-warn">{w}</span>
+              ))}
+            </header>
+
+            <div
+              className="albumx-spread"
+              dir="ltr"
+              style={{ aspectRatio: `${size.trimWidthMm} / ${size.trimHeightMm}` }}
+            >
+              {spread.frames.map((frame) => (
+                <SpreadFrame key={frame.slot.id} frame={frame} />
+              ))}
+
+              {/* Guides sit ABOVE the photos as hairlines only — they mark the
+                  physical page without hiding a single pixel of it. */}
+              <span
+                className="albumx-safe"
+                style={{ inset: `${safeY * 100}% ${safeX * 100}%` }}
+              />
+              {band > 0 && (
+                <span
+                  className="albumx-gutterband"
+                  style={{ left: `${(0.5 - band) * 100}%`, width: `${band * 200}%` }}
+                />
+              )}
+              <span className="albumx-fold" />
+            </div>
+          </article>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function SpreadFrame({ frame }: { frame: BuiltFrame }) {
+  const { photo, slot, resolution, faceOnFold } = frame;
+  const focal = photo.analysis?.focalPoint ?? { x: 0.5, y: 0.5 };
+  const flagged = !resolution.ok || faceOnFold;
+
+  return (
+    <div
+      className={`albumx-slot ${flagged ? 'flag' : ''}`}
+      style={{
+        left: `${slot.x * 100}%`,
+        top: `${slot.y * 100}%`,
+        width: `${slot.width * 100}%`,
+        height: `${slot.height * 100}%`,
+      }}
+      title={`${photo.name} · ${resolution.widthMm}×${resolution.heightMm}mm · ${resolution.ppi} PPI`}
+    >
+      <img
+        src={thumbUrl(photo.sourcePath ?? photo.id, 900)}
+        alt=""
+        loading="lazy"
+        style={{ objectPosition: `${focal.x * 100}% ${focal.y * 100}%` }}
+      />
+      {flagged && (
+        <span className="albumx-slot-flag mono" dir="ltr">
+          {!resolution.ok ? `${resolution.ppi} PPI` : 'fold'}
+        </span>
+      )}
     </div>
   );
 }
