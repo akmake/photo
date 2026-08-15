@@ -692,21 +692,6 @@
   gap: var(--s3);
 }
 
-.albumx-style {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.albumx-style select {
-  padding: 8px var(--s3);
-  background: var(--card);
-  border: 1px solid var(--line);
-  border-radius: var(--r-sm);
-  font: inherit;
-  color: var(--ink);
-}
-
 /* יצוא — the last screen before a file exists. It reads like a checklist, not a
  * toolbar: the confirmation is a real gate, not a formality. */
 .albumx-export {

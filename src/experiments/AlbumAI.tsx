@@ -6,17 +6,15 @@
  * photographer points at, so it can move fast without touching a real project.
  *
  * It reuses the low-level engine plumbing — pickFolder, listImages, thumb,
- * embed, analyze — and, for the composition itself, the album layout engine in
- * `src/album/`. Building a second layout engine here would be the real mistake:
- * that one already generates and scores candidate compositions. What this file
- * adds is the physical book — the spec the photographer types in, the fold, the
- * bleed, and the resolution of every frame once it is cropped into its slot.
+ * embed, cull, render. The composition does NOT come from `src/album/
+ * layoutEngine`: that one sizes each photo to its own aspect and centres it in a
+ * box, which produces a contact sheet, not a book. `albumTemplates.ts` holds the
+ * drawn vocabulary this album lays out with, and says why.
  *
  * The pipeline on the side (docs/RESEARCH-album-ai.md §5) is the roadmap, and it
- * SAYS so: the culling and clustering stages are still empty. Nothing here draws
- * a result it did not compute — an empty folder reads "no photos here", a failed
- * read reads "could not read", and the two are never the same screen
- * (CLAUDE.md §3).
+ * SAYS so: the clustering stage is still empty. Nothing here draws a result it
+ * did not compute — an empty folder reads "no photos here", a failed read reads
+ * "could not read", and the two are never the same screen (CLAUDE.md §3).
  */
 
 import { useMemo, useState } from 'react';
@@ -36,7 +34,6 @@ import {
   type RenderSpreadPayload,
 } from '../api';
 import { IcChevron, IcFolderOpen, IcSparkle } from '../design/Icons';
-import { ALBUM_STYLES, type AlbumStyleId } from '../album/styleEngine';
 import type { AlbumPhoto } from '../album/model';
 import SpecForm from './SpecForm';
 import {
@@ -156,7 +153,6 @@ export default function AlbumAI({ onBack }: { onBack: () => void }) {
   // — the physical book —
   const [draft, setDraft] = useState<SpecDraft>(EMPTY_DRAFT);
   const [spec, setSpec] = useState<PrintSpec | null>(null);
-  const [style, setStyle] = useState<AlbumStyleId>(ALBUM_STYLES[0].id);
   const [cull, setCull] = useState<Ingest | null>(null);
   const [cullError, setCullError] = useState<string | null>(null);
   const [judged, setJudged] = useState<Judged[]>([]);
@@ -336,8 +332,8 @@ export default function AlbumAI({ onBack }: { onBack: () => void }) {
   // Every candidate composition is generated and re-scored in here — it is not a
   // render-cheap call, and only these three inputs can change its answer.
   const album: BuiltAlbum | null = useMemo(
-    () => (spec && photos.length ? buildAlbum(photos, spec, style) : null),
-    [spec, photos, style],
+    () => (spec && photos.length ? buildAlbum(photos, spec) : null),
+    [spec, photos],
   );
 
   return (
@@ -521,8 +517,6 @@ export default function AlbumAI({ onBack }: { onBack: () => void }) {
                       onDraft={setDraft}
                       onSpec={() => setSpec(parseSpec(draft))}
                       spec={spec}
-                      style={style}
-                      onStyle={setStyle}
                       album={album}
                       onEditSpec={() => setSpec(null)}
                     />
@@ -586,14 +580,12 @@ function AlbumBuilder(props: {
   onDraft: (draft: SpecDraft) => void;
   onSpec: () => void;
   spec: PrintSpec | null;
-  style: AlbumStyleId;
-  onStyle: (style: AlbumStyleId) => void;
   album: BuiltAlbum | null;
   onEditSpec: () => void;
 }) {
   const {
     selection, cull, cullError, onCull, rejected, overrides, onToggleOverride,
-    photos, draft, onDraft, onSpec, spec, style, onStyle, album, onEditSpec,
+    photos, draft, onDraft, onSpec, spec, album, onEditSpec,
   } = props;
 
   if (cull?.phase !== 'done') {
@@ -690,14 +682,6 @@ function AlbumBuilder(props: {
         </div>
 
         <div className="albumx-built-controls">
-          <label className="albumx-style">
-            <span className="label">סגנון</span>
-            <select value={style} onChange={(e) => onStyle(e.target.value as AlbumStyleId)}>
-              {ALBUM_STYLES.map((s) => (
-                <option key={s.id} value={s.id}>{s.label}</option>
-              ))}
-            </select>
-          </label>
           <button className="btn btn-flag" onClick={onEditSpec}>שנה מידות</button>
         </div>
       </div>

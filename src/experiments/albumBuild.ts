@@ -1,21 +1,35 @@
-/* בניית האלבום — from a filtered set of frames to placed, checked spreads.
+/* בניית האלבום — from a kept set of frames to placed, checked spreads.
  *
- * This is the part that decides "which photos share a spread, and where each
- * one sits". It does NOT invent a second layout engine: `src/album/layoutEngine`
- * already generates and scores candidate compositions, and `layoutTemplates`
- * already holds the geometry vocabulary. What was missing is everything that
- * makes the choice a PRINT decision rather than a screen one — the fold, the
- * bleed, the resolution of a frame once it is cropped into its slot.
+ * Two decisions live here, and they are made in this order on purpose:
  *
- * So the flow is: group into spreads (rhythm + heroes) → ask the layout engine
- * for candidates → re-score every candidate against the physical spec → keep
- * the best. A composition that puts a face on the fold loses to a plainer one
- * that doesn't, which is the whole difference between a grid and a book.
+ *   1. WHICH photos share a spread. Driven by a rhythm so the book breathes,
+ *      with the strongest frames pulled out to carry a spread alone.
+ *   2. WHICH template that group sits in. Every template in the vocabulary that
+ *      holds the right number of frames is tried, every arrangement of the
+ *      photos inside it is scored, and the winner is the one that survives both
+ *      the design rules and the physical book.
+ *
+ * The scoring is where a grid becomes a book. Three forces pull on it:
+ *
+ *   - CROP LOSS. A slot is always filled edge to edge, so a standing portrait
+ *     in a letterbox slot loses its subject. This is the loudest design term.
+ *   - THE FOLD. A face in the gutter is a face with a crease through it, and no
+ *     composition is worth that.
+ *   - RESOLUTION. A frame printed below the lab's floor is a reprint.
+ *
+ * A composition that scores beautifully and fails any of those loses to a
+ * plainer one that doesn't.
  */
 
-import { buildAlbumLayoutCandidates, type GeneratedAlbumLayout } from '../album/layoutEngine';
-import type { AlbumPhoto, LayoutSlot } from '../album/model';
-import { getAlbumStyle } from '../album/styleEngine';
+import type { AlbumPhoto } from '../album/model';
+import {
+  availableCounts,
+  cropLoss,
+  templatesFor,
+  wantsMatch,
+  type SpreadTemplate,
+  type TemplateSlot,
+} from './albumTemplates';
 import {
   crossesGutter,
   frameResolution,
@@ -27,7 +41,7 @@ import {
 
 export interface BuiltFrame {
   photo: AlbumPhoto;
-  slot: LayoutSlot;
+  slot: TemplateSlot;
   resolution: FrameResolution;
   /** A face of this frame lands inside the fold's risk band. */
   faceOnFold: boolean;
@@ -38,6 +52,7 @@ export interface BuiltSpread {
   number: number;
   layoutId: string;
   layoutName: string;
+  bleed: boolean;
   frames: BuiltFrame[];
   warnings: string[];
 }
@@ -47,12 +62,13 @@ export interface BuiltAlbum {
   /** Frames that fall under the lab's floor — the list that blocks an export. */
   softFrames: number;
   facesOnFold: number;
+  /** How much of the book runs to the edge. A book of insets reads as a slide deck. */
+  bleedRatio: number;
 }
 
 /* A frame earns a spread of its own when it is both technically strong and
  * about someone. Quality alone promotes a sharp photo of a chair; faces alone
- * promote a blurry one. The album's rhythm needs a few of these or every
- * spread weighs the same and the book reads flat. */
+ * promote a blurry one. */
 function heroScore(photo: AlbumPhoto): number {
   const analysis = photo.analysis;
   if (!analysis || analysis.status !== 'ready') return 0;
@@ -61,20 +77,26 @@ function heroScore(photo: AlbumPhoto): number {
     (max, box) => Math.max(max, box.width * box.height),
     0,
   );
-  // A close portrait beats a distant group; two people beat a crowd.
   const presence = faces === 0 ? 0 : Math.min(1, biggestFace * 6) * (faces <= 3 ? 1 : 0.7);
   return analysis.qualityScore * 0.55 + analysis.sharpnessScore * 0.15 + presence * 0.3;
 }
 
-/** How many frames share each spread: the style's rhythm, with heroes pulled out. */
-function groupIntoSpreads(photos: AlbumPhoto[], styleName?: string): AlbumPhoto[][] {
-  const style = getAlbumStyle(styleName);
-  const rhythm = style.rhythm.length ? style.rhythm : [2, 3, 2, 4];
+/* The rhythm of the book.
+ *
+ * A run of same-size spreads is what makes an album feel machine-made, so the
+ * pulse alternates deliberately: a solo, then a busier spread, then a pair. The
+ * counts are clamped to what the template vocabulary actually draws — asking for
+ * a seven-up spread that has no template would silently fall back to a grid.
+ */
+const RHYTHM = [1, 3, 2, 4, 1, 2, 6, 3];
 
-  // The top frames get a spread to themselves — roughly one every eight photos,
-  // never so many that "hero" stops meaning anything.
+function groupIntoSpreads(photos: AlbumPhoto[], counts: number[]): AlbumPhoto[][] {
+  const allowed = new Set(counts);
+  const rhythm = RHYTHM.filter((n) => allowed.has(n));
+  const beats = rhythm.length ? rhythm : [Math.min(...counts)];
+
   const heroCount = Math.min(
-    Math.max(1, Math.round(photos.length / 8)),
+    Math.max(1, Math.round(photos.length / 7)),
     Math.max(1, Math.floor(photos.length / 3)),
   );
   const heroes = new Set(
@@ -92,11 +114,10 @@ function groupIntoSpreads(photos: AlbumPhoto[], styleName?: string): AlbumPhoto[
     if (heroes.has(photos[index].id)) {
       out.push([photos[index]]);
       index += 1;
-      // A solo spread resets the pulse, so a hero is never followed by another.
-      beat = 1;
+      beat += 1; // a solo spread advances the pulse, never repeats it
       continue;
     }
-    const want = rhythm[beat % rhythm.length];
+    const want = beats[beat % beats.length];
     const group: AlbumPhoto[] = [];
     while (group.length < want && index < photos.length && !heroes.has(photos[index].id)) {
       group.push(photos[index]);
@@ -105,57 +126,117 @@ function groupIntoSpreads(photos: AlbumPhoto[], styleName?: string): AlbumPhoto[
     if (group.length) out.push(group);
     beat += 1;
   }
-  return out;
+
+  // A trailing group the vocabulary cannot draw is folded into its neighbour
+  // rather than rendered by some fallback nobody designed.
+  return out.filter((g) => g.length > 0).flatMap((g) => (
+    allowed.has(g.length) ? [g] : g.map((p) => [p])
+  ));
 }
 
-/** Does any face of this photo land in the fold, given where the slot sits? */
-function faceLandsOnFold(photo: AlbumPhoto, slot: LayoutSlot, spec: PrintSpec): boolean {
+/** Does any face of this photo land in the fold? */
+function faceLandsOnFold(photo: AlbumPhoto, slot: TemplateSlot, spec: PrintSpec): boolean {
   if (!crossesGutter(slot.x, slot.width, spec)) return false;
   const faces = photo.analysis?.faces ?? [];
   if (!faces.length) return false;
-
   const band = gutterFraction(spec);
   return faces.some((face) => {
-    // The face box is in photo space; `cover` maps it onto the slot, and the
-    // focal point keeps it roughly centred. Approximating the mapping as linear
-    // across the slot is enough to answer "is it near the fold or not".
     const centre = slot.x + (face.x + face.width / 2) * slot.width;
     return centre > 0.5 - band && centre < 0.5 + band;
   });
 }
 
-/* Re-score a layout candidate against the physical album.
- *
- * The layout engine's own score is about composition — balance, hero quality,
- * crop safety. It knows nothing about this book. Here the fold and the lab's
- * PPI floor get a vote, and they get a loud one: a soft frame is a reprint, and
- * a face in the fold is a face with a crease through it. */
-function scoreAgainstSpec(
-  candidate: GeneratedAlbumLayout,
-  photosById: Map<string, AlbumPhoto>,
-  spec: PrintSpec,
-): { score: number; frames: BuiltFrame[] } {
-  const frames: BuiltFrame[] = [];
-  let penalty = 0;
+/** Every arrangement of `items`. Only called for small groups. */
+function permutations<T>(items: T[]): T[][] {
+  if (items.length <= 1) return [items];
+  const out: T[][] = [];
+  items.forEach((item, i) => {
+    const rest = [...items.slice(0, i), ...items.slice(i + 1)];
+    for (const tail of permutations(rest)) out.push([item, ...tail]);
+  });
+  return out;
+}
 
-  candidate.slots.forEach((slot, index) => {
-    const photo = photosById.get(candidate.photoIds[index]);
+interface Placement {
+  score: number;
+  frames: BuiltFrame[];
+}
+
+function placeInto(
+  template: SpreadTemplate,
+  order: AlbumPhoto[],
+  spec: PrintSpec,
+): Placement {
+  const { trimWidthMm, trimHeightMm } = spreadSize(spec);
+  const frames: BuiltFrame[] = [];
+  let score = 0;
+
+  template.slots.forEach((slot, i) => {
+    const photo = order[i];
     if (!photo) return;
+
+    const loss = cropLoss(photo, slot.width, slot.height, trimWidthMm, trimHeightMm);
     const resolution = frameResolution(
-      photo.widthPx,
-      photo.heightPx,
-      slot.width,
-      slot.height,
-      spec,
+      photo.widthPx, photo.heightPx, slot.width, slot.height, spec,
     );
     const faceOnFold = faceLandsOnFold(photo, slot, spec);
-    if (!resolution.ok) penalty += 30;
-    else if (resolution.belowTarget) penalty += 6;
-    if (faceOnFold) penalty += 40;
+
+    // Crop loss is weighted by how much of the spread the slot occupies: ruining
+    // the shape of a full-bleed hero matters far more than of a thumbnail.
+    const weight = 0.4 + slot.width * slot.height * 2.2;
+    score -= loss * 100 * weight;
+    if (!wantsMatch(photo, slot.want)) score -= 22;
+    if (slot.role === 'hero') score += heroScore(photo) * 26;
+    if (!resolution.ok) score -= 90;
+    else if (resolution.belowTarget) score -= 10;
+    if (faceOnFold) score -= 120;
+
     frames.push({ photo, slot, resolution, faceOnFold });
   });
 
-  return { score: candidate.score - penalty, frames };
+  // The book needs edges. Without this a run of tidy inset spreads always wins
+  // on crop loss alone, and the result is the contact sheet this file exists to
+  // stop being.
+  if (template.bleed) score += 26;
+
+  return { score, frames };
+}
+
+function bestPlacement(
+  group: AlbumPhoto[],
+  templates: SpreadTemplate[],
+  spec: PrintSpec,
+): { template: SpreadTemplate; placement: Placement } | null {
+  const candidates = templates.filter((t) => t.count === group.length);
+  if (!candidates.length) return null;
+
+  // 5! = 120 arrangements is nothing; beyond that, order by quality into the
+  // slots by area, which puts the strongest frame in the largest opening.
+  const orders = group.length <= 5
+    ? permutations(group)
+    : [[...group].sort((a, b) => heroScore(b) - heroScore(a))];
+
+  let best: { template: SpreadTemplate; placement: Placement } | null = null;
+  for (const template of candidates) {
+    const ordered = group.length <= 5
+      ? orders
+      : [reorderByArea(orders[0], template.slots)];
+    for (const order of ordered) {
+      const placement = placeInto(template, order, spec);
+      if (!best || placement.score > best.placement.score) best = { template, placement };
+    }
+  }
+  return best;
+}
+
+/** Strongest photo into the biggest opening, and so on down. */
+function reorderByArea(byQuality: AlbumPhoto[], slots: TemplateSlot[]): AlbumPhoto[] {
+  const rank = slots
+    .map((slot, i) => ({ i, area: slot.width * slot.height }))
+    .sort((a, b) => b.area - a.area);
+  const out: AlbumPhoto[] = new Array(slots.length);
+  rank.forEach(({ i }, position) => { out[i] = byQuality[position]; });
+  return out;
 }
 
 function warningsFor(frames: BuiltFrame[], spec: PrintSpec): string[] {
@@ -169,37 +250,38 @@ function warningsFor(frames: BuiltFrame[], spec: PrintSpec): string[] {
   return out;
 }
 
-export function buildAlbum(
-  photos: AlbumPhoto[],
-  spec: PrintSpec,
-  styleName?: string,
-): BuiltAlbum {
+export function buildAlbum(photos: AlbumPhoto[], spec: PrintSpec): BuiltAlbum {
   const { pageAspect } = spreadSize(spec);
-  const groups = groupIntoSpreads(photos, styleName);
-  const photosById = new Map(photos.map((photo) => [photo.id, photo]));
+  const templates = templatesFor(pageAspect);
+  const groups = groupIntoSpreads(photos, availableCounts(pageAspect));
   const spreads: BuiltSpread[] = [];
 
-  groups.forEach((group, index) => {
-    const candidates = buildAlbumLayoutCandidates(
-      group.map((photo) => photo.id),
-      group,
-      pageAspect,
-      styleName,
-    );
-    if (!candidates.length) return;
+  let previousId: string | null = null;
+  groups.forEach((group) => {
+    const best = bestPlacement(group, templates, spec);
+    if (!best) return;
 
-    let best = { score: -Infinity, frames: [] as BuiltFrame[], candidate: candidates[0] };
-    for (const candidate of candidates) {
-      const scored = scoreAgainstSpec(candidate, photosById, spec);
-      if (scored.score > best.score) best = { ...scored, candidate };
+    // The same template twice running is the other way a book reads as machine
+    // output. If a runner-up is close, take it instead.
+    let chosen = best;
+    if (best.template.id === previousId) {
+      const alternatives = templates
+        .filter((t) => t.count === group.length && t.id !== previousId)
+        .map((t) => ({ template: t, placement: placeInto(t, group, spec) }))
+        .sort((a, b) => b.placement.score - a.placement.score);
+      if (alternatives.length && alternatives[0].placement.score > best.placement.score - 30) {
+        chosen = alternatives[0];
+      }
     }
+    previousId = chosen.template.id;
 
     spreads.push({
-      number: index + 1,
-      layoutId: best.candidate.id,
-      layoutName: best.candidate.name,
-      frames: best.frames,
-      warnings: warningsFor(best.frames, spec),
+      number: spreads.length + 1,
+      layoutId: chosen.template.id,
+      layoutName: chosen.template.name,
+      bleed: chosen.template.bleed,
+      frames: chosen.placement.frames,
+      warnings: warningsFor(chosen.placement.frames, spec),
     });
   });
 
@@ -213,5 +295,8 @@ export function buildAlbum(
       (sum, spread) => sum + spread.frames.filter((frame) => frame.faceOnFold).length,
       0,
     ),
+    bleedRatio: spreads.length
+      ? spreads.filter((s) => s.bleed).length / spreads.length
+      : 0,
   };
 }
