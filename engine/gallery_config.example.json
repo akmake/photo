@@ -1,0 +1,26 @@
+{
+  "_comment": "Copy to gallery_config.json (git-ignored). Every key is optional; the defaults below are what runs with nothing configured at all.",
+
+  "backend": "local",
+  "_backend": "local | s3 — 's3' covers any S3-compatible bucket: Backblaze B2, Cloudflare R2. Moving from local disk to a bucket is this line.",
+
+  "root": "",
+  "_root": "local backend only. Where the objects go. Default: TEZA/gallery next to the engine.",
+
+  "records": "json",
+  "_records": "json | mongo — 'json' keeps records in TEZA/gallery-db and needs nothing installed. 'mongo' uses db.py and needs pymongo.",
+
+  "endpoint": "https://s3.us-west-004.backblazeb2.com",
+  "_endpoint": "s3 backend only. B2 shows this on the bucket page. R2: https://<account-id>.r2.cloudflarestorage.com",
+
+  "region": "us-west-004",
+  "bucket": "",
+  "access_key_id": "",
+  "secret_access_key": "",
+
+  "public_base": "",
+  "_public_base": "The CDN origin in front of the bucket, e.g. https://img.example.com. Set it and image URLs point at the CDN — which is where the egress becomes free and where the loading gets fast. Leave empty and the manifest hands out signed URLs that expire instead.",
+
+  "admin_token": "",
+  "_admin_token": "Empty means /api/gallery/* is open, which is correct only while this runs as a localhost sidecar. Set it before the API is reachable from anywhere else."
+}

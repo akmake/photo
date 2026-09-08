@@ -49,3 +49,6 @@ __pycache__/
 
 # AI model weights (downloaded via engine/setup_models.py)
 engine/models/
+engine/gallery_config.json
+TEZA/gallery/
+TEZA/gallery-db/

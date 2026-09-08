@@ -66,6 +66,8 @@ import workspace
 import cloud_sources
 import storage_locations
 import db
+import gallery
+import gallery_store
 
 PORT = 8756
 
@@ -475,7 +477,10 @@ class Handler(BaseHTTPRequestHandler):
     def _cors(self):
         self.send_header("Access-Control-Allow-Origin", "*")
         self.send_header("Access-Control-Allow-Methods", "POST, GET, OPTIONS")
-        self.send_header("Access-Control-Allow-Headers", "Content-Type")
+        self.send_header(
+            "Access-Control-Allow-Headers",
+            "Content-Type, X-Gallery-Token, X-Teza-Admin",
+        )
         self.send_header("Access-Control-Allow-Private-Network", "true")
 
     def do_OPTIONS(self):
@@ -484,6 +489,11 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
 
     def do_GET(self):
+        if self._gallery_api("GET"):
+            return
+        if self.path.startswith("/gallery-files/"):
+            self._gallery_file()
+            return
         if self.path.startswith("/oauth/callback/"):
             self._oauth_callback()
             return
@@ -704,6 +714,8 @@ class Handler(BaseHTTPRequestHandler):
             self._json(500, {"error": str(e)})
 
     def do_POST(self):
+        if self._gallery_api("POST"):
+            return
         if self.path == "/recipe-key":
             self._recipe_key()
             return
@@ -836,6 +848,59 @@ class Handler(BaseHTTPRequestHandler):
     def _body(self):
         length = int(self.headers.get("Content-Length", 0))
         return json.loads(self.rfile.read(length))
+
+    def _gallery_api(self, method):
+        """The client gallery, mounted here.
+
+        gallery.py owns its own routing and knows nothing about this socket, so
+        the same module serves the sidecar during development and a standalone
+        process wherever this finally runs. Returns False when the path is not
+        the gallery's, and the handler falls through to everything else.
+        """
+        parsed = urllib.parse.urlparse(self.path)
+        body = {}
+        if method == "POST":
+            try:
+                body = self._body()
+            except Exception:  # noqa: BLE001
+                body = {}
+        if not isinstance(body, dict):
+            body = {}
+        for key, values in urllib.parse.parse_qs(parsed.query).items():
+            body.setdefault(key, values[0])
+
+        answered = gallery.handle(method, parsed.path, body, dict(self.headers))
+        if answered is None:
+            return False
+        status, payload = answered
+        self._json(status, payload)
+        return True
+
+    def _gallery_file(self):
+        """Objects, when the gallery's store is this machine's own disk.
+
+        With a bucket in front this route is never reached - the manifest hands
+        out URLs that point at the bucket or its CDN instead.
+        """
+        path = urllib.parse.urlparse(self.path).path
+        key = urllib.parse.unquote(path[len("/gallery-files/"):])
+        try:
+            data = gallery_store.store().get(key)
+        except gallery_store.StoreUnavailable as e:
+            # "cannot reach the store" is an answer, never an empty gallery
+            self._json(503, {"error": str(e)})
+            return
+        if data is None:
+            self._json(404, {"error": "not found"})
+            return
+        self.send_response(200)
+        self.send_header("Content-Type", "image/jpeg")
+        self.send_header("Content-Length", str(len(data)))
+        self.send_header("Access-Control-Allow-Origin", "*")
+        # An object under a given key never changes: a new version is a new key.
+        self.send_header("Cache-Control", "public, max-age=31536000, immutable")
+        self.end_headers()
+        self.wfile.write(data)
 
     def _db(self, action):
         """The studio's records. See db.py for why they live here and not in

@@ -50,6 +50,9 @@ COLLECTIONS = {
     "folders",      # the folders on disk a project points at
     "photoStatus",  # per-frame status, keyed by absolute path
     "albums",       # album designs: spreads, layouts, cover, review versions
+    "galleries",       # a client gallery: credentials, albums, lock state
+    "galleryItems",    # one published frame: keys, selection, versions
+    "galleryComments", # a client's note, pinned to a point on one version
 }
 
 _client = None
