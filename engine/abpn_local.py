@@ -10,8 +10,9 @@ redness of a mark but leaves its structure. The actual removal lives in
 The detector is the important one: it is the learned JUDGEMENT we could not
 hand-code. Every rule we wrote closed one failure and opened another.
 
-Architecture reconstructed from the released weight shapes; module names match
-the checkpoint so `load_state_dict(strict=True)` proves the reconstruction.
+Architecture matched to ModelScope's reference implementation. Checkpoint key
+compatibility alone does NOT prove equivalence: test_abpn_local_reference checks
+activations, batch-normalization/gating order and the final tanh numerically.
 
 Weights: modelscope damo/cv_unet_skin_retouching_torch — Apache License 2.0.
 """
@@ -22,40 +23,41 @@ import torch.nn.functional as F
 
 
 class ConvBlock(nn.Module):
-    """conv -> [bn] -> LeakyReLU (encoder uses stride 2)."""
+    """conv -> [bn] -> ReLU in encoder, LeakyReLU in decoder."""
 
-    def __init__(self, in_ch, out_ch, k=3, s=1, p=1, bn=True, bias=False):
+    def __init__(self, in_ch, out_ch, k=3, s=1, p=1, bn=True, bias=False, activ="relu"):
         super().__init__()
         self.conv = nn.Conv2d(in_ch, out_ch, k, s, p, bias=bias)
         self.bn = nn.BatchNorm2d(out_ch) if bn else None
+        self.activ = activ
 
     def forward(self, x):
         x = self.conv(x)
         if self.bn is not None:
             x = self.bn(x)
-        return F.leaky_relu(x, 0.2, inplace=True)
+        return F.leaky_relu(x, 0.2) if self.activ == "leaky" else F.relu(x)
 
 
 class GatedBlock(nn.Module):
     """Gated convolution: features * sigmoid(gate) — lets the network learn
     which spatial positions are valid, which is what makes it work on holes."""
 
-    def __init__(self, in_ch, out_ch, k=3, s=1, p=1, bn=True, act=True, bias=False):
+    def __init__(self, in_ch, out_ch, k=3, s=1, p=1, bn=True, act=True, bias=False, activ="relu"):
         super().__init__()
         self.conv = nn.Conv2d(in_ch, out_ch, k, s, p, bias=bias)
         self.gate = nn.Conv2d(in_ch, out_ch, k, s, p, bias=bias)
         self.bn = nn.BatchNorm2d(out_ch) if bn else None
         self.act = act
+        self.activ = activ
 
     def forward(self, x):
         h = self.conv(x)
         g = torch.sigmoid(self.gate(x))
-        if self.act:
-            h = F.leaky_relu(h, 0.2, inplace=True)
-        h = h * g
         if self.bn is not None:
             h = self.bn(h)
-        return h
+        if self.act:
+            h = F.leaky_relu(h, 0.2) if self.activ == "leaky" else F.relu(h)
+        return h * g
 
 
 def _up(x, ref):
@@ -71,11 +73,11 @@ class DetectionUNet(nn.Module):
         self.ec_images_4 = ConvBlock(256, 512, s=2)
         self.ec_images_5 = ConvBlock(512, 512, s=2)
         self.ec_images_6 = ConvBlock(512, 512, s=2)
-        self.dc_images_6 = ConvBlock(1024, 512)
-        self.dc_images_5 = ConvBlock(1024, 512)
-        self.dc_images_4 = ConvBlock(768, 256)
-        self.dc_images_3 = ConvBlock(384, 128)
-        self.dc_images_2 = ConvBlock(192, 64)
+        self.dc_images_6 = ConvBlock(1024, 512, activ="leaky")
+        self.dc_images_5 = ConvBlock(1024, 512, activ="leaky")
+        self.dc_images_4 = ConvBlock(768, 256, activ="leaky")
+        self.dc_images_3 = ConvBlock(384, 128, activ="leaky")
+        self.dc_images_2 = ConvBlock(192, 64, activ="leaky")
         self.dc_images_1 = nn.Conv2d(64 + n_channels, n_classes, 1)
 
     def forward(self, x):
@@ -102,11 +104,11 @@ class RetouchingNet(nn.Module):
         self.ec_images_4 = GatedBlock(256, 512, s=2)
         self.ec_images_5 = GatedBlock(512, 512, s=2)
         self.ec_images_6 = GatedBlock(512, 512, s=2)
-        self.dc_images_6 = GatedBlock(1024, 512)
-        self.dc_images_5 = GatedBlock(1024, 512)
-        self.dc_images_4 = GatedBlock(768, 256)
-        self.dc_images_3 = GatedBlock(384, 128)
-        self.dc_images_2 = GatedBlock(192, 64)
+        self.dc_images_6 = GatedBlock(1024, 512, activ="leaky")
+        self.dc_images_5 = GatedBlock(1024, 512, activ="leaky")
+        self.dc_images_4 = GatedBlock(768, 256, activ="leaky")
+        self.dc_images_3 = GatedBlock(384, 128, activ="leaky")
+        self.dc_images_2 = GatedBlock(192, 64, activ="leaky")
         self.dc_images_1 = GatedBlock(
             64 + in_channels, out_channels, bn=False, act=False, bias=True
         )
@@ -124,11 +126,11 @@ class RetouchingNet(nn.Module):
         d = self.dc_images_4(torch.cat([_up(d, e3), e3], 1))
         d = self.dc_images_3(torch.cat([_up(d, e2), e2], 1))
         d = self.dc_images_2(torch.cat([_up(d, e1), e1], 1))
-        return self.dc_images_1(torch.cat([_up(d, x), x], 1))
+        return torch.tanh(self.dc_images_1(torch.cat([_up(d, x), x], 1)))
 
 
 def load(weights_path: str, device: str = "cpu"):
-    ckpt = torch.load(weights_path, map_location=device, weights_only=False)
+    ckpt = torch.load(weights_path, map_location=device, weights_only=True)
     det = DetectionUNet(3, 1)
     det.load_state_dict(ckpt["detection_net"], strict=True)
     inp = RetouchingNet(4, 3)

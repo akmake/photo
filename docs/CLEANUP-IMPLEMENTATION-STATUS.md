@@ -104,6 +104,39 @@ No checkpoint was downloaded. Targeted Hugging Face searches found no official
 alternative release. A different officially authorized distribution source, with
 verified usable model terms, is needed for that candidate path.
 
+## Corrected pretrained implementation and boundary audit (2026-09-08)
+
+`engine/abpn_local.py` had checkpoint-compatible keys but incorrect inference:
+encoder LeakyReLU instead of ReLU, batch normalization after gating instead of
+before activation/gating, and missing final tanh in reconstruction. Corrected
+against installed official ModelScope code. Both learned networks now pass
+numerical parity tests at absolute tolerance 1e-6 on the same pretrained weights
+and non-square input. Together with compositor checks, seven tests pass.
+The initial detector comparison failed on every output pixel (maximum logit
+error 117.58). Earlier evaluations of this local implementation cannot establish
+the quality of the official model. This module is used by diagnostic scripts;
+the production cleanup route does not import it.
+
+Reference: https://github.com/modelscope/modelscope/tree/master/modelscope/models/cv/skin_retouching
+
+`tools/evaluate_learned_defect_masks.py` evaluated the corrected detector on the
+exact source using YuNet face crops and upstream 768-pixel inference/cutoffs.
+GPU inference/report time: 2.73 seconds. Low mask: 14343 pixels, 56 components;
+high mask: 10166 pixels. Component count is not a count of true blemishes.
+Visual inspection finds missed cheek defects and included mole-like marks.
+The broad face crop also includes neck. No protection or retouching applied.
+Outputs: `test-results/learned-defect-case/`.
+
+`tools/evaluate_sam2_blemish_boundaries.py` tested the existing pretrained SAM2.1
+small model using six manual box prompts and native 256-pixel crops. These are
+diagnostic prompts, not automatic detection or ground-truth masks. All model
+loading key/error lists are empty; Transformers warns that the saved config is
+sam2_video while the instantiated image model is sam2. Runtime after imports:
+2.13 seconds on CUDA. Visual inspection: cases 3 and 6 produce conspicuous
+extraneous mask regions. Others appear localized but pixel accuracy is not
+validated. The model's predicted IoU is not measured accuracy. Do not integrate
+these masks for autonomous removal. Outputs: `test-results/sam2-blemish-case/`.
+
 ## Next acceptance work
 
 1. Resolve an officially accessible, commercially permitted pretrained restorer;
