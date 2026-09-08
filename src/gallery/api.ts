@@ -56,10 +56,14 @@ export interface Manifest {
 }
 
 /** What dresses the sign-in card, before anyone has a session. */
-export const brandOf = (slug: string) =>
-  call<{ name: string; brand: Brand | null; available: boolean }>(
+export const brandOf = async (slug: string) => {
+  const out = await call<{ name: string; brand: Brand | null; available: boolean }>(
     'GET', slug, 'brand', '',
   );
+  return out.brand
+    ? { ...out, brand: { ...out.brand, logo: abs(out.brand.logo) } }
+    : out;
+};
 
 export interface AlbumFull {
   error: 'album_full';
@@ -71,6 +75,13 @@ export interface AlbumFull {
 /* In development the gallery is served by Vite and the API is the engine on
  * its own port. Deployed, both come from the same origin and this is empty. */
 const API = import.meta.env.DEV ? 'http://127.0.0.1:8756' : '';
+
+/** Object URLs arrive RELATIVE when the store is a local disk — they are served
+ *  by the API, and in development that is a different origin from this page.
+ *  Left alone, every <img src="/gallery-files/…"> resolves against the Vite
+ *  server and 404s: a gallery of broken images with nothing in the console to
+ *  say why. Absolute URLs (a bucket, a CDN) pass through untouched. */
+const abs = (u: string) => (u && u.startsWith('/') ? API + u : u);
 
 /** The gallery's public id, from `?g=` or from a `/g/<slug>/` path. */
 export function slugFromUrl(): string {
@@ -152,8 +163,23 @@ async function call<T>(
 export const login = (slug: string, username: string, password: string) =>
   call<{ token: string }>('POST', slug, 'login', '', { username, password });
 
-export const manifest = (slug: string, token: string) =>
-  call<Manifest>('GET', slug, 'manifest', token);
+export const manifest = async (slug: string, token: string): Promise<Manifest> => {
+  const out = await call<Manifest>('GET', slug, 'manifest', token);
+  return {
+    ...out,
+    gallery: {
+      ...out.gallery,
+      brand: out.gallery.brand
+        ? { ...out.gallery.brand, logo: abs(out.gallery.brand.logo) }
+        : null,
+    },
+    items: out.items.map((i) => ({
+      ...i,
+      thumb: abs(i.thumb),
+      preview: abs(i.preview),
+    })),
+  };
+};
 
 export const select = (slug: string, token: string, itemId: string, albumIds: string[]) =>
   call<{ albumIds: string[] }>('POST', slug, 'select', token, { itemId, albumIds });

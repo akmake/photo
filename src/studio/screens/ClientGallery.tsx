@@ -26,7 +26,15 @@ import {
   galleryUnlock,
   createGallery,
 } from '../../api';
-import { framesOf, setGalleryLink, updateProject, useBatches, framesInBatch } from '../store';
+import {
+  framesOf,
+  framesInBatch,
+  setGalleryLink,
+  updateProject,
+  useBatches,
+  useProjectFiles,
+} from '../store';
+import type { Frame } from '../../api';
 import { publishAll, unlinkGallery, useGalleryWatch, type PublishProgress } from '../galleryLink';
 import { IcCheckCircle, IcLink } from '../../design/Icons';
 import './client-gallery.css';
@@ -51,13 +59,21 @@ export default function ClientGallery({
   projectId: string;
   clientName: string;
 }) {
+  /* Opens the project's folder: this is what loads BOTH the frames and the
+   * memory that carries the gallery link. The stage above never needed either
+   * — its counters come from the business record — so without this the panel
+   * came up offering to publish "0 photos" from a project holding 23, and a
+   * gallery already linked would not have been found at all. */
+  const { frames, ready } = useProjectFiles(projectId);
   const watch = useGalleryWatch(projectId);
   const { link, state } = watch;
+
+  if (!ready) return <p className="cg-hint cg-quiet">קורא את תיקיית הפרויקט…</p>;
 
   return (
     <>
       {!link ? (
-        <Create projectId={projectId} clientName={clientName} />
+        <Create projectId={projectId} clientName={clientName} frames={frames} />
       ) : (
         <Live projectId={projectId} watch={watch} state={state} link={link} />
       )}
@@ -164,8 +180,15 @@ function Brand() {
 
 /* ── before there is a gallery ─────────────────────────────────────────── */
 
-function Create({ projectId, clientName }: { projectId: string; clientName: string }) {
-  const frames = framesOf(projectId);
+function Create({
+  projectId,
+  clientName,
+  frames,
+}: {
+  projectId: string;
+  clientName: string;
+  frames: Frame[];
+}) {
   const batches = useBatches(projectId);
   const [source, setSource] = useState<string>('all');
   const [albums, setAlbums] = useState<DraftAlbum[]>(DEFAULT_ALBUMS);

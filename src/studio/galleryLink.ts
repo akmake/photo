@@ -109,7 +109,6 @@ export function useGalleryWatch(projectId: string): GalleryWatch {
   const [imported, setImported] = useState<GalleryWatch['imported']>(null);
   const busy = useRef(false);
   const galleryId = link?.galleryId ?? null;
-  const alreadyImported = Boolean(link?.importedAt);
 
   const poll = useCallback(async () => {
     if (!galleryId || busy.current) return;
@@ -149,12 +148,17 @@ export function useGalleryWatch(projectId: string): GalleryWatch {
     }
     setStatus((s) => (s === 'ready' ? s : 'reading'));
     void poll();
-    // Stop asking once the answer is in and dealt with: a finished gallery has
-    // nothing left to report, and the request would run forever.
-    if (alreadyImported) return;
+    /* Keeps asking for as long as the screen is open — including AFTER the
+     * import. An earlier version stopped once the choice had landed, on the
+     * reasoning that a finished gallery has nothing left to say. It has: the
+     * NOTES only start once the choice is locked, so that version delivered
+     * the batch and then went deaf to every correction the couple asked for.
+     *
+     * The cost of being wrong the other way is one request every 45 seconds,
+     * and only while the photographer is looking at this stage. */
     const timer = setInterval(() => void poll(), POLL_MS);
     return () => clearInterval(timer);
-  }, [galleryId, alreadyImported, poll]);
+  }, [galleryId, poll]);
 
   return { link, state, status, fault, imported, refresh: () => void poll() };
 }

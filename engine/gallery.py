@@ -928,12 +928,17 @@ def _admin_route(method, path, body):
         return resolve_comment(
             body.get("galleryId"), body.get("commentId"), body.get("resolved", True)
         )
+    # Reading and writing the brand are SEPARATE actions rather than one path
+    # switching on the verb. The studio's api helper is POST-only, so a route
+    # that meant "upload" on POST answered every read with 400 - which is how
+    # the panel came up saying it could not read a logo that was sitting right
+    # there.
     if action == "brand":
-        if method == "POST":
-            return set_brand(
-                body.get("owner"), body.get("logo"), body.get("filename") or ""
-            )
         return get_brand(body.get("owner") or DEFAULT_OWNER) or {"logo": None}
+    if action == "brand-set" and method == "POST":
+        return set_brand(
+            body.get("owner"), body.get("logo"), body.get("filename") or ""
+        )
     if action == "brand-clear" and method == "POST":
         return clear_brand(body.get("owner") or DEFAULT_OWNER)
     if action == "credentials" and method == "POST":

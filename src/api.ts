@@ -1076,14 +1076,26 @@ export interface Brand {
 /** The photographer's mark, shown on every gallery they publish. Read live by
  *  the manifest rather than copied onto a gallery when it is made, so a new
  *  logo reaches the galleries already out in the world. */
-export const getBrand = (): Promise<{ logo: string | null; aspect?: number }> =>
-  post('/api/gallery/brand', {});
+/** Object URLs come back relative when the store is a local disk: they are
+ *  served by the ENGINE, not by whatever origin this page is on. In dev those
+ *  are different ports, and an <img> would resolve against Vite and 404. */
+const absoluteObject = (u: string | null) =>
+  u && u.startsWith('/') ? ENGINE + u : u;
+
+export const getBrand = async (): Promise<{ logo: string | null; aspect?: number }> => {
+  const out = await post<{ logo: string | null; aspect?: number }>(
+    '/api/gallery/brand', {},
+  );
+  return { ...out, logo: absoluteObject(out.logo) };
+};
 
 /** `logo` is a data URL or bare base64 — the photographer picks the file in
  *  their own browser, so this works the same whether the API is on this
  *  machine or on a server. */
-export const setBrand = (logo: string, filename: string): Promise<Brand> =>
-  post('/api/gallery/brand', { logo, filename });
+export const setBrand = async (logo: string, filename: string): Promise<Brand> => {
+  const out = await post<Brand>('/api/gallery/brand-set', { logo, filename });
+  return { ...out, logo: absoluteObject(out.logo) as string };
+};
 
 export const clearBrand = () => post<{ ok: boolean }>('/api/gallery/brand-clear', {});
 

@@ -858,6 +858,19 @@ class Handler(BaseHTTPRequestHandler):
         the gallery's, and the handler falls through to everything else.
         """
         parsed = urllib.parse.urlparse(self.path)
+
+        # DECIDE BEFORE READING. A request body can be read exactly once: this
+        # ran first on every POST, consumed the body, handed back "not mine",
+        # and then the real handler called self._body() again and BLOCKED on an
+        # empty stream waiting for bytes that were already gone. Every /db/find
+        # hung, so the studio sat on "קורא את הפרויקטים מהמסד" forever - a route
+        # this module never touches, broken by this module reading its mail.
+        if not (
+            parsed.path.startswith("/g/")
+            or parsed.path.startswith("/api/gallery/")
+        ):
+            return False
+
         body = {}
         if method == "POST":
             try:
