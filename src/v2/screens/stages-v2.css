@@ -1,0 +1,120 @@
+﻿/* ==========================================================================
+   STAGES V2 — BATCHES & SEND TO CLIENT WRAPPERS (TEZA AI)
+   ========================================================================== */
+
+.tz-stage-container {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  max-width: 1400px;
+  margin: 0 auto;
+  padding-bottom: 48px;
+}
+
+/* Stage Top Header */
+.tz-stage-header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 20px;
+  flex-wrap: wrap;
+  padding: 4px 0 2px;
+}
+
+.tz-stage-tag {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--tz-brand);
+  background: var(--tz-brand-light);
+  padding: 3px 10px;
+  border-radius: 20px;
+  margin-bottom: 6px;
+  letter-spacing: 0.3px;
+}
+
+.tz-stage-header-copy h1 {
+  margin: 0 0 4px;
+  font-family: var(--tz-font-display);
+  font-size: 26px;
+  font-weight: 800;
+  color: #18181b;
+  letter-spacing: -0.02em;
+}
+
+.tz-stage-header-copy p {
+  margin: 0;
+  font-size: 13.5px;
+  color: var(--tz-text-sub);
+  max-width: 650px;
+  line-height: 1.5;
+}
+
+.tz-stage-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+/* Card Wrapping the stage content */
+.tz-stage-card {
+  background: #ffffff;
+  border: 1px solid var(--tz-border);
+  border-radius: 16px;
+  padding: 24px 28px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.02);
+}
+
+/* Polish for Batches & Client Gallery inside TEZA AI */
+.tz-stage-card .bat {
+  margin-bottom: 0;
+}
+
+.tz-stage-card .bat-mark {
+  background: #faf8f6;
+  border: 1px solid var(--tz-border);
+  border-radius: 12px;
+  padding: 14px 18px;
+  margin-bottom: 18px;
+}
+
+.tz-stage-card .bat-mark input {
+  background: #ffffff;
+  border: 1px solid var(--tz-border);
+  border-radius: 8px;
+  padding: 6px 12px;
+  font-size: 13px;
+  outline: none;
+}
+
+.tz-stage-card .bat-mark input:focus {
+  border-color: var(--tz-brand);
+}
+
+.tz-stage-card .bat-mark button {
+  background: var(--tz-brand);
+  color: #ffffff;
+  border: none;
+  border-radius: 8px;
+  padding: 7px 16px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.tz-stage-card .bat-row {
+  border-bottom: 1px solid #f0f0f2;
+}
+
+.tz-stage-card .cg-pane {
+  background: #ffffff;
+  border: 1px solid var(--tz-border);
+  border-radius: 12px;
+  padding: 20px;
+}
+
+.tz-stage-card .cg-albums-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 14px;
+}

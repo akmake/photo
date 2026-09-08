@@ -102,24 +102,34 @@ export default function TzStatusScreen({
               <span className="tz-step-date">{shootDate}</span>
             </div>
 
-            {/* 2. Culling */}
-            <div className="tz-milestone-step">
+            {/* 2. Culling / Batches */}
+            <div
+              className="tz-milestone-step"
+              onClick={() => onNavigateStage?.('batches')}
+              style={{ cursor: onNavigateStage ? 'pointer' : 'default' }}
+              title="לחץ למעבר ליצירת מקבצים"
+            >
               <div className={`tz-step-icon-wrap ${(project && (project.at >= 2 || project.kept > 0)) ? 'done' : (project && project.at === 1) ? 'active' : 'pending'}`}>
                 <TzIconFilter size={18} />
               </div>
-              <span className="tz-step-label">סינון גלריה</span>
+              <span className="tz-step-label">יצירת מקבצים</span>
               <span className={`tz-step-status ${(project && (project.at >= 2 || project.kept > 0)) ? 'done' : (project && project.at === 1) ? 'active' : 'pending'}`}>
                 {(project && (project.at >= 2 || project.kept > 0)) ? 'הושלם' : (project && project.at === 1) ? 'בתהליך' : 'ממתין'}
               </span>
               <span className="tz-step-date">{project?.kept ? `${project.kept} סוננו` : '11.05.2024'}</span>
             </div>
 
-            {/* 3. Picked */}
-            <div className="tz-milestone-step">
+            {/* 3. Picked / Send to client */}
+            <div
+              className="tz-milestone-step"
+              onClick={() => onNavigateStage?.('send-to-client')}
+              style={{ cursor: onNavigateStage ? 'pointer' : 'default' }}
+              title="לחץ למעבר לשלח ללקוח"
+            >
               <div className={`tz-step-icon-wrap ${(project && project.picked > 0) ? 'done' : (project && project.state === 'waiting') ? 'active' : 'pending'}`}>
                 <TzIconHeart size={18} />
               </div>
-              <span className="tz-step-label">תמונות שנבחרו</span>
+              <span className="tz-step-label">שלח ללקוח</span>
               <span className={`tz-step-status ${(project && project.picked > 0) ? 'done' : (project && project.state === 'waiting') ? 'active' : 'pending'}`}>
                 {(project && project.picked > 0) ? 'הושלם' : (project && project.state === 'waiting') ? 'אישור לקוח' : 'ממתין'}
               </span>

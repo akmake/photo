@@ -4,10 +4,12 @@ import TzStatusScreen from './screens/TzStatusScreen';
 import TodayV2 from './screens/TodayV2';
 import ProjectsV2 from './screens/ProjectsV2';
 import ImportV2 from './screens/ImportV2';
+import BatchesV2 from './screens/BatchesV2';
+import SendToClientV2 from './screens/SendToClientV2';
 import {
   TzIconBell, TzIconBook, TzIconCalendar, TzIconFilter, TzIconFlask,
   TzIconFolder, TzIconGear, TzIconHeart, TzIconHelp, TzIconHome,
-  TzIconSliders, TzIconSparkle, TzIconUpload, TzIconUsers,
+  TzIconLayers, TzIconSend, TzIconSliders, TzIconSparkle, TzIconUpload, TzIconUsers,
 } from './TzIcons';
 import './tz-exact.css';
 
@@ -47,9 +49,9 @@ export default function V2App({ onSwitchToV1, onOpenProjectV1 }: V2AppProps) {
   // The actual stages of a project in TEZA
   const PROJECT_STAGES = [
     { id: 'client-status', label: 'סטטוס לקוח', icon: TzIconUsers },
-    { id: 'gallery-upload', label: 'העלאת גלריה / ייבוא', icon: TzIconUpload },
-    { id: 'gallery-cull', label: 'בחירה', icon: TzIconFilter },
-    { id: 'gallery-picked', label: 'תמונות שנבחרו', icon: TzIconHeart },
+    { id: 'gallery-upload', label: 'ייבוא תמונות', icon: TzIconUpload },
+    { id: 'batches', label: 'יצירת מקבצים', icon: TzIconLayers },
+    { id: 'send-to-client', label: 'שלח ללקוח', icon: TzIconSend },
     { id: 'gallery-edit', label: 'עריכה', icon: TzIconSliders },
     { id: 'album-design', label: 'אלבום', icon: TzIconBook },
   ];
@@ -85,16 +87,35 @@ export default function V2App({ onSwitchToV1, onOpenProjectV1 }: V2AppProps) {
     }
 
     if (activeNav === 'project-detail') {
-      if (activeStage === 'gallery-upload') {
-        const proj = selectedProject || studio.projects[0];
-        if (proj) {
-          return (
-            <ImportV2
-              project={proj}
-              onBack={() => setActiveStage('client-status')}
-            />
-          );
-        }
+      const proj = selectedProject || studio.projects[0];
+
+      if (activeStage === 'gallery-upload' && proj) {
+        return (
+          <ImportV2
+            project={proj}
+            onBack={() => setActiveStage('client-status')}
+          />
+        );
+      }
+
+      if (activeStage === 'batches' && proj) {
+        return (
+          <BatchesV2
+            project={proj}
+            onNext={() => setActiveStage('send-to-client')}
+            onBack={() => setActiveStage('gallery-upload')}
+          />
+        );
+      }
+
+      if (activeStage === 'send-to-client' && proj) {
+        return (
+          <SendToClientV2
+            project={proj}
+            onNext={() => setActiveStage('gallery-edit')}
+            onBack={() => setActiveStage('batches')}
+          />
+        );
       }
 
       return (
