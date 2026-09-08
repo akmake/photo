@@ -163,6 +163,72 @@
   line-height: 14px;
 }
 
+.tz-nav-sep {
+  height: 1px;
+  background: var(--tz-border);
+  margin: 6px 6px;
+}
+
+.tz-nav-counter {
+  margin-right: auto;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--tz-text-muted);
+  background: #f0f0f2;
+  border-radius: 99px;
+  padding: 1px 7px;
+}
+
+.tz-user-avatar-initial {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: #fbf2eb;
+  color: #e86338;
+  font-weight: 700;
+  font-size: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid #fcd5c7;
+  flex-shrink: 0;
+}
+
+.tz-nav-user-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  cursor: pointer;
+  background: transparent;
+  border: none;
+  width: 100%;
+  text-align: right;
+  margin-top: 4px;
+}
+
+.tz-nav-user-item:hover {
+  background: #f8f8f8;
+}
+
+.tz-nav-user-copy {
+  display: flex;
+  flex-direction: column;
+}
+
+.tz-nav-user-copy strong {
+  font-size: 12.5px;
+  color: #18181b;
+  line-height: 1.2;
+}
+
+.tz-nav-user-copy small {
+  font-size: 10.5px;
+  color: var(--tz-text-muted);
+  line-height: 1.2;
+}
+
 /* Sidebar Storage Card */
 .tz-storage-card {
   background: #f7f7f8;
