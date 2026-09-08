@@ -1,0 +1,47 @@
+<!doctype html>
+<!--
+  The client gallery — a SECOND entry point, not a screen in the studio.
+
+  The studio is a desktop tool the photographer keeps open all day; this is a
+  link a couple taps once, on a phone, and it must load on a bad connection at
+  a wedding hall. Sharing an entry with the studio would mean shipping the
+  editor, the album machine and the whole shell to reach a login form.
+
+  dir="rtl" on the document, unlike index.html. There is nothing legacy here to
+  mirror: every screen in this app was laid out RTL from the first line.
+-->
+<html lang="he" dir="rtl">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="color-scheme" content="light" />
+    <!-- The pre-paint ground, so the first frame is the gallery's own surface
+         and not the browser's white. -->
+    <style>
+      html { background: #fbfaf8; }
+      body { margin: 0; }
+    </style>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <!-- Non-blocking, for the same reason as the studio: as a plain stylesheet
+         a slow font CDN is seconds of white screen, and here that happens on
+         someone else's phone, on someone else's network. -->
+    <link
+      href="https://fonts.googleapis.com/css2?family=Rubik:wght@400;500;600;700&family=Assistant:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap"
+      rel="preload"
+      as="style"
+      onload="this.onload=null;this.rel='stylesheet'"
+    />
+    <noscript>
+      <link
+        href="https://fonts.googleapis.com/css2?family=Rubik:wght@400;500;600;700&family=Assistant:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap"
+        rel="stylesheet"
+      />
+    </noscript>
+    <title>הגלריה שלכם</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/gallery/main.tsx"></script>
+  </body>
+</html>

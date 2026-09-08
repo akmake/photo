@@ -221,6 +221,37 @@ def ingest(gallery_id, frame_id, name, derived, order=0):
     return {"id": item_id, "frameId": frame_id}
 
 
+def publish(gallery_id, frames):
+    """Derive and publish a list of frames from disk, in one call.
+
+    The path the studio actually uses while the store is this machine: the
+    engine already has the files open, so deriving and writing here saves
+    pushing 200MB back out over HTTP to ourselves.
+
+    `frames` is [{path, frameId, name}]. A file that cannot be read is NAMED
+    and skipped - one unreadable frame must never take a 600-frame publish down
+    with it, and a silent skip is worse than a slow one.
+    """
+    import gallery_derive  # noqa: PLC0415  (only this path needs the decoder)
+
+    _gallery(gallery_id)
+    done, failed = [], []
+    start = len(_items(gallery_id))
+    for n, frame in enumerate(frames or []):
+        path = frame.get("path")
+        name = frame.get("name") or (os.path.basename(path) if path else "")
+        frame_id = frame.get("frameId") or path
+        if not path or not os.path.isfile(path):
+            failed.append({"name": name or path, "error": "הקובץ לא נמצא"})
+            continue
+        try:
+            derived = gallery_derive.derive(path)
+            done.append(ingest(gallery_id, frame_id, name, derived, order=start + n))
+        except Exception as e:  # noqa: BLE001
+            failed.append({"name": name, "error": str(e)})
+    return {"published": done, "failed": failed}
+
+
 def upload_targets(gallery_id, frames):
     """The remote path: create the rows, hand back signed PUTs.
 
@@ -644,6 +675,8 @@ def _admin_route(method, path, body):
         return create_gallery(
             body.get("projectId"), body.get("name"), body.get("albums") or []
         )
+    if action == "publish" and method == "POST":
+        return publish(body.get("galleryId"), body.get("frames") or [])
     if action == "upload-targets" and method == "POST":
         return upload_targets(body.get("galleryId"), body.get("frames") or [])
     if action == "item-complete" and method == "POST":

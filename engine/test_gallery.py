@@ -241,6 +241,26 @@ def main():
         check("paying reopens it, choices intact",
               len(gallery.manifest(back["token"])["items"]) == 5)
 
+        print("\npublishing over the wire")
+        # The route the studio calls: paths in, derived and stored. One bad
+        # file is NAMED and the rest still land - a 600-frame publish must not
+        # die on one unreadable JPEG, and a silent skip is worse than a slow one.
+        status, out = gallery.handle("POST", "/api/gallery/publish", {
+            "galleryId": gid,
+            "frames": [
+                {"path": paths[0], "frameId": "frame-extra", "name": "extra.jpg"},
+                {"path": os.path.join(frames_dir, "gone.jpg"),
+                 "frameId": "frame-missing", "name": "gone.jpg"},
+            ],
+        })
+        check("a good frame publishes", status == 200 and len(out["published"]) == 1,
+              str(out))
+        check("a missing file is named, not swallowed",
+              len(out["failed"]) == 1 and out["failed"][0]["name"] == "gone.jpg",
+              str(out["failed"]))
+        check("the rest of the batch still landed",
+              len(gallery.manifest(back["token"])["items"]) == 6)
+
         print("\ndeleting")
         gallery.delete_gallery(gid)
         check("the objects are gone", not os.path.isdir(stored))

@@ -480,7 +480,8 @@ Egress: 15GB מאוחסנים מזכים ב-45GB חינם; שימוש ריאלי
 | | |
 |---|---|
 | `POST /api/galleries` | יצירה + אלבומים → `{id, slug, username, password}` (הסיסמה מוחזרת **פעם אחת**) |
-| `POST /api/galleries/:id/upload-urls` | `{items:[{frameId, sizes}]}` → presigned PUT לכל קובץ |
+| `POST /api/gallery/publish` | `{galleryId, frames:[{path, frameId, name}]}` — **המסלול המקומי**: המנוע גוזר ומפרסם מהדיסק בקריאה אחת. קובץ שנכשל מוחזר בשמו והשאר ממשיכים |
+| `POST /api/galleries/:id/upload-urls` | **המסלול המרוחק**: `{items:[{frameId, sizes}]}` → presigned PUT לכל קובץ |
 | `POST /api/galleries/:id/items/:itemId/complete` | סימון שההעלאה הושלמה |
 | `GET /api/galleries/:id/state?since=` | **ה-poll.** בחירות, הערות, נעילה, "סיימתי" — רק מה שהשתנה |
 | `POST /api/galleries/:id/items/:itemId/versions` | presigned להעלאת v2 |

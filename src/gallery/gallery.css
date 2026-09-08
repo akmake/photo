@@ -1,0 +1,447 @@
+/* The client gallery.
+ *
+ * Shares the studio's tokens and fonts so it is visibly the same product, and
+ * almost nothing else. The studio is deliberately colourful because a screen of
+ * jobs is a screen of states; this screen has one job and six hundred
+ * photographs, so the chrome gets out of their way. Colour here is spent only
+ * where a decision is: the heart, and a full album.
+ *
+ * Phone first. The couple will open this on the sofa, once, and most of them
+ * will never open it anywhere else.
+ */
+
+@import '../design/tokens.css';
+
+.gal,
+.gal-gate,
+.gal-box,
+.gal-ask {
+  font-family: Rubik, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  color: var(--ink);
+}
+
+/* ── the room ─────────────────────────────────────────────────────────── */
+
+.gal {
+  min-height: 100vh;
+  background: var(--page);
+  padding-bottom: 92px; /* the footer floats over the last row */
+}
+
+.gal-head {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  background: var(--card);
+  box-shadow: var(--lit), var(--key-1);
+  padding: 10px 14px 8px;
+}
+
+.gal-title {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.gal-title h1 {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.gal-sub {
+  font-size: 13px;
+  color: var(--ink-3);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Counters scroll sideways rather than wrap: three albums on a narrow phone
+ * would otherwise push the grid down the page on every load. */
+.gal-meters {
+  display: flex;
+  gap: 6px;
+  margin-top: 8px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+}
+.gal-meters::-webkit-scrollbar { display: none; }
+
+.gal-meter {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+  padding: 5px 10px;
+  border-radius: 999px;
+  background: var(--card-2);
+  box-shadow: var(--lit);
+  font-size: 12.5px;
+}
+
+.gal-meter.is-full {
+  background: var(--st-done-wash);
+  color: var(--st-done-ink);
+}
+
+.gal-meter-name {
+  border: 0;
+  background: none;
+  font: inherit;
+  color: inherit;
+  padding: 0;
+  cursor: text;
+  font-weight: 500;
+}
+.gal-meter-name:disabled { cursor: default; }
+
+.gal-meter-input {
+  border: 0;
+  border-bottom: 1.5px solid var(--brand);
+  background: none;
+  font: inherit;
+  color: inherit;
+  width: 8em;
+  padding: 0;
+  outline: none;
+}
+
+.gal-meter-count {
+  font-family: 'IBM Plex Mono', ui-monospace, monospace;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-3);
+}
+.gal-meter.is-full .gal-meter-count { color: inherit; }
+.gal-meter-count i { font-style: normal; opacity: 0.4; padding: 0 1px; }
+
+/* ── the grid ─────────────────────────────────────────────────────────── */
+
+.gal-grid { padding: 3px; }
+
+.gal-row {
+  display: flex;
+  margin-bottom: 3px;
+}
+
+.gal-cell {
+  position: relative;
+  overflow: hidden;
+  border-radius: 3px;
+  flex: 0 0 auto;
+}
+
+.gal-cell img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  cursor: zoom-in;
+  /* The cell already holds the frame's average colour, so an image arriving
+   * is a settle, not a flash. */
+  animation: gal-in 240ms ease-out;
+}
+
+@keyframes gal-in { from { opacity: 0; } to { opacity: 1; } }
+
+.gal-cell.is-chosen { outline: 3px solid var(--brand); outline-offset: -3px; }
+
+.gal-heart {
+  position: absolute;
+  inset-block-end: 4px;
+  inset-inline-start: 4px;
+  width: 38px;
+  height: 38px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 999px;
+  background: rgba(20, 18, 16, 0.42);
+  color: #fff;
+  cursor: pointer;
+  transition: transform 120ms ease, background 120ms ease;
+}
+.gal-heart:active { transform: scale(0.88); }
+.gal-heart[aria-pressed='true'] { background: var(--brand); }
+.gal-heart:disabled { opacity: 0; pointer-events: none; }
+
+/* ── the footer ───────────────────────────────────────────────────────── */
+
+.gal-foot {
+  position: fixed;
+  inset-inline: 0;
+  bottom: 0;
+  z-index: 30;
+  padding: 12px 14px calc(12px + env(safe-area-inset-bottom));
+  background: linear-gradient(to top, var(--page) 62%, transparent);
+  display: flex;
+  justify-content: center;
+}
+
+.gal-done {
+  border: 0;
+  border-radius: 12px;
+  padding: 13px 30px;
+  font: inherit;
+  font-weight: 600;
+  font-size: 15px;
+  color: #fff;
+  background: var(--brand);
+  box-shadow: var(--lit), var(--key-2);
+  cursor: pointer;
+  transition: transform 120ms ease, box-shadow 120ms ease;
+}
+.gal-done:active { transform: translateY(1px); box-shadow: var(--key-1); }
+.gal-done:disabled {
+  background: var(--cyc-300);
+  color: var(--cyc-050);
+  box-shadow: none;
+  cursor: default;
+}
+
+.gal-ghost {
+  border: 0;
+  border-radius: 12px;
+  padding: 13px 22px;
+  font: inherit;
+  font-weight: 500;
+  color: var(--ink-2);
+  background: var(--card-2);
+  box-shadow: var(--lit);
+  cursor: pointer;
+}
+
+/* ── one frame ────────────────────────────────────────────────────────── */
+
+.gal-box {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  background: var(--wall-900);
+  display: grid;
+  grid-template-rows: 1fr auto;
+  /* Photographs need a dark ground; this is the one dark room in the product
+   * and it exists so nothing on screen competes with the frame. */
+  color: var(--wall-000);
+}
+
+.gal-stage {
+  position: relative;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  padding: 44px 8px 8px;
+  touch-action: pan-y;
+}
+
+.gal-stage img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  border-radius: 4px;
+  opacity: 0;
+  transition: opacity 200ms ease;
+  user-select: none;
+}
+.gal-stage img.is-loaded { opacity: 1; }
+
+.gal-x,
+.gal-counter {
+  position: absolute;
+  top: 10px;
+  z-index: 2;
+  font-size: 13px;
+  color: var(--wall-100);
+}
+.gal-x {
+  inset-inline-end: 10px;
+  width: 38px;
+  height: 38px;
+  border: 0;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.1);
+  color: inherit;
+  font-size: 16px;
+  cursor: pointer;
+}
+.gal-counter {
+  inset-inline-start: 16px;
+  font-family: 'IBM Plex Mono', ui-monospace, monospace;
+  font-variant-numeric: tabular-nums;
+  line-height: 38px;
+}
+
+.gal-controls {
+  padding: 10px 14px calc(14px + env(safe-area-inset-bottom));
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  background: var(--wall-800);
+}
+
+.gal-big-heart {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border: 0;
+  border-radius: 999px;
+  padding: 11px 24px;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  color: var(--wall-000);
+  background: var(--wall-600);
+  transition: transform 120ms ease;
+}
+.gal-big-heart.is-on { background: var(--brand); color: #fff; }
+.gal-big-heart:active { transform: scale(0.96); }
+.gal-big-heart:disabled { opacity: 0.4; cursor: default; }
+
+.gal-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  justify-content: center;
+}
+
+.gal-chip {
+  border: 0;
+  border-radius: 999px;
+  padding: 7px 14px;
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  color: var(--wall-100);
+  /* Off is a recess, on is a lit face — the same language the studio uses for
+   * a pressed control, so the two products read as one. */
+  background: var(--wall-700);
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.35);
+  transition: background 120ms ease, color 120ms ease;
+}
+.gal-chip.is-on {
+  background: var(--wall-000);
+  color: var(--wall-900);
+  font-weight: 600;
+  box-shadow: var(--lit), 0 1px 2px rgba(0, 0, 0, 0.3);
+}
+.gal-chip:disabled { opacity: 0.45; cursor: default; }
+
+/* ── talking back ─────────────────────────────────────────────────────── */
+
+.gal-toast {
+  position: fixed;
+  z-index: 60;
+  inset-inline: 16px;
+  top: 12px;
+  margin-inline: auto;
+  max-width: 30em;
+  padding: 11px 15px;
+  border-radius: 12px;
+  background: var(--gr-900);
+  color: var(--cyc-050);
+  font-size: 13.5px;
+  line-height: 1.45;
+  box-shadow: var(--key-3);
+  text-align: center;
+}
+
+.gal-notice {
+  margin: 0;
+  font-size: 13px;
+  color: var(--st-money);
+  text-align: center;
+}
+
+.gal-ask {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgba(22, 24, 30, 0.55);
+}
+
+.gal-ask-card {
+  background: var(--card);
+  border-radius: 18px;
+  padding: 22px;
+  max-width: 24em;
+  box-shadow: var(--key-4);
+}
+.gal-ask-card h2 { margin: 0 0 8px; font-size: 18px; }
+.gal-ask-card p {
+  margin: 0 0 18px;
+  font-family: Assistant, system-ui, sans-serif;
+  color: var(--ink-2);
+  line-height: 1.6;
+  font-size: 14.5px;
+}
+.gal-ask-row { display: flex; gap: 8px; justify-content: flex-end; }
+
+/* ── the door ─────────────────────────────────────────────────────────── */
+
+.gal-gate {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: var(--page);
+}
+
+.gal-gate-card {
+  width: min(100%, 22em);
+  background: var(--card);
+  border-radius: 18px;
+  padding: 26px 24px;
+  box-shadow: var(--lit), var(--key-2);
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.gal-gate-card h1 { margin: 0; font-size: 20px; font-weight: 700; }
+.gal-gate-card p {
+  margin: -6px 0 2px;
+  font-family: Assistant, system-ui, sans-serif;
+  color: var(--ink-3);
+  font-size: 14px;
+  line-height: 1.5;
+}
+.gal-gate-card label {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--ink-2);
+}
+.gal-gate-card input {
+  border: 0;
+  border-radius: 10px;
+  padding: 12px 13px;
+  font: inherit;
+  font-size: 16px; /* under 16px iOS zooms the page on focus */
+  background: var(--card-2);
+  box-shadow: inset 0 1px 3px rgba(21, 23, 28, 0.09);
+  color: var(--ink);
+  outline: none;
+}
+.gal-gate-card input:focus { box-shadow: inset 0 1px 3px rgba(21,23,28,.09), 0 0 0 3px var(--brand-wash); }
+
+.gal-error { color: var(--flag-ink); font-size: 13.5px; margin: 0; }
+.gal-splash {
+  font-family: Assistant, system-ui, sans-serif;
+  color: var(--ink-3);
+  text-align: center;
+  max-width: 24em;
+  line-height: 1.6;
+}
+
+@media (min-width: 760px) {
+  .gal-head { padding: 14px 20px 10px; }
+  .gal-title h1 { font-size: 20px; }
+  .gal-grid { padding: 6px; }
+  .gal-stage { padding: 52px 24px 12px; }
+}
