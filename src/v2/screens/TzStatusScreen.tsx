@@ -1,15 +1,23 @@
 import React, { useState } from 'react';
+import type { Project } from '../../studio/store';
 import {
   TzIconBook, TzIconCalendar, TzIconCamera, TzIconCheck, TzIconCloud,
   TzIconCopy, TzIconExternal, TzIconFilter, TzIconGallery, TzIconGear,
   TzIconHeart, TzIconMail, TzIconSend, TzIconSliders,
 } from '../TzIcons';
 
-export default function TzStatusScreen() {
+export default function TzStatusScreen({ project }: { project?: Project }) {
   const [copied, setCopied] = useState(false);
   const [message, setMessage] = useState('');
 
-  const shareUrl = 'https://teza.ai/gallery/malikatz';
+  const clientName = project?.client || 'מלי כץ';
+  const eventName = project?.event || 'בת מצווה';
+  const shootDate = project?.date || '10.05.2024';
+  const totalImported = project?.imported || 1842;
+  const cullingRemaining = project?.kept || 1246;
+  const pickedPhotos = project?.picked || 214;
+  const renderedPhotos = project?.rendered || 0;
+  const shareUrl = `https://teza.ai/gallery/${encodeURIComponent(clientName.replace(/\s+/g, '').toLowerCase())}`;
 
   function copyLink() {
     navigator.clipboard.writeText(shareUrl);
@@ -17,10 +25,11 @@ export default function TzStatusScreen() {
     setTimeout(() => setCopied(false), 2000);
   }
 
-  // 75% circle stroke
+  // Progress percentage based on project.at or 75%
+  const progressPercent = project ? Math.round(((project.at + 1) / 6) * 100) : 75;
   const radius = 42;
   const circumference = 2 * Math.PI * radius;
-  const strokeDashoffset = circumference - (0.75 * circumference);
+  const strokeDashoffset = circumference - ((progressPercent / 100) * circumference);
 
   return (
     <div className="tz-status-screen">
@@ -127,13 +136,14 @@ export default function TzStatusScreen() {
 
             <div className="tz-client-header">
               <img
-                src="https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=150&q=80"
-                alt="מלי כץ"
+                src={project?.thumb || "https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=150&q=80"}
+                alt={clientName}
                 className="tz-client-photo"
+                style={{ objectPosition: project?.pos }}
               />
               <div className="tz-client-meta">
-                <h3>מלי כץ</h3>
-                <p>mali.katz@email.com</p>
+                <h3>{clientName}</h3>
+                <p>{project ? `${clientName.replace(/\s+/g, '').toLowerCase()}@gmail.com` : 'mali.katz@email.com'}</p>
                 <p>050-1234567</p>
               </div>
             </div>
@@ -141,15 +151,15 @@ export default function TzStatusScreen() {
             <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
               <div className="tz-data-row">
                 <span>תאריך צילום</span>
-                <span>10.05.2024 <TzIconCalendar size={14} /></span>
+                <span>{shootDate} <TzIconCalendar size={14} /></span>
               </div>
               <div className="tz-data-row">
                 <span>סוג צילום</span>
-                <span>בת מצווה <TzIconCamera size={14} /></span>
+                <span>{eventName} <TzIconCamera size={14} /></span>
               </div>
               <div className="tz-data-row">
                 <span>מספר תמונות מקוריות</span>
-                <span>1,842 <TzIconGallery size={14} /></span>
+                <span>{totalImported.toLocaleString('he-IL')} <TzIconGallery size={14} /></span>
               </div>
             </div>
           </div>
@@ -166,23 +176,23 @@ export default function TzStatusScreen() {
 
             <div className="tz-summary-list">
               <div className="tz-summary-row">
-                <span className="tz-summary-left"><TzIconGallery size={15} /> 1,842</span>
+                <span className="tz-summary-left"><TzIconGallery size={15} /> {totalImported.toLocaleString('he-IL')}</span>
                 <span className="tz-summary-right">סה״כ תמונות שהועלו</span>
               </div>
               <div className="tz-summary-row">
-                <span className="tz-summary-left"><TzIconFilter size={15} /> 1,246</span>
+                <span className="tz-summary-left"><TzIconFilter size={15} /> {cullingRemaining.toLocaleString('he-IL')}</span>
                 <span className="tz-summary-right">לאחר סינון אוטומטי</span>
               </div>
               <div className="tz-summary-row">
-                <span className="tz-summary-left"><TzIconHeart size={15} /> 214</span>
+                <span className="tz-summary-left"><TzIconHeart size={15} /> {pickedPhotos.toLocaleString('he-IL')}</span>
                 <span className="tz-summary-right">נבחרו על ידי הלקוחה</span>
               </div>
               <div className="tz-summary-row">
-                <span className="tz-summary-left"><TzIconSliders size={15} /> 214</span>
+                <span className="tz-summary-left"><TzIconSliders size={15} /> {pickedPhotos.toLocaleString('he-IL')}</span>
                 <span className="tz-summary-right">בתהליך עיבוד</span>
               </div>
               <div className="tz-summary-row">
-                <span className="tz-summary-left"><TzIconCheck size={15} /> 0</span>
+                <span className="tz-summary-left"><TzIconCheck size={15} /> {renderedPhotos.toLocaleString('he-IL')}</span>
                 <span className="tz-summary-right">הושלמו</span>
               </div>
             </div>

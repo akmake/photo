@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useStudio } from '../studio/store';
 import TzStatusScreen from './screens/TzStatusScreen';
 import TodayV2 from './screens/TodayV2';
+import ProjectsV2 from './screens/ProjectsV2';
 import {
   TzIconBell, TzIconBook, TzIconCalendar, TzIconFilter, TzIconFlask,
   TzIconFolder, TzIconGear, TzIconHeart, TzIconHelp, TzIconHome,
@@ -15,12 +16,13 @@ interface V2AppProps {
 }
 
 export default function V2App({ onSwitchToV1, onOpenProjectV1 }: V2AppProps) {
-  const [activeNav, setActiveNav] = useState('projects');
+  const [activeNav, setActiveNav] = useState<'today' | 'projects' | 'project-detail' | string>('today');
+  const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
   const [activeStage, setActiveStage] = useState('client-status');
   const studio = useStudio();
 
-  // Pick first project from store or fallback
-  const currentProject = studio.projects[0];
+  // Active project selection
+  const selectedProject = studio.projects.find((p) => p.id === selectedProjectId) || studio.projects[0];
   const imported = studio.projects.reduce((sum, p) => sum + (p.imported || 0), 0);
   const rendered = studio.projects.reduce((sum, p) => sum + (p.rendered || 0), 0);
   const processedPercent = imported ? Math.min(100, Math.round((rendered / imported) * 100)) : 39;
@@ -51,8 +53,8 @@ export default function V2App({ onSwitchToV1, onOpenProjectV1 }: V2AppProps) {
     { id: 'album-design', label: 'אלבום', icon: TzIconBook },
   ];
 
-  const projectTitle = currentProject
-    ? `${currentProject.client} – ${currentProject.event || 'בת מצווה'}`
+  const projectTitle = selectedProject
+    ? `${selectedProject.client} – ${selectedProject.event || 'בת מצווה'}`
     : 'מלי כץ – בת מצווה';
 
   function renderMainContent() {
@@ -60,22 +62,31 @@ export default function V2App({ onSwitchToV1, onOpenProjectV1 }: V2AppProps) {
       return (
         <TodayV2
           onNavigate={(sec) => {
-            if (sec === 'projects') setActiveNav('projects');
-            else if (sec === 'clients') setActiveNav('clients');
-            else if (sec === 'calendar') setActiveNav('calendar');
-            else if (sec === 'albums') setActiveNav('albums');
-            else setActiveNav(sec);
+            setActiveNav(sec);
           }}
           onOpenProject={(id) => {
-            setActiveNav('projects');
-            onOpenProjectV1?.(id);
+            setSelectedProjectId(id);
+            setActiveNav('project-detail');
           }}
         />
       );
     }
 
     if (activeNav === 'projects') {
-      return <TzStatusScreen />;
+      return (
+        <ProjectsV2
+          onOpenProject={(id) => {
+            setSelectedProjectId(id);
+            setActiveNav('project-detail');
+          }}
+        />
+      );
+    }
+
+    if (activeNav === 'project-detail') {
+      return (
+        <TzStatusScreen project={selectedProject} />
+      );
     }
 
     return (
@@ -89,7 +100,7 @@ export default function V2App({ onSwitchToV1, onOpenProjectV1 }: V2AppProps) {
           style={{ width: 'auto', padding: '8px 20px', marginTop: '16px' }}
           onClick={() => setActiveNav('projects')}
         >
-          חזרה למסך פרויקט
+          חזרה לפרויקטים
         </button>
       </div>
     );
@@ -97,7 +108,7 @@ export default function V2App({ onSwitchToV1, onOpenProjectV1 }: V2AppProps) {
 
   return (
     <div className="tz-app">
-      {/* 1. SIDEBAR (Placed on Left matching exact layout) */}
+      {/* 1. SIDEBAR (Placed on Right in natural RTL) */}
       <aside className="tz-sidebar">
         {/* Logo */}
         <div className="tz-logo-wrap">
@@ -112,13 +123,15 @@ export default function V2App({ onSwitchToV1, onOpenProjectV1 }: V2AppProps) {
         <nav className="tz-nav-list">
           {BUSINESS_NAV.map((item) => {
             const Icon = item.icon;
-            const isActive = activeNav === item.id;
+            const isActive = activeNav === item.id || (item.id === 'projects' && activeNav === 'project-detail');
             return (
               <button
                 key={item.id}
                 type="button"
                 className={`tz-nav-item ${isActive ? 'active' : ''}`}
-                onClick={() => setActiveNav(item.id)}
+                onClick={() => {
+                  setActiveNav(item.id);
+                }}
               >
                 <span className="tz-nav-icon"><Icon size={17} /></span>
                 <span>{item.label}</span>
@@ -205,12 +218,24 @@ export default function V2App({ onSwitchToV1, onOpenProjectV1 }: V2AppProps) {
       <div className="tz-main-wrapper">
         {/* Top Header */}
         <header className="tz-topbar">
-          <button className="tz-topbar-back" type="button" onClick={() => setActiveNav('today')}>
-            <span>‹</span> חזרה לדף הבית
-          </button>
+          {activeNav === 'project-detail' ? (
+            <button className="tz-topbar-back" type="button" onClick={() => setActiveNav('projects')}>
+              <span>‹</span> חזרה לפרויקטים
+            </button>
+          ) : activeNav === 'projects' ? (
+            <button className="tz-topbar-back" type="button" onClick={() => setActiveNav('today')}>
+              <span>‹</span> חזרה לדף הבית
+            </button>
+          ) : (
+            <div style={{ width: 100 }} />
+          )}
 
           <div className="tz-topbar-title">
-            {activeNav === 'today' ? 'היום בסטודיו' : projectTitle}
+            {activeNav === 'today'
+              ? 'היום בסטודיו'
+              : activeNav === 'projects'
+              ? 'פרויקטים בסטודיו'
+              : projectTitle}
           </div>
 
           <div className="tz-topbar-user-area">
@@ -228,8 +253,8 @@ export default function V2App({ onSwitchToV1, onOpenProjectV1 }: V2AppProps) {
           </div>
         </header>
 
-        {/* Stage Tabs Bar (shown in project mode) */}
-        {activeNav === 'projects' && (
+        {/* Stage Tabs Bar (shown only when in single project cockpit mode) */}
+        {activeNav === 'project-detail' && (
           <nav className="tz-tabs-bar">
             {PROJECT_STAGES.map((tab) => {
               const Icon = tab.icon;
