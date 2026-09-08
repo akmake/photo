@@ -20,10 +20,10 @@ export default function TzStatusScreen({
   const clientName = project?.client || 'מלי כץ';
   const eventName = project?.event || 'בת מצווה';
   const shootDate = project?.date || '10.05.2024';
-  const totalImported = project?.imported || 1842;
-  const cullingRemaining = project?.kept || 1246;
-  const pickedPhotos = project?.picked || 214;
-  const renderedPhotos = project?.rendered || 0;
+  const totalImported = project ? (project.imported ?? 0) : 1842;
+  const cullingRemaining = project ? (project.kept ?? 0) : 1246;
+  const pickedPhotos = project ? (project.picked ?? 0) : 214;
+  const renderedPhotos = project ? (project.rendered ?? 0) : 0;
   const shareUrl = `https://teza.ai/gallery/${encodeURIComponent(clientName.replace(/\s+/g, '').toLowerCase())}`;
 
   function copyLink() {
@@ -33,7 +33,11 @@ export default function TzStatusScreen({
   }
 
   // Progress percentage based on project.at or 75%
-  const progressPercent = project ? Math.round(((project.at + 1) / 6) * 100) : 75;
+  const progressPercent = project
+    ? project.state === 'done'
+      ? 100
+      : Math.max(10, Math.min(95, Math.round(((project.at + 1) / 5) * 100)))
+    : 75;
   const radius = 42;
   const circumference = 2 * Math.PI * radius;
   const strokeDashoffset = circumference - ((progressPercent / 100) * circumference);
@@ -100,42 +104,52 @@ export default function TzStatusScreen({
 
             {/* 2. Culling */}
             <div className="tz-milestone-step">
-              <div className="tz-step-icon-wrap done">
+              <div className={`tz-step-icon-wrap ${(project && (project.at >= 2 || project.kept > 0)) ? 'done' : (project && project.at === 1) ? 'active' : 'pending'}`}>
                 <TzIconFilter size={18} />
               </div>
               <span className="tz-step-label">סינון גלריה</span>
-              <span className="tz-step-status done">הושלם</span>
-              <span className="tz-step-date">11.05.2024</span>
+              <span className={`tz-step-status ${(project && (project.at >= 2 || project.kept > 0)) ? 'done' : (project && project.at === 1) ? 'active' : 'pending'}`}>
+                {(project && (project.at >= 2 || project.kept > 0)) ? 'הושלם' : (project && project.at === 1) ? 'בתהליך' : 'ממתין'}
+              </span>
+              <span className="tz-step-date">{project?.kept ? `${project.kept} סוננו` : '11.05.2024'}</span>
             </div>
 
             {/* 3. Picked */}
             <div className="tz-milestone-step">
-              <div className="tz-step-icon-wrap done">
+              <div className={`tz-step-icon-wrap ${(project && project.picked > 0) ? 'done' : (project && project.state === 'waiting') ? 'active' : 'pending'}`}>
                 <TzIconHeart size={18} />
               </div>
               <span className="tz-step-label">תמונות שנבחרו</span>
-              <span className="tz-step-status done">הושלם</span>
-              <span className="tz-step-date">12.05.2024</span>
+              <span className={`tz-step-status ${(project && project.picked > 0) ? 'done' : (project && project.state === 'waiting') ? 'active' : 'pending'}`}>
+                {(project && project.picked > 0) ? 'הושלם' : (project && project.state === 'waiting') ? 'אישור לקוח' : 'ממתין'}
+              </span>
+              <span className="tz-step-date">{project?.picked ? `${project.picked} נבחרו` : '12.05.2024'}</span>
             </div>
 
             {/* 4. Editing */}
             <div className="tz-milestone-step">
-              <div className="tz-step-icon-wrap active">
+              <div className={`tz-step-icon-wrap ${(project && project.rendered > 0 && project.rendered >= (project.picked || 1)) ? 'done' : (project && project.at >= 3) ? 'active' : 'pending'}`}>
                 <TzIconSliders size={18} />
               </div>
               <span className="tz-step-label">עיבוד גלריה</span>
-              <span className="tz-step-status active">בתהליך</span>
-              <span className="tz-step-date" style={{ color: '#e86338', fontWeight: 600 }}>50%</span>
+              <span className={`tz-step-status ${(project && project.rendered > 0 && project.rendered >= (project.picked || 1)) ? 'done' : (project && project.at >= 3) ? 'active' : 'pending'}`}>
+                {(project && project.rendered > 0 && project.rendered >= (project.picked || 1)) ? 'הושלם' : (project && project.at >= 3) ? 'בתהליך' : 'ממתין'}
+              </span>
+              <span className="tz-step-date" style={{ color: '#e86338', fontWeight: 600 }}>
+                {project ? (project.rendered ? `${project.rendered} עובדו` : 'בהמתנה') : '50%'}
+              </span>
             </div>
 
             {/* 5. Album */}
             <div className="tz-milestone-step">
-              <div className="tz-step-icon-wrap pending">
+              <div className={`tz-step-icon-wrap ${(project && project.state === 'done') ? 'done' : (project && project.at >= 4) ? 'active' : 'pending'}`}>
                 <TzIconBook size={18} />
               </div>
               <span className="tz-step-label">עיצוב אלבום</span>
-              <span className="tz-step-status pending">ממתין</span>
-              <span className="tz-step-date">&nbsp;</span>
+              <span className={`tz-step-status ${(project && project.state === 'done') ? 'done' : (project && project.at >= 4) ? 'active' : 'pending'}`}>
+                {(project && project.state === 'done') ? 'הושלם' : (project && project.at >= 4) ? 'בתהליך' : 'ממתין'}
+              </span>
+              <span className="tz-step-date">{project?.hasAlbum ? 'כולל אלבום' : 'ללא אלבום'}</span>
             </div>
           </div>
         </div>
