@@ -39,7 +39,50 @@ forehead. This overprotection can preserve actual blemishes. The existing hair
 class is not a validated beard detector. These masks must not be described as
 complete or precise automatic preservation.
 
-## Reconstruction and integration are still pending
+## Initial reconstruction evaluation: LaMa (2026-09-08)
+
+The Baidu-dependent candidate is no longer the only path. LaMa was downloaded
+and successfully executed locally. Its authors' repository links both an
+Apache-2.0-tagged pretrained mirror and the simple-lama-inpainting third-party
+implementation used here. This is a general inpainting model, not a specialized
+skin retoucher. These sources establish a practical evaluation path, not proof
+of skin quality or complete clearance of every possible deployment obligation:
+
+- https://github.com/advimman/lama
+- https://huggingface.co/smartywu/big-lama
+- https://github.com/enesmsahin/simple-lama-inpainting
+
+Downloaded TorchScript release: `engine/models/big-lama.pt` (205803670 bytes).
+SHA256: `7ba7aa7ac37a4d41fdbbeba3a2af7ead18058552997e3a3cd1a3b2210c9e6b4c`.
+Upstream license saved alongside it as `lama-LICENSE.txt`.
+
+`tools/evaluate_lama_skin_case.py` provides two explicit diagnostic modes:
+
+- Default: six manually annotated blemishes on the exact source. Native pixels,
+  one face crop, no colour-evening or texture graft. Runtime including load and
+  output preparation was 10.28 seconds on CPU. Changed 4073 pixels, zero outside
+  the 4078-pixel annotation support. Visual inspection found promising removal
+  of the isolated chin/forehead defects; this is not an automatic result and
+  does not establish professional quality over the whole face.
+- `--automatic`: existing `cleanup.detect` at the unchanged UI parameters
+  redness=90/spots=25, with LaMa for reconstruction. Sixteen accepted regions;
+  8760 changed pixels; zero changes outside requested repairs or inside the
+  supplied feature protection. Runtime for reconstruction/load/output was
+  9.64 seconds (excludes detection). Visual inspection: many blemishes remain,
+  and the prominent chin lesion is only partly covered. This fails the user's
+  one-click complete-cleanup target. A pretrained restorer alone does not fix
+  the existing incomplete detector/masks.
+
+Outputs, original-resolution images and comparison panels:
+`test-results/lama-skin-case/` and `test-results/lama-auto-case/`.
+No UI/pipeline integration was made on the basis of these incomplete results.
+
+Perfectly Clear Retouching 2.0 is a potential paid, specialized alternative;
+vendor documentation states local/cloud/mobile availability and separate blemish
+removal/skin smoothing. It was not tested, licensed, purchased, or contacted:
+https://perfectlyclear.ai/perfectly-clear-technology-updates/
+
+## Specialized candidate access and product integration remain pending
 
 No production cleanup route or UI was changed in this implementation step.
 The new compositor is intentionally not integrated before native-resolution
