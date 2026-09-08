@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useStudio } from '../studio/store';
 import TzStatusScreen from './screens/TzStatusScreen';
-import TodayV2 from './screens/TodayV2';
+import Today from '../studio/screens/Today';
 import {
   TzIconBell, TzIconBook, TzIconCalendar, TzIconFilter, TzIconFlask,
   TzIconFolder, TzIconGear, TzIconHeart, TzIconHelp, TzIconHome,
@@ -58,12 +58,18 @@ export default function V2App({ onSwitchToV1, onOpenProjectV1 }: V2AppProps) {
   function renderMainContent() {
     if (activeNav === 'today') {
       return (
-        <TodayV2
-          onNavigate={(sec) => {
+        <Today
+          onSection={(sec) => {
             if (sec === 'projects') setActiveNav('projects');
-            else setActiveNav(sec);
+            else if (sec === 'clients') setActiveNav('clients');
+            else if (sec === 'calendar') setActiveNav('calendar');
+            else if (sec === 'albums') setActiveNav('albums');
+            else setActiveNav(sec as string);
           }}
-          onOpenProject={(id) => onOpenProjectV1?.(id)}
+          onOpen={(id) => {
+            setActiveNav('projects');
+            onOpenProjectV1?.(id);
+          }}
         />
       );
     }
@@ -244,7 +250,7 @@ export default function V2App({ onSwitchToV1, onOpenProjectV1 }: V2AppProps) {
         )}
 
         {/* Content Area */}
-        <main className="tz-content-scroll">
+        <main className={activeNav === 'today' ? 'tz-content-flush' : 'tz-content-scroll'}>
           {renderMainContent()}
         </main>
       </div>

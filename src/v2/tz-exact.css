@@ -457,6 +457,14 @@
   padding: 24px 32px 40px;
 }
 
+.tz-content-flush {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
 .tz-status-screen {
   display: flex;
   flex-direction: column;
