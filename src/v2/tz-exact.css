@@ -50,8 +50,8 @@
    ========================================================================== */
 
 .tz-sidebar {
-  width: 230px;
-  min-width: 230px;
+  width: 240px;
+  min-width: 240px;
   background: var(--tz-sidebar-bg);
   border-left: 1px solid var(--tz-border);
   display: flex;
@@ -59,7 +59,7 @@
   padding: 24px 14px 20px;
   overflow-y: auto;
   user-select: none;
-  order: 2; /* In RTL: order 2 places it on the LEFT side of the screen! */
+  order: 1; /* In RTL: order 1 places the sidebar on the RIGHT side of the screen */
 }
 
 .tz-main-wrapper {
@@ -67,7 +67,7 @@
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  order: 1; /* Main content is on the right side of the screen in RTL */
+  order: 2; /* Main content is on the left */
 }
 
 /* Logo */
