@@ -7,7 +7,13 @@ import {
 } from '../TzIcons';
 import { getProjectCover } from '../projectCovers';
 
-export default function TzStatusScreen({ project }: { project?: Project }) {
+export default function TzStatusScreen({
+  project,
+  onNavigateStage,
+}: {
+  project?: Project;
+  onNavigateStage?: (stageId: string) => void;
+}) {
   const [copied, setCopied] = useState(false);
   const [message, setMessage] = useState('');
 
@@ -76,13 +82,20 @@ export default function TzStatusScreen({ project }: { project?: Project }) {
             <div className="tz-track-line" />
 
             {/* 1. Upload */}
-            <div className="tz-milestone-step">
+            <div
+              className="tz-milestone-step"
+              onClick={() => onNavigateStage?.('gallery-upload')}
+              style={{ cursor: onNavigateStage ? 'pointer' : 'default' }}
+              title="לחץ למעבר לייבוא תמונות"
+            >
               <div className="tz-step-icon-wrap done">
                 <TzIconCloud size={19} />
               </div>
               <span className="tz-step-label">העלאת גלריה</span>
-              <span className="tz-step-status done">הושלם</span>
-              <span className="tz-step-date">11.05.2024</span>
+              <span className="tz-step-status done">
+                {project?.imported ? `${project.imported} תמונות` : 'ייבוא תמונות'}
+              </span>
+              <span className="tz-step-date">{shootDate}</span>
             </div>
 
             {/* 2. Culling */}

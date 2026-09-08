@@ -1,0 +1,343 @@
+﻿/* ==========================================================================
+   IMPORT V2 — ORIGINAL ENGINE HOOKED INTO TEZA AI DESIGN
+   ========================================================================== */
+
+.tz-import-container {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  max-width: 1400px;
+  margin: 0 auto;
+  padding-bottom: 48px;
+}
+
+/* 1. Header */
+.tz-import-header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 20px;
+  flex-wrap: wrap;
+  padding: 4px 0 2px;
+}
+
+.tz-import-tag {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--tz-brand);
+  background: var(--tz-brand-light);
+  padding: 3px 10px;
+  border-radius: 20px;
+  margin-bottom: 6px;
+  letter-spacing: 0.3px;
+}
+
+.tz-import-header-copy h1 {
+  margin: 0 0 4px;
+  font-family: var(--tz-font-display);
+  font-size: 26px;
+  font-weight: 800;
+  color: #18181b;
+  letter-spacing: -0.02em;
+}
+
+.tz-import-header-copy p {
+  margin: 0;
+  font-size: 13.5px;
+  color: var(--tz-text-sub);
+  max-width: 600px;
+}
+
+.tz-import-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+/* 2. Destination Card */
+.tz-import-destination-card {
+  background: #ffffff;
+  border: 1px solid var(--tz-border);
+  border-radius: 12px;
+  padding: 12px 18px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.02);
+}
+
+.tz-import-dest-info {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+  color: var(--tz-text-sub);
+  overflow: hidden;
+}
+
+.tz-dest-label {
+  font-weight: 600;
+  color: #18181b;
+  flex-shrink: 0;
+}
+
+.tz-dest-path {
+  font-family: var(--tz-font-mono);
+  font-size: 12px;
+  background: #f4f4f5;
+  padding: 4px 10px;
+  border-radius: 6px;
+  color: #3f3f46;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tz-btn-dest-change {
+  border: none;
+  background: transparent;
+  color: var(--tz-brand);
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  flex-shrink: 0;
+  padding: 4px 8px;
+  border-radius: 6px;
+  transition: background 0.15s ease;
+}
+
+.tz-btn-dest-change:hover {
+  background: var(--tz-brand-light);
+}
+
+/* 3. Live Progress Card */
+.tz-import-progress-card {
+  background: #ffffff;
+  border: 1px solid #f2d5c6;
+  border-radius: 14px;
+  padding: 18px 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  box-shadow: 0 4px 14px rgba(232, 99, 56, 0.08);
+}
+
+.tz-import-prog-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 13.5px;
+  color: #18181b;
+}
+
+.tz-import-prog-count {
+  font-family: var(--tz-font-mono);
+  font-weight: 700;
+  color: var(--tz-brand);
+}
+
+.tz-import-track {
+  height: 8px;
+  background: #f0f0f2;
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.tz-import-fill {
+  height: 100%;
+  background: var(--tz-brand);
+  border-radius: 999px;
+  transition: width 0.25s ease;
+}
+
+.tz-import-skipped {
+  font-size: 12px;
+  color: #71717a;
+}
+
+/* 4. Error Banner */
+.tz-import-error-banner {
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  color: #dc2626;
+  padding: 12px 18px;
+  border-radius: 10px;
+  font-size: 13.5px;
+  font-weight: 500;
+}
+
+/* 5. Empty State Box */
+.tz-import-empty-box {
+  background: #ffffff;
+  border: 1px dashed var(--tz-border);
+  border-radius: 16px;
+  padding: 64px 24px;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  margin: 10px 0;
+}
+
+.tz-import-empty-icon {
+  width: 72px;
+  height: 72px;
+  border-radius: 50%;
+  background: var(--tz-brand-light);
+  color: var(--tz-brand);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 4px;
+}
+
+.tz-import-empty-box h3 {
+  margin: 0;
+  font-family: var(--tz-font-display);
+  font-size: 19px;
+  font-weight: 800;
+  color: #18181b;
+}
+
+.tz-import-empty-box p {
+  margin: 0;
+  font-size: 14px;
+  color: var(--tz-text-sub);
+  max-width: 440px;
+  line-height: 1.55;
+}
+
+/* 6. Results & Frame Grid */
+.tz-import-results {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.tz-import-results-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 2px;
+}
+
+.tz-import-results-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 15px;
+  font-weight: 700;
+  color: #18181b;
+}
+
+.tz-import-graded-tag {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--tz-brand);
+  background: var(--tz-brand-light);
+  padding: 3px 10px;
+  border-radius: 20px;
+}
+
+.tz-import-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+  gap: 14px;
+}
+
+.tz-frame-card {
+  background: #ffffff;
+  border: 1px solid var(--tz-border);
+  border-radius: 12px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.02);
+  transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
+}
+
+.tz-frame-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.05);
+  border-color: #e5e5e8;
+}
+
+.tz-frame-img-wrap {
+  position: relative;
+  width: 100%;
+  height: 150px;
+  background: #f4f4f5;
+  overflow: hidden;
+}
+
+.tz-frame-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.tz-frame-pending-badge {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  background: rgba(0, 0, 0, 0.6);
+  color: #ffffff;
+  font-size: 10.5px;
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+.tz-frame-foot {
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  background: #ffffff;
+}
+
+.tz-frame-name {
+  font-family: var(--tz-font-mono);
+  font-size: 11px;
+  color: #3f3f46;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  direction: ltr;
+  text-align: left;
+}
+
+.tz-frame-statuses {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.tz-frame-status-btn {
+  border: 1px solid var(--tz-border);
+  background: #ffffff;
+  border-radius: 6px;
+  padding: 2px 7px;
+  font-size: 10.5px;
+  font-weight: 500;
+  color: var(--tz-text-sub);
+  cursor: pointer;
+  transition: all 0.12s ease;
+}
+
+.tz-frame-status-btn:hover {
+  background: #f4f4f5;
+  color: #18181b;
+}
+
+.tz-frame-status-btn.active {
+  background: var(--tz-brand);
+  border-color: var(--tz-brand);
+  color: #ffffff;
+  font-weight: 700;
+}

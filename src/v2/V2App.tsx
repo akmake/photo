@@ -3,6 +3,7 @@ import { useStudio } from '../studio/store';
 import TzStatusScreen from './screens/TzStatusScreen';
 import TodayV2 from './screens/TodayV2';
 import ProjectsV2 from './screens/ProjectsV2';
+import ImportV2 from './screens/ImportV2';
 import {
   TzIconBell, TzIconBook, TzIconCalendar, TzIconFilter, TzIconFlask,
   TzIconFolder, TzIconGear, TzIconHeart, TzIconHelp, TzIconHome,
@@ -46,7 +47,7 @@ export default function V2App({ onSwitchToV1, onOpenProjectV1 }: V2AppProps) {
   // The actual stages of a project in TEZA
   const PROJECT_STAGES = [
     { id: 'client-status', label: 'סטטוס לקוח', icon: TzIconUsers },
-    { id: 'gallery-upload', label: 'ייבוא', icon: TzIconUpload },
+    { id: 'gallery-upload', label: 'העלאת גלריה / ייבוא', icon: TzIconUpload },
     { id: 'gallery-cull', label: 'בחירה', icon: TzIconFilter },
     { id: 'gallery-picked', label: 'תמונות שנבחרו', icon: TzIconHeart },
     { id: 'gallery-edit', label: 'עריכה', icon: TzIconSliders },
@@ -57,6 +58,12 @@ export default function V2App({ onSwitchToV1, onOpenProjectV1 }: V2AppProps) {
     ? `${selectedProject.client} – ${selectedProject.event || 'בת מצווה'}`
     : 'מלי כץ – בת מצווה';
 
+  const handleOpenProject = (id: string, stage: string = 'client-status') => {
+    setSelectedProjectId(id);
+    setActiveStage(stage);
+    setActiveNav('project-detail');
+  };
+
   function renderMainContent() {
     if (activeNav === 'today') {
       return (
@@ -64,10 +71,7 @@ export default function V2App({ onSwitchToV1, onOpenProjectV1 }: V2AppProps) {
           onNavigate={(sec) => {
             setActiveNav(sec);
           }}
-          onOpenProject={(id) => {
-            setSelectedProjectId(id);
-            setActiveNav('project-detail');
-          }}
+          onOpenProject={handleOpenProject}
         />
       );
     }
@@ -75,17 +79,29 @@ export default function V2App({ onSwitchToV1, onOpenProjectV1 }: V2AppProps) {
     if (activeNav === 'projects') {
       return (
         <ProjectsV2
-          onOpenProject={(id) => {
-            setSelectedProjectId(id);
-            setActiveNav('project-detail');
-          }}
+          onOpenProject={handleOpenProject}
         />
       );
     }
 
     if (activeNav === 'project-detail') {
+      if (activeStage === 'gallery-upload') {
+        const proj = selectedProject || studio.projects[0];
+        if (proj) {
+          return (
+            <ImportV2
+              project={proj}
+              onBack={() => setActiveStage('client-status')}
+            />
+          );
+        }
+      }
+
       return (
-        <TzStatusScreen project={selectedProject} />
+        <TzStatusScreen
+          project={selectedProject}
+          onNavigateStage={(stage) => setActiveStage(stage)}
+        />
       );
     }
 

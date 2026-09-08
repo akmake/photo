@@ -62,7 +62,7 @@ export default function TodayV2({
   onOpenProject,
 }: {
   onNavigate: (section: string) => void;
-  onOpenProject?: (id: string) => void;
+  onOpenProject?: (id: string, stage?: string) => void;
 }) {
   const { projects, status, fault } = useStudio();
   const [calendarView, setCalendarView] = useState(() => new Date());
@@ -124,7 +124,18 @@ export default function TodayV2({
           <button className="tz-btn-hero-primary" type="button" onClick={() => onNavigate('projects')}>
             <span>＋</span> פרויקט חדש
           </button>
-          <button className="tz-btn-hero-sec" type="button" onClick={() => onNavigate('projects')}>
+          <button
+            className="tz-btn-hero-sec"
+            type="button"
+            onClick={() => {
+              const target = data.visible[0] || projects[0];
+              if (target && onOpenProject) {
+                onOpenProject(target.id, 'gallery-upload');
+              } else {
+                onNavigate('projects');
+              }
+            }}
+          >
             <TzIconUpload size={15} /> ייבוא תמונות
           </button>
           <button className="tz-btn-hero-sec" type="button" onClick={() => onNavigate('albums')}>

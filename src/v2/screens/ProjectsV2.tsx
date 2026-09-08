@@ -1,4 +1,4 @@
-﻿import React, { useMemo, useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { useStudio, stagesOf } from '../../studio/store';
 import type { Project, ProjectState } from '../../studio/store';
 import NewProject from '../../studio/screens/NewProject';
@@ -47,7 +47,7 @@ function stageLabel(project: Project): string {
 export default function ProjectsV2({
   onOpenProject,
 }: {
-  onOpenProject: (id: string) => void;
+  onOpenProject: (id: string, stage?: string) => void;
 }) {
   const { projects } = useStudio();
   const [filter, setFilter] = useState<Filter>('all');
@@ -90,7 +90,7 @@ export default function ProjectsV2({
           <button
             className="tz-btn-projects-sec"
             type="button"
-            onClick={() => projects[0] ? onOpenProject(projects[0].id) : setCreating(true)}
+            onClick={() => projects[0] ? onOpenProject(projects[0].id, 'gallery-upload') : setCreating(true)}
           >
             <TzIconUpload size={16} /> ייבוא תמונות
           </button>
