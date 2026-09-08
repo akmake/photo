@@ -6,6 +6,7 @@ import {
   TzIconFilter, TzIconFolder, TzIconGallery, TzIconHeart, TzIconSliders,
   TzIconSparkle, TzIconUpload, TzIconUsers,
 } from '../TzIcons';
+import { getProjectCover } from '../projectCovers';
 import './today-redesign.css';
 
 function clamp(value: number, min: number, max: number) {
@@ -220,20 +221,19 @@ export default function TodayV2({
                   </tr>
                 </thead>
                 <tbody>
-                  {data.visible.slice(0, 5).map((project) => {
+                  {data.visible.slice(0, 5).map((project, idx) => {
                     const st = statusOf(project);
                     const prog = progressOf(project);
                     return (
                       <tr key={project.id} onClick={() => handleOpenProject(project)}>
                         <td>
                           <div className="tz-cell-project">
-                            {project.thumb ? (
-                              <img src={project.thumb} alt="" className="tz-cell-thumb" style={{ objectPosition: project.pos }} />
-                            ) : (
-                              <div className="tz-cell-thumb tz-cell-thumb-empty">
-                                <TzIconCamera size={18} />
-                              </div>
-                            )}
+                            <img
+                              src={getProjectCover(project, idx)}
+                              alt=""
+                              className="tz-cell-thumb"
+                              style={{ objectPosition: project.pos || 'center 30%' }}
+                            />
                             <div className="tz-cell-titles">
                               <strong>{project.event || project.client}</strong>
                               <small>{project.location || 'פרויקט צילום'}</small>
@@ -325,20 +325,19 @@ export default function TodayV2({
               </div>
 
               <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                {projects.slice(0, 3).map((project) => (
+                {projects.slice(0, 3).map((project, idx) => (
                   <button
                     key={project.id}
                     type="button"
                     className="tz-act-item"
                     onClick={() => handleOpenProject(project)}
                   >
-                    {project.thumb ? (
-                      <img src={project.thumb} alt="" className="tz-cell-thumb" style={{ width: 34, height: 34 }} />
-                    ) : (
-                      <div className="tz-cell-thumb tz-cell-thumb-empty" style={{ width: 34, height: 34 }}>
-                        <TzIconGallery size={15} />
-                      </div>
-                    )}
+                    <img
+                      src={getProjectCover(project, idx)}
+                      alt=""
+                      className="tz-cell-thumb"
+                      style={{ width: 34, height: 34, objectPosition: project.pos || 'center 30%' }}
+                    />
                     <div className="tz-act-copy">
                       <strong>{project.client} · {statusOf(project).label}</strong>
                       <small>{relativeDate(project.createdAt)}</small>

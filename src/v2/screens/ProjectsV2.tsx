@@ -1,11 +1,12 @@
-import React, { useMemo, useState } from 'react';
+﻿import React, { useMemo, useState } from 'react';
 import { useStudio, stagesOf } from '../../studio/store';
 import type { Project, ProjectState } from '../../studio/store';
 import NewProject from '../../studio/screens/NewProject';
 import {
-  TzIconBook, TzIconCamera, TzIconChart, TzIconFolder, TzIconGallery,
-  TzIconUpload, TzIconUsers,
+  TzIconBook, TzIconCalendar, TzIconCamera, TzIconChart, TzIconFolder,
+  TzIconGallery, TzIconSearch, TzIconUpload, TzIconUsers,
 } from '../TzIcons';
+import { getProjectCover } from '../projectCovers';
 import './projects-redesign.css';
 
 type Filter = 'all' | ProjectState;
@@ -51,138 +52,156 @@ export default function ProjectsV2({
 }: {
   onOpenProject: (id: string) => void;
 }) {
-  const { projects, status, fault, saveFault } = useStudio();
+  const { projects, status, fault } = useStudio();
   const [filter, setFilter] = useState<Filter>('all');
+  const [search, setSearch] = useState('');
   const [creating, setCreating] = useState(false);
 
-  const active = useMemo(() => projects.filter((project) => project.state !== 'done'), [projects]);
+  const active = useMemo(() => projects.filter((p) => p.state !== 'done'), [projects]);
+  
   const featured = useMemo(
     () => [...active].sort((a, b) => SORT[a.state] - SORT[b.state] || b.imported - a.imported)[0] ?? projects[0],
     [active, projects],
   );
 
-  const shown = useMemo(() => {
-    const list = filter === 'all' ? projects : projects.filter((project) => project.state === filter);
+  const filtered = useMemo(() => {
+    let list = filter === 'all' ? projects : projects.filter((p) => p.state === filter);
+    if (search.trim()) {
+      const q = search.trim().toLowerCase();
+      list = list.filter(
+        (p) =>
+          p.client.toLowerCase().includes(q) ||
+          p.event.toLowerCase().includes(q) ||
+          (p.location && p.location.toLowerCase().includes(q)),
+      );
+    }
     return [...list].sort((a, b) => SORT[a.state] - SORT[b.state]);
-  }, [projects, filter]);
+  }, [projects, filter, search]);
 
-  const waitingPhotos = active.reduce((sum, project) => sum + Math.max(0, project.imported - project.rendered), 0);
-  const activeAlbums = active.filter((project) => project.hasAlbum).length;
-  const balance = projects.reduce((sum, project) => sum + openBalance(project), 0);
+  const waitingPhotos = active.reduce((sum, p) => sum + Math.max(0, p.imported - p.rendered), 0);
+  const activeAlbums = active.filter((p) => p.hasAlbum).length;
+  const balance = projects.reduce((sum, p) => sum + openBalance(p), 0);
 
   return (
     <div className="tz-projects-container">
-      {/* 1. Hero Header */}
-      <section className="tz-today-hero">
-        <div className="tz-today-hero-title">
-          <h1>פרויקטים 📁</h1>
+      {/* 1. Header with Title & Quick Actions */}
+      <section className="tz-projects-header">
+        <div className="tz-projects-header-title">
+          <div className="tz-projects-badge-tag">ניהול תיקים</div>
+          <h1>פרויקטים</h1>
           <p>כל התיקים בסטודיו, מנוהלים וממוינים לפי השלב שבו הם נמצאים כעת.</p>
         </div>
-        <div className="tz-today-hero-actions">
-          <button className="tz-btn-hero-primary" type="button" onClick={() => setCreating(true)}>
-            <span>＋</span> פרויקט חדש
+        <div className="tz-projects-header-actions">
+          <button className="tz-btn-projects-primary" type="button" onClick={() => setCreating(true)}>
+            <span className="tz-btn-icon">＋</span> פרויקט חדש
           </button>
           <button
-            className="tz-btn-hero-sec"
+            className="tz-btn-projects-sec"
             type="button"
             onClick={() => featured ? onOpenProject(featured.id) : setCreating(true)}
           >
-            <TzIconUpload size={15} /> ייבוא תמונות
+            <TzIconUpload size={16} /> ייבוא תמונות
           </button>
         </div>
       </section>
 
       {/* 2. Key Metrics Row */}
-      <section className="tz-metrics-row">
-        <div className="tz-metric-card">
-          <div className="tz-metric-head">
+      <section className="tz-projects-metrics">
+        <div className="tz-pmetric-card">
+          <div className="tz-pmetric-head">
             <span>פרויקטים פעילים</span>
-            <div className="tz-metric-icon-box" style={{ background: 'var(--tz-brand-light)', color: 'var(--tz-brand)' }}>
+            <div className="tz-pmetric-icon-box" style={{ background: '#fff1ec', color: 'var(--tz-brand)' }}>
               <TzIconFolder size={17} />
             </div>
           </div>
-          <div className="tz-metric-value">{active.length}</div>
-          <div className="tz-metric-footer good">
-            <span>●</span> נמצאים כעת בעבודה
+          <div className="tz-pmetric-value">{active.length}</div>
+          <div className="tz-pmetric-footer good">
+            <span className="tz-dot active" /> {active.length} תיקים בעבודה שוטפת
           </div>
         </div>
 
-        <div className="tz-metric-card">
-          <div className="tz-metric-head">
+        <div className="tz-pmetric-card">
+          <div className="tz-pmetric-head">
             <span>תמונות ממתינות</span>
-            <div className="tz-metric-icon-box" style={{ background: '#eff6ff', color: '#2563eb' }}>
+            <div className="tz-pmetric-icon-box" style={{ background: '#eff6ff', color: '#2563eb' }}>
               <TzIconGallery size={17} />
             </div>
           </div>
-          <div className="tz-metric-value">{waitingPhotos.toLocaleString('he-IL')}</div>
-          <div className="tz-metric-footer">
+          <div className="tz-pmetric-value">{waitingPhotos.toLocaleString('he-IL')}</div>
+          <div className="tz-pmetric-footer">
             <span>בכל הפרויקטים הפעילים</span>
           </div>
         </div>
 
-        <div className="tz-metric-card">
-          <div className="tz-metric-head">
+        <div className="tz-pmetric-card">
+          <div className="tz-pmetric-head">
             <span>אלבומים בעבודה</span>
-            <div className="tz-metric-icon-box" style={{ background: '#fdf2f8', color: '#db2777' }}>
+            <div className="tz-pmetric-icon-box" style={{ background: '#fdf2f8', color: '#db2777' }}>
               <TzIconBook size={17} />
             </div>
           </div>
-          <div className="tz-metric-value">{activeAlbums}</div>
-          <div className="tz-metric-footer good">
-            <span>●</span> אלבומים פתוחים
+          <div className="tz-pmetric-value">{activeAlbums}</div>
+          <div className="tz-pmetric-footer good">
+            <span className="tz-dot active" /> אלבומים פתוחים לעיצוב
           </div>
         </div>
 
-        <div className="tz-metric-card">
-          <div className="tz-metric-head">
+        <div className="tz-pmetric-card">
+          <div className="tz-pmetric-head">
             <span>יתרה לגבייה</span>
-            <div className="tz-metric-icon-box" style={{ background: balance ? '#fff8eb' : 'var(--tz-green-bg)', color: balance ? '#d97706' : 'var(--tz-green)' }}>
+            <div className="tz-pmetric-icon-box" style={{ background: balance ? '#fff8eb' : '#ecfdf5', color: balance ? '#d97706' : '#059669' }}>
               <TzIconChart size={17} />
             </div>
           </div>
-          <div className="tz-metric-value">₪{balance.toLocaleString('he-IL')}</div>
-          <div className="tz-metric-footer" style={{ color: balance ? '#d97706' : 'var(--tz-green)' }}>
-            <span>●</span> {balance ? 'ממתין לתשלום' : 'הכול שולם'}
+          <div className="tz-pmetric-value">₪{balance.toLocaleString('he-IL')}</div>
+          <div className="tz-pmetric-footer" style={{ color: balance ? '#d97706' : '#059669' }}>
+            <span className="tz-dot" style={{ background: balance ? '#d97706' : '#059669' }} /> {balance ? 'ממתין לתשלום' : 'הכול שולם במלואו'}
           </div>
         </div>
       </section>
 
-      {/* 3. Featured Project Card */}
+      {/* 3. Featured Active Project Hero Card */}
       {featured && (
-        <section className="tz-featured-card">
-          <div className="tz-featured-img-wrap">
-            {featured.thumb ? (
-              <img src={featured.thumb} alt="" className="tz-featured-img" style={{ objectPosition: featured.pos }} />
-            ) : (
-              <div className="tz-featured-img-empty">
-                <TzIconCamera size={34} />
-                <span>טרם הועלו תמונות</span>
-              </div>
-            )}
-            <span className={`tz-status-badge ${STATE_COPY[featured.state].className} tz-featured-state-badge`}>
+        <section className="tz-pfeatured-card">
+          <div className="tz-pfeatured-img-wrap">
+            <img
+              src={getProjectCover(featured, 0)}
+              alt={featured.client}
+              className="tz-pfeatured-img"
+              style={{ objectPosition: featured.pos || 'center 30%' }}
+            />
+            <div className="tz-pfeatured-img-gradient" />
+            <span className={`tz-status-badge ${STATE_COPY[featured.state].className} tz-pfeatured-state-badge`}>
               {STATE_COPY[featured.state].label}
             </span>
+            {featured.date && (
+              <span className="tz-pfeatured-date-badge">
+                <TzIconCalendar size={13} /> {featured.date}
+              </span>
+            )}
           </div>
 
-          <div className="tz-featured-content">
-            <div>
-              <div className="tz-featured-kicker">התיק הפעיל המרכזי</div>
-              <div className="tz-featured-title">{featured.client}</div>
-              <div className="tz-featured-subtitle">
-                {[featured.event, featured.location, featured.date].filter(Boolean).join(' · ')}
+          <div className="tz-pfeatured-content">
+            <div className="tz-pfeatured-top">
+              <div className="tz-pfeatured-kicker">
+                <span className="tz-pfeatured-kicker-dot" /> התיק הפעיל המרכזי
+              </div>
+              <h2 className="tz-pfeatured-title">{featured.client}</h2>
+              <div className="tz-pfeatured-subtitle">
+                {[featured.event, featured.location].filter(Boolean).join(' · ')}
               </div>
 
-              <div className="tz-featured-stats-row">
-                <div className="tz-featured-stat">
+              <div className="tz-pfeatured-stats-row">
+                <div className="tz-pfeatured-stat">
                   <strong>{featured.imported.toLocaleString('he-IL')}</strong>
                   <span>תמונות גלם</span>
                 </div>
-                <div className="tz-featured-stat">
+                <div className="tz-pfeatured-stat">
                   <strong>{featured.kept.toLocaleString('he-IL')}</strong>
                   <span>נבחרו לעריכה</span>
                 </div>
-                <div className="tz-featured-stat">
-                  <strong style={{ color: openBalance(featured) ? 'var(--tz-brand)' : 'var(--tz-green)' }}>
+                <div className="tz-pfeatured-stat">
+                  <strong style={{ color: openBalance(featured) ? 'var(--tz-brand)' : '#059669' }}>
                     ₪{openBalance(featured).toLocaleString('he-IL')}
                   </strong>
                   <span>נותרו לתשלום</span>
@@ -190,95 +209,148 @@ export default function ProjectsV2({
               </div>
             </div>
 
-            <div className="tz-featured-foot">
-              <div className="tz-featured-prog">
-                <div className="tz-featured-prog-label">
+            <div className="tz-pfeatured-bottom">
+              <div className="tz-pfeatured-prog">
+                <div className="tz-pfeatured-prog-label">
                   <span>{stageLabel(featured)}</span>
-                  <span>{progressOf(featured)}%</span>
+                  <span className="tz-prog-pct">{progressOf(featured)}%</span>
                 </div>
-                <div className="tz-cell-prog-track">
-                  <div className="tz-cell-prog-fill" style={{ width: `${progressOf(featured)}%` }} />
+                <div className="tz-pprog-track">
+                  <div className="tz-pprog-fill" style={{ width: `${progressOf(featured)}%` }} />
                 </div>
               </div>
 
-              <div className="tz-featured-actions">
-                <button
-                  className="tz-btn-hero-primary"
-                  type="button"
-                  onClick={() => onOpenProject(featured.id)}
-                >
-                  המשך עבודה על התיק ←
-                </button>
-              </div>
+              <button
+                className="tz-btn-projects-primary"
+                type="button"
+                onClick={() => onOpenProject(featured.id)}
+              >
+                המשך עבודה על התיק ←
+              </button>
             </div>
           </div>
         </section>
       )}
 
-      {/* 4. Toolbar & Filter Pills */}
-      <div className="tz-projects-toolbar">
-        <div className="tz-projects-count-label">
-          כל הפרויקטים <span>({shown.length})</span>
+      {/* 4. Toolbar: Search & Filter Pills */}
+      <div className="tz-ptoolbar">
+        <div className="tz-ptoolbar-right">
+          <div className="tz-psearch-box">
+            <TzIconSearch size={16} />
+            <input
+              type="text"
+              placeholder="חיפוש לפי שם לקוח או אירוע..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="tz-psearch-input"
+            />
+            {search && (
+              <button className="tz-psearch-clear" type="button" onClick={() => setSearch('')}>
+                ✕
+              </button>
+            )}
+          </div>
+
+          <div className="tz-pfilter-pills">
+            {FILTERS.map((item) => (
+              <button
+                key={item.id}
+                type="button"
+                className={`tz-pfilter-pill ${filter === item.id ? 'active' : ''}`}
+                onClick={() => setFilter(item.id)}
+              >
+                {item.label}
+              </button>
+            ))}
+          </div>
         </div>
 
-        <div className="tz-filter-pills">
-          {FILTERS.map((item) => (
-            <button
-              key={item.id}
-              type="button"
-              className={`tz-filter-pill ${filter === item.id ? 'active' : ''}`}
-              onClick={() => setFilter(item.id)}
-            >
-              {item.label}
-            </button>
-          ))}
+        <div className="tz-ptoolbar-count">
+          מציג <strong>{filtered.length}</strong> מתוך {projects.length} פרויקטים
         </div>
       </div>
 
-      {/* 5. Projects Grid */}
-      {shown.length > 0 ? (
+      {/* 5. Projects Grid with Unique Covers */}
+      {filtered.length > 0 ? (
         <div className="tz-projects-grid">
-          {shown.map((project) => {
+          {filtered.map((project, idx) => {
             const prog = progressOf(project);
             const bal = openBalance(project);
             const st = STATE_COPY[project.state];
+            // Assign a unique cover photo to every project
+            const coverUrl = getProjectCover(project, idx);
+
             return (
               <div
                 key={project.id}
                 className="tz-project-card"
                 onClick={() => onOpenProject(project.id)}
+                role="button"
+                tabIndex={0}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    onOpenProject(project.id);
+                  }
+                }}
               >
-                <div className="tz-project-card-img-wrap">
-                  {project.thumb ? (
-                    <img src={project.thumb} alt="" className="tz-project-card-img" style={{ objectPosition: project.pos }} />
-                  ) : (
-                    <div className="tz-featured-img-empty">
-                      <TzIconCamera size={26} />
-                      <span style={{ fontSize: '11px' }}>אין תמונה</span>
-                    </div>
-                  )}
-                  <span
-                    className={`tz-status-badge ${st.className}`}
-                    style={{ position: 'absolute', top: 10, right: 10 }}
-                  >
-                    {st.label}
-                  </span>
-                </div>
+                <div className="tz-pcard-img-wrap">
+                  <img
+                    src={coverUrl}
+                    alt={project.client}
+                    className="tz-pcard-img"
+                    style={{ objectPosition: project.pos || 'center 30%' }}
+                    loading="lazy"
+                  />
+                  <div className="tz-pcard-img-overlay" />
 
-                <div className="tz-project-card-body">
-                  <h3>{project.client}</h3>
-                  <p>{[project.event, project.location].filter(Boolean).join(' · ') || 'פרויקט צילום'}</p>
-
-                  <div className="tz-project-card-progress">
-                    <div className="tz-cell-prog-track">
-                      <div className="tz-cell-prog-fill" style={{ width: `${prog}%` }} />
-                    </div>
-                    <span style={{ fontSize: '11px', fontWeight: 600, color: 'var(--tz-text-sub)' }}>{prog}%</span>
+                  {/* Top Status & Album Badges */}
+                  <div className="tz-pcard-badges-top">
+                    <span className={`tz-status-badge ${st.className}`}>
+                      {st.label}
+                    </span>
+                    {project.hasAlbum && (
+                      <span className="tz-pcard-album-badge" title="כולל אלבום מעוצב">
+                        <TzIconBook size={12} /> אלבום
+                      </span>
+                    )}
                   </div>
 
-                  <div className={`tz-project-card-foot ${bal > 0 ? 'has-balance' : ''}`}>
-                    <span>{bal > 0 ? `יתרה ₪${bal.toLocaleString('he-IL')}` : stageLabel(project)}</span>
-                    <strong style={{ fontFamily: 'var(--tz-font-mono)' }}>{project.imported.toLocaleString('he-IL')} תמ׳</strong>
+                  {/* Bottom Date Overlay */}
+                  {project.date && (
+                    <div className="tz-pcard-date-badge">
+                      <TzIconCalendar size={12} />
+                      <span>{project.date}</span>
+                    </div>
+                  )}
+                </div>
+
+                <div className="tz-pcard-body">
+                  <div className="tz-pcard-main-info">
+                    <h3 className="tz-pcard-title">{project.client}</h3>
+                    <p className="tz-pcard-subtitle">
+                      {[project.event, project.location].filter(Boolean).join(' · ') || 'פרויקט צילום'}
+                    </p>
+                  </div>
+
+                  <div className="tz-pcard-progress-wrap">
+                    <div className="tz-pprog-track">
+                      <div className="tz-pprog-fill" style={{ width: `${prog}%` }} />
+                    </div>
+                    <span className="tz-pcard-prog-pct">{prog}%</span>
+                  </div>
+
+                  <div className={`tz-pcard-footer ${bal > 0 ? 'has-balance' : ''}`}>
+                    <div className="tz-pcard-stage-info">
+                      {bal > 0 ? (
+                        <span className="tz-balance-tag">יתרה לתשלום: ₪{bal.toLocaleString('he-IL')}</span>
+                      ) : (
+                        <span className="tz-stage-tag">{stageLabel(project)}</span>
+                      )}
+                    </div>
+                    <div className="tz-pcard-photo-count">
+                      <TzIconGallery size={13} />
+                      <span>{project.imported.toLocaleString('he-IL')} תמ׳</span>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -286,8 +358,25 @@ export default function ProjectsV2({
           })}
         </div>
       ) : (
-        <div className="tz-card" style={{ textAlign: 'center', padding: '48px', color: 'var(--tz-text-muted)' }}>
-          אין כרגע פרויקטים במצב שנבחר.
+        <div className="tz-pempty-state">
+          <div className="tz-pempty-icon">
+            <TzIconFolder size={36} />
+          </div>
+          <h3>לא נמצאו פרויקטים</h3>
+          <p>
+            {search
+              ? `אין פרויקטים התואמים את החיפוש "${search}". נסה ביטוי אחר או נקה את החיפוש.`
+              : 'אין כרגע פרויקטים בקטגוריה שנבחרה.'}
+          </p>
+          {search ? (
+            <button className="tz-btn-projects-sec" type="button" onClick={() => setSearch('')}>
+              נקה חיפוש
+            </button>
+          ) : (
+            <button className="tz-btn-projects-primary" type="button" onClick={() => setCreating(true)}>
+              <span>＋</span> פרויקט חדש
+            </button>
+          )}
         </div>
       )}
 

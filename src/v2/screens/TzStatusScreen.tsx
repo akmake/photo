@@ -5,6 +5,7 @@ import {
   TzIconCopy, TzIconExternal, TzIconFilter, TzIconGallery, TzIconGear,
   TzIconHeart, TzIconMail, TzIconSend, TzIconSliders,
 } from '../TzIcons';
+import { getProjectCover } from '../projectCovers';
 
 export default function TzStatusScreen({ project }: { project?: Project }) {
   const [copied, setCopied] = useState(false);
@@ -136,10 +137,10 @@ export default function TzStatusScreen({ project }: { project?: Project }) {
 
             <div className="tz-client-header">
               <img
-                src={project?.thumb || "https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=150&q=80"}
+                src={getProjectCover(project)}
                 alt={clientName}
                 className="tz-client-photo"
-                style={{ objectPosition: project?.pos }}
+                style={{ objectPosition: project?.pos || 'center 30%' }}
               />
               <div className="tz-client-meta">
                 <h3>{clientName}</h3>
