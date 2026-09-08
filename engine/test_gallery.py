@@ -10,6 +10,7 @@ Same code paths the real thing uses.
 import os
 import shutil
 import sys
+import io
 import tempfile
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -261,6 +262,52 @@ def main():
         back = gallery.login(created["slug"], created["username"], password)
         check("paying reopens it, choices intact",
               len(gallery.manifest(back["token"])["items"]) == 5)
+
+        print("\nthe photographer's logo")
+        import base64  # noqa: PLC0415
+        # A wide mark on transparency - the shape almost every real logo has,
+        # and the one a naive pipeline ruins by flattening onto white.
+        mark = Image.new("RGBA", (1400, 300), (0, 0, 0, 0))
+        for x in range(120, 1280):
+            for y in range(90, 210, 3):
+                mark.putpixel((x, y), (18, 18, 22, 255))
+        buf = io.BytesIO()
+        mark.save(buf, "PNG")
+        as_b64 = base64.b64encode(buf.getvalue()).decode()
+
+        check("a gallery with no logo says so, it does not invent one",
+              gallery.get_brand() is None)
+
+        brand = gallery.set_brand(None, "data:image/png;base64," + as_b64, "logo.png")
+        check("the logo uploads", bool(brand.get("logo")), str(brand)[:120])
+        check("its aspect comes back, so it can be sized not cropped",
+              4.0 < brand["aspect"] < 5.0, str(brand.get("aspect")))
+
+        stored = gallery_store.store().get(
+            gallery_records.records().find("galleryBrand", {"id": "self"})[0]["logoKey"]
+        )
+        check("it is stored as a PNG", stored[1:4] == b"PNG", str(stored[:8]))
+        kept = Image.open(io.BytesIO(stored))
+        check("TRANSPARENCY SURVIVES - no white box around the mark",
+              kept.mode in ("RGBA", "LA"), kept.mode)
+        check("it is capped for a phone", max(kept.size) == 800, str(kept.size))
+
+        check("the gallery carries it to the client",
+              (gallery.manifest(back["token"])["gallery"]["brand"] or {}).get("logo")
+              == brand["logo"])
+
+        first_key = gallery_records.records().find("galleryBrand", {"id": "self"})[0]["logoKey"]
+        gallery.set_brand(None, as_b64, "again.png")
+        second_key = gallery_records.records().find("galleryBrand", {"id": "self"})[0]["logoKey"]
+        check("replacing gets a NEW key, so no cache serves the old mark",
+              first_key != second_key)
+
+        raises("a file that is not an image is refused", 400,
+               gallery.set_brand, None, base64.b64encode(b"not a png").decode(), "x")
+
+        gallery.clear_brand()
+        check("removing it leaves no logo, not a broken one",
+              gallery.get_brand() is None)
 
         print("\npublishing over the wire")
         # The route the studio calls: paths in, derived and stored. One bad

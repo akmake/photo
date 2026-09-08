@@ -894,7 +894,12 @@ class Handler(BaseHTTPRequestHandler):
             self._json(404, {"error": "not found"})
             return
         self.send_response(200)
-        self.send_header("Content-Type", "image/jpeg")
+        # Logos are PNG (transparency is the whole point of keeping them PNG);
+        # frames are JPEG. Serving a PNG as image/jpeg makes some browsers
+        # refuse it outright.
+        self.send_header(
+            "Content-Type", "image/png" if key.endswith(".png") else "image/jpeg"
+        )
         self.send_header("Content-Length", str(len(data)))
         self.send_header("Access-Control-Allow-Origin", "*")
         # An object under a given key never changes: a new version is a new key.

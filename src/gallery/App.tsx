@@ -226,6 +226,16 @@ export default function App() {
     <div className="gal">
       <header className="gal-head">
         <div className="gal-title">
+          {manifest?.gallery.brand && (
+            <img
+              className="gal-mark"
+              src={manifest.gallery.brand.logo}
+              alt=""
+              /* Sized by HEIGHT, never by width: a wordmark and a round emblem
+               * have nothing in common but how tall they should sit. */
+              style={{ width: `${Math.min(4.4, manifest.gallery.brand.aspect * 1.6)}rem` }}
+            />
+          )}
           <h1>{manifest?.gallery.name}</h1>
           <span className="gal-sub">
             {locked ? 'הבחירה נשלחה לצלם' : `${chosen} נבחרו מתוך ${items.length}`}
@@ -358,6 +368,22 @@ function Login({ slug, onIn }: { slug: string; onIn: (token: string) => void }) 
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const [brand, setBrand] = useState<api.Brand | null>(null);
+
+  /* The photographer's mark, before anyone has signed in. This card is the
+   * first thing their client sees of them, and for a lot of couples it is the
+   * only screen of the product they will ever look at twice. It fetches on its
+   * own and fails quietly: no logo is a fine card, a stuck card is not. */
+  useEffect(() => {
+    let live = true;
+    api
+      .brandOf(slug)
+      .then((out) => live && setBrand(out.brand))
+      .catch(() => {});
+    return () => {
+      live = false;
+    };
+  }, [slug]);
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -375,6 +401,15 @@ function Login({ slug, onIn }: { slug: string; onIn: (token: string) => void }) 
   return (
     <div className="gal-gate">
       <form className="gal-gate-card" onSubmit={submit}>
+        {brand && (
+          <div className="gal-gate-mark">
+            <img
+              src={brand.logo}
+              alt=""
+              style={{ width: `${Math.min(13, brand.aspect * 4.6)}rem` }}
+            />
+          </div>
+        )}
         <h1>הגלריה שלכם</h1>
         <p>הזינו את שם המשתמש והסיסמה שקיבלתם מהצלם.</p>
         <label>

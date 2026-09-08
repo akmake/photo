@@ -18,10 +18,17 @@ S3-compatible bucket by way of a config file, no code change either way.
 
 THE PART THAT MATTERS
 ---------------------
-Items are matched by `frameId`, never by filename. Between the upload and the
-client's answer the photographer will rename files, move folders and delete
-duplicates. Matching on a name means the couple's choices quietly evaporate,
-and that is the one bug that would destroy trust in the whole mechanism.
+`frameId` is THE PROJECT'S OWN FRAME KEY - the file name, never the absolute
+path. That is not a shortcut: workspace.read_state and ProjectRecipe both say
+so outright, because project.json travels with the folder and a drive letter is
+not identity. A gallery answering in paths would answer in a language the
+project cannot read, and a gallery with an id of its own would be more stable
+than the thing it feeds.
+
+What the name cannot survive is a rename, so a frame the client chose that is
+no longer in the folder comes back NAMED - see import_plan's `missing`. Handing
+the photographer forty photographs when the couple chose forty-three, silently,
+is the failure this whole seam exists to prevent.
 """
 
 import hashlib
@@ -52,6 +59,12 @@ SESSION_TTL = 60 * 60 * 12
 # closes the door; it does not burn the room down the same evening. The client's
 # wedding is in there.
 FREEZE_DAYS = 30
+
+# Whose galleries these are. One installation is one photographer today, so
+# there is nothing to look up - but the brand and every gallery carry the
+# owner anyway, because retrofitting an owner column onto live rows later is
+# a migration, and carrying one now costs a string.
+DEFAULT_OWNER = "self"
 _PBKDF2_ROUNDS = 120_000
 
 # token -> (galleryId, expiry). In memory on purpose: a restart signing the
@@ -156,6 +169,7 @@ def create_gallery(project_id, name, albums):
     gallery = {
         "id": secrets.token_hex(8),
         "slug": _pick(_CODE, 8),
+        "ownerId": DEFAULT_OWNER,
         "projectId": project_id,
         "name": name or "גלריה",
         "username": _new_username(),
@@ -420,6 +434,84 @@ def state(gallery_id):
     }
 
 
+def get_brand(owner=DEFAULT_OWNER):
+    """The photographer's mark, or None. Never a placeholder.
+
+    A gallery with no logo is a gallery with no logo — it lays out cleanly
+    without one. Inventing a stand-in mark would put a stranger's identity on a
+    photographer's client-facing page.
+    """
+    found = _r().find("galleryBrand", {"id": owner})
+    if not found:
+        return None
+    brand = found[0]
+    if not brand.get("logoKey"):
+        return None
+    return {
+        "logo": gallery_store.store().url(brand["logoKey"]),
+        "aspect": brand.get("aspect") or 1,
+        "updatedAt": brand.get("updatedAt"),
+    }
+
+
+def set_brand(owner, logo_b64, filename=""):
+    """Upload or replace the logo. Base64 in, because the photographer picks it
+    with a file input in their own browser and this must work the same whether
+    the API is on this machine or a server."""
+    import base64  # noqa: PLC0415
+    import gallery_derive  # noqa: PLC0415
+
+    owner = owner or DEFAULT_OWNER
+    if not logo_b64:
+        raise GalleryError(400, "לא התקבל קובץ")
+    raw = logo_b64.split(",", 1)[-1]  # tolerate a full data: URL
+    try:
+        data = base64.b64decode(raw, validate=False)
+    except Exception as e:  # noqa: BLE001
+        raise GalleryError(400, "הקובץ פגום") from e
+
+    try:
+        made = gallery_derive.derive_logo(data)
+    except ValueError as e:
+        raise GalleryError(400, str(e)) from e
+
+    # A new key every time, so a replaced logo is never served from a cache
+    # that still holds the old one - objects go out immutable for a year.
+    # Random, NOT a timestamp: seconds are too coarse, and two uploads inside
+    # one second would land on the same key and quietly serve the old mark.
+    key = f"brand/{owner}/logo-{secrets.token_hex(4)}.png"
+    store = gallery_store.store()
+    store.put(key, made["png"], "image/png")
+
+    previous = _r().find("galleryBrand", {"id": owner})
+    _r().save("galleryBrand", {
+        "id": owner,
+        "logoKey": key,
+        "aspect": made["aspect"],
+        "filename": filename,
+        "updatedAt": time.time(),
+    })
+    for old in previous:
+        if old.get("logoKey") and old["logoKey"] != key:
+            try:
+                store.delete_prefix(old["logoKey"])
+            except gallery_store.StoreUnavailable:
+                pass  # a stale object is not worth failing the upload over
+    return {"ok": True, **get_brand(owner)}
+
+
+def clear_brand(owner=DEFAULT_OWNER):
+    brand = _r().find("galleryBrand", {"id": owner})
+    for old in brand:
+        if old.get("logoKey"):
+            try:
+                gallery_store.store().delete_prefix(old["logoKey"])
+            except gallery_store.StoreUnavailable:
+                pass
+    _r().remove("galleryBrand", owner)
+    return {"ok": True}
+
+
 def import_plan(gallery_id, frame_names):
     """What the client's answer means for THIS folder, right now.
 
@@ -604,6 +696,10 @@ def manifest(token):
             "name": gallery["name"],
             "locked": bool(gallery.get("lockedAt")),
             "albums": gallery["albums"],
+            # The photographer's mark, read live rather than copied onto the
+            # gallery when it was made: a new logo should reach the galleries
+            # that are already out in the world, not only the next one.
+            "brand": get_brand(gallery.get("ownerId") or DEFAULT_OWNER),
         },
         "items": [
             {
@@ -832,6 +928,14 @@ def _admin_route(method, path, body):
         return resolve_comment(
             body.get("galleryId"), body.get("commentId"), body.get("resolved", True)
         )
+    if action == "brand":
+        if method == "POST":
+            return set_brand(
+                body.get("owner"), body.get("logo"), body.get("filename") or ""
+            )
+        return get_brand(body.get("owner") or DEFAULT_OWNER) or {"logo": None}
+    if action == "brand-clear" and method == "POST":
+        return clear_brand(body.get("owner") or DEFAULT_OWNER)
     if action == "credentials" and method == "POST":
         return reissue_credentials(body.get("galleryId"))
     if action == "status" and method == "POST":
@@ -850,6 +954,16 @@ def _admin_route(method, path, body):
 def _client_route(method, slug, action, body, token):
     if action == "login" and method == "POST":
         return login(slug, body.get("username"), body.get("password"))
+    if action == "brand":
+        # Public on purpose: this is what dresses the sign-in card, which is
+        # shown before anyone has a session. It carries the photographer's mark
+        # and nothing about the client or the photographs.
+        gallery = _gallery_by_slug(slug)
+        return {
+            "name": gallery["name"],
+            "brand": get_brand(gallery.get("ownerId") or DEFAULT_OWNER),
+            "available": gallery["status"] == "active",
+        }
     if action == "manifest":
         return manifest(token)
     if action == "select" and method == "POST":

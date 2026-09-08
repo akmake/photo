@@ -42,10 +42,24 @@ export interface Item {
   notes: Note[];
 }
 
+/** The photographer's mark. Null when they have not uploaded one — the gallery
+ *  lays out cleanly without it, and a stand-in would put a stranger's identity
+ *  on someone's client-facing page. */
+export interface Brand {
+  logo: string;
+  aspect: number;
+}
+
 export interface Manifest {
-  gallery: { name: string; locked: boolean; albums: Album[] };
+  gallery: { name: string; locked: boolean; albums: Album[]; brand: Brand | null };
   items: Item[];
 }
+
+/** What dresses the sign-in card, before anyone has a session. */
+export const brandOf = (slug: string) =>
+  call<{ name: string; brand: Brand | null; available: boolean }>(
+    'GET', slug, 'brand', '',
+  );
 
 export interface AlbumFull {
   error: 'album_full';

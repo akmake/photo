@@ -39,7 +39,7 @@
 
 .gal-title {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: 10px;
   flex-wrap: wrap;
 }
@@ -49,6 +49,35 @@
   font-size: 17px;
   font-weight: 700;
   letter-spacing: -0.01em;
+}
+
+/* The photographer's mark.
+ *
+ * Sized by HEIGHT and never cropped: a wordmark and a round emblem share
+ * nothing but how tall they should sit, and `contain` is what keeps a wide
+ * logo from being squeezed into a square. No border, no background plate, no
+ * rounded corner — most logos arrive as a dark mark on transparency, and a
+ * white plate behind one is the single most common way software ruins a brand.
+ */
+.gal-mark {
+  height: 26px;
+  max-width: 4.4rem;
+  object-fit: contain;
+  object-position: right center;
+  display: block;
+  flex: 0 0 auto;
+}
+
+.gal-gate-mark {
+  display: flex;
+  justify-content: center;
+  padding-bottom: 4px;
+}
+.gal-gate-mark img {
+  height: 46px;
+  max-width: 13rem;
+  object-fit: contain;
+  display: block;
 }
 
 .gal-sub {
@@ -538,6 +567,8 @@
 @media (min-width: 760px) {
   .gal-head { padding: 14px 20px 10px; }
   .gal-title h1 { font-size: 20px; }
+  .gal-mark { height: 32px; max-width: 6rem; }
+  .gal-gate-mark img { height: 56px; }
   .gal-grid { padding: 6px; }
   .gal-stage { padding: 52px 24px 12px; }
 }

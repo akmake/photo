@@ -53,6 +53,7 @@ COLLECTIONS = {
     "galleries",       # a client gallery: credentials, albums, lock state
     "galleryItems",    # one published frame: keys, selection, versions
     "galleryComments", # a client's note, pinned to a point on one version
+    "galleryBrand",    # the photographer's mark, shown on their client galleries
 }
 
 _client = None

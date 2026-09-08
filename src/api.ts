@@ -1067,6 +1067,26 @@ export const galleryPublishVersion = (
   path: string,
 ) => post<{ n: number }>('/api/gallery/publish-version', { galleryId, itemId, path });
 
+export interface Brand {
+  logo: string;
+  aspect: number;
+  updatedAt?: number;
+}
+
+/** The photographer's mark, shown on every gallery they publish. Read live by
+ *  the manifest rather than copied onto a gallery when it is made, so a new
+ *  logo reaches the galleries already out in the world. */
+export const getBrand = (): Promise<{ logo: string | null; aspect?: number }> =>
+  post('/api/gallery/brand', {});
+
+/** `logo` is a data URL or bare base64 — the photographer picks the file in
+ *  their own browser, so this works the same whether the API is on this
+ *  machine or on a server. */
+export const setBrand = (logo: string, filename: string): Promise<Brand> =>
+  post('/api/gallery/brand', { logo, filename });
+
+export const clearBrand = () => post<{ ok: boolean }>('/api/gallery/brand-clear', {});
+
 export const galleryCredentials = (galleryId: string) =>
   post<{ username: string; password: string }>('/api/gallery/credentials', {
     galleryId,

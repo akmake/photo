@@ -13,13 +13,16 @@
  * project.json except through the store — see galleryLink.ts for why.
  */
 
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   galleryCredentials,
   galleryDelete,
   galleryPublishVersion,
   galleryResolve,
   gallerySetStatus,
+  getBrand,
+  setBrand,
+  clearBrand,
   galleryUnlock,
   createGallery,
 } from '../../api';
@@ -51,10 +54,112 @@ export default function ClientGallery({
   const watch = useGalleryWatch(projectId);
   const { link, state } = watch;
 
-  if (!link) {
-    return <Create projectId={projectId} clientName={clientName} />;
-  }
-  return <Live projectId={projectId} watch={watch} state={state} link={link} />;
+  return (
+    <>
+      {!link ? (
+        <Create projectId={projectId} clientName={clientName} />
+      ) : (
+        <Live projectId={projectId} watch={watch} state={state} link={link} />
+      )}
+      <Brand />
+    </>
+  );
+}
+
+/* ── the photographer's mark ───────────────────────────────────────────── */
+
+function Brand() {
+  const [logo, setLogo] = useState<string | null>(null);
+  const [loaded, setLoaded] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    getBrand()
+      .then((b) => setLogo(b.logo))
+      .catch(() => setError('לא ניתן לקרוא את הלוגו'))
+      .finally(() => setLoaded(true));
+  }, []);
+
+  const pick = async (file: File | undefined) => {
+    if (!file) return;
+    setError(null);
+    setBusy(true);
+    try {
+      const data = await new Promise<string>((resolve, reject) => {
+        const fr = new FileReader();
+        fr.onload = () => resolve(String(fr.result));
+        fr.onerror = () => reject(new Error('לא ניתן לקרוא את הקובץ'));
+        fr.readAsDataURL(file);
+      });
+      const out = await setBrand(data, file.name);
+      // A new key every upload, so the browser cannot serve the old mark from
+      // the year-long immutable cache the objects are sent with.
+      setLogo(out.logo);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'ההעלאה נכשלה');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (!loaded) return null;
+
+  return (
+    <div className="cg-brand">
+      <div className="cg-brand-head">
+        <strong>הלוגו שלך</strong>
+        <span className="cg-hint">
+          מופיע בכניסה ובראש הגלריה — <strong>בכל הגלריות שלך</strong>, גם אלה
+          שכבר נשלחו.
+        </span>
+      </div>
+
+      <div className="cg-brand-row">
+        {/* On a light plate AND a dark one: most logos are a single-colour mark
+            on transparency, and one that vanishes on dark is worth finding out
+            about here and not from a client. */}
+        <div className="cg-brand-preview">
+          {logo ? (
+            <>
+              <span className="cg-swatch is-light"><img src={logo} alt="" /></span>
+              <span className="cg-swatch is-dark"><img src={logo} alt="" /></span>
+            </>
+          ) : (
+            <span className="cg-brand-empty">אין לוגו — הגלריה תיראה נקייה בלעדיו</span>
+          )}
+        </div>
+
+        <div className="cg-brand-actions">
+          <label className={`btn${busy ? ' is-busy' : ''}`}>
+            {busy ? 'מעלה…' : logo ? 'החלף לוגו' : 'העלה לוגו'}
+            <input
+              type="file"
+              accept="image/png,image/jpeg,image/webp"
+              hidden
+              disabled={busy}
+              onChange={(e) => void pick(e.target.files?.[0])}
+            />
+          </label>
+          {logo && (
+            <button
+              className="btn"
+              disabled={busy}
+              onClick={() => void clearBrand().then(() => setLogo(null))}
+            >
+              הסר
+            </button>
+          )}
+        </div>
+      </div>
+
+      <p className="cg-hint">
+        PNG עם רקע שקוף נותן את התוצאה הטובה ביותר. הקובץ נשמר כ-PNG כדי לשמור
+        על השקיפות — לוגו שמגיע עם ריבוע לבן מסביבו נראה שבור על כל רקע.
+      </p>
+      {error && <p className="cg-error">{error}</p>}
+    </div>
+  );
 }
 
 /* ── before there is a gallery ─────────────────────────────────────────── */

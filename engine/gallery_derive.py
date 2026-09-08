@@ -77,6 +77,50 @@ def average_color(im):
     return f"#{r:02x}{g:02x}{b:02x}"
 
 
+LOGO_MAX = 800
+LOGO_MAX_BYTES = 4 * 1024 * 1024
+
+
+def derive_logo(data):
+    """A photographer's logo, normalised for the gallery.
+
+    Kept as PNG and NOT flattened: a logo is very often a dark mark on
+    transparency, and a logo that arrives with a white box around it looks
+    broken on every surface it is placed on. That box is the single most
+    common way brand marks are ruined by software, and it is one flag.
+
+    Capped at 800px on the long edge. A logo is displayed at 40-90px; anything
+    beyond this is a megabyte the client's phone downloads before it can see
+    the login form.
+    """
+    if len(data) > LOGO_MAX_BYTES:
+        raise ValueError("הקובץ גדול מדי (עד 4MB)")
+    try:
+        im = Image.open(io.BytesIO(data))
+        im.load()
+    except Exception as e:  # noqa: BLE001
+        raise ValueError("לא ניתן לקרוא את התמונה") from e
+
+    im = ImageOps.exif_transpose(im)
+    if im.mode not in ("RGBA", "LA", "P"):
+        im = im.convert("RGBA")
+    elif im.mode == "P":
+        im = im.convert("RGBA")
+
+    size = _fit(im.size, LOGO_MAX)
+    if im.size != size:
+        im = im.resize(size, Image.LANCZOS)
+
+    buf = io.BytesIO()
+    im.save(buf, "PNG", optimize=True)
+    return {
+        "png": buf.getvalue(),
+        "width": size[0],
+        "height": size[1],
+        "aspect": round(size[0] / float(size[1]), 4),
+    }
+
+
 def derive(path):
     """preview + thumb + placeholder colour for one frame.
 

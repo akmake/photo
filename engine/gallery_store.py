@@ -126,9 +126,16 @@ class LocalStore:
         return f"{self.public_base}/{key}"
 
     def delete_prefix(self, prefix):
+        """A whole gallery's folder, or one object. Both callers exist: a
+        gallery is deleted by prefix, a replaced logo by its exact key."""
         path = self._path(prefix)
         if os.path.isdir(path):
             shutil.rmtree(path, ignore_errors=True)
+        elif os.path.isfile(path):
+            try:
+                os.remove(path)
+            except OSError:
+                pass  # a stale object is not worth failing a delete over
 
 
 class S3Store:
