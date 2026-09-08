@@ -1,0 +1,328 @@
+/* Today V2 screen styling */
+.v2-today {
+  max-width: 1300px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+/* Hero section */
+.v2-today-hero {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 24px;
+  background: linear-gradient(135deg, rgba(14, 165, 233, 0.08), rgba(99, 102, 241, 0.04));
+  border: 1px solid var(--v2-border);
+  border-radius: var(--v2-radius-lg);
+}
+
+.v2-today-greeting h1 {
+  font-family: var(--v2-font-display);
+  font-size: 26px;
+  font-weight: 700;
+  margin: 0 0 6px 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--v2-text-primary);
+}
+
+.v2-today-greeting p {
+  margin: 0;
+  color: var(--v2-text-secondary);
+  font-size: 14px;
+}
+
+.v2-today-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+/* Metric Cards Grid */
+.v2-metrics-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 16px;
+}
+
+.v2-metric-card {
+  background: var(--v2-surface);
+  border: 1px solid var(--v2-border-subtle);
+  border-radius: var(--v2-radius-lg);
+  padding: 18px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  transition: transform var(--v2-transition-fast), border-color var(--v2-transition-fast);
+}
+
+.v2-metric-card:hover {
+  transform: translateY(-2px);
+  border-color: var(--v2-border);
+}
+
+.v2-metric-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  color: var(--v2-text-muted);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.v2-metric-icon {
+  width: 32px;
+  height: 32px;
+  border-radius: var(--v2-radius-md);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+}
+
+.v2-metric-value {
+  font-family: var(--v2-font-display);
+  font-size: 28px;
+  font-weight: 700;
+  color: var(--v2-text-primary);
+  line-height: 1;
+}
+
+.v2-metric-sub {
+  font-size: 12px;
+  color: var(--v2-text-secondary);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* Layout Columns */
+.v2-today-layout {
+  display: grid;
+  grid-template-columns: 1fr 340px;
+  gap: 20px;
+}
+
+.v2-today-main-col {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.v2-today-side-col {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+/* Cards & Panels */
+.v2-card {
+  background: var(--v2-surface);
+  border: 1px solid var(--v2-border-subtle);
+  border-radius: var(--v2-radius-lg);
+  overflow: hidden;
+}
+
+.v2-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--v2-border-subtle);
+}
+
+.v2-card-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--v2-text-primary);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.v2-card-link {
+  font-size: 13px;
+  color: var(--v2-brand);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+}
+
+.v2-card-link:hover {
+  text-decoration: underline;
+}
+
+/* Table styling */
+.v2-table {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: right;
+  font-size: 13px;
+}
+
+.v2-table th {
+  padding: 12px 20px;
+  color: var(--v2-text-muted);
+  font-weight: 500;
+  border-bottom: 1px solid var(--v2-border-subtle);
+  background: rgba(0, 0, 0, 0.15);
+}
+
+.v2-table td {
+  padding: 14px 20px;
+  border-bottom: 1px solid var(--v2-border-subtle);
+  color: var(--v2-text-secondary);
+}
+
+.v2-table tbody tr {
+  cursor: pointer;
+  transition: background var(--v2-transition-fast);
+}
+
+.v2-table tbody tr:hover {
+  background: var(--v2-surface-hover);
+}
+
+.v2-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.v2-project-row-info {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.v2-project-avatar {
+  width: 38px;
+  height: 38px;
+  border-radius: var(--v2-radius-md);
+  object-fit: cover;
+  background: var(--v2-surface-raised);
+}
+
+.v2-project-names {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.v2-project-names strong {
+  color: var(--v2-text-primary);
+  font-weight: 600;
+}
+
+.v2-project-names small {
+  color: var(--v2-text-muted);
+  font-size: 12px;
+}
+
+.v2-status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
+  border-radius: var(--v2-radius-full);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.v2-status-pill.work {
+  background: var(--v2-stage-edit-bg);
+  color: var(--v2-stage-edit);
+}
+
+.v2-status-pill.waiting {
+  background: var(--v2-stage-waiting-bg);
+  color: var(--v2-stage-waiting);
+}
+
+.v2-status-pill.shoot {
+  background: var(--v2-stage-shoot-bg);
+  color: var(--v2-stage-shoot);
+}
+
+.v2-status-pill.done {
+  background: var(--v2-stage-deliver-bg);
+  color: var(--v2-stage-deliver);
+}
+
+/* Progress bar */
+.v2-progress-bar-wrap {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 120px;
+}
+
+.v2-progress-track {
+  flex: 1;
+  height: 6px;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: var(--v2-radius-full);
+  overflow: hidden;
+}
+
+.v2-progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--v2-brand), #6366f1);
+  border-radius: var(--v2-radius-full);
+}
+
+.v2-progress-percent {
+  font-family: var(--v2-font-mono);
+  font-size: 12px;
+  color: var(--v2-text-muted);
+}
+
+/* Tasks & Side Widgets */
+.v2-task-list {
+  display: flex;
+  flex-direction: column;
+}
+
+.v2-task-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 20px;
+  border-bottom: 1px solid var(--v2-border-subtle);
+  cursor: pointer;
+  transition: background var(--v2-transition-fast);
+}
+
+.v2-task-item:hover {
+  background: var(--v2-surface-hover);
+}
+
+.v2-task-item:last-child {
+  border-bottom: none;
+}
+
+.v2-task-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.v2-task-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--v2-brand);
+}
+
+.v2-task-title {
+  color: var(--v2-text-primary);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.v2-task-due {
+  font-size: 12px;
+  color: var(--v2-text-muted);
+}

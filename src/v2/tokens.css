@@ -1,0 +1,84 @@
+/* ==========================================================================
+   TEZA V2 — DESIGN SYSTEM TOKENS
+   Modern, precision-crafted design tokens for photography studio workspace.
+   ========================================================================== */
+
+:root {
+  /* Surface colors — modern, crisp, balanced */
+  --v2-bg: #0d0f12;
+  --v2-bg-secondary: #13171d;
+  --v2-surface: #181d24;
+  --v2-surface-hover: #1f252f;
+  --v2-surface-active: #262d39;
+  --v2-surface-raised: #1d222b;
+  --v2-surface-card: rgba(24, 29, 36, 0.75);
+
+  /* Lines & Borders */
+  --v2-border-subtle: rgba(255, 255, 255, 0.07);
+  --v2-border: rgba(255, 255, 255, 0.12);
+  --v2-border-strong: rgba(255, 255, 255, 0.22);
+  --v2-border-focus: #3b82f6;
+
+  /* Typography / Text Inks */
+  --v2-text-primary: #f8fafc;
+  --v2-text-secondary: #94a3b8;
+  --v2-text-muted: #64748b;
+  --v2-text-dim: #475569;
+  --v2-text-inverse: #0f172a;
+
+  /* Primary Brand & Accents */
+  --v2-brand: #0ea5e9;
+  --v2-brand-hover: #38bdf8;
+  --v2-brand-active: #0284c7;
+  --v2-brand-surface: rgba(14, 165, 233, 0.12);
+  --v2-brand-glow: rgba(14, 165, 233, 0.25);
+  --v2-brand-contrast: #ffffff;
+
+  --v2-accent-gold: #f59e0b;
+  --v2-accent-gold-bg: rgba(245, 158, 11, 0.12);
+  --v2-accent-emerald: #10b981;
+  --v2-accent-emerald-bg: rgba(16, 185, 129, 0.12);
+  --v2-accent-rose: #f43f5e;
+  --v2-accent-rose-bg: rgba(244, 63, 94, 0.12);
+  --v2-accent-indigo: #6366f1;
+  --v2-accent-indigo-bg: rgba(99, 102, 241, 0.12);
+
+  /* Stage / Spectrum colors */
+  --v2-stage-shoot: #38bdf8;
+  --v2-stage-shoot-bg: rgba(56, 189, 248, 0.14);
+  --v2-stage-import: #818cf8;
+  --v2-stage-import-bg: rgba(129, 140, 248, 0.14);
+  --v2-stage-cull: #fb923c;
+  --v2-stage-cull-bg: rgba(251, 146, 60, 0.14);
+  --v2-stage-edit: #ec4899;
+  --v2-stage-edit-bg: rgba(236, 72, 153, 0.14);
+  --v2-stage-album: #a855f7;
+  --v2-stage-album-bg: rgba(168, 85, 247, 0.14);
+  --v2-stage-deliver: #10b981;
+  --v2-stage-deliver-bg: rgba(16, 185, 129, 0.14);
+  --v2-stage-waiting: #f59e0b;
+  --v2-stage-waiting-bg: rgba(245, 158, 11, 0.14);
+
+  /* Elevation / Shadows */
+  --v2-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
+  --v2-shadow-md: 0 4px 12px rgba(0, 0, 0, 0.35);
+  --v2-shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.45);
+  --v2-shadow-glow: 0 0 24px rgba(14, 165, 233, 0.18);
+
+  /* Border Radii */
+  --v2-radius-sm: 6px;
+  --v2-radius-md: 10px;
+  --v2-radius-lg: 14px;
+  --v2-radius-xl: 20px;
+  --v2-radius-full: 9999px;
+
+  /* Fonts */
+  --v2-font: 'Assistant', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --v2-font-display: 'Rubik', sans-serif;
+  --v2-font-mono: 'IBM Plex Mono', monospace;
+
+  /* Transitions */
+  --v2-ease: cubic-bezier(0.16, 1, 0.3, 1);
+  --v2-transition-fast: 150ms var(--v2-ease);
+  --v2-transition-normal: 220ms var(--v2-ease);
+}

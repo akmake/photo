@@ -38,6 +38,7 @@ const ColorMatch = lazy(() => import('./studio/screens/ColorMatch'));
  * and nothing was deleted to make room. */
 const ProjectBench = lazy(() => import('./studio/screens/ProjectBench'));
 const SetWorkbench = lazy(() => import('./studio/screens/SetWorkbench'));
+const V2App = lazy(() => import('./v2/V2App'));
 
 /* The rail carries ONE axis — the business. A project's stages live inside the
  * project, because they are only ever true of one project at a time.
@@ -122,9 +123,16 @@ export default function App() {
    * choice — and a tool that guesses its own layer is a tool that writes the
    * dance floor's colour onto the garden. */
   const [batch, setBatch] = useState<string | null>(null);
+  const [isV2, setIsV2] = useState<boolean>(() => {
+    return window.location.hash.startsWith('#/v2') || localStorage.getItem('photo_ui_version') === 'v2';
+  });
 
   useEffect(() => {
     const onHash = () => {
+      if (window.location.hash.startsWith('#/v2')) {
+        setIsV2(true);
+        return;
+      }
       const h = readHash();
       setSection(h.section);
       setStage(h.stage);
@@ -140,6 +148,7 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    if (isV2) return;
     const sub = colorMatch ? '/color' : bench ? '/bench' : workbench ? '/edit' : album ? '/album' : '';
     const want = section === 'project'
       ? `#/project/${projectId}${sub}`
@@ -151,7 +160,7 @@ export default function App() {
     if (window.location.hash !== want) {
       window.history.replaceState(null, '', want);
     }
-  }, [section, stage, projectId, colorMatch, workbench, bench, album, labView]);
+  }, [section, stage, projectId, colorMatch, workbench, bench, album, labView, isV2]);
 
   function openProject(id: string) {
     setProjectId(id);
@@ -202,6 +211,25 @@ export default function App() {
   const isDashboard = section === 'today';
   const isEditor = stage === 'gallery-edit' && !Standalone && !isLab;
   const isAlbum = stage === 'album-design' && !Standalone && !isLab;
+
+  if (isV2) {
+    return (
+      <Suspense fallback={<div className="screen-wait">טוען V2…</div>}>
+        <V2App
+          onSwitchToV1={() => {
+            setIsV2(false);
+            localStorage.setItem('photo_ui_version', 'v1');
+            window.location.hash = '#/today';
+          }}
+          onOpenProjectV1={(id) => {
+            setIsV2(false);
+            localStorage.setItem('photo_ui_version', 'v1');
+            openProject(id);
+          }}
+        />
+      </Suspense>
+    );
+  }
 
   let body: JSX.Element;
   let title = 'TEZA';
@@ -311,31 +339,62 @@ export default function App() {
   }
 
   return (
-    <Shell
-      // A project is a place INSIDE projects — the rail stays lit on the list.
-      section={section === 'project' ? 'projects' : section}
-      theme={section}
-      onSection={goSection}
-      stage={stage}
-      onStage={goStage}
-      title={title}
-      flush={
-        isDashboard || isEditor || isAlbum || isLab || isSmartCleanup || isExperiments
-        || Boolean(openedProject && (workbench || bench || album))
-      }
-      // Editing a photograph owns the whole window: the business rail comes off
-      // and the strip it used becomes the set being edited. The bench and the
-      // album both carry their own way back, so nothing is stranded.
-      rail={!(openedProject && (workbench || bench || album))}
-      bare={isDashboard || isAlbum || isLab || isSmartCleanup || isExperiments}
-      // Only the pre-direction project routes still carry the tab row.
-      stages={!Standalone && !openedProject}
-    >
-      {/* The wait only becomes visible after a beat (see .screen-wait) — a
-        * workspace that arrives in 40ms should not flash a loading line. */}
-      <Suspense fallback={<div className="screen-wait">טוען…</div>}>
-        {body}
-      </Suspense>
-    </Shell>
+    <>
+      <Shell
+        // A project is a place INSIDE projects — the rail stays lit on the list.
+        section={section === 'project' ? 'projects' : section}
+        theme={section}
+        onSection={goSection}
+        stage={stage}
+        onStage={goStage}
+        title={title}
+        flush={
+          isDashboard || isEditor || isAlbum || isLab || isSmartCleanup || isExperiments
+          || Boolean(openedProject && (workbench || bench || album))
+        }
+        // Editing a photograph owns the whole window: the business rail comes off
+        // and the strip it used becomes the set being edited. The bench and the
+        // album both carry their own way back, so nothing is stranded.
+        rail={!(openedProject && (workbench || bench || album))}
+        bare={isDashboard || isAlbum || isLab || isSmartCleanup || isExperiments}
+        // Only the pre-direction project routes still carry the tab row.
+        stages={!Standalone && !openedProject}
+      >
+        {/* The wait only becomes visible after a beat (see .screen-wait) — a
+          * workspace that arrives in 40ms should not flash a loading line. */}
+        <Suspense fallback={<div className="screen-wait">טוען…</div>}>
+          {body}
+        </Suspense>
+      </Shell>
+      <button
+        type="button"
+        onClick={() => {
+          setIsV2(true);
+          localStorage.setItem('photo_ui_version', 'v2');
+          window.location.hash = '#/v2';
+        }}
+        style={{
+          position: 'fixed',
+          bottom: '16px',
+          left: '16px',
+          zIndex: 99999,
+          background: 'linear-gradient(135deg, #0ea5e9, #6366f1)',
+          color: '#ffffff',
+          border: 'none',
+          padding: '8px 16px',
+          borderRadius: '9999px',
+          fontWeight: 600,
+          fontSize: '12px',
+          boxShadow: '0 4px 14px rgba(0, 0, 0, 0.4)',
+          cursor: 'pointer',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '6px',
+        }}
+      >
+        <span>✨</span>
+        <span>מעבר לעיצוב V2 החדש</span>
+      </button>
+    </>
   );
 }
