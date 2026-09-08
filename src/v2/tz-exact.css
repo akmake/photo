@@ -1,0 +1,838 @@
+/* ==========================================================================
+   TEZA AI — PIXEL PERFECT DESIGN SYSTEM
+   Exact recreation of the reference design
+   ========================================================================== */
+
+:root {
+  --tz-bg: #f8f8f8;
+  --tz-sidebar-bg: #ffffff;
+  --tz-card-bg: #ffffff;
+  
+  --tz-text-main: #18181b;
+  --tz-text-muted: #8e8e93;
+  --tz-text-sub: #52525b;
+
+  --tz-brand: #e86338;
+  --tz-brand-light: #fef1ec;
+  --tz-brand-stroke: #fcd5c7;
+  
+  --tz-btn-peach: #fbf2eb;
+  --tz-btn-peach-hover: #f7e6db;
+
+  --tz-green: #22c55e;
+  --tz-green-bg: #eafaf1;
+  --tz-green-border: #bbf0d4;
+
+  --tz-border: #f0f0f2;
+  --tz-border-darker: #e4e4e7;
+  
+  --tz-font: 'Assistant', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --tz-font-display: 'Rubik', sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+.tz-app {
+  display: flex;
+  height: 100vh;
+  width: 100vw;
+  overflow: hidden;
+  background-color: var(--tz-bg);
+  font-family: var(--tz-font);
+  color: var(--tz-text-main);
+  direction: rtl;
+}
+
+/* ==========================================================================
+   SIDEBAR (LEFT SIDE AS IN SCREENSHOT)
+   ========================================================================== */
+
+.tz-sidebar {
+  width: 230px;
+  min-width: 230px;
+  background: var(--tz-sidebar-bg);
+  border-left: 1px solid var(--tz-border);
+  display: flex;
+  flex-direction: column;
+  padding: 24px 14px 20px;
+  overflow-y: auto;
+  user-select: none;
+  order: 2; /* In RTL: order 2 places it on the LEFT side of the screen! */
+}
+
+.tz-main-wrapper {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  order: 1; /* Main content is on the right side of the screen in RTL */
+}
+
+/* Logo */
+.tz-logo-wrap {
+  padding: 0 10px 24px;
+  text-align: right;
+}
+
+.tz-logo-title {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  font-family: var(--tz-font-display);
+  font-size: 24px;
+  font-weight: 800;
+  letter-spacing: 1px;
+  color: #1a1a1a;
+  line-height: 1;
+}
+
+.tz-logo-ai {
+  font-family: 'Georgia', 'Brush Script MT', cursive, serif;
+  font-style: italic;
+  font-weight: 900;
+  font-size: 26px;
+  color: var(--tz-brand);
+}
+
+.tz-logo-subtitle {
+  font-size: 11px;
+  color: var(--tz-text-muted);
+  margin-top: 6px;
+}
+
+/* Nav Menu */
+.tz-nav-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+}
+
+.tz-nav-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 9px 12px;
+  border-radius: 8px;
+  color: var(--tz-text-sub);
+  font-size: 13.5px;
+  font-weight: 500;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  width: 100%;
+  text-align: right;
+  transition: all 0.15s ease;
+}
+
+.tz-nav-item:hover {
+  background: #f8f8f8;
+  color: #000;
+}
+
+.tz-nav-item.active {
+  color: var(--tz-text-main);
+  font-weight: 600;
+  background: #f5f5f5;
+}
+
+.tz-nav-icon {
+  width: 18px;
+  height: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #71717a;
+  flex-shrink: 0;
+}
+
+.tz-nav-item.active .tz-nav-icon {
+  color: #18181b;
+}
+
+.tz-ai-badge {
+  margin-right: auto;
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--tz-brand);
+  border: 1px solid var(--tz-brand);
+  border-radius: 4px;
+  padding: 0 4px;
+  line-height: 14px;
+}
+
+/* Sidebar Storage Card */
+.tz-storage-card {
+  background: #f7f7f8;
+  border-radius: 12px;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: auto;
+  margin-bottom: 12px;
+}
+
+.tz-storage-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--tz-text-sub);
+}
+
+.tz-storage-bar {
+  height: 5px;
+  background: #e4e4e7;
+  border-radius: 99px;
+  overflow: hidden;
+}
+
+.tz-storage-fill {
+  height: 100%;
+  background: var(--tz-brand);
+  border-radius: 99px;
+}
+
+.tz-storage-numbers {
+  font-size: 11px;
+  color: var(--tz-text-muted);
+}
+
+.tz-btn-storage-upgrade {
+  background: var(--tz-btn-peach);
+  border: none;
+  border-radius: 7px;
+  padding: 6px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #27272a;
+  cursor: pointer;
+  text-align: center;
+  transition: background 0.15s ease;
+}
+
+.tz-btn-storage-upgrade:hover {
+  background: var(--tz-btn-peach-hover);
+}
+
+.tz-help-link {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12.5px;
+  color: var(--tz-text-muted);
+  cursor: pointer;
+  padding: 6px 10px;
+  border: none;
+  background: transparent;
+}
+
+.tz-help-link:hover {
+  color: #000;
+}
+
+/* ==========================================================================
+   TOP BAR
+   ========================================================================== */
+
+.tz-topbar {
+  height: 56px;
+  min-height: 56px;
+  background: #ffffff;
+  border-bottom: 1px solid var(--tz-border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 32px;
+}
+
+.tz-topbar-back {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: #71717a;
+  cursor: pointer;
+  background: transparent;
+  border: none;
+  font-weight: 500;
+}
+
+.tz-topbar-back:hover {
+  color: #000;
+}
+
+.tz-topbar-title {
+  font-family: var(--tz-font-display);
+  font-size: 16px;
+  font-weight: 700;
+  color: #18181b;
+}
+
+.tz-topbar-user-area {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+}
+
+.tz-icon-button {
+  position: relative;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  color: #71717a;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px;
+}
+
+.tz-icon-button:hover {
+  color: #000;
+}
+
+.tz-badge-dot {
+  position: absolute;
+  top: 1px;
+  right: 1px;
+  width: 14px;
+  height: 14px;
+  background: var(--tz-brand);
+  color: #fff;
+  font-size: 9px;
+  font-weight: 700;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1.5px solid #fff;
+}
+
+.tz-user-avatar-wrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}
+
+.tz-user-img {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+.tz-user-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: #18181b;
+}
+
+/* ==========================================================================
+   TABS BAR
+   ========================================================================== */
+
+.tz-tabs-bar {
+  height: 52px;
+  min-height: 52px;
+  background: #ffffff;
+  border-bottom: 1px solid var(--tz-border);
+  display: flex;
+  align-items: center;
+  padding: 0 32px;
+  gap: 36px;
+}
+
+.tz-tab {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 100%;
+  font-size: 13.5px;
+  font-weight: 500;
+  color: #71717a;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  position: relative;
+  transition: color 0.15s ease;
+}
+
+.tz-tab:hover {
+  color: #18181b;
+}
+
+.tz-tab.active {
+  color: var(--tz-brand);
+  font-weight: 600;
+}
+
+.tz-tab.active::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: var(--tz-brand);
+}
+
+/* ==========================================================================
+   SCROLLABLE CONTENT & CARDS
+   ========================================================================== */
+
+.tz-content-scroll {
+  flex: 1;
+  overflow-y: auto;
+  padding: 24px 32px 40px;
+}
+
+.tz-status-screen {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  max-width: 1400px;
+  margin: 0 auto;
+}
+
+/* Overall Status Card */
+.tz-card {
+  background: var(--tz-card-bg);
+  border: 1px solid var(--tz-border);
+  border-radius: 14px;
+  padding: 22px 26px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.02);
+}
+
+.tz-overall-top {
+  text-align: right;
+  margin-bottom: 20px;
+}
+
+.tz-overall-title {
+  font-family: var(--tz-font-display);
+  font-size: 15px;
+  font-weight: 700;
+  color: #18181b;
+}
+
+.tz-overall-sub {
+  font-size: 12px;
+  color: var(--tz-text-muted);
+  margin-top: 2px;
+}
+
+.tz-overall-content {
+  display: flex;
+  align-items: center;
+  gap: 40px;
+}
+
+/* Gauge Left */
+.tz-gauge-box {
+  position: relative;
+  width: 105px;
+  height: 105px;
+  flex-shrink: 0;
+}
+
+.tz-gauge-box svg {
+  width: 100%;
+  height: 100%;
+  transform: rotate(-90deg);
+}
+
+.tz-gauge-center {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+
+.tz-gauge-val {
+  font-family: var(--tz-font-display);
+  font-size: 24px;
+  font-weight: 800;
+  color: #18181b;
+  line-height: 1;
+}
+
+.tz-gauge-txt {
+  font-size: 11px;
+  color: var(--tz-text-muted);
+  margin-top: 3px;
+}
+
+/* Milestones Track */
+.tz-milestones-track {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  position: relative;
+}
+
+.tz-track-line {
+  position: absolute;
+  top: 21px;
+  left: 30px;
+  right: 30px;
+  height: 2px;
+  background: #f0f0f2;
+  z-index: 1;
+}
+
+.tz-milestone-step {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  position: relative;
+  z-index: 2;
+  min-width: 80px;
+  text-align: center;
+}
+
+.tz-step-icon-wrap {
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  background: #fff;
+  transition: all 0.2s;
+}
+
+.tz-step-icon-wrap.done {
+  background: var(--tz-green-bg);
+  color: var(--tz-green);
+  border: 1.5px solid var(--tz-green-border);
+}
+
+.tz-step-icon-wrap.active {
+  background: var(--tz-brand);
+  color: #fff;
+  border: none;
+  box-shadow: 0 3px 10px rgba(232, 99, 56, 0.35);
+}
+
+.tz-step-icon-wrap.pending {
+  background: #ffffff;
+  color: #a1a1aa;
+  border: 1.5px solid #e4e4e7;
+}
+
+.tz-step-label {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #18181b;
+}
+
+.tz-step-status {
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.tz-step-status.done {
+  color: var(--tz-green);
+}
+
+.tz-step-status.active {
+  color: var(--tz-brand);
+}
+
+.tz-step-status.pending {
+  color: var(--tz-text-muted);
+}
+
+.tz-step-date {
+  font-size: 10.5px;
+  color: var(--tz-text-muted);
+}
+
+/* ==========================================================================
+   MIDDLE ROW: 3 COLUMNS (CLIENT, SUMMARY, RECENT ACTIVITY)
+   ========================================================================== */
+
+.tz-grid-3 {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 18px;
+}
+
+.tz-panel-title {
+  font-family: var(--tz-font-display);
+  font-size: 14px;
+  font-weight: 700;
+  color: #18181b;
+  text-align: center;
+  margin-bottom: 16px;
+}
+
+/* Client Card */
+.tz-client-header {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  margin-bottom: 18px;
+}
+
+.tz-client-photo {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+.tz-client-meta h3 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 700;
+  color: #18181b;
+}
+
+.tz-client-meta p {
+  margin: 2px 0 0;
+  font-size: 11.5px;
+  color: var(--tz-text-muted);
+}
+
+.tz-data-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 4px;
+  font-size: 12.5px;
+  color: var(--tz-text-sub);
+}
+
+.tz-data-row span:first-child {
+  color: var(--tz-text-muted);
+}
+
+.tz-data-row span:last-child {
+  font-weight: 600;
+  color: #18181b;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.tz-btn-peach {
+  width: 100%;
+  background: var(--tz-btn-peach);
+  border: none;
+  border-radius: 8px;
+  padding: 9px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #18181b;
+  cursor: pointer;
+  text-align: center;
+  margin-top: 14px;
+  transition: background 0.15s ease;
+}
+
+.tz-btn-peach:hover {
+  background: var(--tz-btn-peach-hover);
+}
+
+/* Summary Card */
+.tz-summary-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.tz-summary-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 7px 4px;
+  font-size: 12.5px;
+}
+
+.tz-summary-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #18181b;
+  font-weight: 600;
+}
+
+.tz-summary-right {
+  color: var(--tz-text-sub);
+}
+
+/* Activity Timeline */
+.tz-timeline {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  position: relative;
+  padding-right: 6px;
+}
+
+.tz-timeline-line {
+  position: absolute;
+  top: 8px;
+  bottom: 8px;
+  right: 15px;
+  width: 1.5px;
+  background: #f0f0f2;
+}
+
+.tz-timeline-item {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  position: relative;
+  z-index: 2;
+}
+
+.tz-timeline-left {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.tz-timeline-dot {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 9px;
+  background: #fff;
+  border: 1.5px solid #e4e4e7;
+  flex-shrink: 0;
+}
+
+.tz-timeline-dot.done {
+  background: var(--tz-green-bg);
+  border-color: var(--tz-green);
+  color: var(--tz-green);
+}
+
+.tz-timeline-dot.active {
+  background: var(--tz-brand-light);
+  border-color: var(--tz-brand);
+  color: var(--tz-brand);
+}
+
+.tz-timeline-text h4 {
+  margin: 0;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #18181b;
+}
+
+.tz-timeline-text p {
+  margin: 1px 0 0;
+  font-size: 11px;
+  color: var(--tz-text-muted);
+}
+
+.tz-timeline-time {
+  font-size: 10.5px;
+  color: var(--tz-text-muted);
+  text-align: left;
+  line-height: 1.3;
+}
+
+/* ==========================================================================
+   BOTTOM ROW: 2 COLUMNS (MESSAGE & LINK)
+   ========================================================================== */
+
+.tz-grid-2 {
+  display: grid;
+  grid-template-columns: 1.2fr 1fr;
+  gap: 18px;
+}
+
+.tz-box-title {
+  font-family: var(--tz-font-display);
+  font-size: 14px;
+  font-weight: 700;
+  color: #18181b;
+  text-align: right;
+}
+
+.tz-box-sub {
+  font-size: 11.5px;
+  color: var(--tz-text-muted);
+  text-align: right;
+  margin-top: 2px;
+}
+
+.tz-input-action-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.tz-input-wrap {
+  flex: 1;
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.tz-input {
+  width: 100%;
+  background: #ffffff;
+  border: 1px solid var(--tz-border-darker);
+  border-radius: 8px;
+  padding: 8px 12px 8px 36px;
+  font-size: 12.5px;
+  font-family: inherit;
+  color: #18181b;
+  outline: none;
+}
+
+.tz-input:focus {
+  border-color: var(--tz-brand);
+}
+
+.tz-input-icon-btn {
+  position: absolute;
+  left: 8px;
+  background: transparent;
+  border: none;
+  color: #71717a;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.tz-btn-peach-inline {
+  background: var(--tz-btn-peach);
+  border: none;
+  border-radius: 8px;
+  padding: 8px 14px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #18181b;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+  transition: background 0.15s ease;
+}
+
+.tz-btn-peach-inline:hover {
+  background: var(--tz-btn-peach-hover);
+}

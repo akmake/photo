@@ -1,224 +1,159 @@
 import React, { useState } from 'react';
-import { useStudio } from '../studio/store';
-import ProjectClientStatusV2 from './screens/ProjectClientStatusV2';
-import TodayV2 from './screens/TodayV2';
-import './v2.css';
+import TzStatusScreen from './screens/TzStatusScreen';
+import {
+  TzIconBag, TzIconBell, TzIconBook, TzIconChart, TzIconCloud,
+  TzIconFilter, TzIconFolder, TzIconGallery, TzIconGear, TzIconHeart,
+  TzIconHelp, TzIconHome, TzIconSliders, TzIconUsers,
+} from './TzIcons';
+import './tz-exact.css';
 
 interface V2AppProps {
   onSwitchToV1: () => void;
-  onOpenProjectV1: (id: string) => void;
+  onOpenProjectV1?: (id: string) => void;
 }
 
-export default function V2App({ onSwitchToV1, onOpenProjectV1 }: V2AppProps) {
-  const [activeSection, setActiveSection] = useState<'home' | 'project-status' | string>('project-status');
-  const [activeStage, setActiveStage] = useState('client-status');
-  const studio = useStudio();
-
-  // Pick first project from store or fallback
-  const currentProject = studio.projects[0];
+export default function V2App({ onSwitchToV1 }: V2AppProps) {
+  const [activeNav, setActiveNav] = useState('projects');
+  const [activeTab, setActiveTab] = useState('status');
 
   const NAV_ITEMS = [
-    { id: 'home', label: 'דף הבית', icon: '🏠' },
-    { id: 'projects', label: 'פרויקטים', icon: '📁' },
-    { id: 'galleries', label: 'גלריות', icon: '🖼️' },
-    { id: 'culling', label: 'סינון גלריה', icon: '🌪️', ai: true },
-    { id: 'editing', label: 'עיבוד גלריה', icon: '⚙️' },
-    { id: 'albums', label: 'עיצוב אלבומים', icon: '📖' },
-    { id: 'clients', label: 'לקוחות', icon: '👥' },
-    { id: 'orders', label: 'הזמנות ומוצרים', icon: '🛍️' },
-    { id: 'reports', label: 'דוחות', icon: '📊' },
-    { id: 'settings', label: 'הגדרות', icon: '⚙️' },
+    { id: 'home', label: 'דף הבית', icon: TzIconHome },
+    { id: 'projects', label: 'פרויקטים', icon: TzIconFolder },
+    { id: 'galleries', label: 'גלריות', icon: TzIconGallery },
+    { id: 'culling', label: 'סינון גלריה', icon: TzIconFilter, isAi: true },
+    { id: 'editing', label: 'עיבוד גלריה', icon: TzIconSliders },
+    { id: 'albums', label: 'עיצוב אלבומים', icon: TzIconBook },
+    { id: 'clients', label: 'לקוחות', icon: TzIconUsers },
+    { id: 'orders', label: 'הזמנות ומוצרים', icon: TzIconBag },
+    { id: 'reports', label: 'דוחות', icon: TzIconChart },
+    { id: 'settings', label: 'הגדרות', icon: TzIconGear },
   ];
 
   const STAGE_TABS = [
-    { id: 'client-status', label: 'סטטוס לקוח', icon: '👥' },
-    { id: 'gallery-upload', label: 'העלאת גלריה', icon: '☁️' },
-    { id: 'gallery-cull', label: 'סינון גלריה', icon: '🌪️' },
-    { id: 'gallery-picked', label: 'תמונות שנבחרו', icon: '💚' },
-    { id: 'gallery-edit', label: 'עיבוד גלריה', icon: '⚙️' },
-    { id: 'album-design', label: 'עיצוב אלבום', icon: '📖' },
+    { id: 'status', label: 'סטטוס לקוח', icon: TzIconUsers },
+    { id: 'upload', label: 'העלאת גלריה', icon: TzIconCloud },
+    { id: 'cull', label: 'סינון גלריה', icon: TzIconFilter },
+    { id: 'picked', label: 'תמונות שנבחרו', icon: TzIconHeart },
+    { id: 'edit', label: 'עיבוד גלריה', icon: TzIconSliders },
+    { id: 'album', label: 'עיצוב אלבום', icon: TzIconBook },
   ];
 
-  function renderContent() {
-    if (activeSection === 'home') {
-      return (
-        <TodayV2
-          onNavigate={(sec) => {
-            if (sec === 'projects') setActiveSection('project-status');
-            else setActiveSection(sec);
-          }}
-          onOpenProject={(id) => onOpenProjectV1(id)}
-        />
-      );
-    }
-
-    if (activeSection === 'project-status') {
-      return (
-        <ProjectClientStatusV2
-          project={currentProject}
-          onNavigateStage={(st) => setActiveStage(st)}
-        />
-      );
-    }
-
-    return (
-      <div style={{ padding: '80px', textAlign: 'center', color: 'var(--v2-text-muted)' }}>
-        <h2 style={{ color: 'var(--v2-text-primary)', marginBottom: '8px', fontSize: '22px' }}>
-          {NAV_ITEMS.find((i) => i.id === activeSection)?.label || activeSection}
-        </h2>
-        <p>המסך הזה יעוצב בהמשך לפי הסדר ובאותה שפה ויזואלית מדויקת.</p>
-        <button
-          className="v2-action-pill"
-          style={{ marginTop: '20px' }}
-          onClick={() => setActiveSection('project-status')}
-        >
-          ← חזרה למסך סטטוס פרויקט
-        </button>
-      </div>
-    );
-  }
-
-  const projectTitle = currentProject
-    ? `${currentProject.client} – ${currentProject.event || 'בת מצווה'}`
-    : 'מלי כץ – בת מצווה';
-
   return (
-    <div className="v2-app">
-      {/* Sidebar */}
-      <aside className="v2-rail">
-        <div className="v2-brand-block">
-          <div className="v2-logo-row">
+    <div className="tz-app">
+      {/* 1. SIDEBAR (Placed on Left) */}
+      <aside className="tz-sidebar">
+        {/* Logo */}
+        <div className="tz-logo-wrap">
+          <div className="tz-logo-title">
             <span>TEZA</span>
-            <span className="v2-logo-ai">AI</span>
+            <span className="tz-logo-ai">AI</span>
           </div>
-          <span className="v2-logo-tagline">מערכת ההפעלה של הצלמת</span>
+          <div className="tz-logo-subtitle">מערכת ההפעלה של הצלמת</div>
         </div>
 
-        {/* Navigation items list */}
-        <div className="v2-nav-list">
-          {NAV_ITEMS.map((item) => (
-            <button
-              key={item.id}
-              type="button"
-              className={`v2-nav-item ${
-                (item.id === 'home' && activeSection === 'home') ||
-                (item.id === 'projects' && activeSection === 'project-status') ||
-                activeSection === item.id
-                  ? 'active'
-                  : ''
-              }`}
-              onClick={() => {
-                if (item.id === 'projects') setActiveSection('project-status');
-                else setActiveSection(item.id);
-              }}
-            >
-              <span className="v2-nav-item-icon">{item.icon}</span>
-              <span>{item.label}</span>
-              {item.ai && (
-                <span
-                  style={{
-                    marginRight: 'auto',
-                    fontSize: '10px',
-                    fontWeight: 700,
-                    color: 'var(--v2-brand)',
-                    background: 'var(--v2-brand-soft)',
-                    padding: '2px 5px',
-                    borderRadius: '4px',
-                  }}
-                >
-                  AI
-                </span>
-              )}
-            </button>
-          ))}
-        </div>
+        {/* Navigation items */}
+        <nav className="tz-nav-list">
+          {NAV_ITEMS.map((item) => {
+            const Icon = item.icon;
+            const isActive = activeNav === item.id;
+            return (
+              <button
+                key={item.id}
+                type="button"
+                className={`tz-nav-item ${isActive ? 'active' : ''}`}
+                onClick={() => setActiveNav(item.id)}
+              >
+                <span className="tz-nav-icon"><Icon size={17} /></span>
+                <span>{item.label}</span>
+                {item.isAi && <span className="tz-ai-badge">AI</span>}
+              </button>
+            );
+          })}
+        </nav>
 
-        {/* Footer with Cloud Storage & Help */}
-        <div className="v2-rail-footer">
-          <div className="v2-storage-card">
-            <div className="v2-storage-header">
-              <span>☁️</span>
-              <span>אחסון בענן</span>
-            </div>
-            <div className="v2-storage-bar">
-              <div className="v2-storage-bar-fill" style={{ width: '39%' }} />
-            </div>
-            <div className="v2-storage-info">
-              <span>782 GB מתוך 2 TB</span>
-            </div>
-            <button className="v2-storage-upgrade-btn" type="button">
-              שדרוג חבילה
-            </button>
+        {/* Cloud Storage Card */}
+        <div className="tz-storage-card">
+          <div className="tz-storage-title">
+            <TzIconCloud size={14} /> אחסון בענן
           </div>
-
-          <button className="v2-help-link" type="button" onClick={onSwitchToV1} title="חזרה לעיצוב V1">
-            <span>↺</span>
-            <span>חזרה לעיצוב הקלאסי (V1)</span>
-          </button>
-
-          <button className="v2-help-link" type="button">
-            <span>❓</span>
-            <span>מרכז עזרה</span>
+          <div className="tz-storage-bar">
+            <div className="tz-storage-fill" style={{ width: '39%' }} />
+          </div>
+          <div className="tz-storage-numbers">782 GB מתוך 2 TB</div>
+          <button className="tz-btn-storage-upgrade" type="button">
+            שדרוג חבילה
           </button>
         </div>
+
+        {/* Switch back to V1 */}
+        <button
+          className="tz-help-link"
+          type="button"
+          onClick={onSwitchToV1}
+          style={{ marginBottom: '4px', fontSize: '11.5px', color: '#a1a1aa' }}
+        >
+          <span>↺</span> חזרה לעיצוב קודם
+        </button>
+
+        {/* Help Center */}
+        <button className="tz-help-link" type="button">
+          <TzIconHelp size={15} /> מרכז עזרה
+        </button>
       </aside>
 
-      {/* Main Area */}
-      <div className="v2-main-area">
+      {/* 2. MAIN CONTENT WRAPPER */}
+      <div className="tz-main-wrapper">
         {/* Top Header */}
-        <header className="v2-top-header">
-          <button
-            className="v2-header-back"
-            type="button"
-            onClick={() => setActiveSection('home')}
-          >
-            <span>‹</span>
-            <span>חזרה לפרויקט</span>
+        <header className="tz-topbar">
+          <button className="tz-topbar-back" type="button" onClick={onSwitchToV1}>
+            <span>‹</span> חזרה לפרויקט
           </button>
 
-          <div className="v2-header-center-title">
-            {projectTitle}
+          <div className="tz-topbar-title">
+            מלי כץ – בת מצווה
           </div>
 
-          <div className="v2-header-right">
-            <button className="v2-header-icon-btn" type="button" title="התראות">
-              <span>🔔</span>
-              <span className="v2-notif-badge">3</span>
+          <div className="tz-topbar-user-area">
+            <button className="tz-icon-button" type="button" title="התראות">
+              <TzIconBell size={18} />
+              <span className="tz-badge-dot">3</span>
             </button>
-            <button className="v2-header-icon-btn" type="button" title="עזרה">
-              <span>❓</span>
+            <button className="tz-icon-button" type="button" title="עזרה">
+              <TzIconHelp size={18} />
             </button>
-            <div className="v2-user-pill">
+            <div className="tz-user-avatar-wrap">
               <img
-                src="https://images.unsplash.com/photo-1544005313-94ddf0286df2?auto=format&fit=crop&w=100&q=80"
-                alt=""
-                className="v2-user-avatar"
+                src="https://images.unsplash.com/photo-1544005313-94ddf0286df2?auto=format&fit=crop&w=80&q=80"
+                alt="שירה"
+                className="tz-user-img"
               />
-              <span className="v2-user-name">שירה</span>
+              <span className="tz-user-name">שירה</span>
             </div>
           </div>
         </header>
 
-        {/* Stages Tabs Bar (Only when in project view) */}
-        {activeSection === 'project-status' && (
-          <nav className="v2-stages-tabs-bar">
-            {STAGE_TABS.map((tab) => (
+        {/* Stage Tabs Bar */}
+        <nav className="tz-tabs-bar">
+          {STAGE_TABS.map((tab) => {
+            const Icon = tab.icon;
+            const isActive = activeTab === tab.id;
+            return (
               <button
                 key={tab.id}
                 type="button"
-                className={`v2-stage-tab ${activeStage === tab.id ? 'active' : ''}`}
-                onClick={() => setActiveStage(tab.id)}
+                className={`tz-tab ${isActive ? 'active' : ''}`}
+                onClick={() => setActiveTab(tab.id)}
               >
-                <span>{tab.icon}</span>
+                <Icon size={16} />
                 <span>{tab.label}</span>
               </button>
-            ))}
-          </nav>
-        )}
+            );
+          })}
+        </nav>
 
-        {/* Scrollable Content View */}
-        <main className="v2-content-scroll">
-          {renderContent()}
+        {/* Content Area */}
+        <main className="tz-content-scroll">
+          <TzStatusScreen />
         </main>
       </div>
     </div>
