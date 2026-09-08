@@ -39,6 +39,7 @@ export type SectionId =
   | 'clients'
   | 'calendar'
   | 'experiments'
+  | 'smart-cleanup'
   | 'lab'
   | 'settings'
   /* Not rail destinations. Still reachable by hash while the screens that will
@@ -73,6 +74,7 @@ export const SECTIONS: SectionDef[] = [
   { id: 'projects', label: 'פרויקטים', icon: 'folder' },
   { id: 'clients', label: 'לקוחות', icon: 'users' },
   { id: 'calendar', label: 'יומן', icon: 'calendar' },
+  { id: 'smart-cleanup', label: 'ניקוי חכם', icon: 'smart-cleanup' },
   { id: 'lab', label: 'מעבדה', icon: 'lab' },
   { id: 'experiments', label: 'כלים בניסיון', icon: 'flask' },
   { id: 'settings', label: 'הגדרות', icon: 'gear', foot: true },

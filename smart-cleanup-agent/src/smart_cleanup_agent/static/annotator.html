@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>סימון פגמים מדויק</title>
+  <style>
+    :root { color-scheme: dark; font-family: Arial, sans-serif; }
+    body { margin: 0; background:#101217; color:#f5f7fa; }
+    header, .controls { padding:14px 20px; display:flex; gap:12px; align-items:center; flex-wrap:wrap; }
+    header { border-bottom:1px solid #303640; }
+    button, select, input { font:inherit; padding:9px 12px; border-radius:8px; border:1px solid #49515e; background:#20252d; color:white; }
+    button.active { outline:3px solid #ffd166; }
+    #save { background:#217a45; }
+    #stage { margin:0 20px 20px; overflow:auto; height:calc(100vh - 155px); background:#080a0d; border:1px solid #303640; }
+    canvas { display:block; cursor:crosshair; transform-origin:top left; }
+    .legend { color:#aab2bf; }
+  </style>
+</head>
+<body>
+  <header><strong>סימון פגם שלם ברמת פיקסל</strong><span class="legend">אדום: פגם להסרה · כחול: אזור שאסור לגעת בו</span></header>
+  <div class="controls">
+    <input id="file" type="file" accept="image/*">
+    <button data-tool="defect" class="active">פגם</button>
+    <button data-tool="protect">הגנה</button>
+    <button data-tool="erase">מחק</button>
+    <label>גודל <input id="size" type="range" min="1" max="80" value="14"></label>
+    <label>זום <input id="zoom" type="range" min="25" max="400" value="100"></label>
+    <select id="type"><option value="wound_scab">פצע/גלד</option><option value="blemish">פצעון</option><option value="scratch">שריטה</option><option value="dirt_food">לכלוך/אוכל</option><option value="saliva_mucus">רוק/נזלת</option><option value="other">אחר</option></select>
+    <select id="split"><option value="train">אימון</option><option value="validation">אימות</option><option value="test">בדיקה</option></select>
+    <button id="clear">נקה סימון</button><button id="save">שמור דוגמה</button><span id="status"></span>
+  </div>
+  <div id="stage"><canvas id="view"></canvas></div>
+  <script>
+    const view=document.querySelector('#view'), ctx=view.getContext('2d');
+    const marks=document.createElement('canvas'), mctx=marks.getContext('2d',{willReadFrequently:true});
+    let source=null, file=null, tool='defect', drawing=false, last=null;
+    document.querySelector('#file').onchange=e=>{ file=e.target.files[0]; if(!file)return; const img=new Image(); img.onload=()=>{source=img; view.width=marks.width=img.naturalWidth; view.height=marks.height=img.naturalHeight; mctx.clearRect(0,0,marks.width,marks.height); render();}; img.src=URL.createObjectURL(file); };
+    document.querySelectorAll('[data-tool]').forEach(b=>b.onclick=()=>{tool=b.dataset.tool;document.querySelectorAll('[data-tool]').forEach(x=>x.classList.toggle('active',x===b));});
+    document.querySelector('#zoom').oninput=e=>view.style.transform=`scale(${e.target.value/100})`;
+    function render(){ if(!source)return;ctx.clearRect(0,0,view.width,view.height);ctx.drawImage(source,0,0);ctx.globalAlpha=.55;ctx.drawImage(marks,0,0);ctx.globalAlpha=1; }
+    function point(e){const r=view.getBoundingClientRect(),z=+document.querySelector('#zoom').value/100;return{x:(e.clientX-r.left)/z,y:(e.clientY-r.top)/z};}
+    function draw(a,b){const size=+document.querySelector('#size').value;mctx.save();mctx.lineCap='round';mctx.lineJoin='round';mctx.lineWidth=size;if(tool==='erase'){mctx.globalCompositeOperation='destination-out';mctx.strokeStyle='black';}else{mctx.globalCompositeOperation='source-over';mctx.strokeStyle=tool==='defect'?'rgb(255,0,0)':'rgb(0,0,255)';}mctx.beginPath();mctx.moveTo(a.x,a.y);mctx.lineTo(b.x,b.y);mctx.stroke();mctx.restore();render();}
+    view.onpointerdown=e=>{drawing=true;last=point(e);view.setPointerCapture(e.pointerId);draw(last,last);};view.onpointermove=e=>{if(!drawing)return;const p=point(e);draw(last,p);last=p;};view.onpointerup=()=>drawing=false;
+    document.querySelector('#clear').onclick=()=>{mctx.clearRect(0,0,marks.width,marks.height);render();};
+    function masks(){const data=mctx.getImageData(0,0,marks.width,marks.height).data;const d=document.createElement('canvas'),p=document.createElement('canvas');d.width=p.width=marks.width;d.height=p.height=marks.height;const dc=d.getContext('2d'),pc=p.getContext('2d'),di=dc.createImageData(d.width,d.height),pi=pc.createImageData(p.width,p.height);for(let i=0;i<data.length;i+=4){const dv=data[i]>100&&data[i+2]<100?255:0,pv=data[i+2]>100&&data[i]<100?255:0;di.data.set([dv,dv,dv,255],i);pi.data.set([pv,pv,pv,255],i);}dc.putImageData(di,0,0);pc.putImageData(pi,0,0);return Promise.all([new Promise(r=>d.toBlob(r,'image/png')),new Promise(r=>p.toBlob(r,'image/png'))]);}
+    document.querySelector('#save').onclick=async()=>{if(!source)return;const status=document.querySelector('#status');status.textContent='שומר...';const [defect,protect]=await masks(),form=new FormData();form.append('image',file);form.append('defect_mask',defect,'defect.png');form.append('protected_mask',protect,'protected.png');form.append('defect_type',document.querySelector('#type').value);form.append('split',document.querySelector('#split').value);const res=await fetch('/v1/annotations',{method:'POST',body:form});const body=await res.json();status.textContent=res.ok?'נשמר: '+body.id:(body.detail||'שגיאה');};
+  </script>
+</body>
+</html>

@@ -1,0 +1,129 @@
+{
+  "access_date": "2026-09-07",
+  "sources": [
+    {
+      "label": "RetouchFormer: Semi-supervised High-Quality Face Retouching Transformer with Prior-Based Selective Self-Attention | Xue ואחרים, AAAI 2024; מאגר המחברים, נבדק 7.9.2026",
+      "url": "https://github.com/Davidcoach/RetouchFormer_AAAI_24",
+      "page": 1
+    },
+    {
+      "label": "Working With The Healing Brush Tool | Lulie Talmor, Retouching Academy; תאריך מוצג 4.9.2020",
+      "url": "https://retouchingacademy.com/working-with-the-healing-brush-tool/",
+      "page": 2
+    },
+    {
+      "label": "Dodge and Burn: Working with Micro Transitions | Julia McKim, Retouching Academy; תאריך מוצג 21.1.2019",
+      "url": "https://retouchingacademy.com/dodge-burn-working-with-micro-transitions/",
+      "page": 2
+    },
+    {
+      "label": "30 Days of Photoshop: Frequency Separation | Aaron Nace, PHLEARN, 25.1.2020",
+      "url": "https://phlearn.com/tutorial/30-days-photoshop-frequency-separation/",
+      "page": 2
+    },
+    {
+      "label": "Pratik’s Retouching Guide | Pratik Naik, The Portrait Masters, עמ׳ 5-6; ללא תאריך מודפס",
+      "url": "https://theportraitmasters.com/wp-content/uploads/2019/11/Pratiks-Retouching-Guide-PDF-download.pdf",
+      "page": 2
+    },
+    {
+      "label": "Healing brush examples | Adobe, עודכן 24.5.2023",
+      "url": "https://helpx.adobe.com/photoshop/using/healing-examples.html",
+      "page": 3
+    },
+    {
+      "label": "Working With The Healing Brush Tool | Lulie Talmor, Retouching Academy",
+      "url": "https://retouchingacademy.com/working-with-the-healing-brush-tool/",
+      "page": 3
+    },
+    {
+      "label": "Pratik’s Retouching Guide | Pratik Naik, The Portrait Masters",
+      "url": "https://theportraitmasters.com/wp-content/uploads/2019/11/Pratiks-Retouching-Guide-PDF-download.pdf",
+      "page": 3
+    },
+    {
+      "label": "RetouchFormer | Xue ואחרים, AAAI 2024, מאגר המחברים",
+      "url": "https://github.com/Davidcoach/RetouchFormer_AAAI_24",
+      "page": 4
+    },
+    {
+      "label": "RetouchFormer: core/dataset.py | קוד המחברים, נבדק 7.9.2026",
+      "url": "https://raw.githubusercontent.com/Davidcoach/RetouchFormer_AAAI_24/main/core/dataset.py",
+      "page": 4
+    },
+    {
+      "label": "RetouchGPT: LLM-based Interactive High-Fidelity Face Retouching via Imperfection Prompting | Xue ואחרים, AAAI 2025, מאגר רשמי",
+      "url": "https://github.com/Davidcoach/RetouchGPT",
+      "page": 4
+    },
+    {
+      "label": "BeautyGRPO | Yang ואחרים, 2026, מאגר vivoCameraResearch",
+      "url": "https://github.com/vivoCameraResearch/BeautyGRPO",
+      "page": 4
+    },
+    {
+      "label": "BeautyGRPO: Aesthetic Alignment for Face Retouching via Dynamic Path Guidance and Fine-Grained Preference Modeling | מאמר המחברים, 1.3.2026",
+      "url": "https://arxiv.org/html/2603.01163v1",
+      "page": 4
+    },
+    {
+      "label": "FLUX.1-Kontext-dev | Black Forest Labs, כרטיס מודל ותנאי בסיס; נבדק 7.9.2026",
+      "url": "https://huggingface.co/black-forest-labs/FLUX.1-Kontext-dev",
+      "page": 4
+    },
+    {
+      "label": "Blemish-Aware and Progressive Face Retouching With Limited Paired Data | Xie ואחרים, CVPR 2023",
+      "url": "https://openaccess.thecvf.com/content/CVPR2023/papers/Xie_Blemish-Aware_and_Progressive_Face_Retouching_With_Limited_Paired_Data_CVPR_2023_paper.pdf",
+      "page": 5
+    },
+    {
+      "label": "AutoRetouch: Automatic Professional Face Retouching | Shafaei ואחרים, WACV 2021",
+      "url": "https://openaccess.thecvf.com/content/WACV2021/papers/Shafaei_AutoRetouch_Automatic_Professional_Face_Retouching_WACV_2021_paper.pdf",
+      "page": 5
+    },
+    {
+      "label": "FFHQR dataset | Skylab, מאגר רשמי ותנאי נתונים; נבדק 7.9.2026",
+      "url": "https://github.com/skylab-tech/ffhqr-dataset",
+      "page": 5
+    },
+    {
+      "label": "Face Retouching with Diffusion Data Generation and Spectral Restorement | Xu, Zhang, Lu, ICCV 2025",
+      "url": "https://openaccess.thecvf.com/content/ICCV2025/papers/Xu_Face_Retouching_with_Diffusion_Data_Generation_and_Spectral_Restorement_ICCV_2025_paper.pdf",
+      "page": 5
+    },
+    {
+      "label": "CRHD-3K / ABPN | Lei ואחרים, CVPR 2022, מאגר המחברים",
+      "url": "https://github.com/youngLBW/CRHD-3K",
+      "page": 5
+    },
+    {
+      "label": "Skin retouching pipeline | ModelScope, קוד רשמי; נבדק 7.9.2026",
+      "url": "https://raw.githubusercontent.com/modelscope/modelscope/master/modelscope/pipelines/cv/skin_retouching_pipeline.py",
+      "page": 5
+    },
+    {
+      "label": "Controllable and Gradual Facial Blemishes Retouching via Physics-Based Modelling | Shuai ואחרים, ICME 2024; פורסם 19.6.2024",
+      "url": "https://arxiv.org/html/2406.13227v1",
+      "page": 6
+    },
+    {
+      "label": "PatchMatch: A Randomized Correspondence Algorithm for Structural Image Editing | Barnes ואחרים, SIGGRAPH 2009, דף מחברים",
+      "url": "https://gfx.cs.princeton.edu/pubs/Barnes_2009_PAR/",
+      "page": 6
+    }
+  ],
+  "provenance": "Primary papers, author repositories, official Adobe documentation and first-party professional tutorials. Parent spot checks: turn20view0-2, turn21view0-2. Earlier parent evidence: turn19view0-2, turn12view1-2, turn14search12-13.",
+  "gaps": {
+    "weights": "Download and runtime not verified for candidates",
+    "ICCV2025": "Full PDF returned 403 twice; primary indexed content only",
+    "quality": "No candidate tested on user image during research",
+    "causality": "Artifact mechanisms are hypotheses, not isolated causal measurements of project code"
+  },
+  "search_log": [
+    "Professional healing, frequency separation and dodge-and-burn first-party tutorials; read Adobe, Retouching Academy, PHLEARN and Pratik Naik",
+    "Author paper and code searches for AutoRetouch, BPFRe, RetouchFormer, ABPN/ModelScope and BeautyGRPO; follow-up raw inference and loader code",
+    "CGFR primary full text; ICCV 2025 spectral method primary indexed text; PatchMatch author page",
+    "Parent verification of RetouchFormer repository/loader and BeautyGRPO paper/base card; followed official successor link to RetouchGPT"
+  ],
+  "stopping_reason": "Main decision slots supported; remaining gaps require checkpoint access and subsequent image evaluation, not further broad discovery."
+}

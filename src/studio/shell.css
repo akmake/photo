@@ -707,3 +707,328 @@
     padding: 0;
   }
 }
+
+/* --------------------------------------------------------------------------
+ * Shared PHOTO frame
+ *
+ * The dashboard reference now defines the application frame, not one screen.
+ * These final rules intentionally replace the older horizontal TEZA rail on
+ * every business route while workspaces that opt out keep their full canvas.
+ * ----------------------------------------------------------------------- */
+
+.shell {
+  direction: ltr;
+  grid-template-columns: minmax(0, 1fr) 248px;
+  grid-template-rows: minmax(0, 1fr);
+  background: #f7f7f5;
+}
+
+.shell.shell-norail,
+.shell.shell-norail.shell-compact {
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
+}
+
+.shell > .rail {
+  grid-column: 2;
+  grid-row: 1;
+  direction: rtl;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0;
+  width: auto;
+  min-width: 0;
+  min-height: 0;
+  padding: 18px 16px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  background: #fbfbfa;
+  border: 0;
+  border-left: 1px solid #e8e8e5;
+  box-shadow: none;
+}
+
+.shell > .rail .rail-head {
+  direction: ltr;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 10px;
+  width: 100%;
+  height: auto;
+  min-height: 0;
+  margin: 0;
+  padding: 4px 8px 18px;
+  border: 0;
+}
+
+.shell > .rail .mark {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  flex: 0 0 auto;
+  border-radius: 8px;
+  background: #111111;
+  color: #ffffff;
+  font-size: 16px;
+}
+
+.shell > .rail .mark::after { display: none; }
+
+.shell > .rail .mark-name {
+  color: #171717;
+  font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+  font-size: 24px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+}
+
+.shell > .rail .rail-main,
+.shell > .rail .rail-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  width: 100%;
+  min-width: 0;
+}
+
+.shell > .rail .rail-main {
+  gap: 4px;
+  margin: 0;
+}
+
+.shell > .rail .rail-actions {
+  gap: 4px;
+  margin: auto 0 0;
+  padding-top: 18px;
+}
+
+.shell > .rail .nav-item,
+.shell > .rail .nav-item.who {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 12px;
+  width: 100%;
+  height: 40px;
+  min-height: 40px;
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 9px;
+  background: transparent;
+  color: #2f2f2f;
+  font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+  font-size: 14px;
+  font-weight: 400;
+}
+
+.shell > .rail .nav-item:hover {
+  background: #f3f3f0;
+  color: #171717;
+}
+
+.shell > .rail .nav-item.on,
+.shell > .rail .nav-item.on:hover {
+  background: #efefec;
+  color: #171717;
+  font-weight: 650;
+}
+
+.shell > .rail .nav-item.on::after { display: none; }
+
+.shell > .rail .nav-icon {
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  flex: 0 0 auto;
+  color: #303030;
+}
+
+.shell > .rail .nav-item.on .nav-icon,
+.shell > .rail .nav-item:hover .nav-icon { color: #303030; }
+
+.shell > .rail .nav-label { white-space: nowrap; }
+
+.shell > .rail .rail-separator {
+  width: 100%;
+  height: 1px;
+  margin: 10px 0;
+  background: #e8e8e5;
+}
+
+.rail-storage {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 10px;
+  padding: 14px;
+  border: 1px solid #e8e8e5;
+  border-radius: 10px;
+  background: #ffffff;
+  box-shadow: 0 1px 2px rgb(0 0 0 / 3.5%), 0 8px 24px rgb(0 0 0 / 2.5%);
+  color: #171717;
+  font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+  font-size: 12px;
+}
+
+.rail-storage > div:not(.rail-storage-bar) {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.rail-storage > div > span { color: #737373; }
+
+.rail-storage-bar {
+  height: 4px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #ebebea;
+}
+
+.rail-storage-bar span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: #2f74dc;
+}
+
+.rail-online { color: #159447; }
+.rail-offline { color: #d97706; }
+
+.shell > .rail .nav-item.who {
+  height: 48px;
+  min-height: 48px;
+  padding-inline: 10px;
+}
+
+.shell > .rail .avatar {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #d7b99f, #8b5f45);
+  color: #ffffff;
+}
+
+.shell > .rail .user-copy strong { color: #171717; }
+.shell > .rail .user-copy small { color: #858585; }
+
+.shell > .main {
+  grid-column: 1;
+  grid-row: 1;
+  direction: rtl;
+  background: #f7f7f5;
+}
+
+.shell-norail > .main { grid-column: 1; }
+
+.site-topbar {
+  direction: rtl;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 68px;
+  flex: 0 0 68px;
+  padding: 0 28px;
+  background: #fbfbfa;
+  border-bottom: 1px solid #e8e8e5;
+}
+
+.site-search {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: min(540px, 48vw);
+  padding: 10px 14px;
+  border: 1px solid #e8e8e5;
+  border-radius: 10px;
+  background: #ffffff;
+  color: #878787;
+  font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+  font-size: 13px;
+}
+
+.site-search input {
+  direction: rtl;
+  width: 100%;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: #171717;
+}
+
+.site-search input::placeholder { color: #878787; opacity: 1; }
+
+.site-search kbd {
+  margin-left: auto;
+  color: #8c8c8c;
+  font-family: inherit;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.site-top-actions {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+}
+
+.site-top-actions button {
+  padding: 2px;
+  border: 0;
+  background: transparent;
+  color: #444444;
+}
+
+.site-avatar {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #d7b99f, #8b5f45);
+  color: #ffffff;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+@media (max-width: 850px) {
+  .shell { grid-template-columns: minmax(0, 1fr) 78px; }
+  .shell > .rail { padding: 14px 10px; }
+  .shell > .rail .rail-head { justify-content: center; padding-inline: 0; }
+  .shell > .rail .mark-name,
+  .shell > .rail .nav-label,
+  .shell > .rail .user-copy,
+  .shell > .rail .rail-storage { display: none; }
+  .shell > .rail .nav-item,
+  .shell > .rail .nav-item.who {
+    justify-content: center;
+    width: 100%;
+    padding-inline: 0;
+  }
+}
+
+@media (max-width: 700px) {
+  .site-topbar { padding: 0 16px; }
+  .site-search { width: min(100%, 420px); }
+  .site-search kbd { display: none; }
+  .site-top-actions { gap: 10px; }
+  .site-top-actions > button:first-child,
+  .site-top-actions > button:nth-child(2) { display: none; }
+}
+
+@media (max-width: 520px) {
+  .shell { grid-template-columns: minmax(0, 1fr) 60px; }
+  .shell > .rail { padding-inline: 8px; }
+  .shell > .rail .mark { width: 28px; height: 28px; }
+}

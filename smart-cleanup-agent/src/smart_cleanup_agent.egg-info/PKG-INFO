@@ -1,0 +1,20 @@
+Metadata-Version: 2.4
+Name: smart-cleanup-agent
+Version: 0.1.0
+Summary: Standalone local vision, segmentation, and restoration agent
+Requires-Python: <3.13,>=3.11
+License-File: LICENSES.md
+Requires-Dist: accelerate<2,>=1.10
+Requires-Dist: fastapi<1,>=0.116
+Requires-Dist: huggingface-hub<1,>=0.34
+Requires-Dist: numpy<3,>=2.0
+Requires-Dist: opencv-python-headless<5,>=4.11
+Requires-Dist: pillow<13,>=11
+Requires-Dist: pydantic<3,>=2.11
+Requires-Dist: python-multipart<1,>=0.0.20
+Requires-Dist: safetensors<1,>=0.6
+Requires-Dist: transformers<6,>=4.57
+Requires-Dist: uvicorn[standard]<1,>=0.35
+Provides-Extra: test
+Requires-Dist: pytest<9,>=8.4; extra == "test"
+Dynamic: license-file

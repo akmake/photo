@@ -1,0 +1,4 @@
+[mcp_servers.mobbin]
+url = "https://api.mobbin.com/mcp"
+auth = "oauth"
+

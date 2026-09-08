@@ -1,0 +1,496 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>פרויקטים — סקיצה</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Rubik:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  /* ─────────────────────────────────────────────────────────────
+     TEZA — פרויקטים · סקיצה חזותית
+     תזה: צבע הוא מצב העבודה. משטחים מוארים, לא ממולאים.
+     ───────────────────────────────────────────────────────────── */
+  :root{
+    /* room */
+    --ink:        #17152b;
+    --ink-2:      #4b4867;
+    --ink-3:      #82809a;
+    --line:       #e7e5ee;
+    --line-soft:  #f0eef4;
+    --page:       #f4f3f8;
+    --surface:    #ffffff;
+    --surface-2:  #fbfafd;
+
+    /* indigo rail */
+    --rail-top:   #221f45;
+    --rail-bot:   #14122b;
+    --rail-line:  #322e5c;
+    --rail-ink:   #b9b6d6;
+    --rail-ink-2: #78749e;
+
+    /* accent (CTA / focus) */
+    --accent:     #5b52d8;
+    --accent-2:   #7b6cf0;
+
+    /* work states */
+    --lead:    #6b7280;  --lead-bg:    #eef0f3;
+    --shoot:   #b47216;  --shoot-bg:   #f8efdd;
+    --work:    #6d5ce0;  --work-bg:    #efecfc;
+    --waiting: #c25851;  --waiting-bg: #fbe9e7;
+    --done:    #2f9268;  --done-bg:    #e4f4ec;
+
+    --r-lg: 18px;
+    --r-md: 13px;
+    --r-sm: 9px;
+
+    --shadow-rest: 0 1px 2px rgba(23,21,43,.05), 0 10px 28px -18px rgba(23,21,43,.28);
+    --shadow-lift: 0 2px 6px rgba(23,21,43,.06), 0 22px 44px -22px rgba(23,21,43,.32);
+    --lit: inset 0 1px 0 rgba(255,255,255,.9);
+  }
+
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%}
+  body{
+    font-family:'Rubik','Assistant','Segoe UI',system-ui,sans-serif;
+    background:var(--page);
+    color:var(--ink);
+    -webkit-font-smoothing:antialiased;
+    text-rendering:optimizeLegibility;
+    font-size:15px;
+    line-height:1.5;
+  }
+  .mono{font-family:'IBM Plex Mono',ui-monospace,monospace;font-feature-settings:"tnum" 1;letter-spacing:-.01em}
+
+  .app{
+    display:flex;                      /* RTL: first child (rail) sits on the right */
+    min-height:100vh;
+  }
+
+  /* ══════════════ RAIL ══════════════ */
+  .rail{
+    flex:0 0 268px;
+    position:sticky; top:0; height:100vh;
+    background:linear-gradient(180deg,var(--rail-top),var(--rail-bot));
+    border-inline-start:1px solid var(--rail-line);
+    display:flex; flex-direction:column;
+    padding:22px 18px;
+    color:var(--rail-ink);
+  }
+  .brand{display:flex; align-items:center; gap:11px; padding:6px 8px 22px}
+  .brand .mark{
+    width:36px;height:36px;border-radius:11px;
+    background:linear-gradient(150deg,var(--accent-2),var(--accent));
+    box-shadow:var(--lit), 0 8px 20px -8px rgba(91,82,216,.7);
+    display:grid;place-items:center;color:#fff;font-weight:700;font-size:17px;
+  }
+  .brand b{color:#fff;font-weight:600;font-size:16px;letter-spacing:-.01em}
+  .brand small{display:block;color:var(--rail-ink-2);font-size:11.5px;font-weight:400;margin-top:1px}
+
+  .nav-label{font-size:11px;color:var(--rail-ink-2);font-weight:500;padding:14px 10px 8px;letter-spacing:.04em}
+  .nav{display:flex;flex-direction:column;gap:3px}
+  .nav a{
+    display:flex;align-items:center;gap:12px;
+    padding:10px 11px;border-radius:11px;
+    color:var(--rail-ink);text-decoration:none;font-size:14.5px;font-weight:500;
+    transition:.16s;
+  }
+  .nav a svg{width:19px;height:19px;stroke:currentColor;stroke-width:1.7;fill:none;opacity:.85}
+  .nav a:hover{background:rgba(255,255,255,.05);color:#fff}
+  .nav a.on{
+    background:linear-gradient(180deg,rgba(123,108,240,.28),rgba(91,82,216,.16));
+    color:#fff;
+    box-shadow:var(--lit), inset 0 0 0 1px rgba(147,134,255,.28);
+  }
+  .nav a.on svg{opacity:1}
+  .nav .count{margin-inline-start:auto;font-size:12px;color:var(--rail-ink-2);font-weight:500}
+  .nav a.on .count{color:#cfc9ff}
+
+  .rail-foot{margin-top:auto;display:flex;flex-direction:column;gap:12px}
+  .studio-card{
+    background:rgba(255,255,255,.04);
+    border:1px solid var(--rail-line);
+    border-radius:14px;padding:12px;
+    display:flex;align-items:center;gap:11px;
+  }
+  .studio-card .ava{
+    width:38px;height:38px;border-radius:10px;flex:0 0 auto;
+    background:linear-gradient(150deg,#d8b48c,#a9724b);
+    display:grid;place-items:center;color:#fff;font-weight:600;
+    box-shadow:var(--lit);
+  }
+  .studio-card b{color:#fff;font-size:13.5px;font-weight:600;display:block}
+  .studio-card small{color:var(--rail-ink-2);font-size:11.5px}
+
+  /* ══════════════ STAGE ══════════════ */
+  .stage{flex:1 1 auto;min-width:0;padding:0 44px 60px;max-width:1200px;margin-inline:auto}
+
+  .topbar{
+    display:flex;align-items:center;gap:16px;
+    padding:22px 0 6px;position:sticky;top:0;z-index:5;
+    background:linear-gradient(180deg,var(--page) 72%,rgba(244,243,248,0));
+  }
+  .crumb{font-size:13px;color:var(--ink-3);display:flex;align-items:center;gap:7px}
+  .crumb b{color:var(--ink-2);font-weight:500}
+  .search{
+    margin-inline-start:auto;position:relative;width:280px;
+  }
+  .search input{
+    width:100%;padding:9px 38px 9px 14px;border-radius:11px;
+    border:1px solid var(--line);background:var(--surface);
+    font-family:inherit;font-size:13.5px;color:var(--ink);
+    box-shadow:var(--shadow-rest);
+  }
+  .search input::placeholder{color:var(--ink-3)}
+  .search svg{position:absolute;right:12px;top:50%;transform:translateY(-50%);width:16px;height:16px;stroke:var(--ink-3);stroke-width:1.8;fill:none}
+  .icon-btn{
+    width:40px;height:40px;border-radius:11px;border:1px solid var(--line);
+    background:var(--surface);box-shadow:var(--shadow-rest);
+    display:grid;place-items:center;cursor:pointer;color:var(--ink-2);
+  }
+  .icon-btn svg{width:18px;height:18px;stroke:currentColor;stroke-width:1.7;fill:none}
+
+  /* hero */
+  .hero{display:flex;align-items:flex-end;justify-content:space-between;gap:24px;padding:26px 0 22px}
+  .hero .eyebrow{font-size:12.5px;font-weight:500;color:var(--accent);letter-spacing:.02em;margin-bottom:9px}
+  .hero h1{margin:0;font-size:34px;line-height:1.05;letter-spacing:-.02em;font-weight:700}
+  .hero p{margin:9px 0 0;color:var(--ink-2);font-size:15px;max-width:52ch}
+  .btn-new{
+    display:inline-flex;align-items:center;gap:9px;flex:0 0 auto;
+    padding:12px 20px;border-radius:13px;border:0;cursor:pointer;
+    background:linear-gradient(180deg,var(--accent-2),var(--accent));
+    color:#fff;font-family:inherit;font-weight:600;font-size:14.5px;
+    box-shadow:var(--lit), 0 10px 22px -10px rgba(91,82,216,.75);
+    transition:.16s;
+  }
+  .btn-new:hover{transform:translateY(-1px);box-shadow:var(--lit),0 16px 30px -12px rgba(91,82,216,.8)}
+  .btn-new svg{width:18px;height:18px;stroke:currentColor;stroke-width:2;fill:none}
+
+  /* KPIs */
+  .kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:26px}
+  .kpi{
+    background:var(--surface);border:1px solid var(--line);border-radius:var(--r-md);
+    padding:16px 17px;box-shadow:var(--shadow-rest),var(--lit);position:relative;overflow:hidden;
+  }
+  .kpi::before{content:"";position:absolute;inset:0 auto 0 0;width:3px;border-radius:3px}
+  .kpi.k-work::before{background:var(--work)}
+  .kpi.k-wait::before{background:var(--waiting)}
+  .kpi.k-shoot::before{background:var(--shoot)}
+  .kpi.k-money::before{background:var(--done)}
+  .kpi .lab{font-size:12.5px;color:var(--ink-3);font-weight:500}
+  .kpi .val{font-size:27px;font-weight:600;margin-top:8px;letter-spacing:-.01em;display:flex;align-items:baseline;gap:6px}
+  .kpi .val small{font-size:13px;color:var(--ink-3);font-weight:500}
+  .kpi .trend{font-size:12px;margin-top:5px;color:var(--ink-3);display:flex;align-items:center;gap:5px}
+  .kpi .trend b{color:var(--done);font-weight:600}
+
+  /* toolbar */
+  .toolbar{display:flex;align-items:center;gap:14px;margin-bottom:16px;flex-wrap:wrap}
+  .filters{display:flex;gap:7px;background:var(--surface);padding:5px;border-radius:13px;border:1px solid var(--line);box-shadow:var(--shadow-rest)}
+  .filters button{
+    border:0;background:transparent;cursor:pointer;font-family:inherit;
+    padding:8px 14px;border-radius:9px;font-size:13.5px;font-weight:500;color:var(--ink-2);
+    display:flex;align-items:center;gap:8px;transition:.14s;
+  }
+  .filters button .n{font-size:11.5px;color:var(--ink-3);background:var(--line-soft);border-radius:20px;padding:1px 7px;font-weight:600}
+  .filters button:hover{color:var(--ink)}
+  .filters button.on{background:var(--ink);color:#fff;box-shadow:var(--lit)}
+  .filters button.on .n{background:rgba(255,255,255,.16);color:#fff}
+  .toolbar .right{margin-inline-start:auto;display:flex;align-items:center;gap:12px}
+  .sort{display:flex;align-items:center;gap:7px;font-size:13px;color:var(--ink-2);cursor:pointer;padding:8px 12px;border-radius:10px;border:1px solid var(--line);background:var(--surface);box-shadow:var(--shadow-rest)}
+  .sort svg{width:15px;height:15px;stroke:currentColor;stroke-width:1.7;fill:none}
+
+  /* ══════════════ PROJECT LIST ══════════════ */
+  .list{display:flex;flex-direction:column;gap:13px}
+  .card{
+    position:relative;
+    display:grid;
+    grid-template-columns:96px 1.5fr 1.7fr 1fr;
+    align-items:center;gap:22px;
+    background:var(--surface);
+    border:1px solid var(--line);
+    border-radius:var(--r-lg);
+    padding:14px 20px 14px 14px;
+    box-shadow:var(--shadow-rest),var(--lit);
+    transition:transform .18s cubic-bezier(.2,.8,.2,1), box-shadow .18s;
+    cursor:pointer;
+  }
+  .card:hover{transform:translateY(-3px);box-shadow:var(--shadow-lift),var(--lit)}
+  .card > *{min-width:0}   /* let nowrap text ellipsis instead of forcing overflow */
+  .card::after{ /* left state hairline */
+    content:"";position:absolute;top:14px;bottom:14px;right:0;width:0;
+  }
+
+  /* thumb */
+  .thumb{
+    position:relative;width:96px;height:96px;border-radius:14px;overflow:hidden;
+    box-shadow:inset 0 0 0 1px rgba(23,21,43,.06);
+    display:grid;place-items:center;color:rgba(255,255,255,.92);
+    font-weight:600;font-size:30px;
+  }
+  .thumb .crop{position:absolute;width:11px;height:11px;border:2px solid rgba(255,255,255,.85);opacity:.8}
+  .thumb .crop.tl{top:7px;left:7px;border-right:0;border-bottom:0}
+  .thumb .crop.tr{top:7px;right:7px;border-left:0;border-bottom:0}
+  .thumb .crop.bl{bottom:7px;left:7px;border-right:0;border-top:0}
+  .thumb .crop.br{bottom:7px;right:7px;border-left:0;border-top:0}
+  .ph-1{background:linear-gradient(150deg,#e7b489,#b06a52 60%,#7a3f4c)}
+  .ph-2{background:linear-gradient(150deg,#9fb4d8,#5f6fa6 60%,#3c3f78)}
+  .ph-3{background:linear-gradient(150deg,#e8cf9a,#c79a58 55%,#8a6a3c)}
+  .ph-4{background:linear-gradient(150deg,#c9a6cf,#8f6aa8 60%,#5b4a86)}
+  .ph-5{background:linear-gradient(150deg,#a8d0c0,#5fa088 60%,#3f7266)}
+  .ph-6{background:linear-gradient(150deg,#dab0a2,#b1746a 55%,#7d4f52)}
+
+  .who{min-width:0}
+  .who .state{
+    display:inline-flex;align-items:center;gap:7px;
+    font-size:12px;font-weight:600;padding:3px 10px 3px 8px;border-radius:20px;margin-bottom:8px;
+  }
+  .who .state i{width:6px;height:6px;border-radius:50%;background:currentColor}
+  .s-lead{color:var(--lead);background:var(--lead-bg)}
+  .s-shoot{color:var(--shoot);background:var(--shoot-bg)}
+  .s-work{color:var(--work);background:var(--work-bg)}
+  .s-waiting{color:var(--waiting);background:var(--waiting-bg)}
+  .s-done{color:var(--done);background:var(--done-bg)}
+  .who h3{margin:0;font-size:17.5px;font-weight:600;letter-spacing:-.01em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .who .meta{margin:4px 0 0;color:var(--ink-3);font-size:13.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+  .journey{display:flex;flex-direction:column;gap:10px;padding-inline:22px;border-inline-start:1px solid var(--line-soft);border-inline-end:1px solid var(--line-soft)}
+  .journey .cap{display:flex;align-items:center;justify-content:space-between;font-size:12.5px}
+  .journey .cap span{color:var(--ink-3)}
+  .journey .cap b{font-weight:600;color:var(--ink);font-size:13.5px}
+  .track{display:flex;gap:5px}
+  .track i{height:6px;flex:1;border-radius:6px;background:var(--line)}
+  .track i.done{background:var(--ink-2)}
+  .track i.now{position:relative;background:var(--accent)}
+  .track i.now::after{content:"";position:absolute;inset:-3px;border-radius:8px;box-shadow:0 0 0 2px rgba(91,82,216,.22)}
+
+  .figures{display:flex;align-items:center;justify-content:flex-end;gap:26px;text-align:center}
+  .figures .f{display:flex;flex-direction:column;gap:3px}
+  .figures .f .fl{font-size:11.5px;color:var(--ink-3);font-weight:500}
+  .figures .f .fv{font-size:16px;font-weight:600}
+  .figures .f .fv.due{color:var(--waiting)}
+  .figures .f .fv.paid{color:var(--done)}
+  .chev{width:34px;height:34px;border-radius:10px;background:var(--surface-2);border:1px solid var(--line);display:grid;place-items:center;color:var(--ink-3);flex:0 0 auto;transition:.16s}
+  .card:hover .chev{background:var(--accent);border-color:var(--accent);color:#fff}
+  .chev svg{width:17px;height:17px;stroke:currentColor;stroke-width:2;fill:none}
+
+  .note{margin-top:26px;text-align:center;font-size:12.5px;color:var(--ink-3)}
+</style>
+</head>
+<body>
+<div class="app">
+
+  <!-- ══════════════ RAIL ══════════════ -->
+  <aside class="rail">
+    <div class="brand">
+      <div class="mark">ת</div>
+      <div><b>TEZA</b><small>הסטודיו של יוסף</small></div>
+    </div>
+
+    <div class="nav-label">הסטודיו</div>
+    <nav class="nav">
+      <a href="#"><svg viewBox="0 0 24 24"><path d="M3 12l9-8 9 8M5 10v10h14V10"/></svg>היום</a>
+      <a href="#" class="on"><svg viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>פרויקטים <span class="count">14</span></a>
+      <a href="#"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6 8-6s8 2 8 6"/></svg>לקוחות <span class="count">31</span></a>
+      <a href="#"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 10h18M8 4v4M16 4v4"/></svg>יומן</a>
+    </nav>
+
+    <div class="nav-label">כלים</div>
+    <nav class="nav">
+      <a href="#"><svg viewBox="0 0 24 24"><path d="M4 16l5-5 4 4 3-3 4 4M4 20h16"/><circle cx="9" cy="8" r="1.6"/></svg>עריכת תמונות</a>
+      <a href="#"><svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="2"/><path d="M4 12h16M12 4v16"/></svg>אלבום חכם</a>
+      <a href="#"><svg viewBox="0 0 24 24"><path d="M12 3v3M12 18v3M3 12h3M18 12h3M6 6l2 2M18 18l-2-2"/><circle cx="12" cy="12" r="3"/></svg>מעבדה</a>
+    </nav>
+
+    <div class="rail-foot">
+      <div class="studio-card">
+        <div class="ava">י</div>
+        <div><b>יוסף דהן</b><small>מנוי פרו · פעיל</small></div>
+      </div>
+    </div>
+  </aside>
+
+  <!-- ══════════════ STAGE ══════════════ -->
+  <main class="stage">
+
+    <div class="topbar">
+      <div class="crumb">הסטודיו <span>›</span> <b>פרויקטים</b></div>
+      <div class="search">
+        <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.2-3.2"/></svg>
+        <input placeholder="חיפוש לקוח, אירוע או תאריך…">
+      </div>
+      <button class="icon-btn" title="התראות"><svg viewBox="0 0 24 24"><path d="M6 9a6 6 0 0 1 12 0c0 5 2 6 2 6H4s2-1 2-6M10 20a2 2 0 0 0 4 0"/></svg></button>
+    </div>
+
+    <header class="hero">
+      <div>
+        <div class="eyebrow">הסטודיו שלי</div>
+        <h1>פרויקטים</h1>
+        <p>כל עבודות הסטודיו, מסודרות לפי המקום שבו הן עומדות עכשיו — צבע אחד לכל שלב, כדי לראות את התמונה במבט אחד.</p>
+      </div>
+      <button class="btn-new">
+        <svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
+        פרויקט חדש
+      </button>
+    </header>
+
+    <section class="kpis">
+      <div class="kpi k-work">
+        <div class="lab">בעבודה כעת</div>
+        <div class="val">6</div>
+        <div class="trend"><b>▲ 2</b> מהשבוע שעבר</div>
+      </div>
+      <div class="kpi k-wait">
+        <div class="lab">ממתינים ללקוח</div>
+        <div class="val">3</div>
+        <div class="trend">הישן ביותר · 9 ימים</div>
+      </div>
+      <div class="kpi k-shoot">
+        <div class="lab">צילומים החודש</div>
+        <div class="val">4</div>
+        <div class="trend">הקרוב · יום שישי</div>
+      </div>
+      <div class="kpi k-money">
+        <div class="lab">יתרה פתוחה</div>
+        <div class="val mono">₪18,400</div>
+        <div class="trend">על פני 5 פרויקטים</div>
+      </div>
+    </section>
+
+    <div class="toolbar">
+      <div class="filters">
+        <button class="on">הכול <span class="n">14</span></button>
+        <button>בעבודה <span class="n">6</span></button>
+        <button>ממתין ללקוח <span class="n">3</span></button>
+        <button>צילום קרוב <span class="n">4</span></button>
+        <button>הושלם <span class="n">1</span></button>
+      </div>
+      <div class="right">
+        <div class="sort"><svg viewBox="0 0 24 24"><path d="M4 6h16M6 12h12M9 18h6"/></svg>מיון · לפי שלב</div>
+      </div>
+    </div>
+
+    <section class="list">
+
+      <!-- WAITING -->
+      <article class="card">
+        <div class="thumb ph-1"><span class="crop tl"></span><span class="crop tr"></span><span class="crop bl"></span><span class="crop br"></span>נ</div>
+        <div class="who">
+          <span class="state s-waiting"><i></i>ממתין לאישור הלקוח</span>
+          <h3>נועה &amp; איתי</h3>
+          <p class="meta">חתונה · גני התערוכה, ת״א · 21.07</p>
+        </div>
+        <div class="journey">
+          <div class="cap"><span>השלב הנוכחי</span><b>גלריית בחירה נשלחה</b></div>
+          <div class="track"><i class="done"></i><i class="done"></i><i class="done"></i><i class="now"></i><i></i><i></i></div>
+        </div>
+        <div class="figures">
+          <div class="f"><span class="fl">תמונות</span><span class="fv mono">1,240</span></div>
+          <div class="f"><span class="fl">יתרה</span><span class="fv due mono">₪4,200</span></div>
+          <div class="chev"><svg viewBox="0 0 24 24"><path d="M15 6l-6 6 6 6"/></svg></div>
+        </div>
+      </article>
+
+      <!-- WORK -->
+      <article class="card">
+        <div class="thumb ph-3"><span class="crop tl"></span><span class="crop tr"></span><span class="crop bl"></span><span class="crop br"></span>י</div>
+        <div class="who">
+          <span class="state s-work"><i></i>בעבודה</span>
+          <h3>בר מצווה של יונתן</h3>
+          <p class="meta">אירוע · אולמי הגן, מודיעין · 03.08</p>
+        </div>
+        <div class="journey">
+          <div class="cap"><span>השלב הנוכחי</span><b>עריכת צבע · 62%</b></div>
+          <div class="track"><i class="done"></i><i class="done"></i><i class="now"></i><i></i><i></i></div>
+        </div>
+        <div class="figures">
+          <div class="f"><span class="fl">תמונות</span><span class="fv mono">860</span></div>
+          <div class="f"><span class="fl">יתרה</span><span class="fv due mono">₪2,800</span></div>
+          <div class="chev"><svg viewBox="0 0 24 24"><path d="M15 6l-6 6 6 6"/></svg></div>
+        </div>
+      </article>
+
+      <!-- WORK -->
+      <article class="card">
+        <div class="thumb ph-6"><span class="crop tl"></span><span class="crop tr"></span><span class="crop bl"></span><span class="crop br"></span>מ</div>
+        <div class="who">
+          <span class="state s-work"><i></i>בעבודה</span>
+          <h3>צילומי הריון — מיכל</h3>
+          <p class="meta">סטודיו · אור עקיבא · 06.08</p>
+        </div>
+        <div class="journey">
+          <div class="cap"><span>השלב הנוכחי</span><b>מיון וניפוי</b></div>
+          <div class="track"><i class="done"></i><i class="now"></i><i></i><i></i></div>
+        </div>
+        <div class="figures">
+          <div class="f"><span class="fl">תמונות</span><span class="fv mono">318</span></div>
+          <div class="f"><span class="fl">יתרה</span><span class="fv paid mono">שולם</span></div>
+          <div class="chev"><svg viewBox="0 0 24 24"><path d="M15 6l-6 6 6 6"/></svg></div>
+        </div>
+      </article>
+
+      <!-- SHOOT -->
+      <article class="card">
+        <div class="thumb ph-2"><span class="crop tl"></span><span class="crop tr"></span><span class="crop bl"></span><span class="crop br"></span>ד</div>
+        <div class="who">
+          <span class="state s-shoot"><i></i>צילום קרוב · יום שישי</span>
+          <h3>דנה &amp; עומר</h3>
+          <p class="meta">אירוסין · שדות חמד · 15.08</p>
+        </div>
+        <div class="journey">
+          <div class="cap"><span>השלב הנוכחי</span><b>הכנה לפני צילום</b></div>
+          <div class="track"><i class="now"></i><i></i><i></i><i></i><i></i></div>
+        </div>
+        <div class="figures">
+          <div class="f"><span class="fl">תמונות</span><span class="fv mono">—</span></div>
+          <div class="f"><span class="fl">יתרה</span><span class="fv due mono">₪6,500</span></div>
+          <div class="chev"><svg viewBox="0 0 24 24"><path d="M15 6l-6 6 6 6"/></svg></div>
+        </div>
+      </article>
+
+      <!-- LEAD -->
+      <article class="card">
+        <div class="thumb ph-4"><span class="crop tl"></span><span class="crop tr"></span><span class="crop bl"></span><span class="crop br"></span>ש</div>
+        <div class="who">
+          <span class="state s-lead"><i></i>ליד חדש</span>
+          <h3>משפחת שגב</h3>
+          <p class="meta">בת מצווה · טרם נקבע תאריך</p>
+        </div>
+        <div class="journey">
+          <div class="cap"><span>השלב הנוכחי</span><b>הצעת מחיר נשלחה</b></div>
+          <div class="track"><i class="now"></i><i></i><i></i><i></i><i></i></div>
+        </div>
+        <div class="figures">
+          <div class="f"><span class="fl">תמונות</span><span class="fv mono">—</span></div>
+          <div class="f"><span class="fl">הצעה</span><span class="fv mono">₪4,900</span></div>
+          <div class="chev"><svg viewBox="0 0 24 24"><path d="M15 6l-6 6 6 6"/></svg></div>
+        </div>
+      </article>
+
+      <!-- DONE -->
+      <article class="card">
+        <div class="thumb ph-5"><span class="crop tl"></span><span class="crop tr"></span><span class="crop bl"></span><span class="crop br"></span>ר</div>
+        <div class="who">
+          <span class="state s-done"><i></i>הושלם ונמסר</span>
+          <h3>רון &amp; טל</h3>
+          <p class="meta">חתונה · חוות רונית · 28.06</p>
+        </div>
+        <div class="journey">
+          <div class="cap"><span>השלב הנוכחי</span><b>אלבום נמסר ללקוח</b></div>
+          <div class="track"><i class="done"></i><i class="done"></i><i class="done"></i><i class="done"></i><i class="done"></i><i class="done"></i></div>
+        </div>
+        <div class="figures">
+          <div class="f"><span class="fl">תמונות</span><span class="fv mono">1,510</span></div>
+          <div class="f"><span class="fl">יתרה</span><span class="fv paid mono">שולם</span></div>
+          <div class="chev"><svg viewBox="0 0 24 24"><path d="M15 6l-6 6 6 6"/></svg></div>
+        </div>
+      </article>
+
+    </section>
+
+    <p class="note">סקיצה חזותית · נתונים להמחשה בלבד</p>
+
+  </main>
+</div>
+</body>
+</html>

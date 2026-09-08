@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import type { ReactNode } from 'react';
 import { SECTIONS, STAGES } from './nav';
 import type { SectionId, StageId } from './nav';
+import { useStudio } from './store';
 import {
   IcBook, IcCalendar, IcFilter, IcFlask, IcFolder, IcGallery, IcGear,
   IcHeart, IcHome, IcSliders, IcSparkle, IcUpload, IcUsers,
@@ -11,7 +12,7 @@ const ICONS: Record<string, (p: { size?: number }) => JSX.Element> = {
   home: IcHome, folder: IcFolder, users: IcUsers, calendar: IcCalendar,
   gear: IcGear, gallery: IcGallery, filter: IcFilter, sliders: IcSliders,
   book: IcBook, upload: IcUpload, heart: IcHeart, lab: IcSparkle,
-  flask: IcFlask, compare: IcFilter,
+  flask: IcFlask, compare: IcFilter, 'smart-cleanup': IcSparkle,
 };
 
 export function Icon({ name, size = 18 }: { name: string; size?: number }) {
@@ -29,8 +30,14 @@ export function NavRail({
   section: SectionId;
   onSection: (s: SectionId) => void;
 }) {
-  const main = SECTIONS.filter((s) => !s.foot);
+  const studio = useStudio();
+  const workshopIds: SectionId[] = ['smart-cleanup', 'lab', 'experiments'];
+  const main = SECTIONS.filter((s) => !s.foot && !workshopIds.includes(s.id));
+  const tools = SECTIONS.filter((s) => workshopIds.includes(s.id));
   const foot = SECTIONS.filter((s) => s.foot);
+  const imported = studio.projects.reduce((sum, project) => sum + (project.imported || 0), 0);
+  const rendered = studio.projects.reduce((sum, project) => sum + (project.rendered || 0), 0);
+  const processed = imported ? Math.round((rendered / imported) * 100) : 0;
 
   const item = (s: (typeof SECTIONS)[number]) => (
     <button
@@ -48,20 +55,33 @@ export function NavRail({
   return (
     <nav className="rail" aria-label="ניווט ראשי">
       <div className="rail-head">
-        <div className="mark" aria-hidden="true">T</div>
-        <div className="mark-name">TEZA</div>
+        <div className="mark" aria-hidden="true">◉</div>
+        <div className="mark-name">PHOTO</div>
       </div>
 
       <div className="rail-main">
         {main.map(item)}
+        <button
+          className={`nav-item ${section === 'albums' ? 'on' : ''}`}
+          onClick={() => onSection('albums')}
+          title="אלבומים"
+          aria-current={section === 'albums' ? 'page' : undefined}
+        >
+          <span className="nav-icon"><IcBook size={18} /></span>
+          <span className="nav-label">אלבומים</span>
+        </button>
+        <div className="rail-separator" />
+        {tools.map(item)}
       </div>
 
       <div className="rail-actions">
-        <button className="rail-search" title="חיפוש" aria-label="חיפוש">
-          <IcSearch />
-          <span>חיפוש</span>
-          <span className="mono key">Ctrl K</span>
-        </button>
+        <section className="rail-storage" aria-label="מצב הספרייה">
+          <div><b>ספרייה</b><span>{studio.projects.length} פרויקטים</span></div>
+          <div className="rail-storage-bar"><span style={{ width: `${processed}%` }} /></div>
+          <div><span>מנוע מקומי</span><b className={studio.status === 'ready' ? 'rail-online' : 'rail-offline'}>
+            {studio.status === 'ready' ? 'מחובר' : studio.status === 'loading' ? 'מתחבר…' : 'לא זמין'}
+          </b></div>
+        </section>
         {foot.map(item)}
         <button className="nav-item who" title="יוסי">
           <span className="avatar" aria-hidden="true">י</span>
@@ -169,6 +189,21 @@ export function Shell({
       />
       )}
       <div className="main">
+        {rail && (
+          <header className="site-topbar">
+            <label className="site-search">
+              <IcSearch size={16} />
+              <input aria-label="חיפוש" placeholder="חיפוש בפרויקטים, לקוחות ותמונות…" />
+              <kbd>Ctrl K</kbd>
+            </label>
+            <div className="site-top-actions">
+              <button type="button" aria-label="התראות">♧</button>
+              <button type="button" aria-label="הודעות">▢</button>
+              <span className="site-avatar" aria-hidden="true">י</span>
+              <button type="button" aria-label="תפריט חשבון">⌄</button>
+            </div>
+          </header>
+        )}
         {stages && !bare && <StageTabs stage={stage} onStage={onStage} />}
         <div className={`content ${flush ? 'flush' : ''}`}>
           {flush ? children : <div className="sheet">{children}</div>}

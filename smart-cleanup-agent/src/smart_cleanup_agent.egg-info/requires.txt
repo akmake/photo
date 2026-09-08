@@ -1,0 +1,14 @@
+accelerate<2,>=1.10
+fastapi<1,>=0.116
+huggingface-hub<1,>=0.34
+numpy<3,>=2.0
+opencv-python-headless<5,>=4.11
+pillow<13,>=11
+pydantic<3,>=2.11
+python-multipart<1,>=0.0.20
+safetensors<1,>=0.6
+transformers<6,>=4.57
+uvicorn[standard]<1,>=0.35
+
+[test]
+pytest<9,>=8.4
