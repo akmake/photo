@@ -2,10 +2,7 @@
 import { useStudio, stagesOf } from '../../studio/store';
 import type { Project, ProjectState } from '../../studio/store';
 import NewProject from '../../studio/screens/NewProject';
-import {
-  TzIconBook, TzIconCalendar, TzIconCamera, TzIconChart, TzIconFolder,
-  TzIconGallery, TzIconSearch, TzIconUpload, TzIconUsers,
-} from '../TzIcons';
+import { TzIconSearch, TzIconUpload } from '../TzIcons';
 import { getProjectCover } from '../projectCovers';
 import './projects-redesign.css';
 
@@ -52,17 +49,12 @@ export default function ProjectsV2({
 }: {
   onOpenProject: (id: string) => void;
 }) {
-  const { projects, status, fault } = useStudio();
+  const { projects } = useStudio();
   const [filter, setFilter] = useState<Filter>('all');
   const [search, setSearch] = useState('');
   const [creating, setCreating] = useState(false);
 
   const active = useMemo(() => projects.filter((p) => p.state !== 'done'), [projects]);
-  
-  const featured = useMemo(
-    () => [...active].sort((a, b) => SORT[a.state] - SORT[b.state] || b.imported - a.imported)[0] ?? projects[0],
-    [active, projects],
-  );
 
   const filtered = useMemo(() => {
     let list = filter === 'all' ? projects : projects.filter((p) => p.state === filter);
@@ -98,35 +90,25 @@ export default function ProjectsV2({
           <button
             className="tz-btn-projects-sec"
             type="button"
-            onClick={() => featured ? onOpenProject(featured.id) : setCreating(true)}
+            onClick={() => projects[0] ? onOpenProject(projects[0].id) : setCreating(true)}
           >
             <TzIconUpload size={16} /> ייבוא תמונות
           </button>
         </div>
       </section>
 
-      {/* 2. Key Metrics Row */}
+      {/* 2. Key Metrics Row — Clean, Luxury Studio Typography, No Cheap Colored Boxes */}
       <section className="tz-projects-metrics">
         <div className="tz-pmetric-card">
-          <div className="tz-pmetric-head">
-            <span>פרויקטים פעילים</span>
-            <div className="tz-pmetric-icon-box" style={{ background: '#fff1ec', color: 'var(--tz-brand)' }}>
-              <TzIconFolder size={17} />
-            </div>
-          </div>
+          <div className="tz-pmetric-label">פרויקטים פעילים</div>
           <div className="tz-pmetric-value">{active.length}</div>
           <div className="tz-pmetric-footer good">
-            <span className="tz-dot active" /> {active.length} תיקים בעבודה שוטפת
+            <span className="tz-dot active" /> תיקים בעבודה שוטפת
           </div>
         </div>
 
         <div className="tz-pmetric-card">
-          <div className="tz-pmetric-head">
-            <span>תמונות ממתינות</span>
-            <div className="tz-pmetric-icon-box" style={{ background: '#eff6ff', color: '#2563eb' }}>
-              <TzIconGallery size={17} />
-            </div>
-          </div>
+          <div className="tz-pmetric-label">תמונות ממתינות</div>
           <div className="tz-pmetric-value">{waitingPhotos.toLocaleString('he-IL')}</div>
           <div className="tz-pmetric-footer">
             <span>בכל הפרויקטים הפעילים</span>
@@ -134,12 +116,7 @@ export default function ProjectsV2({
         </div>
 
         <div className="tz-pmetric-card">
-          <div className="tz-pmetric-head">
-            <span>אלבומים בעבודה</span>
-            <div className="tz-pmetric-icon-box" style={{ background: '#fdf2f8', color: '#db2777' }}>
-              <TzIconBook size={17} />
-            </div>
-          </div>
+          <div className="tz-pmetric-label">אלבומים בעבודה</div>
           <div className="tz-pmetric-value">{activeAlbums}</div>
           <div className="tz-pmetric-footer good">
             <span className="tz-dot active" /> אלבומים פתוחים לעיצוב
@@ -147,12 +124,7 @@ export default function ProjectsV2({
         </div>
 
         <div className="tz-pmetric-card">
-          <div className="tz-pmetric-head">
-            <span>יתרה לגבייה</span>
-            <div className="tz-pmetric-icon-box" style={{ background: balance ? '#fff8eb' : '#ecfdf5', color: balance ? '#d97706' : '#059669' }}>
-              <TzIconChart size={17} />
-            </div>
-          </div>
+          <div className="tz-pmetric-label">יתרה לגבייה</div>
           <div className="tz-pmetric-value">₪{balance.toLocaleString('he-IL')}</div>
           <div className="tz-pmetric-footer" style={{ color: balance ? '#d97706' : '#059669' }}>
             <span className="tz-dot" style={{ background: balance ? '#d97706' : '#059669' }} /> {balance ? 'ממתין לתשלום' : 'הכול שולם במלואו'}
@@ -160,83 +132,11 @@ export default function ProjectsV2({
         </div>
       </section>
 
-      {/* 3. Featured Active Project Hero Card */}
-      {featured && (
-        <section className="tz-pfeatured-card">
-          <div className="tz-pfeatured-img-wrap">
-            <img
-              src={getProjectCover(featured, 0)}
-              alt={featured.client}
-              className="tz-pfeatured-img"
-              style={{ objectPosition: featured.pos || 'center 30%' }}
-            />
-            <div className="tz-pfeatured-img-gradient" />
-            <span className={`tz-status-badge ${STATE_COPY[featured.state].className} tz-pfeatured-state-badge`}>
-              {STATE_COPY[featured.state].label}
-            </span>
-            {featured.date && (
-              <span className="tz-pfeatured-date-badge">
-                <TzIconCalendar size={13} /> {featured.date}
-              </span>
-            )}
-          </div>
-
-          <div className="tz-pfeatured-content">
-            <div className="tz-pfeatured-top">
-              <div className="tz-pfeatured-kicker">
-                <span className="tz-pfeatured-kicker-dot" /> התיק הפעיל המרכזי
-              </div>
-              <h2 className="tz-pfeatured-title">{featured.client}</h2>
-              <div className="tz-pfeatured-subtitle">
-                {[featured.event, featured.location].filter(Boolean).join(' · ')}
-              </div>
-
-              <div className="tz-pfeatured-stats-row">
-                <div className="tz-pfeatured-stat">
-                  <strong>{featured.imported.toLocaleString('he-IL')}</strong>
-                  <span>תמונות גלם</span>
-                </div>
-                <div className="tz-pfeatured-stat">
-                  <strong>{featured.kept.toLocaleString('he-IL')}</strong>
-                  <span>נבחרו לעריכה</span>
-                </div>
-                <div className="tz-pfeatured-stat">
-                  <strong style={{ color: openBalance(featured) ? 'var(--tz-brand)' : '#059669' }}>
-                    ₪{openBalance(featured).toLocaleString('he-IL')}
-                  </strong>
-                  <span>נותרו לתשלום</span>
-                </div>
-              </div>
-            </div>
-
-            <div className="tz-pfeatured-bottom">
-              <div className="tz-pfeatured-prog">
-                <div className="tz-pfeatured-prog-label">
-                  <span>{stageLabel(featured)}</span>
-                  <span className="tz-prog-pct">{progressOf(featured)}%</span>
-                </div>
-                <div className="tz-pprog-track">
-                  <div className="tz-pprog-fill" style={{ width: `${progressOf(featured)}%` }} />
-                </div>
-              </div>
-
-              <button
-                className="tz-btn-projects-primary"
-                type="button"
-                onClick={() => onOpenProject(featured.id)}
-              >
-                המשך עבודה על התיק ←
-              </button>
-            </div>
-          </div>
-        </section>
-      )}
-
-      {/* 4. Toolbar: Search & Filter Pills */}
+      {/* 3. Toolbar: Search & Filter Pills */}
       <div className="tz-ptoolbar">
         <div className="tz-ptoolbar-right">
           <div className="tz-psearch-box">
-            <TzIconSearch size={16} />
+            <TzIconSearch size={15} />
             <input
               type="text"
               placeholder="חיפוש לפי שם לקוח או אירוע..."
@@ -270,14 +170,13 @@ export default function ProjectsV2({
         </div>
       </div>
 
-      {/* 5. Projects Grid with Unique Covers */}
+      {/* 4. Projects Grid — Clean, High-End Photography First, No Clutter */}
       {filtered.length > 0 ? (
         <div className="tz-projects-grid">
           {filtered.map((project, idx) => {
             const prog = progressOf(project);
             const bal = openBalance(project);
             const st = STATE_COPY[project.state];
-            // Assign a unique cover photo to every project
             const coverUrl = getProjectCover(project, idx);
 
             return (
@@ -303,14 +202,14 @@ export default function ProjectsV2({
                   />
                   <div className="tz-pcard-img-overlay" />
 
-                  {/* Top Status & Album Badges */}
+                  {/* Top Badges */}
                   <div className="tz-pcard-badges-top">
                     <span className={`tz-status-badge ${st.className}`}>
                       {st.label}
                     </span>
                     {project.hasAlbum && (
-                      <span className="tz-pcard-album-badge" title="כולל אלבום מעוצב">
-                        <TzIconBook size={12} /> אלבום
+                      <span className="tz-pcard-album-badge">
+                        אלבום מעוצב
                       </span>
                     )}
                   </div>
@@ -318,8 +217,7 @@ export default function ProjectsV2({
                   {/* Bottom Date Overlay */}
                   {project.date && (
                     <div className="tz-pcard-date-badge">
-                      <TzIconCalendar size={12} />
-                      <span>{project.date}</span>
+                      {project.date}
                     </div>
                   )}
                 </div>
@@ -342,14 +240,13 @@ export default function ProjectsV2({
                   <div className={`tz-pcard-footer ${bal > 0 ? 'has-balance' : ''}`}>
                     <div className="tz-pcard-stage-info">
                       {bal > 0 ? (
-                        <span className="tz-balance-tag">יתרה לתשלום: ₪{bal.toLocaleString('he-IL')}</span>
+                        <span className="tz-balance-tag">יתרה: ₪{bal.toLocaleString('he-IL')}</span>
                       ) : (
                         <span className="tz-stage-tag">{stageLabel(project)}</span>
                       )}
                     </div>
                     <div className="tz-pcard-photo-count">
-                      <TzIconGallery size={13} />
-                      <span>{project.imported.toLocaleString('he-IL')} תמ׳</span>
+                      <span>{project.imported.toLocaleString('he-IL')} תמונות</span>
                     </div>
                   </div>
                 </div>
@@ -359,9 +256,6 @@ export default function ProjectsV2({
         </div>
       ) : (
         <div className="tz-pempty-state">
-          <div className="tz-pempty-icon">
-            <TzIconFolder size={36} />
-          </div>
           <h3>לא נמצאו פרויקטים</h3>
           <p>
             {search

@@ -1,5 +1,5 @@
 ﻿/* ==========================================================================
-   PROJECTS LIST V2 — BAKED & POLISHED WITH TEZA AI VISUAL LANGUAGE
+   PROJECTS LIST V2 — EDITORIAL STUDIO DESIGN (TEZA AI)
    ========================================================================== */
 
 .tz-projects-container {
@@ -8,7 +8,7 @@
   gap: 24px;
   max-width: 1400px;
   margin: 0 auto;
-  padding-bottom: 40px;
+  padding-bottom: 48px;
 }
 
 /* 1. Header Section */
@@ -17,12 +17,12 @@
   align-items: flex-end;
   justify-content: space-between;
   gap: 20px;
-  padding: 8px 0 4px;
+  padding: 4px 0 2px;
 }
 
 .tz-projects-badge-tag {
   display: inline-block;
-  font-size: 11.5px;
+  font-size: 11px;
   font-weight: 700;
   color: var(--tz-brand);
   background: var(--tz-brand-light);
@@ -43,7 +43,7 @@
 
 .tz-projects-header-title p {
   margin: 0;
-  font-size: 14px;
+  font-size: 13.5px;
   color: var(--tz-text-sub);
 }
 
@@ -66,7 +66,7 @@
   font-size: 13.5px;
   font-weight: 700;
   cursor: pointer;
-  box-shadow: 0 2px 6px rgba(232, 99, 56, 0.25);
+  box-shadow: 0 2px 6px rgba(232, 99, 56, 0.22);
   transition: all 0.15s ease;
 }
 
@@ -74,7 +74,7 @@
   background: var(--tz-brand-hover);
   border-color: var(--tz-brand-hover);
   transform: translateY(-1px);
-  box-shadow: 0 4px 12px rgba(232, 99, 56, 0.35);
+  box-shadow: 0 4px 12px rgba(232, 99, 56, 0.32);
 }
 
 .tz-btn-projects-sec {
@@ -97,7 +97,7 @@
   color: var(--tz-brand-hover);
 }
 
-/* 2. Key Metrics Row */
+/* 2. Key Metrics Row — Minimalist, Editorial Typography, No Cheap Boxes */
 .tz-projects-metrics {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
@@ -120,60 +120,47 @@
   background: #ffffff;
   border: 1px solid var(--tz-border);
   border-radius: 14px;
-  padding: 18px 20px;
+  padding: 18px 22px;
   display: flex;
   flex-direction: column;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.02);
-  transition: transform 0.15s ease, box-shadow 0.15s ease;
+  transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
 }
 
 .tz-pmetric-card:hover {
   transform: translateY(-2px);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.04);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.04);
+  border-color: #e5e5e8;
 }
 
-.tz-pmetric-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 10px;
-}
-
-.tz-pmetric-head span {
-  font-size: 13px;
-  font-weight: 500;
-  color: var(--tz-text-sub);
-}
-
-.tz-pmetric-icon-box {
-  width: 36px;
-  height: 36px;
-  border-radius: 10px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+.tz-pmetric-label {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #71717a;
+  margin-bottom: 8px;
 }
 
 .tz-pmetric-value {
   font-family: var(--tz-font-display);
-  font-size: 26px;
+  font-size: 28px;
   font-weight: 800;
   color: #18181b;
   line-height: 1.15;
-  margin-bottom: 6px;
-  letter-spacing: -0.02em;
+  margin-bottom: 8px;
+  letter-spacing: -0.03em;
+  font-variant-numeric: tabular-nums;
 }
 
 .tz-pmetric-footer {
   font-size: 11.5px;
-  color: var(--tz-text-muted);
+  color: #71717a;
   display: flex;
   align-items: center;
-  gap: 5px;
+  gap: 6px;
 }
 
 .tz-pmetric-footer.good {
-  color: var(--tz-green);
+  color: #059669;
 }
 
 .tz-dot {
@@ -181,210 +168,27 @@
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: var(--tz-text-muted);
+  background: #a1a1aa;
 }
 
 .tz-dot.active {
-  background: var(--tz-green);
+  background: #10b981;
 }
 
-/* 3. Featured Active Project Hero Card */
-.tz-pfeatured-card {
-  background: #ffffff;
-  border: 1px solid var(--tz-border);
-  border-radius: 16px;
-  overflow: hidden;
-  display: grid;
-  grid-template-columns: 380px 1fr;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.03);
-  transition: box-shadow 0.2s ease;
-}
-
-.tz-pfeatured-card:hover {
-  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.05);
-}
-
-@media (max-width: 960px) {
-  .tz-pfeatured-card {
-    grid-template-columns: 1fr;
-  }
-}
-
-.tz-pfeatured-img-wrap {
-  position: relative;
-  min-height: 260px;
-  background: #f4f4f5;
-  overflow: hidden;
-}
-
-.tz-pfeatured-img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  display: block;
-}
-
-.tz-pfeatured-img-gradient {
-  position: absolute;
-  inset: 0;
-  background: linear-gradient(
-    to bottom,
-    rgba(15, 15, 20, 0.35) 0%,
-    transparent 35%,
-    transparent 65%,
-    rgba(15, 15, 20, 0.45) 100%
-  );
-  pointer-events: none;
-}
-
-.tz-pfeatured-state-badge {
-  position: absolute;
-  top: 14px;
-  right: 14px;
-  backdrop-filter: blur(8px);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
-}
-
-.tz-pfeatured-date-badge {
-  position: absolute;
-  bottom: 14px;
-  right: 14px;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  background: rgba(255, 255, 255, 0.92);
-  backdrop-filter: blur(8px);
-  color: #27272a;
-  padding: 4px 10px;
-  border-radius: 20px;
-  font-size: 11.5px;
-  font-weight: 600;
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1);
-}
-
-.tz-pfeatured-content {
-  padding: 28px 32px;
-  display: flex;
-  flex-direction: column;
-  justify-content: space-between;
-  gap: 20px;
-}
-
-.tz-pfeatured-kicker {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  font-size: 12px;
-  font-weight: 700;
-  text-transform: uppercase;
-  color: var(--tz-brand);
-  letter-spacing: 0.5px;
-  margin-bottom: 6px;
-}
-
-.tz-pfeatured-kicker-dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--tz-brand);
-  box-shadow: 0 0 0 3px rgba(232, 99, 56, 0.2);
-}
-
-.tz-pfeatured-title {
-  margin: 0 0 4px;
-  font-family: var(--tz-font-display);
-  font-size: 24px;
-  font-weight: 800;
-  color: #18181b;
-  letter-spacing: -0.02em;
-}
-
-.tz-pfeatured-subtitle {
-  font-size: 13.5px;
-  color: var(--tz-text-sub);
-  margin-bottom: 18px;
-}
-
-.tz-pfeatured-stats-row {
-  display: flex;
-  gap: 32px;
-  padding: 14px 0;
-  border-top: 1px solid var(--tz-border);
-  border-bottom: 1px solid var(--tz-border);
-}
-
-.tz-pfeatured-stat strong {
-  display: block;
-  font-family: var(--tz-font-display);
-  font-size: 18px;
-  font-weight: 800;
-  color: #18181b;
-  line-height: 1.2;
-}
-
-.tz-pfeatured-stat span {
-  font-size: 12px;
-  color: var(--tz-text-muted);
-}
-
-.tz-pfeatured-bottom {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 24px;
-  flex-wrap: wrap;
-}
-
-.tz-pfeatured-prog {
-  flex: 1;
-  min-width: 200px;
-  max-width: 320px;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.tz-pfeatured-prog-label {
-  display: flex;
-  justify-content: space-between;
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--tz-text-sub);
-}
-
-.tz-prog-pct {
-  font-weight: 700;
-  color: var(--tz-brand);
-}
-
-.tz-pprog-track {
-  height: 6px;
-  background: #f0f0f2;
-  border-radius: 999px;
-  overflow: hidden;
-}
-
-.tz-pprog-fill {
-  height: 100%;
-  background: var(--tz-brand);
-  border-radius: 999px;
-  transition: width 0.4s ease;
-}
-
-/* 4. Toolbar Section */
+/* 3. Toolbar Section */
 .tz-ptoolbar {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 16px;
   flex-wrap: wrap;
-  padding: 4px 0;
+  padding: 2px 0;
 }
 
 .tz-ptoolbar-right {
   display: flex;
   align-items: center;
-  gap: 14px;
+  gap: 12px;
   flex-wrap: wrap;
 }
 
@@ -395,9 +199,9 @@
   background: #ffffff;
   border: 1px solid var(--tz-border);
   border-radius: 10px;
-  padding: 6px 12px;
+  padding: 7px 14px;
   min-width: 250px;
-  color: var(--tz-text-muted);
+  color: #a1a1aa;
   transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 
@@ -438,7 +242,7 @@
 .tz-pfilter-pills {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 5px;
   background: #ffffff;
   border: 1px solid var(--tz-border);
   border-radius: 10px;
@@ -470,7 +274,7 @@
 
 .tz-ptoolbar-count {
   font-size: 13px;
-  color: var(--tz-text-sub);
+  color: #71717a;
 }
 
 .tz-ptoolbar-count strong {
@@ -478,11 +282,11 @@
   font-weight: 700;
 }
 
-/* 5. Projects Grid */
+/* 4. Projects Grid — Photography First, Clean Luxury */
 .tz-projects-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(310px, 1fr));
-  gap: 20px;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 22px;
 }
 
 .tz-project-card {
@@ -494,19 +298,19 @@
   flex-direction: column;
   cursor: pointer;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.02);
-  transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.2s cubic-bezier(0.16, 1, 0.3, 1), border-color 0.2s ease;
+  transition: transform 0.22s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.22s cubic-bezier(0.16, 1, 0.3, 1), border-color 0.2s ease;
   text-align: right;
 }
 
 .tz-project-card:hover {
-  transform: translateY(-4px);
-  box-shadow: 0 12px 28px -6px rgba(0, 0, 0, 0.08), 0 4px 10px -2px rgba(0, 0, 0, 0.03);
-  border-color: #f3d5c5;
+  transform: translateY(-5px);
+  box-shadow: 0 14px 32px -6px rgba(0, 0, 0, 0.09), 0 4px 12px -2px rgba(0, 0, 0, 0.03);
+  border-color: #f2d5c6;
 }
 
 .tz-pcard-img-wrap {
   position: relative;
-  height: 190px;
+  height: 200px;
   background: #f4f4f5;
   width: 100%;
   overflow: hidden;
@@ -517,7 +321,7 @@
   height: 100%;
   object-fit: cover;
   display: block;
-  transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+  transition: transform 0.45s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .tz-project-card:hover .tz-pcard-img {
@@ -539,9 +343,9 @@
 
 .tz-pcard-badges-top {
   position: absolute;
-  top: 10px;
-  right: 10px;
-  left: 10px;
+  top: 12px;
+  right: 12px;
+  left: 12px;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -551,12 +355,11 @@
 .tz-pcard-album-badge {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
   background: rgba(253, 242, 248, 0.94);
-  color: #db2777;
-  border: 1px solid rgba(251, 207, 232, 0.6);
+  color: #be185d;
+  border: 1px solid rgba(251, 207, 232, 0.8);
   backdrop-filter: blur(6px);
-  padding: 3px 8px;
+  padding: 3px 9px;
   border-radius: 20px;
   font-size: 11px;
   font-weight: 700;
@@ -566,22 +369,22 @@
 .tz-pcard-date-badge {
   position: absolute;
   bottom: 10px;
-  right: 10px;
+  right: 12px;
   display: inline-flex;
   align-items: center;
-  gap: 5px;
   background: rgba(255, 255, 255, 0.92);
   backdrop-filter: blur(8px);
   color: #27272a;
-  padding: 3px 8px;
+  padding: 3px 9px;
   border-radius: 20px;
-  font-size: 11px;
-  font-weight: 600;
+  font-size: 11.5px;
+  font-weight: 700;
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1);
+  font-variant-numeric: tabular-nums;
 }
 
 .tz-pcard-body {
-  padding: 16px 18px;
+  padding: 18px 20px;
   display: flex;
   flex-direction: column;
   gap: 12px;
@@ -591,13 +394,13 @@
 .tz-pcard-main-info {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 3px;
 }
 
 .tz-pcard-title {
   margin: 0;
   font-family: var(--tz-font-display);
-  font-size: 16px;
+  font-size: 17px;
   font-weight: 800;
   color: #18181b;
   letter-spacing: -0.01em;
@@ -605,8 +408,8 @@
 
 .tz-pcard-subtitle {
   margin: 0;
-  font-size: 12.5px;
-  color: var(--tz-text-sub);
+  font-size: 13px;
+  color: #71717a;
 }
 
 .tz-pcard-progress-wrap {
@@ -615,10 +418,25 @@
   gap: 8px;
 }
 
+.tz-pprog-track {
+  flex: 1;
+  height: 6px;
+  background: #f0f0f2;
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.tz-pprog-fill {
+  height: 100%;
+  background: var(--tz-brand);
+  border-radius: 999px;
+  transition: width 0.4s ease;
+}
+
 .tz-pcard-prog-pct {
   font-size: 11px;
   font-weight: 700;
-  color: var(--tz-text-sub);
+  color: #71717a;
   min-width: 28px;
   text-align: left;
 }
@@ -627,14 +445,14 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding-top: 10px;
+  padding-top: 12px;
   border-top: 1px solid var(--tz-border);
   margin-top: auto;
   font-size: 12px;
 }
 
 .tz-pcard-stage-info {
-  color: var(--tz-text-muted);
+  color: #71717a;
 }
 
 .tz-balance-tag {
@@ -643,15 +461,14 @@
 }
 
 .tz-stage-tag {
-  color: var(--tz-text-sub);
+  color: #71717a;
   font-weight: 500;
 }
 
 .tz-pcard-photo-count {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  color: var(--tz-text-muted);
+  color: #71717a;
   font-weight: 600;
   font-size: 11.5px;
 }
@@ -669,18 +486,6 @@
   gap: 12px;
   max-width: 480px;
   margin: 20px auto;
-}
-
-.tz-pempty-icon {
-  width: 60px;
-  height: 60px;
-  border-radius: 50%;
-  background: var(--tz-brand-light);
-  color: var(--tz-brand);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  margin-bottom: 4px;
 }
 
 .tz-pempty-state h3 {
