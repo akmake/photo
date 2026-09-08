@@ -1,16 +1,59 @@
-import { useMemo } from 'react';
-import { useStudio } from '../../studio/store';
+import React, { useMemo, useState } from 'react';
+import { STAGES, useStudio } from '../../studio/store';
 import type { Project } from '../../studio/store';
-import './today.css';
+import {
+  TzIconBook, TzIconCalendar, TzIconCamera, TzIconCheck, TzIconCloud,
+  TzIconFilter, TzIconFolder, TzIconGallery, TzIconHeart, TzIconSliders,
+  TzIconSparkle, TzIconUpload, TzIconUsers,
+} from '../TzIcons';
+import './today-redesign.css';
 
-function statusBadge(project: Project) {
-  if (project.state === 'done') return { label: 'נמסר', cls: 'done' };
-  if (project.state === 'shoot') return { label: 'מתוכנן', cls: 'shoot' };
-  if (project.state === 'waiting') return { label: 'אישור לקוח', cls: 'waiting' };
-  if (project.at >= 5) return { label: 'עיצוב אלבום', cls: 'work' };
-  if (project.at >= 4) return { label: 'עריכה', cls: 'work' };
-  if (project.at >= 2) return { label: 'בחירה', cls: 'work' };
-  return { label: 'יובא', cls: 'work' };
+function clamp(value: number, min: number, max: number) {
+  return Math.min(max, Math.max(min, value));
+}
+
+function progressOf(project: Project) {
+  return Math.round((clamp(project.at, 0, STAGES.length - 1) / (STAGES.length - 1)) * 100);
+}
+
+function statusOf(project: Project): { label: string; className: string } {
+  if (project.state === 'done') return { label: 'נמסר', className: 'delivered' };
+  if (project.state === 'shoot') return { label: 'מתוכנן', className: 'scheduled' };
+  if (project.state === 'waiting') return { label: 'אישור לקוח', className: 'review' };
+  if (project.at >= 5) return { label: 'עיצוב אלבום', className: 'album' };
+  if (project.at >= 4) return { label: 'עריכה', className: 'editing' };
+  if (project.at >= 2) return { label: 'בחירה', className: 'culling' };
+  return { label: 'יובא', className: 'imported' };
+}
+
+function formatShootDate(value: string) {
+  const [day, month] = value.split('.').map(Number);
+  if (!day || !month) return value || 'טרם נקבע';
+  return new Date(new Date().getFullYear(), month - 1, day).toLocaleDateString('he-IL', {
+    day: 'numeric', month: 'short', year: 'numeric',
+  });
+}
+
+function relativeDate(value: string) {
+  const time = new Date(value).getTime();
+  if (!Number.isFinite(time)) return 'לאחרונה';
+  const days = Math.max(0, Math.floor((Date.now() - time) / 86_400_000));
+  if (days === 0) return 'היום';
+  if (days === 1) return 'אתמול';
+  if (days < 7) return `לפני ${days} ימים`;
+  return new Date(value).toLocaleDateString('he-IL', { day: 'numeric', month: 'short' });
+}
+
+function monthGrid(view: Date) {
+  const year = view.getFullYear();
+  const month = view.getMonth();
+  const first = new Date(year, month, 1);
+  const start = new Date(year, month, 1 - first.getDay());
+  return Array.from({ length: 42 }, (_, index) => {
+    const date = new Date(start);
+    date.setDate(start.getDate() + index);
+    return { date, current: date.getMonth() === month };
+  });
 }
 
 export default function TodayV2({
@@ -18,27 +61,40 @@ export default function TodayV2({
   onOpenProject,
 }: {
   onNavigate: (section: string) => void;
-  onOpenProject: (id: string) => void;
+  onOpenProject?: (id: string) => void;
 }) {
   const { projects, status, fault } = useStudio();
+  const [calendarView, setCalendarView] = useState(() => new Date());
 
   const data = useMemo(() => {
-    const active = projects.filter((p) => p.state !== 'done');
-    const waiting = projects.filter((p) => p.state === 'waiting');
+    const active = projects.filter((project) => project.state !== 'done');
+    const visible = active;
+    const waiting = projects.filter((project) => project.state === 'waiting');
     const shoots = projects
-      .filter((p) => p.state === 'shoot')
+      .filter((project) => project.state === 'shoot')
       .sort((a, b) => a.date.localeCompare(b.date, undefined, { numeric: true }));
+    const imported = projects.reduce((sum, project) => sum + (project.imported || 0), 0);
+    const kept = projects.reduce((sum, project) => sum + (project.kept || 0), 0);
+    const picked = projects.reduce((sum, project) => sum + (project.picked || 0), 0);
+    const rendered = projects.reduce((sum, project) => sum + (project.rendered || 0), 0);
     const photosPending = active.reduce(
-      (sum, p) => sum + Math.max(0, (p.imported || 0) - (p.rendered || 0)), 0,
+      (sum, project) => sum + Math.max(0, (project.imported || 0) - (project.rendered || 0)), 0,
     );
-    const albums = active.filter((p) => p.hasAlbum && p.at >= 4).length;
-    const delivered = projects.filter((p) => p.state === 'done').length;
-    const tasks = [...waiting, ...shoots, ...active.filter((p) => p.state === 'work')].slice(0, 4);
+    const albums = active.filter((project) => project.hasAlbum && project.at >= 4).length;
+    const delivered = projects.filter((project) => project.state === 'done').length;
+    const tasks = [...waiting, ...shoots, ...active.filter((project) => project.state === 'work')]
+      .filter((project, index, list) => list.findIndex((candidate) => candidate.id === project.id) === index)
+      .slice(0, 4);
 
     return {
       active,
+      visible,
       waiting,
       shoots,
+      imported,
+      kept,
+      picked,
+      rendered,
       photosPending,
       albums,
       delivered,
@@ -46,201 +102,417 @@ export default function TodayV2({
     };
   }, [projects]);
 
+  const calendar = monthGrid(calendarView);
   const now = new Date();
+  const todayKey = `${now.getFullYear()}-${now.getMonth()}-${now.getDate()}`;
   const greeting = now.getHours() < 12 ? 'בוקר טוב' : now.getHours() < 18 ? 'צהריים טובים' : 'ערב טוב';
 
+  function handleOpenProject(p: Project) {
+    onOpenProject?.(p.id);
+  }
+
   return (
-    <div className="v2-today">
-      {/* Hero Header */}
-      <section className="v2-today-hero">
-        <div className="v2-today-greeting">
+    <div className="tz-today-container">
+      {/* 1. Hero Block */}
+      <section className="tz-today-hero">
+        <div className="tz-today-hero-title">
           <h1>{greeting}, יוסי 👋</h1>
-          <p>מרכז השליטה שלך — תמונת מצב חיה של הסטודיו והעבודות הפעילות.</p>
+          <p>זה מה שקורה היום בעסק הצילום שלך — תמונת מצב מדויקת בזמן אמת.</p>
         </div>
-        <div className="v2-today-actions">
-          <button className="v2-btn v2-btn-primary" onClick={() => onNavigate('projects')}>
+        <div className="tz-today-hero-actions">
+          <button className="tz-btn-hero-primary" type="button" onClick={() => onNavigate('projects')}>
             <span>＋</span> פרויקט חדש
           </button>
-          <button className="v2-btn" onClick={() => onNavigate('projects')}>
-            <span>⇧</span> ייבוא תמונות
+          <button className="tz-btn-hero-sec" type="button" onClick={() => onNavigate('projects')}>
+            <TzIconUpload size={15} /> ייבוא תמונות
           </button>
-          <button className="v2-btn" onClick={() => onNavigate('albums')}>
-            <span>▣</span> יצירת אלבום
+          <button className="tz-btn-hero-sec" type="button" onClick={() => onNavigate('albums')}>
+            <TzIconBook size={15} /> יצירת אלבום
+          </button>
+          <button className="tz-btn-hero-sec" type="button" onClick={() => onNavigate('projects')}>
+            <TzIconGallery size={15} /> שיתוף גלריה
           </button>
         </div>
       </section>
 
-      {/* Metrics Row */}
-      <section className="v2-metrics-grid">
-        <div className="v2-metric-card">
-          <div className="v2-metric-header">
+      {/* 2. Four Key Metrics Row */}
+      <section className="tz-metrics-row">
+        {/* Metric 1 */}
+        <div className="tz-metric-card">
+          <div className="tz-metric-head">
             <span>פרויקטים פעילים</span>
-            <div className="v2-metric-icon" style={{ background: 'var(--v2-brand-surface)', color: 'var(--v2-brand)' }}>
-              ▱
+            <div className="tz-metric-icon-box" style={{ background: 'var(--tz-brand-light)', color: 'var(--tz-brand)' }}>
+              <TzIconFolder size={17} />
             </div>
           </div>
-          <div className="v2-metric-value">{data.active.length}</div>
-          <div className="v2-metric-sub">
-            <span style={{ color: 'var(--v2-accent-emerald)' }}>●</span> בעבודה שוטפת כעת
+          <div className="tz-metric-value">{data.active.length.toLocaleString('he-IL')}</div>
+          <div className="tz-metric-footer good">
+            <span>●</span> נמצאים כעת בעבודה
           </div>
         </div>
 
-        <div className="v2-metric-card">
-          <div className="v2-metric-header">
+        {/* Metric 2 */}
+        <div className="tz-metric-card">
+          <div className="tz-metric-head">
             <span>תמונות ממתינות</span>
-            <div className="v2-metric-icon" style={{ background: 'var(--v2-stage-cull-bg)', color: 'var(--v2-stage-cull)' }}>
-              ◩
+            <div className="tz-metric-icon-box" style={{ background: '#eff6ff', color: '#2563eb' }}>
+              <TzIconGallery size={17} />
             </div>
           </div>
-          <div className="v2-metric-value">{data.photosPending.toLocaleString('he-IL')}</div>
-          <div className="v2-metric-sub">
+          <div className="tz-metric-value">{data.photosPending.toLocaleString('he-IL')}</div>
+          <div className="tz-metric-footer">
             <span>בכל הפרויקטים הפעילים</span>
           </div>
         </div>
 
-        <div className="v2-metric-card">
-          <div className="v2-metric-header">
+        {/* Metric 3 */}
+        <div className="tz-metric-card">
+          <div className="tz-metric-head">
             <span>אלבומים בעבודה</span>
-            <div className="v2-metric-icon" style={{ background: 'var(--v2-stage-album-bg)', color: 'var(--v2-stage-album)' }}>
-              ▣
+            <div className="tz-metric-icon-box" style={{ background: '#fdf2f8', color: '#db2777' }}>
+              <TzIconBook size={17} />
             </div>
           </div>
-          <div className="v2-metric-value">{data.albums}</div>
-          <div className="v2-metric-sub">
-            <span style={{ color: 'var(--v2-accent-emerald)' }}>●</span> אלבומים פתוחים
+          <div className="tz-metric-value">{data.albums.toLocaleString('he-IL')}</div>
+          <div className="tz-metric-footer good">
+            <span>●</span> אלבומים פעילים
           </div>
         </div>
 
-        <div className="v2-metric-card">
-          <div className="v2-metric-header">
+        {/* Metric 4 */}
+        <div className="tz-metric-card">
+          <div className="tz-metric-head">
             <span>פרויקטים שנמסרו</span>
-            <div className="v2-metric-icon" style={{ background: 'var(--v2-accent-emerald-bg)', color: 'var(--v2-accent-emerald)' }}>
-              ✓
+            <div className="tz-metric-icon-box" style={{ background: 'var(--tz-green-bg)', color: 'var(--tz-green)' }}>
+              <TzIconCheck size={17} />
             </div>
           </div>
-          <div className="v2-metric-value">{data.delivered}</div>
-          <div className="v2-metric-sub">
-            <span>הושלמו ונמסרו ללקוח</span>
+          <div className="tz-metric-value">{data.delivered.toLocaleString('he-IL')}</div>
+          <div className="tz-metric-footer good">
+            <span>●</span> הושלמו בסטודיו
           </div>
         </div>
       </section>
 
-      {/* Main & Side Columns */}
-      <div className="v2-today-layout">
+      {/* 3. Main Split Layout */}
+      <div className="tz-today-layout">
         {/* Main Column */}
-        <div className="v2-today-main-col">
-          <div className="v2-card">
-            <div className="v2-card-header">
-              <span className="v2-card-title">תיקים פעילים בעבודה</span>
-              <button className="v2-card-link" onClick={() => onNavigate('projects')}>לכל הפרויקטים ←</button>
+        <div className="tz-today-main-col">
+          {/* Active Projects Table */}
+          <div className="tz-card">
+            <div className="tz-panel-head-row">
+              <span className="tz-panel-head-title">פרויקטים פעילים</span>
+              <button className="tz-panel-link-btn" type="button" onClick={() => onNavigate('projects')}>
+                לכל הפרויקטים ←
+              </button>
             </div>
-            <table className="v2-table">
-              <thead>
-                <tr>
-                  <th>פרויקט / לקוח</th>
-                  <th>תאריך צילום</th>
-                  <th>התקדמות</th>
-                  <th>סטטוס</th>
-                </tr>
-              </thead>
-              <tbody>
-                {data.active.slice(0, 5).map((p) => {
-                  const badge = statusBadge(p);
-                  const progress = Math.round(((p.at + 1) / 6) * 100);
-                  return (
-                    <tr key={p.id} onClick={() => onOpenProject(p.id)}>
-                      <td>
-                        <div className="v2-project-row-info">
-                          {p.thumb ? (
-                            <img src={p.thumb} alt="" className="v2-project-avatar" />
-                          ) : (
-                            <div className="v2-project-avatar" style={{ display: 'grid', placeItems: 'center', color: 'var(--v2-text-muted)' }}>📷</div>
-                          )}
-                          <div className="v2-project-names">
-                            <strong>{p.client}</strong>
-                            <small>{p.event || 'פרויקט צילום'}</small>
+
+            <div className="tz-table-wrap">
+              <table className="tz-projects-table">
+                <thead>
+                  <tr>
+                    <th>פרויקט</th>
+                    <th>לקוח</th>
+                    <th>תאריך צילום</th>
+                    <th>התקדמות</th>
+                    <th>סטטוס</th>
+                    <th>עודכן</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {data.visible.slice(0, 5).map((project) => {
+                    const st = statusOf(project);
+                    const prog = progressOf(project);
+                    return (
+                      <tr key={project.id} onClick={() => handleOpenProject(project)}>
+                        <td>
+                          <div className="tz-cell-project">
+                            {project.thumb ? (
+                              <img src={project.thumb} alt="" className="tz-cell-thumb" style={{ objectPosition: project.pos }} />
+                            ) : (
+                              <div className="tz-cell-thumb tz-cell-thumb-empty">
+                                <TzIconCamera size={18} />
+                              </div>
+                            )}
+                            <div className="tz-cell-titles">
+                              <strong>{project.event || project.client}</strong>
+                              <small>{project.location || 'פרויקט צילום'}</small>
+                            </div>
                           </div>
-                        </div>
-                      </td>
-                      <td>{p.date || 'טרם נקבע'}</td>
-                      <td>
-                        <div className="v2-progress-bar-wrap">
-                          <div className="v2-progress-track">
-                            <div className="v2-progress-fill" style={{ width: `${progress}%` }} />
+                        </td>
+                        <td>{project.client}</td>
+                        <td>{formatShootDate(project.date)}</td>
+                        <td>
+                          <div className="tz-cell-prog-wrap">
+                            <div className="tz-cell-prog-track">
+                              <div className="tz-cell-prog-fill" style={{ width: `${prog}%` }} />
+                            </div>
+                            <span className="tz-cell-prog-txt">{prog}%</span>
                           </div>
-                          <span className="v2-progress-percent">{progress}%</span>
-                        </div>
-                      </td>
-                      <td>
-                        <span className={`v2-status-pill ${badge.cls}`}>
-                          {badge.label}
-                        </span>
+                        </td>
+                        <td>
+                          <span className={`tz-status-badge ${st.className}`}>{st.label}</span>
+                        </td>
+                        <td>{relativeDate(project.createdAt)}</td>
+                      </tr>
+                    );
+                  })}
+                  {data.visible.length === 0 && (
+                    <tr>
+                      <td colSpan={6} style={{ textAlign: 'center', padding: '36px', color: 'var(--tz-text-muted)' }}>
+                        {status === 'loading' ? 'טוען פרויקטים מהמנוע...' : 'אין כרגע פרויקטים פעילים בסטודיו.'}
                       </td>
                     </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {/* Bottom Split: Calendar & Recent Activity */}
+          <div className="tz-bottom-split">
+            {/* Calendar Widget */}
+            <div className="tz-card">
+              <div className="tz-cal-top-row">
+                <button
+                  type="button"
+                  className="tz-cal-nav-btn"
+                  onClick={() => setCalendarView(new Date(calendarView.getFullYear(), calendarView.getMonth() - 1, 1))}
+                >
+                  ›
+                </button>
+                <div className="tz-cal-title-block">
+                  {calendarView.toLocaleDateString('he-IL', { month: 'long', year: 'numeric' })}
+                </div>
+                <button
+                  type="button"
+                  className="tz-cal-nav-btn"
+                  onClick={() => setCalendarView(new Date(calendarView.getFullYear(), calendarView.getMonth() + 1, 1))}
+                >
+                  ‹
+                </button>
+              </div>
+
+              <div className="tz-cal-grid-dows">
+                {['א׳', 'ב׳', 'ג׳', 'ד׳', 'ה׳', 'ו׳', 'ש׳'].map((day) => (
+                  <span key={day}>{day}</span>
+                ))}
+              </div>
+
+              <div className="tz-cal-grid-days">
+                {calendar.map(({ date, current }) => {
+                  const key = `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`;
+                  const isToday = key === todayKey;
+                  return (
+                    <div
+                      key={key}
+                      className={`tz-cal-day-cell ${current ? '' : 'muted'} ${isToday ? 'today' : ''}`}
+                    >
+                      {date.getDate()}
+                    </div>
                   );
                 })}
-                {data.active.length === 0 && (
-                  <tr>
-                    <td colSpan={4} style={{ textAlign: 'center', padding: '32px', color: 'var(--v2-text-muted)' }}>
-                      אין כרגע פרויקטים פעילים בסטודיו.
-                    </td>
-                  </tr>
+              </div>
+            </div>
+
+            {/* Recent Activity */}
+            <div className="tz-card">
+              <div className="tz-panel-head-row">
+                <span className="tz-panel-head-title">פעילות אחרונה</span>
+                <button className="tz-panel-link-btn" type="button" onClick={() => onNavigate('projects')}>
+                  הכול
+                </button>
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                {projects.slice(0, 3).map((project) => (
+                  <button
+                    key={project.id}
+                    type="button"
+                    className="tz-act-item"
+                    onClick={() => handleOpenProject(project)}
+                  >
+                    {project.thumb ? (
+                      <img src={project.thumb} alt="" className="tz-cell-thumb" style={{ width: 34, height: 34 }} />
+                    ) : (
+                      <div className="tz-cell-thumb tz-cell-thumb-empty" style={{ width: 34, height: 34 }}>
+                        <TzIconGallery size={15} />
+                      </div>
+                    )}
+                    <div className="tz-act-copy">
+                      <strong>{project.client} · {statusOf(project).label}</strong>
+                      <small>{relativeDate(project.createdAt)}</small>
+                    </div>
+                  </button>
+                ))}
+                {projects.length === 0 && (
+                  <div style={{ padding: '24px', textAlign: 'center', color: 'var(--tz-text-muted)', fontSize: '13px' }}>
+                    הפעילות תופיע לאחר פתיחת פרויקטים.
+                  </div>
                 )}
-              </tbody>
-            </table>
+              </div>
+            </div>
           </div>
         </div>
 
         {/* Side Column */}
-        <div className="v2-today-side-col">
-          <div className="v2-card">
-            <div className="v2-card-header">
-              <span className="v2-card-title">משימות להיום</span>
-              <button className="v2-card-link" onClick={() => onNavigate('projects')}>הכול</button>
+        <div className="tz-today-side-col">
+          {/* Tasks for Today */}
+          <div className="tz-card">
+            <div className="tz-panel-head-row">
+              <span className="tz-panel-head-title">המשימות להיום</span>
+              <button className="tz-panel-link-btn" type="button" onClick={() => onNavigate('projects')}>
+                הכול
+              </button>
             </div>
-            <div className="v2-task-list">
-              {data.tasks.map((task) => (
-                <div className="v2-task-item" key={task.id} onClick={() => onOpenProject(task.id)}>
-                  <div className="v2-task-right">
-                    <span className="v2-task-dot" />
-                    <span className="v2-task-title">
-                      {task.state === 'shoot' ? `הכנה ל-${task.event}` : task.state === 'waiting' ? `לחזור אל ${task.client}` : `המשך עבודה על ${task.client}`}
+
+            <div>
+              {data.tasks.map((project) => (
+                <button
+                  key={project.id}
+                  type="button"
+                  className="tz-task-row"
+                  onClick={() => handleOpenProject(project)}
+                >
+                  <div className="tz-task-right">
+                    <span className="tz-task-checkbox" />
+                    <span className="tz-task-text">
+                      {project.state === 'shoot'
+                        ? `הכנה לקראת ${project.event}`
+                        : project.state === 'waiting'
+                        ? `לחזור אל ${project.client}`
+                        : `להמשיך את ${project.event}`}
                     </span>
                   </div>
-                  <span className="v2-task-due">{task.date || 'היום'}</span>
-                </div>
+                  <span className="tz-task-date">
+                    {project.state === 'shoot' ? project.date : 'להיום'}
+                  </span>
+                </button>
               ))}
               {data.tasks.length === 0 && (
-                <div style={{ padding: '24px', textAlign: 'center', color: 'var(--v2-text-muted)', fontSize: '13px' }}>
-                  אין משימות דחופות כרגע.
+                <div style={{ padding: '20px', textAlign: 'center', color: 'var(--tz-text-muted)', fontSize: '12.5px' }}>
+                  אין משימות פתוחות להיום.
+                </div>
+              )}
+            </div>
+
+            <button
+              className="tz-btn-peach"
+              style={{ marginTop: '12px' }}
+              type="button"
+              onClick={() => onNavigate('projects')}
+            >
+              ＋ פתיחת פרויקטים
+            </button>
+          </div>
+
+          {/* Upcoming Shoots */}
+          <div className="tz-card">
+            <div className="tz-panel-head-row">
+              <span className="tz-panel-head-title">צילומים קרובים</span>
+              <button className="tz-panel-link-btn" type="button" onClick={() => onNavigate('calendar')}>
+                ליומן
+              </button>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+              {data.shoots.slice(0, 3).map((project) => {
+                const [day, month] = project.date.split('.').map(Number);
+                const monthName = month
+                  ? new Date(2024, month - 1, 1).toLocaleDateString('he-IL', { month: 'short' })
+                  : 'טרם נקבע';
+                return (
+                  <button
+                    key={project.id}
+                    type="button"
+                    className="tz-shoot-row"
+                    onClick={() => handleOpenProject(project)}
+                  >
+                    <div className="tz-shoot-datebox">
+                      <span>{monthName}</span>
+                      <strong>{day || '—'}</strong>
+                    </div>
+                    <div className="tz-shoot-meta">
+                      <strong>{project.event}</strong>
+                      <small>{project.client}</small>
+                    </div>
+                    <div className="tz-shoot-loc">
+                      <span style={{ color: 'var(--tz-green)' }}>●</span>
+                    </div>
+                  </button>
+                );
+              })}
+              {data.shoots.length === 0 && (
+                <div style={{ padding: '20px', textAlign: 'center', color: 'var(--tz-text-muted)', fontSize: '12.5px' }}>
+                  אין צילומים קרובים ביומן.
                 </div>
               )}
             </div>
           </div>
 
-          <div className="v2-card">
-            <div className="v2-card-header">
-              <span className="v2-card-title">צילומים קרובים ביומן</span>
-              <button className="v2-card-link" onClick={() => onNavigate('calendar')}>ליומן</button>
+          {/* Client Activity / Waiting */}
+          <div className="tz-card">
+            <div className="tz-panel-head-row">
+              <span className="tz-panel-head-title">פעילות לקוחות</span>
+              <button className="tz-panel-link-btn" type="button" onClick={() => onNavigate('clients')}>
+                הכול
+              </button>
             </div>
-            <div className="v2-task-list">
-              {data.shoots.slice(0, 3).map((shoot) => (
-                <div className="v2-task-item" key={shoot.id} onClick={() => onOpenProject(shoot.id)}>
-                  <div className="v2-task-right">
-                    <span style={{ fontSize: '16px' }}>🗓️</span>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
-                      <strong style={{ color: 'var(--v2-text-primary)', fontSize: '13px' }}>{shoot.event}</strong>
-                      <small style={{ color: 'var(--v2-text-muted)', fontSize: '12px' }}>{shoot.client}</small>
-                    </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+              {data.waiting.slice(0, 3).map((project) => (
+                <button
+                  key={project.id}
+                  type="button"
+                  className="tz-shoot-row"
+                  onClick={() => handleOpenProject(project)}
+                >
+                  <div className="tz-shoot-datebox" style={{ background: '#f4f4f5' }}>
+                    <strong style={{ color: 'var(--tz-brand)' }}>{project.client.slice(0, 1).toUpperCase()}</strong>
                   </div>
-                  <span className="v2-task-due">{shoot.date}</span>
-                </div>
+                  <div className="tz-shoot-meta">
+                    <strong>{project.client}</strong>
+                    <small>{project.waitingSince ? `ממתין מאז ${project.waitingSince}` : 'ממתין לאישור הלקוח'}</small>
+                  </div>
+                  <span className="tz-status-badge review" style={{ fontSize: '10.5px' }}>
+                    {statusOf(project).label}
+                  </span>
+                </button>
               ))}
-              {data.shoots.length === 0 && (
-                <div style={{ padding: '24px', textAlign: 'center', color: 'var(--v2-text-muted)', fontSize: '13px' }}>
-                  אין צילומים קרובים ביומן.
+              {data.waiting.length === 0 && (
+                <div style={{ padding: '20px', textAlign: 'center', color: 'var(--tz-text-muted)', fontSize: '12.5px' }}>
+                  אין פרויקטים שממתינים ללקוח.
                 </div>
               )}
+            </div>
+          </div>
+
+          {/* System & Local Engine Status */}
+          <div className="tz-card">
+            <div className="tz-panel-head-row" style={{ marginBottom: '10px' }}>
+              <span className="tz-panel-head-title" style={{ fontSize: '13.5px' }}>מצב המערכת והמנוע</span>
+            </div>
+
+            <div className="tz-sys-status-row">
+              <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <span className="tz-sys-dot" style={{ background: status === 'ready' ? 'var(--tz-green)' : 'var(--tz-brand)' }} />
+                <span>{status === 'ready' ? 'כל המערכות פועלות' : 'מתחבר למנוע המקומי'}</span>
+              </span>
+              <strong style={{ color: status === 'ready' ? 'var(--tz-green)' : 'var(--tz-brand)' }}>
+                {status === 'ready' ? 'מחובר' : 'בטעינה'}
+              </strong>
+            </div>
+            <div className="tz-sys-status-row">
+              <span>פרויקטים מקומיים</span>
+              <strong>{projects.length}</strong>
+            </div>
+            <div className="tz-sys-status-row">
+              <span>תמונות שיובאו</span>
+              <strong>{data.imported.toLocaleString('he-IL')}</strong>
+            </div>
+            <div className="tz-sys-status-row">
+              <span>תמונות שעובדו</span>
+              <strong>{data.rendered.toLocaleString('he-IL')}</strong>
             </div>
           </div>
         </div>

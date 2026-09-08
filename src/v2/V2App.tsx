@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useStudio } from '../studio/store';
 import TzStatusScreen from './screens/TzStatusScreen';
-import Today from '../studio/screens/Today';
+import TodayV2 from './screens/TodayV2';
 import {
   TzIconBell, TzIconBook, TzIconCalendar, TzIconFilter, TzIconFlask,
   TzIconFolder, TzIconGear, TzIconHeart, TzIconHelp, TzIconHome,
@@ -58,15 +58,15 @@ export default function V2App({ onSwitchToV1, onOpenProjectV1 }: V2AppProps) {
   function renderMainContent() {
     if (activeNav === 'today') {
       return (
-        <Today
-          onSection={(sec) => {
+        <TodayV2
+          onNavigate={(sec) => {
             if (sec === 'projects') setActiveNav('projects');
             else if (sec === 'clients') setActiveNav('clients');
             else if (sec === 'calendar') setActiveNav('calendar');
             else if (sec === 'albums') setActiveNav('albums');
-            else setActiveNav(sec as string);
+            else setActiveNav(sec);
           }}
-          onOpen={(id) => {
+          onOpenProject={(id) => {
             setActiveNav('projects');
             onOpenProjectV1?.(id);
           }}
@@ -250,7 +250,7 @@ export default function V2App({ onSwitchToV1, onOpenProjectV1 }: V2AppProps) {
         )}
 
         {/* Content Area */}
-        <main className={activeNav === 'today' ? 'tz-content-flush' : 'tz-content-scroll'}>
+        <main className="tz-content-scroll">
           {renderMainContent()}
         </main>
       </div>

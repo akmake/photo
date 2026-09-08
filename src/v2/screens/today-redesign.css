@@ -1,0 +1,589 @@
+/* ==========================================================================
+   TODAY SCREEN V2 — REDESIGNED WITH TEZA AI VISUAL SYSTEM
+   Pixel-perfect styling using exact tokens, colors, and layouts.
+   ========================================================================== */
+
+.tz-today-container {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  max-width: 1400px;
+  margin: 0 auto;
+}
+
+/* 1. Hero Block */
+.tz-today-hero {
+  background: var(--tz-card-bg);
+  border: 1px solid var(--tz-border);
+  border-radius: 14px;
+  padding: 24px 28px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.02);
+}
+
+.tz-today-hero-title h1 {
+  margin: 0;
+  font-family: var(--tz-font-display);
+  font-size: 22px;
+  font-weight: 800;
+  color: #18181b;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.tz-today-hero-title p {
+  margin: 6px 0 0;
+  font-size: 13px;
+  color: var(--tz-text-muted);
+}
+
+.tz-today-hero-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.tz-btn-hero-primary {
+  background: var(--tz-brand);
+  color: #ffffff;
+  border: none;
+  border-radius: 8px;
+  padding: 9px 18px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: 0 3px 10px rgba(232, 99, 56, 0.3);
+  transition: all 0.15s ease;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.tz-btn-hero-primary:hover {
+  background: #d95328;
+}
+
+.tz-btn-hero-sec {
+  background: var(--tz-btn-peach);
+  color: #18181b;
+  border: none;
+  border-radius: 8px;
+  padding: 9px 16px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.tz-btn-hero-sec:hover {
+  background: var(--tz-btn-peach-hover);
+}
+
+/* 2. Top 4 Metric Cards */
+.tz-metrics-row {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 16px;
+}
+
+.tz-metric-card {
+  background: var(--tz-card-bg);
+  border: 1px solid var(--tz-border);
+  border-radius: 14px;
+  padding: 18px 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.02);
+  transition: transform 0.15s ease;
+}
+
+.tz-metric-card:hover {
+  transform: translateY(-2px);
+}
+
+.tz-metric-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 12.5px;
+  color: var(--tz-text-sub);
+  font-weight: 500;
+}
+
+.tz-metric-icon-box {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.tz-metric-value {
+  font-family: var(--tz-font-display);
+  font-size: 26px;
+  font-weight: 800;
+  color: #18181b;
+  line-height: 1;
+}
+
+.tz-metric-footer {
+  font-size: 11.5px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--tz-text-muted);
+}
+
+.tz-metric-footer.good {
+  color: var(--tz-green);
+}
+
+/* 3. Main Split Layout */
+.tz-today-layout {
+  display: grid;
+  grid-template-columns: 1fr 340px;
+  gap: 20px;
+}
+
+.tz-today-main-col {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.tz-today-side-col {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+/* Card Header inside panel */
+.tz-panel-head-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+}
+
+.tz-panel-head-title {
+  font-family: var(--tz-font-display);
+  font-size: 15px;
+  font-weight: 700;
+  color: #18181b;
+}
+
+.tz-panel-link-btn {
+  background: transparent;
+  border: none;
+  color: var(--tz-brand);
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 0;
+}
+
+.tz-panel-link-btn:hover {
+  text-decoration: underline;
+}
+
+/* Projects Table */
+.tz-table-wrap {
+  overflow-x: auto;
+}
+
+.tz-projects-table {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: right;
+  font-size: 13px;
+}
+
+.tz-projects-table th {
+  padding: 10px 14px;
+  color: var(--tz-text-muted);
+  font-weight: 600;
+  font-size: 12px;
+  border-bottom: 1px solid var(--tz-border);
+  background: #fafafa;
+}
+
+.tz-projects-table td {
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--tz-border);
+  color: var(--tz-text-sub);
+}
+
+.tz-projects-table tbody tr {
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.tz-projects-table tbody tr:hover {
+  background: #f9f9fb;
+}
+
+.tz-projects-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.tz-cell-project {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.tz-cell-thumb {
+  width: 40px;
+  height: 40px;
+  border-radius: 8px;
+  object-fit: cover;
+  background: #f4f4f5;
+  border: 1px solid var(--tz-border);
+}
+
+.tz-cell-thumb-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #a1a1aa;
+}
+
+.tz-cell-titles strong {
+  display: block;
+  font-size: 13.5px;
+  font-weight: 700;
+  color: #18181b;
+}
+
+.tz-cell-titles small {
+  display: block;
+  font-size: 11.5px;
+  color: var(--tz-text-muted);
+  margin-top: 1px;
+}
+
+/* Progress bar in table */
+.tz-cell-prog-wrap {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 110px;
+}
+
+.tz-cell-prog-track {
+  flex: 1;
+  height: 5px;
+  background: #e4e4e7;
+  border-radius: 99px;
+  overflow: hidden;
+}
+
+.tz-cell-prog-fill {
+  height: 100%;
+  background: var(--tz-brand);
+  border-radius: 99px;
+}
+
+.tz-cell-prog-txt {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--tz-text-sub);
+  width: 32px;
+}
+
+/* Status Badges */
+.tz-status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 10px;
+  border-radius: 99px;
+  font-size: 11.5px;
+  font-weight: 600;
+}
+
+.tz-status-badge.delivered {
+  background: var(--tz-green-bg);
+  color: var(--tz-green);
+}
+
+.tz-status-badge.review {
+  background: #fff8eb;
+  color: #d97706;
+}
+
+.tz-status-badge.scheduled {
+  background: #eff6ff;
+  color: #2563eb;
+}
+
+.tz-status-badge.editing {
+  background: #fdf2f8;
+  color: #db2777;
+}
+
+.tz-status-badge.culling,
+.tz-status-badge.album,
+.tz-status-badge.imported {
+  background: var(--tz-brand-light);
+  color: var(--tz-brand);
+}
+
+/* 4. Bottom Main Grid: Calendar & Activity */
+.tz-bottom-split {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+}
+
+/* Calendar */
+.tz-cal-top-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.tz-cal-title-block {
+  font-weight: 700;
+  font-size: 13.5px;
+  color: #18181b;
+}
+
+.tz-cal-nav-btn {
+  background: transparent;
+  border: 1px solid var(--tz-border);
+  border-radius: 6px;
+  width: 26px;
+  height: 26px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  color: #52525b;
+}
+
+.tz-cal-nav-btn:hover {
+  background: #f4f4f5;
+}
+
+.tz-cal-grid-dows {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  text-align: center;
+  font-size: 11px;
+  color: var(--tz-text-muted);
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+
+.tz-cal-grid-days {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 3px;
+  text-align: center;
+}
+
+.tz-cal-day-cell {
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  border-radius: 6px;
+  color: #27272a;
+  cursor: pointer;
+}
+
+.tz-cal-day-cell:hover {
+  background: #f4f4f5;
+}
+
+.tz-cal-day-cell.muted {
+  color: #d4d4d8;
+}
+
+.tz-cal-day-cell.today {
+  background: var(--tz-brand);
+  color: #ffffff;
+  font-weight: 700;
+}
+
+/* Activity Items */
+.tz-act-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 9px 6px;
+  border-radius: 8px;
+  cursor: pointer;
+  background: transparent;
+  border: none;
+  width: 100%;
+  text-align: right;
+  transition: background 0.15s ease;
+}
+
+.tz-act-item:hover {
+  background: #f9f9fb;
+}
+
+.tz-act-copy strong {
+  display: block;
+  font-size: 13px;
+  color: #18181b;
+}
+
+.tz-act-copy small {
+  display: block;
+  font-size: 11px;
+  color: var(--tz-text-muted);
+}
+
+/* 5. Side Column Widgets */
+
+/* Task item */
+.tz-task-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 4px;
+  border-bottom: 1px solid var(--tz-border);
+  cursor: pointer;
+  background: transparent;
+  border-left: none;
+  border-right: none;
+  border-top: none;
+  width: 100%;
+  text-align: right;
+  transition: background 0.15s ease;
+}
+
+.tz-task-row:hover {
+  background: #f9f9fb;
+}
+
+.tz-task-row:last-child {
+  border-bottom: none;
+}
+
+.tz-task-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.tz-task-checkbox {
+  width: 16px;
+  height: 16px;
+  border: 1.5px solid #d4d4d8;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.tz-task-text {
+  font-size: 12.5px;
+  font-weight: 500;
+  color: #18181b;
+}
+
+.tz-task-date {
+  font-size: 11px;
+  color: var(--tz-brand);
+  font-weight: 600;
+}
+
+/* Upcoming Shoot item */
+.tz-shoot-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 9px 4px;
+  border-radius: 8px;
+  cursor: pointer;
+  background: transparent;
+  border: none;
+  width: 100%;
+  text-align: right;
+  transition: background 0.15s ease;
+}
+
+.tz-shoot-row:hover {
+  background: #f9f9fb;
+}
+
+.tz-shoot-datebox {
+  background: var(--tz-btn-peach);
+  border-radius: 8px;
+  padding: 4px 8px;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  line-height: 1.1;
+  min-width: 44px;
+}
+
+.tz-shoot-datebox span {
+  font-size: 9.5px;
+  color: var(--tz-brand);
+  font-weight: 600;
+}
+
+.tz-shoot-datebox strong {
+  font-size: 14px;
+  font-weight: 800;
+  color: #18181b;
+}
+
+.tz-shoot-meta {
+  flex: 1;
+  margin: 0 10px;
+}
+
+.tz-shoot-meta strong {
+  display: block;
+  font-size: 13px;
+  color: #18181b;
+}
+
+.tz-shoot-meta small {
+  display: block;
+  font-size: 11.5px;
+  color: var(--tz-text-muted);
+}
+
+.tz-shoot-loc {
+  font-size: 11px;
+  color: var(--tz-text-muted);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* System status card */
+.tz-sys-status-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 12px;
+  padding: 5px 0;
+  color: var(--tz-text-sub);
+}
+
+.tz-sys-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--tz-green);
+}
