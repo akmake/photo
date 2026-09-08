@@ -27,7 +27,7 @@ import { useEffect, useMemo, useState, useSyncExternalStore } from 'react';
 import {
   initProject, projectFrames, projectState, workspaceRoot,
 } from '../api';
-import type { Frame, ProjectMemory } from '../api';
+import type { Frame, GalleryLink, ProjectMemory } from '../api';
 import { dbFind, dbImport, dbSaveMany } from '../db';
 import type { LearnedColorModel, ProjectRecipe, Batch, ToolInstance } from '../types';
 
@@ -439,6 +439,7 @@ const EMPTY_STATE: ProjectMemory = {
   assign: {},
   statuses: {},
   recipe: { version: 1, base: [], perBatch: {}, perFrame: {} },
+  gallery: null,
 };
 
 const states: Record<string, ProjectMemory> = {};
@@ -593,6 +594,68 @@ export function addBatch(projectId: string, name: string, frames: string[] = [])
   for (const f of frames) assign[frameKey(f)] = batch.id;
   write(projectId, { ...current, batches: [...current.batches, batch], assign });
   return batch;
+}
+
+/* ── the client gallery's thread back into the project ─────────────────────
+ *
+ * The link is kept in project.json beside the batches on purpose: the batch a
+ * client's choice creates and the note saying it was already created have to
+ * be written in the same move, or a crash between them either imports twice or
+ * never imports at all.
+ */
+
+export function galleryOf(projectId: string): GalleryLink | null {
+  return stateOf(projectId).gallery ?? null;
+}
+
+export function useGalleryOf(projectId: string): GalleryLink | null {
+  const state = useSyncExternalStore(
+    subscribe,
+    () => stateOf(projectId),
+    () => stateOf(projectId),
+  );
+  return state.gallery ?? null;
+}
+
+export function setGalleryLink(projectId: string, link: GalleryLink | null) {
+  write(projectId, { ...stateOf(projectId), gallery: link });
+}
+
+/** The client's locked choice, as a batch — in ONE write with the note that
+ *  says it happened.
+ *
+ *  Returns the frames the client chose that are not in this folder. The caller
+ *  must show them: fewer photographs than the couple picked, with nothing said,
+ *  is the one outcome that would make the photographer distrust the whole
+ *  mechanism. */
+export function importClientChoice(
+  projectId: string,
+  link: GalleryLink,
+  plan: { matched: string[]; missing: string[]; albums: GalleryLink['albums'] },
+  batchName = 'בחירת הלקוח',
+): { batchId: string; missing: string[] } {
+  const current = stateOf(projectId);
+  const batch: Batch = {
+    id: `s${Date.now().toString(36)}`,
+    name: batchName,
+    order: current.batches.length,
+  };
+  const assign = { ...current.assign };
+  for (const frame of plan.matched) assign[frameKey(frame)] = batch.id;
+
+  write(projectId, {
+    ...current,
+    batches: [...current.batches, batch],
+    assign,
+    gallery: {
+      ...link,
+      importedAt: Date.now(),
+      batchId: batch.id,
+      missing: plan.missing,
+      albums: plan.albums,
+    },
+  });
+  return { batchId: batch.id, missing: plan.missing };
 }
 
 export function renameBatch(projectId: string, id: string, name: string) {

@@ -30,6 +30,7 @@ import CoverEditor from './CoverEditor';
 import PreflightPanel from './PreflightPanel';
 import OrganizeView from './OrganizeView';
 import AlbumLibrary, { type AlbumCreateInput } from './AlbumLibrary';
+import { clientAlbumsOf } from '../studio/galleryLink';
 import { useProjectFiles } from '../studio/store';
 import type { Project as StudioProject } from '../studio/store';
 import { framesToPool, enrichPool } from './projectPool';
@@ -1404,6 +1405,10 @@ export default function AlbumStudio({ job, onBack }: {
         albums={albums}
         profiles={printProfiles}
         photos={job ? framesToPool(jobFiles.frames) : photos}
+        /* What the couple chose, per album they were sold. Kept in project.json
+         * by the gallery — an AlbumPhoto's id and a gallery frameId are both
+         * the file name, so this crosses over untranslated. */
+        clientAlbums={clientAlbumsOf(job?.id)}
         onBack={onBack}
         onOpen={(id) => { setHistoryPast([]); setHistoryFuture([]); setTimelineRequested(false); setActiveAlbumId(id); }}
         onCreate={createAlbum}

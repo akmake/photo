@@ -185,6 +185,27 @@ def main():
         check("the lock is visible to the photographer",
               bool(st["gallery"]["lockedAt"]))
 
+        print("\nthe import plan")
+        # The one piece the studio does not decide for itself. A frame the
+        # client chose that is no longer in the folder must come back NAMED.
+        plan = gallery.import_plan(gid, ["frame-0", "frame-1", "frame-3"])
+        check("everything present is matched", sorted(plan["matched"]) ==
+              ["frame-0", "frame-1", "frame-3"], str(plan["matched"]))
+        check("nothing is missing when nothing moved", plan["missing"] == [])
+
+        partial = gallery.import_plan(gid, ["frame-0", "frame-3"])
+        check("a renamed frame is reported, not dropped",
+              partial["missing"] == ["frame-1"], str(partial["missing"]))
+        check("and the rest still come through",
+              sorted(partial["matched"]) == ["frame-0", "frame-3"])
+        check("the album split comes with it",
+              sorted(plan["albums"][all_albums[0]]["frames"]) ==
+              ["frame-0", "frame-1", "frame-3"],
+              str(plan["albums"][all_albums[0]]["frames"]))
+        check("an empty folder matches nothing and loses nothing",
+              gallery.import_plan(gid, [])["missing"] == [
+                  "frame-0", "frame-1", "frame-3"])
+
         print("\na corrected frame")
         ver = gallery.add_version(gid, ids[0])
         check("the next version is v2", ver["n"] == 2)

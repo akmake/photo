@@ -31,6 +31,7 @@ import Batches from './Batches';
 import SetRecipe from './SetRecipe';
 import ApplySet from './ApplySet';
 import DeliverSet from './DeliverSet';
+import ClientGallery from './ClientGallery';
 import {
   IcCalendar, IcCamera, IcLink, IcMail, IcSliders, IcSparkle,
 } from '../../design/Icons';
@@ -288,13 +289,14 @@ export default function Project({
                 ]} />
                 <div className="stage-actions">
                   <button className="btn"><IcCamera size={16} />פתח סינון</button>
-                  {project.hasGallery && (
-                    <button className="btn btn-primary"><IcLink size={16} />שלח גלריה ללקוח</button>
-                  )}
                 </div>
                 {project.waitingSince && (
                   <p className="waiting-line">נשלח ללקוח ב-{project.waitingSince} · טרם הסתיימה הבחירה</p>
                 )}
+                {/* The client's half of the selection. The button that used to
+                    sit here said "שלח גלריה ללקוח" and did nothing; this is the
+                    thing it was waiting for. */}
+                <ClientGallery projectId={project.id} clientName={project.client} />
               </Stage>
             )}
 

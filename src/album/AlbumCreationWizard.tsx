@@ -7,6 +7,11 @@ import { ALBUM_STYLES } from './styleEngine';
 interface Props {
   profiles: PrintProductProfile[];
   photos: AlbumPhoto[];
+  /** What the couple chose, per album they were sold. An AlbumPhoto's id is
+   *  frameKey(name) and the gallery answers in file names too, so this needs no
+   *  translation — the client's choice IS a selection here. Absent when no
+   *  gallery was published. See docs/CLIENT-GALLERY.md. */
+  clientAlbums?: { name: string; frames: string[] }[];
   onCancel(): void;
   onComplete(input: AlbumCreateInput): void;
 }
@@ -18,7 +23,7 @@ const COVERS = [
   { id: 'minimal', title: 'כריכה נקייה', text: 'צבע אחיד וטיפוגרפיה' },
 ];
 
-export default function AlbumCreationWizard({ profiles, photos, onCancel, onComplete }: Props) {
+export default function AlbumCreationWizard({ profiles, photos, clientAlbums, onCancel, onComplete }: Props) {
   const first = profiles[0];
   const [step, setStep] = useState(1);
   const [profileId, setProfileId] = useState(first?.id ?? '');
@@ -133,7 +138,21 @@ export default function AlbumCreationWizard({ profiles, photos, onCancel, onComp
             <div className="album-wizard-section-head">
               <div><span className="album-wizard-kicker">שלב 2 מתוך 5</span><h1>אילו תמונות נכנסות לספר?</h1><p>בחרו לפי הסדר שבו תרצו להתחיל את הסיפור. ניתן לשנות את הסדר אחר כך.</p></div>
               <div className="album-wizard-selection-count"><strong>{selectedIds.length}</strong><span>מתוך {photos.length}</span></div>
-              <div className="album-wizard-selection-actions"><button onClick={() => setSelectedIds(photos.map((photo) => photo.id))}>בחירת הכול</button><button onClick={() => setSelectedIds([])} disabled={!selectedIds.length}>ניקוי</button></div>
+              <div className="album-wizard-selection-actions">
+                {/* The couple already did this work. Starting from their answer
+                    is the whole reason the gallery feeds back into the project
+                    instead of sitting in a browser tab somewhere. */}
+                {clientAlbums?.map((album) => {
+                  const known = new Set(photos.map((p) => p.id));
+                  const frames = album.frames.filter((f) => known.has(f));
+                  if (!frames.length) return null;
+                  return (
+                    <button key={album.name} onClick={() => setSelectedIds(frames)}>
+                      בחירת הלקוח · {album.name} ({frames.length})
+                    </button>
+                  );
+                })}
+                <button onClick={() => setSelectedIds(photos.map((photo) => photo.id))}>בחירת הכול</button><button onClick={() => setSelectedIds([])} disabled={!selectedIds.length}>ניקוי</button></div>
             </div>
             <div className="album-wizard-photo-grid">
               {photos.map((photo) => {

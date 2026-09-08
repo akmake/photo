@@ -12,6 +12,17 @@ export interface Album {
   nameSetByClient: boolean;
 }
 
+export interface Note {
+  id: string;
+  text: string;
+  /** normalised 0..1, so the pin means the same at every size the frame is
+   *  ever shown at — and lands on the same spot in the photographer's studio */
+  x: number;
+  y: number;
+  versionN: number;
+  createdAt: number;
+}
+
 export interface Item {
   id: string;
   /* The average colour of the frame. Held in the cell until the image lands,
@@ -25,6 +36,10 @@ export interface Item {
   version: number;
   albumIds: string[];
   clientDone: boolean;
+  /** What they already asked for on this frame. Comes back with the gallery so
+   *  that after a correction lands they can see it, instead of writing it
+   *  again because they cannot remember whether it was sent. */
+  notes: Note[];
 }
 
 export interface Manifest {
@@ -134,3 +149,17 @@ export const renameAlbum = (slug: string, token: string, albumId: string, name: 
 
 export const lock = (slug: string, token: string) =>
   call<{ lockedAt: number }>('POST', slug, 'lock', token);
+
+export const comment = (
+  slug: string,
+  token: string,
+  itemId: string,
+  x: number,
+  y: number,
+  text: string,
+) => call<{ id: string; versionN: number }>('POST', slug, 'comment', token, {
+  itemId, x, y, text,
+});
+
+export const markDone = (slug: string, token: string, itemId: string, done: boolean) =>
+  call<{ clientDone: boolean }>('POST', slug, 'done', token, { itemId, done });

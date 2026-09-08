@@ -147,6 +147,56 @@ export default function App() {
     [albums, slug, token, say],
   );
 
+  /* Once the choice is locked the gallery stops being six hundred photographs
+   * and becomes the forty that were chosen. Leaving all of them on screen
+   * would invite notes on frames that will never be edited. */
+  const visible = useMemo(
+    () => (locked ? items.filter((i) => i.albumIds.length) : items),
+    [locked, items],
+  );
+
+  const addNote = useCallback(
+    async (item: Item, x: number, y: number, text: string) => {
+      const out = await api.comment(slug, token, item.id, x, y, text).catch((e) => {
+        say((e as api.ApiError).message);
+        return null;
+      });
+      if (!out) return;
+      setManifest((m) =>
+        m
+          ? {
+              ...m,
+              items: m.items.map((i) =>
+                i.id === item.id
+                  ? {
+                      ...i,
+                      clientDone: false,
+                      notes: [
+                        ...i.notes,
+                        { id: out.id, text, x, y, versionN: out.versionN, createdAt: Date.now() },
+                      ],
+                    }
+                  : i,
+              ),
+            }
+          : m,
+      );
+    },
+    [slug, token, say],
+  );
+
+  const setDone = useCallback(
+    (item: Item, done: boolean) => {
+      setManifest((m) =>
+        m
+          ? { ...m, items: m.items.map((i) => (i.id === item.id ? { ...i, clientDone: done } : i)) }
+          : m,
+      );
+      api.markDone(slug, token, item.id, done).catch((e) => say((e as api.ApiError).message));
+    },
+    [slug, token, say],
+  );
+
   const finish = useCallback(async () => {
     try {
       await api.lock(slug, token);
@@ -196,9 +246,15 @@ export default function App() {
 
       {notice && <div className="gal-toast">{notice}</div>}
 
-      <Grid items={items} onOpen={setOpen} onToggle={toggleHeart} locked={locked} />
+      <Grid items={visible} onOpen={setOpen} onToggle={toggleHeart} locked={locked} />
 
-      {!locked && (
+      {locked ? (
+        <footer className="gal-foot is-quiet">
+          <p>
+            הבחירה אצל הצלם. אפשר לגעת בתמונה כדי להעיר עליה.
+          </p>
+        </footer>
+      ) : (
         <footer className="gal-foot">
           <button
             className="gal-done"
@@ -213,7 +269,7 @@ export default function App() {
 
       {open !== null && (
         <Lightbox
-          items={items}
+          items={visible}
           index={open}
           albums={albums}
           locked={locked}
@@ -221,6 +277,8 @@ export default function App() {
           onIndex={setOpen}
           onClose={() => setOpen(null)}
           onSelect={choose}
+          onComment={addNote}
+          onDone={setDone}
         />
       )}
 

@@ -1,22 +1,27 @@
 """Where a gallery's records live - the same seam the bytes have.
 
-    JsonRecords   one file per collection under TEZA/gallery-db. No server, no
-                  driver, no install. A gallery is hundreds of small rows, so
-                  this is not a toy: it is the right size for a photographer
-                  running everything on one machine.
+    MongoRecords  db.py, the project's own store. THE DEFAULT: the studio
+                  already reads its projects from there, and a gallery belongs
+                  to a project. Two stores for one job is two things to back up
+                  and two ways to disagree.
 
-    MongoRecords  delegates to db.py, the project's existing store.
+    JsonRecords   one file per collection under TEZA/gallery-db. No server, no
+                  driver, no install. For a deployment with no database - and
+                  a gallery is hundreds of small rows, so this is not a toy.
 
 Chosen by `records` in gallery_config.json, exactly like the storage backend.
-This exists because `pymongo` is not installed in the engine environment today
-(db.health() says so plainly), and because the deployment target is still open:
-demanding a database server before the gallery can be run once would decide
-that question by accident.
+
+An earlier version of this file defaulted to JSON, on the strength of
+db.health() reporting pymongo missing. That reading was taken with the SYSTEM
+python; the engine runs under engine/.venv, where pymongo 4.17 is installed and
+Mongo answers. Checking the wrong interpreter is how a working database gets
+declared absent - and defaulting away from the project's real store on that
+basis would have split the data in half.
 
 The one rule both backends keep, and the reason this is not just a dict:
-UNREACHABLE IS NOT EMPTY. A read that fails raises. A gallery whose records
-cannot be read has to say "cannot read" - showing an empty gallery instead is
-a lie the client would act on.
+UNREACHABLE IS NOT EMPTY. A read that fails raises, and it never falls back to
+the other backend - a gallery that quietly answered from an empty JSON file
+while Mongo was down would tell a client their photographs are gone.
 """
 
 import json
@@ -166,10 +171,10 @@ def records():
                 cfg = gallery_store._load_config()
             except Exception:  # noqa: BLE001
                 cfg = {}
-            if (cfg.get("records") or "json").lower() == "mongo":
-                _records = MongoRecords()
-            else:
+            if (cfg.get("records") or "mongo").lower() == "json":
                 _records = JsonRecords(cfg.get("records_root"))
+            else:
+                _records = MongoRecords()
         return _records
 
 

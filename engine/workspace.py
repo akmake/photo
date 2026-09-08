@@ -297,6 +297,13 @@ EMPTY_STATE = {
     "assign": {},          # frame name -> batch id
     "statuses": {},        # frame name -> 'working' | 'ready'
     "recipe": {"version": 1, "base": [], "perBatch": {}, "perFrame": {}},
+    # The client gallery this folder was published to, once it has been. Kept
+    # HERE, beside the batches, and not in the business record: the batch the
+    # client's choice creates and the note saying it was already created have
+    # to live in the same file, or the two can disagree — a batch with no note
+    # is imported twice, a note with no batch is never imported at all.
+    # None until a gallery is made. See docs/CLIENT-GALLERY.md.
+    "gallery": None,
 }
 
 

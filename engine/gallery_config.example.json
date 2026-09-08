@@ -7,8 +7,8 @@
   "root": "",
   "_root": "local backend only. Where the objects go. Default: TEZA/gallery next to the engine.",
 
-  "records": "json",
-  "_records": "json | mongo — 'json' keeps records in TEZA/gallery-db and needs nothing installed. 'mongo' uses db.py and needs pymongo.",
+  "records": "mongo",
+  "_records": "mongo | json — mongo is the default and uses db.py, the same store the studio reads its projects from. json keeps records in TEZA/gallery-db and needs no database at all.",
 
   "endpoint": "https://s3.us-west-004.backblazeb2.com",
   "_endpoint": "s3 backend only. B2 shows this on the bucket page. R2: https://<account-id>.r2.cloudflarestorage.com",

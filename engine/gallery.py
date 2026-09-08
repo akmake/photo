@@ -47,6 +47,11 @@ _DIGITS = "23456789"
 _CODE = _LETTERS + _DIGITS
 
 SESSION_TTL = 60 * 60 * 12
+
+# How long a frozen gallery is kept before it is removed. A lapsed subscription
+# closes the door; it does not burn the room down the same evening. The client's
+# wedding is in there.
+FREEZE_DAYS = 30
 _PBKDF2_ROUNDS = 120_000
 
 # token -> (galleryId, expiry). In memory on purpose: a restart signing the
@@ -240,7 +245,12 @@ def publish(gallery_id, frames):
     for n, frame in enumerate(frames or []):
         path = frame.get("path")
         name = frame.get("name") or (os.path.basename(path) if path else "")
-        frame_id = frame.get("frameId") or path
+        # The FILE NAME, never the absolute path. project.json is keyed by name
+        # on purpose (workspace.read_state) so the folder can move, be renamed
+        # or land on another machine under a different drive letter without
+        # orphaning anything. A gallery that answered in paths would answer in
+        # a language the project cannot read.
+        frame_id = frame.get("frameId") or os.path.basename(path or "")
         if not path or not os.path.isfile(path):
             failed.append({"name": name or path, "error": "הקובץ לא נמצא"})
             continue
@@ -318,6 +328,37 @@ def add_version(gallery_id, item_id):
     return {"n": n, "key": key, "put": store.presign_put(key)}
 
 
+def publish_version(gallery_id, item_id, path):
+    """A corrected frame, derived from disk and published as the next version.
+
+    The local counterpart of add_version: same result, except the bytes are
+    made here instead of being signed for and pushed from somewhere else.
+    """
+    import gallery_derive  # noqa: PLC0415
+
+    _gallery(gallery_id)
+    if not path or not os.path.isfile(path):
+        raise GalleryError(400, "הקובץ המתוקן לא נמצא")
+    item = _item(gallery_id, item_id)
+    n = len(item.get("versions") or []) + 1
+    key = f"gal/{gallery_id}/{item_id}/v{n}.jpg"
+
+    derived = gallery_derive.derive(path)
+    store = gallery_store.store()
+    store.put(key, derived["preview"], "image/jpeg")
+    # The thumbnail is replaced too, or the grid keeps showing the old frame
+    # while the full view shows the new one - which reads as a broken gallery.
+    store.put(item["thumbKey"], derived["thumb"], "image/jpeg")
+
+    item.setdefault("versions", []).append(
+        {"n": n, "key": key, "createdAt": time.time()}
+    )
+    item["color"] = derived.get("color") or item.get("color")
+    item["clientDone"] = False       # a new version reopens the question
+    _r().save("galleryItems", item)
+    return {"n": n, "key": key}
+
+
 def state(gallery_id):
     """Everything the photographer's copy needs in order to catch up.
 
@@ -343,6 +384,11 @@ def state(gallery_id):
             "username": gallery["username"],
             "status": gallery["status"],
             "lockedAt": gallery.get("lockedAt"),
+            "frozenAt": gallery.get("frozenAt"),
+            "keptUntil": (
+                gallery["frozenAt"] + FREEZE_DAYS * 86400
+                if gallery.get("frozenAt") else None
+            ),
             "albums": gallery["albums"],
         },
         "counts": by_album,
@@ -374,6 +420,57 @@ def state(gallery_id):
     }
 
 
+def import_plan(gallery_id, frame_names):
+    """What the client's answer means for THIS folder, right now.
+
+    The studio hands over the frame names it actually has on disk and gets back
+    the choice split three ways. The split is the whole point: a frame the
+    client chose that is no longer in the folder must be NAMED, never quietly
+    dropped. Handing the photographer forty photographs when the couple chose
+    forty-three, with nothing said, is the failure this endpoint exists to make
+    impossible.
+
+    Matched by FILE NAME, which is what project.json is keyed by — see
+    workspace.read_state. The absolute path is not identity here or there.
+    """
+    gallery = _gallery(gallery_id)
+    known = set(frame_names or [])
+    chosen = [i for i in _items(gallery_id) if i.get("albumIds")]
+
+    matched = [i["frameId"] for i in chosen if i["frameId"] in known]
+    missing = [i["frameId"] for i in chosen if i["frameId"] not in known]
+
+    albums = {
+        a["id"]: {"name": a["name"], "quota": a["quota"], "frames": []}
+        for a in gallery["albums"]
+    }
+    for item in chosen:
+        for album_id in item.get("albumIds") or []:
+            if album_id in albums:
+                albums[album_id]["frames"].append(item["frameId"])
+
+    comments = _r().find("galleryComments", {"galleryId": gallery_id})
+    return {
+        "name": gallery["name"],
+        "lockedAt": gallery.get("lockedAt"),
+        "matched": matched,
+        "missing": missing,
+        "albums": albums,
+        "openComments": len([c for c in comments if not c.get("resolvedAt")]),
+    }
+
+
+def resolve_comment(gallery_id, comment_id, resolved=True):
+    """The photographer marks a note handled. Their queue, their state."""
+    found = _r().find("galleryComments", {"id": comment_id, "galleryId": gallery_id})
+    if not found:
+        raise GalleryError(404, "comment not found")
+    doc = found[0]
+    doc["resolvedAt"] = time.time() if resolved else None
+    _r().save("galleryComments", doc)
+    return {"ok": True, "resolvedAt": doc["resolvedAt"]}
+
+
 def delete_gallery(gallery_id):
     gallery = _gallery(gallery_id)
     gallery_store.store().delete_prefix(f"gal/{gallery['id']}")
@@ -396,10 +493,38 @@ def set_status(gallery_id, status):
         raise GalleryError(400, f"unknown status: {status}")
     gallery = _gallery(gallery_id)
     gallery["status"] = status
+    # When the clock started. A frozen gallery is kept for FREEZE_DAYS and then
+    # removed, and the photographer has to be able to see how long is left -
+    # deletion with no warning is the worst support event this product has.
+    gallery["frozenAt"] = time.time() if status == "frozen" else None
     _r().save("galleries", gallery)
     if status != "active":
         _drop_sessions(gallery_id)
-    return {"ok": True, "status": status}
+    return {"ok": True, "status": status, "frozenAt": gallery["frozenAt"]}
+
+
+def sweep(days=FREEZE_DAYS, dry_run=True):
+    """Remove galleries that have been frozen longer than the grace period.
+
+    Deliberately a CALL and not a background thread. The engine is a sidecar
+    that starts and stops with the app; a timer in here would delete a
+    photographer's client galleries at whatever moment the app happened to be
+    open, or never. Wherever this finally runs, something scheduled calls this.
+
+    Defaults to dry_run: the first thing anyone should do with a delete-many
+    endpoint is ask what it WOULD delete.
+    """
+    cutoff = time.time() - days * 86400
+    doomed = [
+        g for g in _r().find("galleries", {"status": "frozen"})
+        if (g.get("frozenAt") or 0) < cutoff
+    ]
+    out = [{"id": g["id"], "name": g.get("name"), "frozenAt": g.get("frozenAt")}
+           for g in doomed]
+    if not dry_run:
+        for g in doomed:
+            delete_gallery(g["id"])
+    return {"days": days, "dryRun": bool(dry_run), "removed": out}
 
 
 # --------------------------------------------------------------------------
@@ -463,6 +588,17 @@ def manifest(token):
     items = _items(gallery_id)
 
     published = [i for i in items if i.get("versions")]
+    # Their own notes come back with the gallery: after a correction lands the
+    # couple has to be able to see what they asked for, or they write it again.
+    notes = {}
+    for c in _r().find("galleryComments", {"galleryId": gallery_id}):
+        notes.setdefault(c["itemId"], []).append({
+            "id": c["id"], "text": c.get("text"), "x": c.get("x"), "y": c.get("y"),
+            "versionN": c.get("versionN"), "createdAt": c.get("createdAt"),
+        })
+    for group in notes.values():
+        group.sort(key=lambda c: c.get("createdAt") or 0)
+
     return {
         "gallery": {
             "name": gallery["name"],
@@ -479,6 +615,7 @@ def manifest(token):
                 "version": i["versions"][-1]["n"],
                 "albumIds": i.get("albumIds") or [],
                 "clientDone": bool(i.get("clientDone")),
+                "notes": notes.get(i["id"]) or [],
             }
             for i in published
         ],
@@ -683,12 +820,26 @@ def _admin_route(method, path, body):
         return item_complete(body.get("galleryId"), body.get("itemId"))
     if action == "version" and method == "POST":
         return add_version(body.get("galleryId"), body.get("itemId"))
+    if action == "publish-version" and method == "POST":
+        return publish_version(
+            body.get("galleryId"), body.get("itemId"), body.get("path")
+        )
     if action == "state":
         return state(body.get("galleryId"))
+    if action == "import-plan" and method == "POST":
+        return import_plan(body.get("galleryId"), body.get("frames") or [])
+    if action == "resolve" and method == "POST":
+        return resolve_comment(
+            body.get("galleryId"), body.get("commentId"), body.get("resolved", True)
+        )
     if action == "credentials" and method == "POST":
         return reissue_credentials(body.get("galleryId"))
     if action == "status" and method == "POST":
         return set_status(body.get("galleryId"), body.get("status"))
+    if action == "sweep" and method == "POST":
+        return sweep(
+            int(body.get("days") or FREEZE_DAYS), bool(body.get("dryRun", True))
+        )
     if action == "unlock" and method == "POST":
         return unlock(body.get("galleryId"))
     if action == "delete" and method == "POST":

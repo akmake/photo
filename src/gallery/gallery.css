@@ -235,6 +235,16 @@
   touch-action: pan-y;
 }
 
+/* Wraps the photograph and nothing else, so a pin placed at 31% / 72% sits at
+ * 31% / 72% OF THE FRAME — not of the letterboxed stage around it. */
+.gal-frame {
+  position: relative;
+  display: flex;
+  max-width: 100%;
+  max-height: 100%;
+  min-height: 0;
+}
+
 .gal-stage img {
   max-width: 100%;
   max-height: 100%;
@@ -245,6 +255,92 @@
   user-select: none;
 }
 .gal-stage img.is-loaded { opacity: 1; }
+
+/* A ring. Never a filled dot: a mark that hides what it points at has defeated
+ * itself, and the photographer needs to see the thing being complained about. */
+.gal-pin {
+  position: absolute;
+  width: 26px;
+  height: 26px;
+  margin: -13px 0 0 -13px;
+  border-radius: 999px;
+  border: 2px solid var(--brand);
+  box-shadow: 0 0 0 1.5px rgba(255, 255, 255, 0.8);
+  pointer-events: none;
+  animation: gal-pop 180ms ease-out;
+}
+.gal-pin.is-sent { border-color: rgba(255, 255, 255, 0.75); }
+
+@keyframes gal-pop {
+  from { transform: scale(0.4); opacity: 0; }
+  to { transform: scale(1); opacity: 1; }
+}
+
+/* ── notes, after the lock ────────────────────────────────────────────── */
+
+.gal-notes {
+  width: min(100%, 34em);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.gal-updated {
+  margin: 0;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--st-done);
+  text-align: center;
+}
+
+.gal-note-sent {
+  margin: 0;
+  padding: 9px 12px;
+  border-radius: 10px;
+  background: var(--wall-700);
+  color: var(--wall-000);
+  font-family: Assistant, system-ui, sans-serif;
+  font-size: 13.5px;
+  line-height: 1.5;
+}
+
+.gal-hint {
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--wall-300);
+  text-align: center;
+}
+
+.gal-write { display: flex; flex-direction: column; gap: 8px; }
+
+.gal-write textarea {
+  border: 0;
+  border-radius: 10px;
+  padding: 11px 12px;
+  font: inherit;
+  font-family: Assistant, system-ui, sans-serif;
+  font-size: 16px; /* under 16px iOS zooms the page on focus */
+  background: var(--wall-700);
+  color: var(--wall-000);
+  resize: none;
+  outline: none;
+}
+.gal-write textarea::placeholder { color: var(--wall-300); }
+.gal-write-row { display: flex; gap: 8px; justify-content: flex-end; }
+
+.gal-foot.is-quiet {
+  background: linear-gradient(to top, var(--page) 62%, transparent);
+  pointer-events: none;
+}
+.gal-foot.is-quiet p {
+  margin: 0;
+  padding: 9px 16px;
+  border-radius: 999px;
+  background: var(--card);
+  box-shadow: var(--lit), var(--key-1);
+  font-size: 12.5px;
+  color: var(--ink-3);
+}
 
 .gal-x,
 .gal-counter {

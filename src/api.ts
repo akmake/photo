@@ -944,7 +944,144 @@ export interface ProjectMemory {
     perBatch: Record<string, ToolInstance[]>;
     perFrame: Record<string, ToolInstance[]>;
   };
+  /** The client gallery this folder was published to. Null until there is one.
+   *  Lives here rather than on the business record so that the batch a client's
+   *  choice creates and the note saying it was already created cannot part
+   *  company — see workspace.py EMPTY_STATE. */
+  gallery: GalleryLink | null;
 }
+
+/** What the studio remembers about a published gallery. The gallery itself
+ *  lives on the server; this is the thread back to it. */
+export interface GalleryLink {
+  galleryId: string;
+  slug: string;
+  username: string;
+  createdAt: number;
+  /** how many frames were published, so the screen can say so without asking */
+  published: number;
+  /** set once the locked choice has been turned into a batch. Its presence is
+   *  what stops a second import on the next poll. */
+  importedAt?: number;
+  batchId?: string;
+  /** Frames the client chose that are NOT in this folder any more — renamed,
+   *  moved, deleted. NEVER swallowed: handing the photographer forty photographs
+   *  when the couple chose forty-three, silently, is the failure the whole
+   *  frameId rule exists to prevent. */
+  missing?: string[];
+  /** Which frames belong to which album. Does not affect editing — a frame is
+   *  edited once however many albums it is in — and travels on to the album
+   *  machine. */
+  albums?: Record<string, { name: string; quota: number; frames: string[] }>;
+}
+
+export interface GalleryComment {
+  id: string;
+  itemId: string;
+  frameId: string;
+  versionN: number;
+  x: number;
+  y: number;
+  text: string;
+  createdAt: number;
+  resolvedAt: number | null;
+}
+
+export interface GalleryState {
+  gallery: {
+    id: string;
+    slug: string;
+    name: string;
+    username: string;
+    status: 'active' | 'frozen' | 'archived';
+    lockedAt: number | null;
+    frozenAt: number | null;
+    /** Epoch seconds after which a frozen gallery is removed by the sweep.
+     *  Surfaced so the photographer is never deleted on without warning. */
+    keptUntil: number | null;
+    albums: { id: string; name: string; quota: number; nameSetByClient: boolean }[];
+  };
+  counts: Record<string, number>;
+  selection: {
+    frameId: string;
+    itemId: string;
+    albumIds: string[];
+    clientDone: boolean;
+    versions: number;
+  }[];
+  comments: GalleryComment[];
+  serverTime: number;
+}
+
+export interface ImportPlan {
+  name: string;
+  lockedAt: number | null;
+  matched: string[];
+  missing: string[];
+  albums: Record<string, { name: string; quota: number; frames: string[] }>;
+  openComments: number;
+}
+
+/* ── the client gallery, photographer's side ───────────────────────────────
+ *
+ * The gallery API is mounted on the engine while everything runs on one
+ * machine, and answers on the same origin as everything else here. When it
+ * moves to a server this is the one file that changes.
+ */
+
+export async function createGallery(
+  projectId: string,
+  name: string,
+  albums: { name: string; quota: number }[],
+): Promise<{ id: string; slug: string; username: string; password: string }> {
+  return post('/api/gallery/create', { projectId, name, albums });
+}
+
+/** Derive and publish frames from disk. One unreadable file is named and the
+ *  rest still land — a 600-frame publish must not die on one bad JPEG. */
+export async function publishFrames(
+  galleryId: string,
+  frames: { path: string; frameId: string; name: string }[],
+): Promise<{
+  published: { id: string; frameId: string }[];
+  failed: { name: string; error: string }[];
+}> {
+  return post('/api/gallery/publish', { galleryId, frames });
+}
+
+export const galleryState = (galleryId: string): Promise<GalleryState> =>
+  post('/api/gallery/state', { galleryId });
+
+export const galleryImportPlan = (
+  galleryId: string,
+  frames: string[],
+): Promise<ImportPlan> => post('/api/gallery/import-plan', { galleryId, frames });
+
+export const galleryResolve = (galleryId: string, commentId: string) =>
+  post<{ ok: boolean }>('/api/gallery/resolve', { galleryId, commentId });
+
+/** Publish a corrected frame as the next version. The client sees "updated". */
+export const galleryPublishVersion = (
+  galleryId: string,
+  itemId: string,
+  path: string,
+) => post<{ n: number }>('/api/gallery/publish-version', { galleryId, itemId, path });
+
+export const galleryCredentials = (galleryId: string) =>
+  post<{ username: string; password: string }>('/api/gallery/credentials', {
+    galleryId,
+  });
+
+export const gallerySetStatus = (
+  galleryId: string,
+  status: 'active' | 'frozen' | 'archived',
+) => post<{ status: string }>('/api/gallery/status', { galleryId, status });
+
+export const galleryUnlock = (galleryId: string) =>
+  post<{ ok: boolean }>('/api/gallery/unlock', { galleryId });
+
+export const galleryDelete = (galleryId: string) =>
+  post<{ ok: boolean }>('/api/gallery/delete', { galleryId });
 
 async function post<T>(path: string, body: unknown): Promise<T> {
   let r: Response;

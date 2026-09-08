@@ -8,6 +8,9 @@ interface Props {
   albums: AlbumSummary[];
   profiles: PrintProductProfile[];
   photos: AlbumPhoto[];
+  /** The client's own choice per album, passed through to the wizard so a new
+   *  album can start from what the couple picked. */
+  clientAlbums?: { name: string; frames: string[] }[];
   /** Back to the project this album belongs to. Absent on the legacy standalone
    *  route, where there is no project to return to. */
   onBack?(): void;
@@ -44,7 +47,7 @@ function whenLabel(iso: string): string {
 }
 
 export default function AlbumLibrary({
-  albums, profiles, photos, onBack, onOpen, onCreate, onRename, onDuplicate, onDelete,
+  albums, profiles, photos, clientAlbums, onBack, onOpen, onCreate, onRename, onDuplicate, onDelete,
 }: Props) {
   const [creating, setCreating] = useState(false);
   const [name, setName] = useState('');
@@ -99,6 +102,7 @@ export default function AlbumLibrary({
         <AlbumCreationWizard
           profiles={profiles}
           photos={photos}
+          clientAlbums={clientAlbums}
           onCancel={() => setCreating(false)}
           onComplete={(input) => {
             onCreate(input);
