@@ -8,6 +8,93 @@
   gap: 24px;
 }
 
+/* Edit Mode Switcher Bar */
+.tz-ge-mode-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: #fbfbf9;
+  border: 1px solid #f0eee9;
+  border-radius: 16px;
+  padding: 6px;
+  width: fit-content;
+}
+
+.tz-ge-mode-btn {
+  background: transparent;
+  border: none;
+  border-radius: 12px;
+  padding: 8px 18px;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: #52525b;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  transition: all 0.15s ease;
+}
+
+.tz-ge-mode-btn:hover {
+  color: #18181b;
+  background: rgba(0, 0, 0, 0.04);
+}
+
+.tz-ge-mode-btn.active {
+  background: #ffffff;
+  color: var(--tz-brand);
+  font-weight: 700;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04), 0 1px 2px rgba(0, 0, 0, 0.02);
+}
+
+/* Reference Frame Bar */
+.tz-ge-frame-bar {
+  background: #ffffff;
+  border: 1px solid #f0eee9;
+  border-radius: 16px;
+  padding: 14px 20px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.tz-ge-frame-info {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 13.5px;
+}
+
+.tz-ge-frame-name {
+  font-family: var(--tz-font-mono, monospace);
+  font-weight: 700;
+  color: #18181b;
+  background: #f4f3ef;
+  padding: 3px 10px;
+  border-radius: 8px;
+  direction: ltr;
+}
+
+/* Lab Embedded Container */
+.tz-ge-lab-wrapper {
+  background: #18181b;
+  border: 1px solid #27272a;
+  border-radius: 18px;
+  overflow: hidden;
+  height: calc(100vh - 240px);
+  min-height: 750px;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.12);
+}
+
+.tz-ge-lab-wrapper .bench {
+  height: 100%;
+  border: none;
+}
+
 /* Batch Selector Bar */
 .tz-ge-batches-card {
   background: #ffffff;
