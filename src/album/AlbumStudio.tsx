@@ -399,7 +399,10 @@ export default function AlbumStudio({ job, onBack }: {
       if (showPreview || showReview || showCover || showPreflight) return;
 
       switch (event.key) {
-        // cycling a layout you cannot see would change the album blindly
+        // cycling a layout with Space or arrows
+        case ' ':
+        case 'Spacebar':
+          if (mode === 'design') { event.preventDefault(); cycleLayout(1); } break;
         case 'ArrowUp':   if (mode === 'design') { event.preventDefault(); cycleLayout(-1); } break;
         case 'ArrowDown': if (mode === 'design') { event.preventDefault(); cycleLayout(1); } break;
         case 'ArrowLeft': event.preventDefault(); setActiveSpread(spreadIndex + 1); break;
@@ -428,6 +431,20 @@ export default function AlbumStudio({ job, onBack }: {
   const generatedLayout = layoutCandidates.find((candidate) => candidate.id === spread.layoutId)
     ?? layoutCandidates[0]
     ?? EMPTY_GENERATED_LAYOUT;
+
+  const cyclePool = useMemo(() => {
+    const pool: { id: string; name: string; slots?: LayoutSlot[]; layoutId: string; explanation?: string }[] = [];
+    layoutCandidates.forEach((c) => {
+      pool.push({ id: c.id, name: c.name, slots: undefined, layoutId: c.id, explanation: c.explanation });
+    });
+    const count = spread.photoIds.length;
+    LAYOUT_TEMPLATES.filter((t) => t.photoCount === count).forEach((t) => {
+      if (!pool.some((p) => p.id === t.id)) {
+        pool.push({ id: t.id, name: t.name, slots: t.slots, layoutId: t.id, explanation: `${t.photoCount} מסגרות` });
+      }
+    });
+    return pool;
+  }, [layoutCandidates, spread.photoIds.length]);
   const layout = spread.customSlots?.length === spread.photoIds.length ? {
     ...generatedLayout,
     id: spread.layoutId,
@@ -1211,16 +1228,18 @@ export default function AlbumStudio({ job, onBack }: {
 
   /** Move to another candidate layout for this spread. Wraps at both ends. */
   function cycleLayout(direction: 1 | -1) {
-    if (layoutCandidates.length < 2) return;
-    const current = layoutCandidates.findIndex((item) => item.id === spread.layoutId);
+    if (cyclePool.length < 1) return;
+    const current = cyclePool.findIndex((item) => item.id === spread.layoutId || item.layoutId === spread.layoutId);
     const at = current === -1 ? 0 : current;
-    const next = layoutCandidates[(at + direction + layoutCandidates.length) % layoutCandidates.length];
-    /* Clearing customSlots is deliberate: leaving them set makes the spread
-     * resolve as "פריסה אישית", so every candidate you cycled to would claim
-     * to be a hand-made layout. `updateSpread` records the undo step itself. */
-    updateSpread({ layoutId: next.id, customSlots: undefined, frameSettings: {} });
+    const nextIdx = (at + direction + cyclePool.length) % cyclePool.length;
+    const next = cyclePool[nextIdx];
+    if (next.slots) {
+      applyTemplate(next.slots, next.id, next.name);
+    } else {
+      updateSpread({ layoutId: next.id, customSlots: undefined, frameSettings: {} });
+    }
     setSelectedSlotIndex(null);
-    setNotice(`${next.name} · ${next.explanation}`);
+    setNotice(`פריסה: ${next.name} (${nextIdx + 1} מתוך ${cyclePool.length})`);
   }
 
   function toggleSelectedPhotoInSpread() {
@@ -1972,20 +1991,32 @@ export default function AlbumStudio({ job, onBack }: {
             <div className="album-page-nav">
               <button onClick={() => setActiveSpread(spreadIndex - 1)} disabled={spreadIndex === 0} aria-label="כפולה קודמת"><IcChevron size={16} /></button>
               <strong>עמודים {spread.pageStart}–{spread.pageStart + 1}</strong>
-              <span>מתוך {project.spreads.length * 2 + 1}</span>
+              {spread.chapterName && (
+                <span className="album-spread-chapter-pill">{spread.chapterName}</span>
+              )}
               <button onClick={() => setActiveSpread(spreadIndex + 1)} disabled={spreadIndex === project.spreads.length - 1} aria-label="כפולה הבאה"><IcChevron size={16} style={{ transform: 'rotate(180deg)' }} /></button>
             </div>
             <div className="album-canvas-tools">
-              <button onClick={addFrame} title="הוסף מסגרת חדשה — אפשר להניח אחת על השנייה"><IcGallery size={16} />+ מסגרת</button>
-              <button onClick={() => fileInput.current?.click()}><IcUpload size={16} />החלף תמונות</button>
-              <button><IcGallery size={16} />{layout.photoCount} מסגרות</button>
+              <button
+                className="album-flip-layout-btn"
+                onClick={() => cycleLayout(1)}
+                title="החלפת פריסה לפריסה הבאה (מקש Space או חץ למטה)"
+              >
+                <IcSparkle size={14} />
+                <span>החלף פריסה ⟳</span>
+                <kbd>Space</kbd>
+              </button>
+              <button onClick={addFrame} title="הוסף מסגרת חדשה"><IcGallery size={15} />+ מסגרת</button>
+              <button onClick={() => updateSpread({ background: spread.background === '#ffffff' ? '#f8f6f1' : '#ffffff' })} title="החלפת צבע רקע">
+                רקע {spread.background === '#ffffff' ? 'חם' : 'לבן'}
+              </button>
               <button
                 aria-label="בדיקה לפני ייצוא"
                 title="בדיקה לפני ייצוא"
                 className={preflight.total ? 'has-issues' : ''}
                 onClick={() => setShowPreflight(true)}
               >
-                <IcDownload size={16} />בדיקת דפוס ({preflight.blockers}/{preflight.warnings})
+                <IcDownload size={15} />בדיקת דפוס ({preflight.blockers}/{preflight.warnings})
               </button>
             </div>
           </div>
@@ -2239,29 +2270,40 @@ export default function AlbumStudio({ job, onBack }: {
             <button onClick={addSpread} aria-label="הוספת כפולה">+</button>
           </header>
           <div className="album-spread-nav-list">
-            {project.spreads.map((candidate, index) => (
-              <button
-                key={candidate.id}
-                className={`album-spread-nav-item${index === spreadIndex ? ' active' : ''}`}
-                onClick={() => setActiveSpread(index)}
-                aria-label={`פתיחת עמודים ${candidate.pageStart}–${candidate.pageStart + 1}`}
-              >
-                <span className="album-spread-nav-number">{index + 1}</span>
-                <span className="album-spread-nav-preview">
-                  <SpreadThumb
-                    spread={candidate}
-                    photos={photos}
-                    profile={profile}
-                    styleName={project.styleName}
-                    showPageNumbers={false}
-                  />
-                </span>
-                <span className="album-spread-nav-meta">
-                  <b>עמ׳ {candidate.pageStart}–{candidate.pageStart + 1}</b>
-                  <small>{candidate.photoIds.length} תמונות</small>
-                </span>
-              </button>
-            ))}
+            {project.spreads.map((candidate, index) => {
+              const prev = index > 0 ? project.spreads[index - 1] : null;
+              const isNewChapter = !prev || prev.chapterName !== candidate.chapterName;
+              return (
+                <div key={candidate.id} className="album-nav-spread-group">
+                  {isNewChapter && candidate.chapterName && (
+                    <div className="album-nav-chapter-header">
+                      <span className="album-nav-chapter-dot" />
+                      <span>{candidate.chapterName}</span>
+                    </div>
+                  )}
+                  <button
+                    className={`album-spread-nav-item${index === spreadIndex ? ' active' : ''}`}
+                    onClick={() => setActiveSpread(index)}
+                    aria-label={`פתיחת עמודים ${candidate.pageStart}–${candidate.pageStart + 1}`}
+                  >
+                    <span className="album-spread-nav-number">{index + 1}</span>
+                    <span className="album-spread-nav-preview">
+                      <SpreadThumb
+                        spread={candidate}
+                        photos={photos}
+                        profile={profile}
+                        styleName={project.styleName}
+                        showPageNumbers={false}
+                      />
+                    </span>
+                    <span className="album-spread-nav-meta">
+                      <b>עמ׳ {candidate.pageStart}–{candidate.pageStart + 1}</b>
+                      <small>{candidate.photoIds.length} תמונות</small>
+                    </span>
+                  </button>
+                </div>
+              );
+            })}
           </div>
           <footer>
             <button onClick={() => moveSpread(-1)} disabled={spreadIndex === 0}>הזזה למעלה</button>

@@ -103,6 +103,7 @@ export interface AlbumSpread {
   background: string;
   locked: boolean;
   status: 'draft' | 'review' | 'approved';
+  chapterName?: string;
 }
 
 export interface ReviewComment {

@@ -396,6 +396,72 @@
   background: #ffffff !important;
   border-bottom: 1px solid var(--tz-border) !important;
   padding: 0 16px !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+}
+
+.album-flip-layout-btn {
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 7px !important;
+  height: 32px !important;
+  padding: 0 12px !important;
+  border-radius: 8px !important;
+  background: var(--tz-btn-peach) !important;
+  border: 1px solid var(--tz-brand-stroke) !important;
+  color: var(--tz-brand) !important;
+  font-weight: 650 !important;
+  font-size: 12.5px !important;
+  cursor: pointer !important;
+  transition: all 0.15s ease !important;
+}
+
+.album-flip-layout-btn:hover {
+  background: var(--tz-btn-peach-hover) !important;
+  transform: translateY(-1px) !important;
+}
+
+.album-flip-layout-btn kbd {
+  background: #ffffff !important;
+  border: 1px solid var(--tz-brand-stroke) !important;
+  border-radius: 4px !important;
+  padding: 1px 5px !important;
+  font-size: 10.5px !important;
+  font-family: inherit !important;
+  color: var(--tz-brand) !important;
+  font-weight: 700 !important;
+  box-shadow: 0 1px 0 rgba(0, 0, 0, 0.06) !important;
+}
+
+.album-spread-chapter-pill {
+  display: inline-flex !important;
+  align-items: center !important;
+  padding: 2px 8px !important;
+  border-radius: 12px !important;
+  background: #f0f0f2 !important;
+  color: var(--tz-text-sub) !important;
+  font-size: 11.5px !important;
+  font-weight: 600 !important;
+  margin-right: 8px !important;
+}
+
+.album-nav-chapter-header {
+  display: flex !important;
+  align-items: center !important;
+  gap: 6px !important;
+  padding: 10px 8px 4px !important;
+  font-size: 11.5px !important;
+  font-weight: 700 !important;
+  color: var(--tz-brand) !important;
+  letter-spacing: 0.2px !important;
+}
+
+.album-nav-chapter-dot {
+  width: 6px !important;
+  height: 6px !important;
+  border-radius: 50% !important;
+  background: var(--tz-brand) !important;
 }
 
 .album-canvas-area {
