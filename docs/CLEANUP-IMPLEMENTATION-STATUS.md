@@ -117,6 +117,39 @@ No production cleanup changes follow from these failed experiments. Beard
 protection progress does not resolve missing defects; reliable defect semantics
 and complete boundaries remain unproven. Original files were only read.
 
+### Reference transfer and next localization model (2026-09-09)
+
+SegGPT's tiled run was visually inspected: the reference face gets only part of
+the forehead line; a different child gets false marks on hair/clothing. All
+seven faces in 5078 are empty, including the known forehead line. Full details
+and artifacts are in `CLEANUP-HANDOFF-CLAUDE.md`. This is not a useful automatic
+defect detector in the tested configuration.
+
+Qwen3-VL-4B was also tested on 5078 face 3 at a 1024-pixel viewing size with both
+the existing conservative and observation-only prompts. Both return no marks.
+Artifacts: `original-5078-face3-enlarged-4b` and
+`original-5078-face3-observed-enlarged-4b`. Enlargement alone did not fix this case.
+
+Prepared `tools/evaluate_face_grounding.py` to evaluate an alternate local model,
+with optional NF4 weights and completed-Think-section parsing. Five parser tests
+reject unfinished reasoning, ambiguous final objects and invalid coordinates.
+Coordinates now round outward so tiny valid boxes cannot collapse to zero width.
+Thinking inference uses the publisher's VL sampling settings and a recorded
+fixed seed; non-thinking inference retains greedy decoding. NF4 quality is not
+assumed equivalent to the full-precision checkpoint.
+
+Installed bitsandbytes 0.50.2 with `--no-deps` in the GPU evaluation environment;
+a CUDA 12.8 NF4 linear layer produced finite output on the RTX 5070 Ti. The full
+Qwen3-VL-8B-Thinking model download was started, revision
+`92f3c4b4feadd3a016ef468d103bb5f58b2a2c6b`. Full-model inference has NOT yet run.
+The download was resumed with HF_HUB_DISABLE_XET=1; files are in
+`smart-cleanup-agent/models/qwen3-vl-8b-thinking`. Check actual completion before
+loading. On Windows directory listings can show stale sizes while a file is
+being written; opening a partial file and seeking to its end shows current size.
+
+Sources: https://huggingface.co/Qwen/Qwen3-VL-8B-Thinking and
+https://huggingface.co/docs/bitsandbytes/installation
+
 ### Product and cost constraint clarified by user
 
 Commercial licensing is not approved merely because it exists: the user needs
