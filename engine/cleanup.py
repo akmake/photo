@@ -1951,13 +1951,19 @@ def apply(rgb, params: dict):
         frame_eye = masks.get_mask(rgb, "face-eye-region")
         boxes, unworkable = _face_boxes(rgb, faces)
         totals["previewTooSmall"] += unworkable
+        fh, fw = rgb.shape[:2]
         for x0, y0, x1, y1 in boxes:
-            healed_sub, m = _apply_one(
-                out[y0:y1, x0:x1],
-                params,
-                sel_mask=None if sel_mask is None else sel_mask[y0:y1, x0:x1],
-                frame_eye=frame_eye[y0:y1, x0:x1],
-            )
+            # Name the crop by WHERE it sits, not how big it came out: the box
+            # is pixels and moves with the panel width, the fraction does not.
+            # Without this every width re-segments every face from scratch.
+            box_id = "face-%.4f,%.4f,%.4f,%.4f" % (x0 / fw, y0 / fh, x1 / fw, y1 / fh)
+            with masks.scope(box_id):
+                healed_sub, m = _apply_one(
+                    out[y0:y1, x0:x1],
+                    params,
+                    sel_mask=None if sel_mask is None else sel_mask[y0:y1, x0:x1],
+                    frame_eye=frame_eye[y0:y1, x0:x1],
+                )
             out[y0:y1, x0:x1] = healed_sub
             for key in totals:
                 totals[key] += int(m.get(key, 0))

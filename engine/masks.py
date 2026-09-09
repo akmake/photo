@@ -14,6 +14,7 @@ Mask kinds:
   face-features  — eyes+brows+lips+nose: NEVER retouch (protection mask)
 """
 
+import contextlib
 import hashlib
 import os
 import threading
@@ -152,11 +153,50 @@ def _landmarker_instance():
 
 
 def _category_map(rgb: np.ndarray) -> np.ndarray:
+    """Per-pixel class ids, cached like every other mask.
+
+    This is the single most expensive call in the engine and it was the one
+    thing reaching MediaPipe WITHOUT a cache: cleanup asks for landmarks per
+    face crop, so one render of a group photo segmented the same pixels eleven
+    times. Measured on 321A5078 at w=1400: 2.34s of a 5.24s render, every time.
+    """
+    key = _cache_key(rgb, "__category")
+    hit = _CAT_CACHE.get(key)
+    if hit is not None and hit.shape[:2] == rgb.shape[:2]:
+        _CAT_CACHE.move_to_end(key)
+        return hit
+
+    on_disk = _disk_path(rgb, "__category")
+    computed = _load_cached(on_disk, rgb)
+    if not _reusable(computed, rgb, "__category"):
+        computed = _segment(rgb)
+        _save_cached(on_disk, computed.astype(np.uint8), rgb)
+
+    cat = computed
+    if cat.shape[:2] != rgb.shape[:2]:
+        # class ids, so NEAREST — averaging two labels invents a third.
+        cat = cv2.resize(
+            cat.astype(np.uint8), (rgb.shape[1], rgb.shape[0]),
+            interpolation=cv2.INTER_NEAREST,
+        )
+    _CAT_CACHE[key] = cat
+    if len(_CAT_CACHE) > _CAT_CACHE_MAX:
+        _CAT_CACHE.popitem(last=False)
+    return cat
+
+
+def _segment(rgb: np.ndarray) -> np.ndarray:
     """Per-pixel class ids from the multiclass selfie segmenter."""
     mp_img = mp.Image(image_format=mp.ImageFormat.SRGB, data=np.ascontiguousarray(rgb))
     result = _segmenter_instance().segment(mp_img)
     # some builds return (H, W, 1) — masks must always be 2-D
-    cat = np.squeeze(result.category_mask.numpy_view())
+    #
+    # np.array(), not np.asarray(): numpy_view() is a WINDOW onto memory that
+    # MediaPipe frees with `result`. Reading it straight through was safe only
+    # while every caller consumed it immediately; the cache above outlives the
+    # result, and a view into freed memory segfaults the process rather than
+    # raising. Copy at the boundary.
+    cat = np.array(np.squeeze(result.category_mask.numpy_view()))
     h, w = rgb.shape[:2]
     if cat.shape[0] != h or cat.shape[1] != w:
         cat = cv2.resize(cat, (w, h), interpolation=cv2.INTER_NEAREST)
@@ -453,6 +493,11 @@ def anatomy_parts(rgb: np.ndarray, lm) -> "OrderedDict[str, np.ndarray]":
 _CACHE: "OrderedDict[tuple, np.ndarray]" = OrderedDict()
 _CACHE_MAX = 24
 
+# The segmenter's own small cache. It holds class-id maps, which are bigger
+# than a mask and asked for far fewer times, so it is short.
+_CAT_CACHE: "OrderedDict[tuple, np.ndarray]" = OrderedDict()
+_CAT_CACHE_MAX = 8
+
 # Cache invalidation when the mask CODE changes.
 #
 # Both caches below key on the IMAGE only. So after any edit to how a mask is
@@ -481,12 +526,117 @@ except OSError:  # source unreadable (frozen/zipped) — degrade to per-process
 _source = threading.local()
 
 
-def set_source(rgb: np.ndarray) -> None:
+def set_source(rgb: np.ndarray, key: str | None = None) -> None:
+    """`key` names the PHOTOGRAPH, not this particular rendering of it.
+
+    Without it the disk cache can only key on the pixels it is handed, and the
+    pixels change with the panel width — so the same photograph at 1100px and
+    at 1400px were two different cache entries and the second one paid the full
+    segmentation again. Measured: 3.7s for a seen frame, 17.3s for the same
+    frame one resize later. A window resize re-segmented the whole set.
+    """
     _source.rgb = rgb
+    _source.key = key
+    _source.scope = ()
 
 
 def clear_source() -> None:
     _source.rgb = None
+    _source.key = None
+    _source.scope = ()
+
+
+@contextlib.contextmanager
+def scope(name: str):
+    """Name a sub-frame so its masks get an identity of their own.
+
+    Cleanup works each face in its own crop, and a crop is a different picture
+    to a content hash — including at a different panel width, where the crop is
+    a different SIZE. Naming the crop by where it sits in the frame (0..1, so
+    it does not move with the width) keeps its masks addressable across renders.
+    """
+    prev = getattr(_source, "scope", ())
+    _source.scope = prev + (str(name),)
+    try:
+        yield
+    finally:
+        _source.scope = prev
+
+
+# How far two 8x8 thumbnails may drift and still be the same picture. The same
+# photograph resampled to two panel widths lands within a level or two; another
+# crop of it is off by tens. A disagreement costs one recomputation — never a
+# mask borrowed from a different picture.
+_FINGERPRINT_TOL = 8.0
+
+
+def _fingerprint(rgb: np.ndarray) -> np.ndarray:
+    """8x8 averages — what the picture looks like, independent of its size."""
+    return cv2.resize(rgb, (8, 8), interpolation=cv2.INTER_AREA).astype(np.uint8)
+
+
+def _same_picture(a: np.ndarray, b: np.ndarray) -> bool:
+    if a is None or b is None or a.shape != b.shape:
+        return False
+    return float(np.abs(a.astype(np.int16) - b.astype(np.int16)).mean()) <= _FINGERPRINT_TOL
+
+
+def _identity(kind: str, rgb: np.ndarray) -> str | None:
+    """A cache name for this picture, or None when the photograph is unknown.
+
+    The name has to carry a coarse look at the pixels, and that is not
+    negotiable: cleanup crops per face and some passes crop again inside that,
+    without a scope of their own. Naming an entry by the photograph alone made
+    every one of those sub-crops write to the SAME file and then reject it on
+    the way back — measured as 33 files serving 90 distinct masks, and a warm
+    render no faster than a cold one.
+
+    So the name is quantised, not exact: 8x8 averages at 16 levels, which the
+    same picture at two panel widths usually agrees on. When it does not, the
+    cost is one recomputation. The fingerprint stored inside the file is the
+    second lock — it is what makes "usually" safe.
+    """
+    key = getattr(_source, "key", None)
+    if not key:
+        return None
+    tiny = cv2.resize(rgb, (8, 8), interpolation=cv2.INTER_AREA)
+    coarse = hashlib.blake2b((tiny >> 4).tobytes(), digest_size=8).hexdigest()
+    parts = "|".join(
+        (str(key),) + tuple(getattr(_source, "scope", ())) + (kind, coarse)
+    )
+    return hashlib.blake2b(parts.encode("utf-8"), digest_size=16).hexdigest()
+
+
+def _load_cached(on_disk: str, rgb: np.ndarray):
+    """The stored array, but only if it was computed from THIS picture."""
+    try:
+        if on_disk.endswith(".npz"):
+            with np.load(on_disk) as z:
+                if not _same_picture(z["fp"], _fingerprint(rgb)):
+                    return None
+                return z["a"]
+        return np.load(on_disk)
+    except Exception:  # noqa: BLE001 — a bad cache file is not a failure
+        return None
+
+
+def _save_cached(on_disk: str, arr: np.ndarray, rgb: np.ndarray) -> None:
+    try:
+        os.makedirs(os.path.dirname(on_disk), exist_ok=True)
+        # The suffix has to match what numpy writes: np.save APPENDS ".npy" and
+        # np.savez_compressed APPENDS ".npz" to any name lacking it, so a plain
+        # ".tmp" was written under a different name than the os.replace below
+        # then looked for. That OSError was swallowed and the cache silently
+        # stored nothing while the directory filled with orphaned temp files.
+        if on_disk.endswith(".npz"):
+            tmp = on_disk + ".tmp.npz"
+            np.savez_compressed(tmp, a=arr, fp=_fingerprint(rgb))
+        else:
+            tmp = on_disk + ".tmp.npy"
+            np.save(tmp, arr)
+        os.replace(tmp, on_disk)
+    except OSError:
+        pass  # a cache that cannot be written still serves pixels
 
 
 def _cache_key(rgb: np.ndarray, kind: str) -> tuple:
@@ -513,12 +663,33 @@ def _disk_path(small: np.ndarray, kind: str) -> str:
     segmentation again — that was the difference between re-grading a set in a
     moment and re-grading it in minutes.
     """
+    # `_MASK_CODE_VERSION` in the filename: a mask computed by older code stops
+    # matching instead of being served stale. See the note by that constant.
+    ident = _identity(kind, small)
+    if ident is not None:
+        return os.path.join(_disk_dir(), f"id-{ident}-{_MASK_CODE_VERSION}.npz")
+    # No named photograph: fall back to hashing the pixels we were handed. This
+    # is correct but width-bound — every size pays its own segmentation.
     digest = hashlib.blake2b(
         np.ascontiguousarray(small).tobytes(), digest_size=16
     ).hexdigest()
-    # `_MASK_CODE_VERSION` in the filename: a mask computed by older code stops
-    # matching instead of being served stale. See the note by that constant.
     return os.path.join(_disk_dir(), f"{digest}-{_MASK_CODE_VERSION}-{kind}.npy")
+
+
+def _reusable(computed, small: np.ndarray, kind: str) -> bool:
+    """Is a cached array good enough for the frame in hand?
+
+    Only at the SAME size. Reusing a mask across sizes was tried and measured:
+    stretching a 1024px mask onto a 1280px frame moved single pixels by up to
+    38 levels, and even scaling one DOWN left 17, both of them along the edges
+    of the marks being healed — which is exactly where a retouch is judged.
+
+    Nothing is lost by refusing: the server renders on a fixed ladder of widths
+    (see _quantise_width), so a panel returns to the same size every time and
+    the entry matches exactly. A window dragged to another rung pays once.
+    Reuse must buy time, never accuracy.
+    """
+    return computed is not None and computed.shape[:2] == small.shape[:2]
 
 
 def get_mask(rgb: np.ndarray, kind: str) -> np.ndarray:
@@ -551,27 +722,10 @@ def get_mask(rgb: np.ndarray, kind: str) -> np.ndarray:
     small = common.downscale(rgb)
 
     on_disk = _disk_path(small, kind)
-    computed = None
-    try:
-        computed = np.load(on_disk)
-    except Exception:  # noqa: BLE001 — a bad cache file is not a failure
-        computed = None
-
-    if computed is None or computed.shape[:2] != small.shape[:2]:
+    computed = _load_cached(on_disk, small)
+    if not _reusable(computed, small, kind):
         computed = _compute_mask(small, kind)
-        try:
-            os.makedirs(os.path.dirname(on_disk), exist_ok=True)
-            # The suffix has to be ".npy": np.save APPENDS ".npy" to any name
-            # that lacks it, so a ".tmp" temp file was written as
-            # "<name>.npy.tmp.npy" and the os.replace below then renamed a path
-            # that did not exist. The OSError was swallowed here, so the disk
-            # cache silently stored nothing and every render re-segmented the
-            # frame while the cache directory filled with orphaned temp files.
-            tmp = on_disk + ".tmp.npy"
-            np.save(tmp, computed.astype(np.float32))
-            os.replace(tmp, on_disk)
-        except OSError:
-            pass  # a cache that cannot be written still serves pixels
+        _save_cached(on_disk, computed.astype(np.float32), small)
 
     mask = np.clip(common.upscale_to(computed, rgb.shape), 0.0, 1.0)
 

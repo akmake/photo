@@ -161,8 +161,42 @@ def _warm_loop():
                 continue
             data = on_worker(_render_proxy, path, width, recipe)
             _store_proxy(target, data)
+            # …and pay the segmentation for the size the panel edits at, so the
+            # first click on this frame is not the one that waits for it.
+            on_worker(_prewarm_masks, path, recipe, _EDIT_WIDTH)
         except Exception:  # noqa: BLE001 — warming must never take the engine down
             pass
+
+
+def _prewarm_masks(path, recipe, width):
+    """Render once at the editing width purely to fill the mask cache.
+
+    The pixels are thrown away — what is kept is everything masks.py wrote to
+    disk on the way. This is the "do it once, when the photograph arrives" step:
+    without it the cost simply moves to whenever the photographer first touches
+    the frame.
+    """
+    try:
+        # The SAME decode /render uses, deliberately. Warming through the
+        # proxy's faster draft decode produced pixels a shade different from
+        # the ones the panel renders, the fingerprints disagreed, and the first
+        # real edit segmented the frame anyway — a warm-up that warmed nothing.
+        source = common.load_image(path)
+        size = _fit_size(source.size, width)
+        img, scale = source, 1.0
+        if size != source.size:
+            scale = max(source.size) / float(max(size))
+            img = source.resize(size, Image.LANCZOS)
+        # The source frame goes in too, for the same reason: with it the face
+        # rescue pass runs and asks for masks of its own, and a warm-up that
+        # skipped it left exactly those uncomputed.
+        render.render(
+            img, recipe, scale,
+            source if img is not source else None,
+            key=_photo_key(path),
+        )
+    except Exception:  # noqa: BLE001 — warming must never take the engine down
+        pass
 
 
 def warm(key, paths, width=None):
@@ -321,6 +355,34 @@ def _shrink(data, width):
     return buf.getvalue()
 
 
+# Panel widths come from the WINDOW, so they are whatever the photographer
+# dragged the edge to. Masks are cached per picture-as-rendered, so a free-
+# running width meant every resize re-segmented the whole set: measured, the
+# same photograph cost 2.4s at a width it had seen and 8.5s one pixel off.
+#
+# Rendering is therefore quantised to a ladder and the panel scales the result
+# the last few pixels — it is already scaling it to fit. Rounding UP keeps the
+# frame at least as large as asked, so nothing is ever upscaled to fill the
+# panel.
+_WIDTH_STEP = 256
+
+# The width the editing panel last asked for. Warming a set builds 640px
+# proxies, and masks are cached per picture-as-rendered — so warming alone left
+# the first real edit paying the whole segmentation anyway. The queue warms
+# THIS bucket too, and it learns it rather than guessing.
+_EDIT_WIDTH = 1280
+
+
+def _quantise_width(cap, size, remember=False):
+    global _EDIT_WIDTH
+    if cap <= 0:
+        return cap
+    stepped = -(-int(cap) // _WIDTH_STEP) * _WIDTH_STEP
+    if remember:
+        _EDIT_WIDTH = stepped
+    return min(stepped, max(size))
+
+
 def _fit_size(size, width):
     """The box a frame lands in at `width`, long edge.
 
@@ -354,6 +416,21 @@ def _decode_small(path, width):
     return ImageOps.exif_transpose(im).convert("RGB"), source_long
 
 
+def _photo_key(path):
+    """A stable name for the FILE, so its masks are computed once ever.
+
+    Path plus mtime plus size: editing or replacing the file changes the name,
+    so a stale mask cannot survive it, while opening the same photograph at a
+    different panel width keeps it. Returns None when we were handed pixels
+    instead of a file — then the caches fall back to hashing those pixels.
+    """
+    try:
+        st = os.stat(path)
+    except OSError:
+        return None
+    return f"{os.path.realpath(path)}|{st.st_mtime_ns}|{st.st_size}"
+
+
 def _render_proxy(path, width, recipe):
     im, source_long = _decode_small(path, width)
     # Decided BEFORE rendering, from the frame as decoded — so the answer does
@@ -367,7 +444,9 @@ def _render_proxy(path, width, recipe):
         work = _fit_size(im.size, max(width, 640))
         if work != im.size:
             im = im.resize(work, Image.LANCZOS)
-        im, _ = render.render(im, recipe, source_long / float(max(im.size)))
+        im, _ = render.render(
+            im, recipe, source_long / float(max(im.size)), key=_photo_key(path)
+        )
 
     if im.size != out_size:
         im = im.resize(out_size, Image.LANCZOS)
@@ -1008,7 +1087,7 @@ class Handler(BaseHTTPRequestHandler):
             # What the caller already shrank before we ever saw the frame.
             scale = max(1.0, float(body.get("sourceScale") or 1.0))
 
-            cap = int(body.get("w") or 0)
+            cap = _quantise_width(int(body.get("w") or 0), img.size, remember=True)
             # THE frame being edited, and the one place worth keeping the file
             # in hand for: a face the proxy is too small to serve is worked from
             # these pixels instead of refused. Thumbnails go through /preview and
@@ -1019,10 +1098,12 @@ class Handler(BaseHTTPRequestHandler):
                 if size != img.size:
                     scale *= max(img.size) / float(max(size))
                     img = img.resize(size, Image.LANCZOS)
-            out, meta = on_worker(
-                render.render, img, body.get("recipe", []), scale,
-                source if img is not source else None,
-            )
+            with _INTERACTIVE:
+                out, meta = on_worker(
+                    render.render, img, body.get("recipe", []), scale,
+                    source if img is not source else None,
+                    key=_photo_key(body["path"]) if body.get("path") else None,
+                )
             # A preview and a file the photographer keeps are not the same
             # picture. Previews stay small; `deliver` asks for the same settings
             # render.export writes to disk — q97, no chroma subsampling.
@@ -1067,21 +1148,23 @@ class Handler(BaseHTTPRequestHandler):
             # costs a wait nobody asked for. The outlines come back normalised,
             # so they are valid on the file either way.
             scale = max(1.0, float(body.get("sourceScale") or 1.0))
-            cap = int(body.get("w") or 0)
+            cap = _quantise_width(int(body.get("w") or 0), img.size)
             if cap > 0:
                 size = _fit_size(img.size, cap)
                 if size != img.size:
                     scale *= max(img.size) / float(max(size))
                     img = img.resize(size, Image.LANCZOS)
-            found = on_worker(
-                render.detect_cleanup,
-                img,
-                body.get("params", {}),
-                body.get("recipe", []),
-                # Marking and applying have to agree about which faces are in
-                # play; the size gates decide that, and they need the scale.
-                scale,
-            )
+            with _INTERACTIVE:
+                found = on_worker(
+                    render.detect_cleanup,
+                    img,
+                    body.get("params", {}),
+                    body.get("recipe", []),
+                    # Marking and applying have to agree about which faces are
+                    # in play; the size gates decide that, and need the scale.
+                    scale,
+                    key=_photo_key(body["path"]) if body.get("path") else None,
+                )
             self._json(200, found)
         except Exception as e:  # noqa: BLE001
             self._json(500, {"error": str(e)})

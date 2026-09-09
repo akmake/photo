@@ -293,7 +293,7 @@ def _region_mask(rgb, spec):
     return np.clip(m * strength, 0.0, 1.0)
 
 
-def render(img, recipe_tools, source_scale: float = 1.0, source_img=None):
+def render(img, recipe_tools, source_scale: float = 1.0, source_img=None, key=None):
     """img: PIL image. recipe_tools: [{toolId, params, enabled, mask?, model?}].
 
     A tool carrying `mask` is applied through it instead of over the whole
@@ -323,7 +323,8 @@ def render(img, recipe_tools, source_scale: float = 1.0, source_img=None):
     active.sort(key=lambda t: TOOLS[t["toolId"]][1])
 
     rgb = common.to_np(img)
-    masks.set_source(rgb)  # every tool sees the same, pristine masks
+    # `key` names the photograph so its masks outlive this particular width.
+    masks.set_source(rgb, key)  # every tool sees the same, pristine masks
     # ...and the same idea of "big enough", plus the file itself when we have it
     common.set_source_scale(
         source_scale, common.to_np(source_img) if source_img is not None else None
@@ -389,7 +390,7 @@ def render(img, recipe_tools, source_scale: float = 1.0, source_img=None):
         common.clear_source_scale()
 
 
-def detect_cleanup(img, params, recipe_tools=(), source_scale: float = 1.0):
+def detect_cleanup(img, params, recipe_tools=(), source_scale: float = 1.0, key=None):
     """What `skin-cleanup` would find in this frame, outlined — for the lab.
 
     The frame it measures is the frame the tool will actually RECEIVE, not the
@@ -409,10 +410,10 @@ def detect_cleanup(img, params, recipe_tools=(), source_scale: float = 1.0):
         and t.get("toolId") in TOOLS
         and TOOLS[t["toolId"]][1] < order
     ]
-    frame = (common.to_np(render(img, prefix, source_scale)[0]) if prefix
+    frame = (common.to_np(render(img, prefix, source_scale, key=key)[0]) if prefix
              else common.to_np(img))
 
-    masks.set_source(common.to_np(img))
+    masks.set_source(common.to_np(img), key)
     # Marking and applying must agree about which candidates EXIST, and the size
     # gates decide that. A detect pass that forgot the scale would offer the
     # photographer a different set of outlines than the render would treat.
