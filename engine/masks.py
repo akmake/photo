@@ -561,7 +561,13 @@ def get_mask(rgb: np.ndarray, kind: str) -> np.ndarray:
         computed = _compute_mask(small, kind)
         try:
             os.makedirs(os.path.dirname(on_disk), exist_ok=True)
-            tmp = on_disk + ".tmp"
+            # The suffix has to be ".npy": np.save APPENDS ".npy" to any name
+            # that lacks it, so a ".tmp" temp file was written as
+            # "<name>.npy.tmp.npy" and the os.replace below then renamed a path
+            # that did not exist. The OSError was swallowed here, so the disk
+            # cache silently stored nothing and every render re-segmented the
+            # frame while the cache directory filled with orphaned temp files.
+            tmp = on_disk + ".tmp.npy"
             np.save(tmp, computed.astype(np.float32))
             os.replace(tmp, on_disk)
         except OSError:
