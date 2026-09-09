@@ -1194,3 +1194,49 @@ export async function pickFolder(): Promise<string | null> {
   if (!r.ok) throw new Error(j?.error ?? `engine ${r.status}`);
   return j.cancelled ? null : (j.folder as string);
 }
+
+/* ------------------------------------------------------------ album desk export
+ *
+ * הדפדפן מחזיק תמונונות בלבד, ולכן ייצוא מהמסך היה כותב אלבום מפרוקסים —
+ * נכון על מסך, הרוס ב-30 ס"מ. המקורות אצל המנוע, ולכן הייצוא אצל המנוע.
+ *
+ * הגיאומטריה נשלחת כמלבנים בשברים של הכפולה כולה: התבניות נשארות במסך
+ * והמנוע לא יודע עליהן דבר.
+ */
+
+export interface AlbumDeskExportSlot {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  path: string;
+  zoom: number;
+  fx: number;
+  fy: number;
+}
+
+export interface AlbumDeskExportResult {
+  ok: boolean;
+  folder: string;
+  files: string[];
+  dpi: number;
+  size: [number, number];
+  /** בעיות שדווחו ולא הופלו בשקט — למשל מקור קטן מהשטח המודפס. */
+  notes: string[];
+}
+
+export async function albumDeskExport(payload: {
+  out: string;
+  dpi: number;
+  spec: { wcm: number; hcm: number; bleedMm: number };
+  spreads: { slots: AlbumDeskExportSlot[] }[];
+}): Promise<AlbumDeskExportResult> {
+  const r = await fetch(`${ENGINE}/albumdesk/export`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j?.error ?? `engine ${r.status}`);
+  return j as AlbumDeskExportResult;
+}

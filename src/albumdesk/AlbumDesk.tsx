@@ -26,8 +26,8 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { Frame } from '../api';
-import { thumbUrl } from '../api';
+import type { AlbumDeskExportSlot, Frame } from '../api';
+import { albumDeskExport, pickFolder, thumbUrl } from '../api';
 import type { Project } from '../studio/store';
 import { batchesOf, framesInBatch, framesOf } from '../studio/store';
 import type { Batch } from '../types';
@@ -335,6 +335,83 @@ export default function AlbumDesk({
     setSel(null);
   };
 
+  /* ---------------------------------------------------------------- export
+   *
+   * הגיאומטריה נפתרת כאן: התבניות הן של המסך, והמנוע מקבל מלבנים בשברים
+   * של הכפולה כולה. בכריכה עברית העמוד הראשון הוא הימני, ולכן על הגיליון
+   * (שנקרא משמאל לימין) הוא יושב בחצי הימני.
+   */
+  const [busy, setBusy] = useState<string | null>(null);
+  const [report, setReport] = useState<{ ok: boolean; text: string; notes: string[] } | null>(null);
+
+  const buildPayload = (out: string, dpi: number) => ({
+    out,
+    dpi,
+    spec: { wcm: doc.spec.wcm, hcm: doc.spec.hcm, bleedMm: doc.spec.bleedMm },
+    spreads: doc.spreads.map((sp) => {
+      const slots: AlbumDeskExportSlot[] = [];
+      for (const side of ['first', 'second'] as PageSide[]) {
+        const page = sp[side];
+        const t = templateById(page.templateId);
+        // 'first' = העמוד הימני = החצי הימני של הגיליון.
+        const originX = side === 'first' ? 0.5 : 0;
+        t.slots.forEach((rect, i) => {
+          const pl = page.slots[i];
+          if (!pl) return;
+          slots.push({
+            x: originX + rect.x * 0.5,
+            y: rect.y,
+            w: rect.w * 0.5,
+            h: rect.h,
+            path: pl.path,
+            zoom: pl.zoom,
+            fx: pl.fx,
+            fy: pl.fy,
+          });
+        });
+      }
+      return { slots };
+    }),
+  });
+
+  const runExport = async () => {
+    setReport(null);
+    let out: string | null = null;
+    try {
+      out = await pickFolder();
+    } catch (e) {
+      setReport({ ok: false, text: `לא ניתן לפתוח את בחירת התיקייה: ${(e as Error).message}`, notes: [] });
+      return;
+    }
+    /* בחירה שבוטלה אינה שגיאה, ושגיאה אינה ביטול. שתיקה כאן היא הבאג
+     * היקר ביותר לאיתור, ולכן שתי הדרכים אומרות משהו. */
+    if (!out) {
+      setReport({ ok: false, text: 'הייצוא בוטל — לא נבחרה תיקייה.', notes: [] });
+      return;
+    }
+    setBusy(`מייצא ${doc.spreads.length} כפולות ב-300 DPI…`);
+    try {
+      const res = await albumDeskExport(buildPayload(out, 300));
+      setReport({
+        ok: true,
+        text: `${res.files.length} כפולות נכתבו ל-${res.folder} · ${res.size[0]}×${res.size[1]} פיקסלים ב-${res.dpi} DPI`,
+        notes: res.notes ?? [],
+      });
+    } catch (e) {
+      setReport({ ok: false, text: `הייצוא נכשל: ${(e as Error).message}`, notes: [] });
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const placed = useMemo(
+    () => doc.spreads.reduce(
+      (n, sp) => n + sp.first.slots.filter(Boolean).length + sp.second.slots.filter(Boolean).length,
+      0,
+    ),
+    [doc],
+  );
+
   const moveSpread = (from: number, to: number) => {
     if (from === to || to < 0 || to >= doc.spreads.length) return;
     mutate((d) => {
@@ -436,6 +513,14 @@ export default function AlbumDesk({
           <button className={`ad-ghost${setup ? ' on' : ''}`} onClick={() => setSetup((v) => !v)}>
             הגדרות אלבום
           </button>
+          <button
+            className="ad-ghost ad-export"
+            onClick={runExport}
+            disabled={!!busy || placed === 0}
+            title={placed === 0 ? 'אין עדיין תמונות באלבום' : 'כתיבת הכפולות לדיסק ב-300 DPI'}
+          >
+            {busy ? 'מייצא…' : 'ייצוא לדפוס'}
+          </button>
           <span className="ad-sep" />
           <button className="ad-ghost" onClick={addSpread}>+ כפולה</button>
           <button className="ad-ghost" onClick={removeSpread} disabled={doc.spreads.length <= 1}>
@@ -443,6 +528,20 @@ export default function AlbumDesk({
           </button>
         </div>
       </header>
+
+      {(busy || report) && (
+        <div className={`ad-report${report && !report.ok ? ' is-bad' : ''}`}>
+          <span className="ad-report-text">{busy ?? report?.text}</span>
+          {report?.notes?.length ? (
+            <ul className="ad-report-notes">
+              {report.notes.map((n, i) => <li key={i}>{n}</li>)}
+            </ul>
+          ) : null}
+          {!busy && (
+            <button className="ad-ghost ad-report-close" onClick={() => setReport(null)}>סגור</button>
+          )}
+        </div>
+      )}
 
       {setup && (
         <SetupBar

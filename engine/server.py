@@ -66,6 +66,7 @@ import workspace
 import cloud_sources
 import storage_locations
 import db
+import albumdesk_export
 import gallery
 import gallery_store
 
@@ -713,6 +714,27 @@ class Handler(BaseHTTPRequestHandler):
         except Exception as e:  # noqa: BLE001
             self._json(500, {"error": str(e)})
 
+    def _albumdesk_export(self):
+        """POST /albumdesk/export -> print-ready spreads on disk.
+
+        The browser only ever holds thumbnails, so an album exported there
+        would be built from proxies: right on screen, ruined at 30cm. The
+        originals are here, so the export is here.
+
+        A frame that cannot be read is reported in `notes` and the rest of
+        the album still gets written — losing forty spreads because one file
+        moved is not a kindness.
+        """
+        try:
+            body = self._body()
+            result = albumdesk_export.export_album(body)
+            self._json(200, result)
+        except albumdesk_export.ExportError as e:
+            # The photographer's problem, not a crash: say what it is.
+            self._json(400, {"error": str(e)})
+        except Exception as e:  # noqa: BLE001
+            self._json(500, {"error": str(e)})
+
     def do_POST(self):
         if self._gallery_api("POST"):
             return
@@ -730,6 +752,9 @@ class Handler(BaseHTTPRequestHandler):
             return
         if self.path == "/render":
             self._render()
+            return
+        if self.path == "/albumdesk/export":
+            self._albumdesk_export()
             return
         if self.path == "/cleanup/detect":
             self._cleanup_detect()
