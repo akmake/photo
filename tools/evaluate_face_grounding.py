@@ -35,12 +35,13 @@ def final_payload(answer, thinking=False):
     for mark in payload['marks']:
         if not isinstance(mark,dict) or not isinstance(mark.get('label'),str):
             raise ValueError('Invalid mark label')
-        box=mark.get('box')
+        box=mark['box'] if 'box' in mark else mark.get('bbox')
         if not isinstance(box,list) or len(box)!=4 or any(type(x) not in (int,float) or not math.isfinite(x) for x in box):
             raise ValueError('Invalid mark box')
         x0,y0,x1,y1=box
         if not (0<=x0<x1<=1000 and 0<=y0<y1<=1000):
             raise ValueError('Out-of-bounds mark box')
+        mark['box']=box
     return payload
 
 PROMPT='''Inspect this face for visible material or marks that a portrait retoucher
