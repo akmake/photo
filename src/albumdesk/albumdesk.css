@@ -213,13 +213,18 @@
 
 /* --------------------------------------------------------------------- fold */
 
-.ad-fold {
+.ad-guides {
   position: absolute;
   inset: 0;
   pointer-events: none;
   display: grid;
   place-items: center;
 }
+
+/* קווי הדפוס. קו שיער בלבד — מסומן, לא ממולא. */
+.ad-g { position: absolute; pointer-events: none; }
+.ad-g-bleed { outline: 1px dashed rgba(217, 45, 32, .5); }
+.ad-g-safe { outline: 1px dashed rgba(11, 179, 173, .45); }
 
 /* קו שיער. לא מכסה תוכן. */
 .ad-fold-line {
@@ -509,3 +514,78 @@
   color: var(--wall-300, #7d8492);
 }
 .ad-strip-item.on .ad-strip-n { color: var(--brand, #b95c2a); }
+
+
+/* ----------------------------------------------------------------- setup
+ *
+ * מה שנמכר ללקוח. יושב מתחת לסרגל העליון ונפתח לפי בקשה.
+ */
+.ad-setup {
+  flex: 0 0 auto;
+  background: var(--wall-800, #1d2027);
+  border-bottom: 1px solid var(--wall-700, #272b34);
+  padding: 10px 16px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+
+.ad-setup-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.ad-setup-title {
+  font-size: 12px;
+  color: var(--wall-100, #c3c8d2);
+  min-width: 86px;
+}
+
+.ad-presets { display: flex; gap: 16px; flex-wrap: wrap; }
+.ad-preset-group { display: flex; align-items: center; gap: 5px; }
+.ad-preset-label { font-size: 11px; color: var(--wall-300, #7d8492); }
+
+.ad-field {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  color: var(--wall-300, #7d8492);
+}
+.ad-field span { white-space: nowrap; }
+.ad-field em { font-style: normal; opacity: .7; }
+.ad-field input {
+  width: 62px;
+  background: var(--wall-900, #16181e);
+  border: 1px solid var(--wall-600, #343946);
+  color: var(--wall-000, #eef0f4);
+  border-radius: 6px;
+  padding: 4px 7px;
+  font: inherit;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.ad-field input:focus { outline: none; border-color: var(--brand, #b95c2a); }
+
+/* כמה עמודים יש מול כמה נמכרו. ספר כרוך = מספר זוגי, תמיד. */
+.ad-pagecount {
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  padding: 3px 9px;
+  border-radius: 999px;
+  border: 1px solid transparent;
+}
+.ad-pagecount.is-match { color: var(--st-done, #12b76a); border-color: rgba(18, 183, 106, .35); }
+.ad-pagecount.is-short { color: var(--st-money, #f79009); border-color: rgba(247, 144, 9, .35); }
+.ad-pagecount.is-over { color: var(--flag, #d92d20); border-color: rgba(217, 45, 32, .35); }
+
+.ad-setup-close { margin-inline-start: auto; }
+
+/* מצב פעיל לכפתורי הסרגל שהם מתגים (קווים מנחים, הגדרות). */
+.ad-ghost.on {
+  background: var(--brand, #b95c2a);
+  border-color: var(--brand, #b95c2a);
+  color: #fff;
+}

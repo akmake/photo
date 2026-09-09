@@ -48,13 +48,17 @@ import {
   whereUsed,
 } from './model';
 import { DEFAULT_TEMPLATE, type Rect, templateById, templatesByCount } from './templates';
+import {
+  type AlbumSpec,
+  DEFAULT_SPEC,
+  SIZE_PRESETS,
+  mmOfPageHeight,
+  mmOfPageWidth,
+  pageCountState,
+  pageRatio,
+  pagesOfSpreads,
+} from './spec';
 import './albumdesk.css';
-
-const PAGE_RATIO = 1;
-
-/* רוחב אזור הסכנה של החריץ, כשבר מרוחב הכפולה. פנים שנופלות כאן נבלעות
- * בכריכה. מסומן בקו שיער ובהצללה עדינה — סימון לא מכסה תוכן. */
-const GUTTER = 0.045;
 
 /* כמה פיקסלים העכבר חייב לזוז לפני שזו הזזה ולא לחיצה. בלי זה כל בחירה
  * של משבצת גם מזיזה את התמונה בה. */
@@ -124,7 +128,7 @@ export default function AlbumDesk({
   /* ------------------------------------------------------------------ the album */
   const [doc, setDoc] = useState<AlbumDoc>(() => {
     const saved = loadDoc(project.id);
-    return saved ?? { projectId: project.id, spreads: [newSpread()] };
+    return saved ?? { projectId: project.id, spec: { ...DEFAULT_SPEC }, spreads: [newSpread()] };
   });
 
   /* ההיסטוריה. כל `mutate` דוחף את המצב הקודם לעבר ומרוקן את העתיד —
@@ -139,7 +143,7 @@ export default function AlbumDesk({
     past.current = [];
     future.current = [];
     syncDepth();
-    setDoc(saved ?? { projectId: project.id, spreads: [newSpread()] });
+    setDoc(saved ?? { projectId: project.id, spec: { ...DEFAULT_SPEC }, spreads: [newSpread()] });
     setAt(0);
     setSel(null);
   }, [project.id]);
@@ -150,6 +154,11 @@ export default function AlbumDesk({
 
   const [at, setAt] = useState(0);
   const [sel, setSel] = useState<SlotRef | null>(null);
+  /* הגדרות האלבום פתוחות מעצמן כשהאלבום עוד ריק: זה הצעד הראשון באמת,
+   * ולא משהו שנזכרים בו בסוף. */
+  const [setup, setSetup] = useState(false);
+  /* הקווים המנחים הם עזר, לא התוצאה. אפשר לכבות ולראות את הכפולה נקייה. */
+  const [guides, setGuides] = useState(true);
 
   const clone = (d: AlbumDoc): AlbumDoc => JSON.parse(JSON.stringify(d));
 
@@ -209,6 +218,12 @@ export default function AlbumDesk({
     setSel(null);
     syncDepth();
   }, []);
+
+  const setSpec = (patch: Partial<AlbumSpec>) => {
+    mutate((d) => {
+      d.spec = { ...d.spec, ...patch };
+    });
+  };
 
   const spreadIdx = Math.min(at, doc.spreads.length - 1);
   const spread = doc.spreads[spreadIdx];
@@ -411,12 +426,32 @@ export default function AlbumDesk({
         </div>
 
         <div className="ad-bar-side ad-bar-end">
+          <button
+            className={`ad-ghost${guides ? ' on' : ''}`}
+            onClick={() => setGuides((g) => !g)}
+            title="קווי חיתוך, תחום שקט וחריץ"
+          >
+            קווים מנחים
+          </button>
+          <button className={`ad-ghost${setup ? ' on' : ''}`} onClick={() => setSetup((v) => !v)}>
+            הגדרות אלבום
+          </button>
+          <span className="ad-sep" />
           <button className="ad-ghost" onClick={addSpread}>+ כפולה</button>
           <button className="ad-ghost" onClick={removeSpread} disabled={doc.spreads.length <= 1}>
             מחק כפולה
           </button>
         </div>
       </header>
+
+      {setup && (
+        <SetupBar
+          spec={doc.spec}
+          spreads={doc.spreads.length}
+          onChange={setSpec}
+          onClose={() => setSetup(false)}
+        />
+      )}
 
       <div className="ad-body">
         <aside className="ad-tray">
@@ -489,7 +524,10 @@ export default function AlbumDesk({
         </aside>
 
         <main className="ad-stage">
-          <div className="ad-spread" style={{ aspectRatio: String(2 * PAGE_RATIO) }}>
+          <div
+            className={`ad-spread${guides ? '' : ' no-guides'}`}
+            style={{ aspectRatio: String(2 * pageRatio(doc.spec)) }}
+          >
             {/* בכריכה עברית הספר נפתח מימין, ולכן העמוד הראשון הוא הימני.
               * המכולה rtl, ולכן `first` בקוד יושב מימין על המסך. */}
             <PageView
@@ -502,10 +540,7 @@ export default function AlbumDesk({
               sel={sel} onSelect={setSel} onDrop={dropOn}
               onNudge={nudge} onZoom={zoomBy} onEndLive={endLive}
             />
-            <div className="ad-fold" aria-hidden>
-              <span className="ad-fold-line" />
-              <span className="ad-fold-zone" style={{ width: `${GUTTER * 100}%` }} />
-            </div>
+            {guides && <Guides spec={doc.spec} />}
           </div>
 
           {sel && (
@@ -854,5 +889,136 @@ function MiniPage({ page }: { page: Page }) {
         );
       })}
     </span>
+  );
+}
+
+/* ---------------------------------------------------------------- guides
+ *
+ * שלושה קווים, וכולם פיזיים — לא קישוט ולא טעם אישי:
+ *
+ *   חיתוך  קו הגיליוטינה. מה שמעבר לו לא קיים בספר.
+ *   שקט    פרט קריטי מחוץ לתחום הזה נחתך גם בדפוס תקין.
+ *   חריץ   מה שנבלע בכריכה. פנים כאן — מתות.
+ *
+ * הכול קו שיער, בלי מילוי. סימון לא מכסה תוכן, ובמיוחד לא כשמכוונים
+ * עליו חיתוך.
+ */
+function Guides({ spec }: { spec: AlbumSpec }) {
+  const bleedX = mmOfPageWidth(spec, spec.bleedMm) * 50; // אחוז מרוחב הכפולה
+  const bleedY = mmOfPageHeight(spec, spec.bleedMm) * 100;
+  const safeX = mmOfPageWidth(spec, spec.safeMm) * 50;
+  const safeY = mmOfPageHeight(spec, spec.safeMm) * 100;
+  const gutter = mmOfPageWidth(spec, spec.gutterMm) * 100; // משני צדי הקיפול
+
+  return (
+    <div className="ad-guides" aria-hidden>
+      {spec.bleedMm > 0 && (
+        <span
+          className="ad-g ad-g-bleed"
+          style={{ inset: `${bleedY}% ${bleedX}%` }}
+          data-label="חיתוך"
+        />
+      )}
+      {spec.safeMm > 0 && (
+        <span className="ad-g ad-g-safe" style={{ inset: `${safeY}% ${safeX}%` }} />
+      )}
+      <span className="ad-fold-line" />
+      {spec.gutterMm > 0 && (
+        <span className="ad-fold-zone" style={{ width: `${gutter}%` }} />
+      )}
+    </div>
+  );
+}
+
+/* -------------------------------------------------------------- setup bar
+ *
+ * מה שנמכר ללקוח. הצלם לא פותח כפולה ומתחיל להניח — הוא כבר יודע
+ * "30×30, ארבעים עמודים", כי זו ההזמנה. הכפולה על המסך נגזרת מכאן.
+ *
+ * אין כאן רשימת מעבדות. איני יודע אצל מי הצלם מדפיס, ורשימה מומצאת
+ * גרועה יותר משדה ריק.
+ */
+function SetupBar({
+  spec, spreads, onChange, onClose,
+}: {
+  spec: AlbumSpec;
+  spreads: number;
+  onChange: (p: Partial<AlbumSpec>) => void;
+  onClose: () => void;
+}) {
+  const pages = pagesOfSpreads(spreads);
+  const state = pageCountState(spreads, spec.targetPages);
+
+  const num = (
+    label: string,
+    unit: string,
+    value: number,
+    step: number,
+    onSet: (n: number) => void,
+    title?: string,
+  ) => (
+    <label className="ad-field" title={title}>
+      <span>{label}</span>
+      <input
+        type="number"
+        value={value}
+        step={step}
+        onChange={(e) => {
+          const n = Number(e.target.value);
+          if (Number.isFinite(n)) onSet(n);
+        }}
+      />
+      <em>{unit}</em>
+    </label>
+  );
+
+  return (
+    <section className="ad-setup">
+      <div className="ad-setup-row">
+        <span className="ad-setup-title">גודל האלבום</span>
+        <div className="ad-presets">
+          {SIZE_PRESETS.map((g) => (
+            <div className="ad-preset-group" key={g.group}>
+              <span className="ad-preset-label">{g.group}</span>
+              {g.items.map((it) => {
+                const on = spec.wcm === it.wcm && spec.hcm === it.hcm;
+                return (
+                  <button
+                    key={it.label}
+                    className={`ad-chip${on ? ' on' : ''}`}
+                    onClick={() => onChange({ wcm: it.wcm, hcm: it.hcm })}
+                  >
+                    {it.label}
+                  </button>
+                );
+              })}
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div className="ad-setup-row">
+        {num('רוחב עמוד', 'ס״מ', spec.wcm, 0.5, (n) => onChange({ wcm: n }))}
+        {num('גובה עמוד', 'ס״מ', spec.hcm, 0.5, (n) => onChange({ hcm: n }))}
+        <span className="ad-sep" />
+        {num('חריגה', 'מ״מ', spec.bleedMm, 1, (n) => onChange({ bleedMm: n }),
+          'כמה התמונה חורגת מעבר לקו החיתוך')}
+        {num('תחום שקט', 'מ״מ', spec.safeMm, 1, (n) => onChange({ safeMm: n }),
+          'פרט קריטי חייב להישאר בתוכו')}
+        {num('חריץ', 'מ״מ', spec.gutterMm, 1, (n) => onChange({ gutterMm: n }),
+          'כמה נבלע בכריכה משני צדי הקיפול')}
+        <span className="ad-sep" />
+        {num('עמודים שנמכרו', '', spec.targetPages, 2, (n) => onChange({ targetPages: n }))}
+
+        <span className={`ad-pagecount is-${state}`}>
+          {pages} עמודים כרגע
+          {state === 'short' && ` · חסרים ${spec.targetPages - pages}`}
+          {state === 'over' && ` · ${pages - spec.targetPages} מעבר`}
+          {state === 'match' && ' · תואם'}
+        </span>
+
+        <button className="ad-ghost ad-setup-close" onClick={onClose}>סגור</button>
+      </div>
+    </section>
   );
 }

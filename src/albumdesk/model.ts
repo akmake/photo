@@ -17,6 +17,8 @@
  *      ואות כונן אינה זהות — אותו כלל שכבר קיים ב-perFrame.
  */
 
+import { type AlbumSpec, DEFAULT_SPEC, normalizeSpec } from './spec';
+
 /** איך התמונה יושבת בתוך המשבצת.
  *
  *  זו הפעולה שנעשית הכי הרבה פעמים באלבום שלם: כל תמונה נוחתת לא נכון —
@@ -56,6 +58,9 @@ export interface Spread {
 
 export interface AlbumDoc {
   projectId: string;
+  /** מה נמכר ללקוח: גודל, חריגה, תחום שקט, חריץ, מספר עמודים.
+   *  נקבע לפני שמניחים תמונה — הכפולה על המסך נגזרת ממנו. */
+  spec: AlbumSpec;
   spreads: Spread[];
 }
 
@@ -104,6 +109,9 @@ export function loadDoc(projectId: string): AlbumDoc | null {
     if (!raw) return null;
     const doc = JSON.parse(raw) as AlbumDoc;
     if (!doc || !Array.isArray(doc.spreads)) return null;
+    /* מסמך שנשמר לפני שהמפרט היה קיים אינו פגום — הוא פשוט ישן.
+     * נותנים לו את ברירת המחדל במקום להחזיר null ולמחוק לצלם אלבום. */
+    doc.spec = normalizeSpec(doc.spec ?? DEFAULT_SPEC);
     return doc;
   } catch {
     return null;
