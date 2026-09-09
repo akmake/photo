@@ -1,13 +1,15 @@
 # Automatic cleanup implementation status
 
-Updated 2026-09-08. This record does not declare a production-quality cleaner.
+Updated 2026-09-09. This record does not declare a production-quality cleaner.
+Current handoff and next bounded work: `docs/CLEANUP-HANDOFF-CLAUDE.md`.
 
 ## User acceptance target
 
 One cleanup action removes temporary blemishes and dirt while preserving beard,
 eyelashes, eyebrows, hair, lips, facial shape, skin texture and lighting. Visible
 painted patches are a failure even when detection recall improves. First prove
-quality on the exact user-specified photograph:
+quality on the three original test photographs described below. The earlier
+user-specified dense-acne photograph is retained as a later stress case:
 
 `C:\Users\yosef dahan\Downloads\17072026\istockphoto-971105428-2048x2048.jpg`
 

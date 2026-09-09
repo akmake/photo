@@ -3,6 +3,7 @@ from pathlib import Path
 import argparse
 import hashlib
 import json
+import cv2
 import numpy as np
 from PIL import Image, ImageDraw, ImageOps
 import torch
@@ -17,12 +18,22 @@ def main():
     parser.add_argument('--output',type=Path,required=True)
     parser.add_argument('--model',choices=['sam2','sam-hq','hq-original'],default='sam2')
     parser.add_argument('--eager',action='store_true',help='Compare unaccelerated attention for inference parity')
+    parser.add_argument('--local-context',action='store_true',help='Inspect each mark with one box-width of surrounding context')
+    parser.add_argument('--detector-report',type=Path,help='Use connected high-confidence detector components as point prompts')
     args=parser.parse_args()
     report=json.loads(args.report.read_text(encoding='utf-8'))
     path=Path(report['source'])
     if hashlib.sha256(path.read_bytes()).hexdigest()!=report['sha256']:
         raise ValueError('Source changed since grounding')
     source=ImageOps.exif_transpose(Image.open(path)).convert('RGB')
+    detector_scores=None
+    if args.detector_report:
+        detector=json.loads(args.detector_report.read_text(encoding='utf-8'))
+        if detector['sha256']!=report['sha256']:
+            raise ValueError('Detector source mismatch')
+        detector_scores=np.load(args.detector_report.parent/'scores.npy',allow_pickle=False)
+        if detector_scores.shape!=(source.height,source.width) or not np.isfinite(detector_scores).all():
+            raise ValueError('Invalid detector score array')
     device='cuda' if torch.cuda.is_available() else 'cpu'
     if args.model=='hq-original':
         from segment_anything_hq import sam_model_registry,SamPredictor
@@ -44,16 +55,37 @@ def main():
     args.output.mkdir(parents=True,exist_ok=True)
     records=[]
     for face in report['faces']:
-        crop=source.crop(face['crop'])
         for i,mark in enumerate(face['marks']):
+            crop=source.crop(face['crop'])
             key=f"{face['face']}-mark-{i+1}"
-            box=mark['cropBox']
+            box=list(mark['cropBox'])
+            offset=[0,0]
+            if args.local_context:
+                margin=max(box[2]-box[0],box[3]-box[1])
+                local=[max(0,box[0]-margin),max(0,box[1]-margin),min(crop.width,box[2]+margin),min(crop.height,box[3]+margin)]
+                crop=crop.crop(local)
+                offset=local[:2]
+                box=[box[0]-local[0],box[1]-local[1],box[2]-local[0],box[3]-local[1]]
+            points=[]
+            if detector_scores is not None:
+                sx,sy=face['crop'][0]+offset[0],face['crop'][1]+offset[1]
+                scores_crop=detector_scores[sy:sy+crop.height,sx:sx+crop.width]
+                seeds=np.zeros(scores_crop.shape,np.uint8)
+                seeds[box[1]:box[3],box[0]:box[2]]=scores_crop[box[1]:box[3],box[0]:box[2]]>=.5
+                count,labels=cv2.connectedComponents(seeds,8)
+                for component in range(1,count):
+                    ys,xs=np.where(labels==component)
+                    best=int(scores_crop[ys,xs].argmax())
+                    points.append([int(xs[best]),int(ys[best])])
             if args.model=='hq-original':
                 with torch.inference_mode():
                     predictor.set_image(np.array(crop))
-                    masks,scores,_=predictor.predict(box=np.array(box),multimask_output=False)
+                    masks,scores,_=predictor.predict(box=np.array(box),multimask_output=False,
+                        point_coords=np.array(points) if points else None,
+                        point_labels=np.ones(len(points),np.int32) if points else None)
             else:
-                inputs=processor(images=crop,input_boxes=[[box]],return_tensors='pt').to(device)
+                prompts={'input_points':[[points]],'input_labels':[[[1]*len(points)]]} if points else {}
+                inputs=processor(images=crop,input_boxes=[[box]],return_tensors='pt',**prompts).to(device)
                 with torch.inference_mode():
                     result=model(**inputs,multimask_output=args.model=='sam2')
                 postargs=[result.pred_masks.cpu(),inputs['original_sizes'].cpu()]
@@ -77,10 +109,12 @@ def main():
                 stats.append({'maskPixels':int(mask.sum()),'outsideBoxPixels':int((mask&~roi).sum())})
             panel.save(args.output/f'{key}-comparison.png')
             records.append({'key':key,'face':face['face'],'label':mark['label'],
-                            'faceCrop':face['crop'],'promptBox':box,'selectedIndex':selected,
+                            'faceCrop':face['crop'],'localOffset':offset,'promptBox':box,'promptPoints':points,'selectedIndex':selected,
                             'scores':scores.tolist(),'maskStats':stats})
     output={'source':report['source'],'sha256':report['sha256'],'groundingReport':str(args.report.resolve()),
-            'model':args.model,'eager':args.eager,'loading':loading,'marks':records,'automaticRemovalApproved':False}
+            'model':args.model,'eager':args.eager,'loading':loading,'localContext':args.local_context,
+            'detectorReport':str(args.detector_report) if args.detector_report else None,
+            'marks':records,'automaticRemovalApproved':False}
     (args.output/'report.json').write_text(json.dumps(output,indent=2),encoding='utf-8')
     print(json.dumps(output,indent=2))
 
