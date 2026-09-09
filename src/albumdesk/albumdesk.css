@@ -274,9 +274,16 @@
 .ad-slot.is-sel { outline: 2px solid var(--brand, #b95c2a); outline-offset: -2px; }
 .ad-slot.is-over { outline: 2px solid var(--st-work, #0bb3ad); outline-offset: -2px; }
 
+.ad-clip {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  display: block;
+}
 .ad-img {
   position: absolute;
   inset: 0;
+  display: block;
   background-repeat: no-repeat;
   background-size: cover;
   will-change: transform;
@@ -626,3 +633,57 @@
   overflow-y: auto;
 }
 .ad-report-close { margin-inline-start: auto; flex: 0 0 auto; }
+
+/* ------------------------------------------------------- move & resize
+ *
+ * הידיות נראות רק כשהמשבצת נבחרה. כפולה עם ידיות על כל תמונה אינה
+ * כפולה — היא לוח בקרה.
+ */
+
+/* ידית ההזזה: רצועה עליונה דקה, לא כפתור שמכסה את התמונה. */
+.ad-move {
+  position: absolute;
+  inset-inline: 0;
+  top: 0;
+  height: 14px;
+  cursor: move;
+  background: linear-gradient(rgba(185, 92, 42, .55), rgba(185, 92, 42, 0));
+}
+
+.ad-h {
+  position: absolute;
+  width: 10px;
+  height: 10px;
+  background: #fff;
+  border: 1.5px solid var(--brand, #b95c2a);
+  border-radius: 2px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, .35);
+}
+.ad-h-nw { inset-inline-start: -5px; top: -5px; cursor: nwse-resize; }
+.ad-h-n  { inset-inline-start: calc(50% - 5px); top: -5px; cursor: ns-resize; }
+.ad-h-ne { inset-inline-end: -5px; top: -5px; cursor: nesw-resize; }
+.ad-h-e  { inset-inline-end: -5px; top: calc(50% - 5px); cursor: ew-resize; }
+.ad-h-se { inset-inline-end: -5px; bottom: -5px; cursor: nwse-resize; }
+.ad-h-s  { inset-inline-start: calc(50% - 5px); bottom: -5px; cursor: ns-resize; }
+.ad-h-sw { inset-inline-start: -5px; bottom: -5px; cursor: nesw-resize; }
+.ad-h-w  { inset-inline-start: -5px; top: calc(50% - 5px); cursor: ew-resize; }
+
+/* הידיות חייבות לחרוג מהמשבצת, אחרת אי אפשר לתפוס פינה. */
+.ad-slot.is-sel { overflow: visible; }
+
+/* קווי ההצמדה. נראים רק בזמן גרירה, ורק כדי להסביר למה זה קפץ. */
+.ad-snap {
+  position: absolute;
+  background: var(--st-work, #0bb3ad);
+  pointer-events: none;
+  z-index: 5;
+}
+.ad-snap-x { top: 0; bottom: 0; width: 1px; }
+.ad-snap-y { inset-inline: 0; height: 1px; }
+
+.ad-moved {
+  font-style: normal;
+  color: var(--st-money, #f79009);
+  margin-inline-start: 4px;
+}
+.ad-trow-reset { flex: 0 0 auto; margin-inline-start: auto; }

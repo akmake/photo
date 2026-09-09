@@ -18,6 +18,7 @@
  */
 
 import { type AlbumSpec, DEFAULT_SPEC, normalizeSpec } from './spec';
+import { type Rect, templateById } from './templates';
 
 /** איך התמונה יושבת בתוך המשבצת.
  *
@@ -43,6 +44,19 @@ export interface Page {
   templateId: string;
   /** באורך של מספר המשבצות בתבנית. null = משבצת ריקה. */
   slots: (Placement | null)[];
+  /** מלבנים שהצלם הזיז או שינה בעצמו, בשברים של העמוד.
+   *
+   *  התבנית היא **נקודת התחלה, לא כלוב**: ברגע שנגעו במלבן, העמוד נושא
+   *  את הגיאומטריה שלו ומפסיק לגזור אותה מהתבנית. החלפת תבנית מאפסת את
+   *  זה — בחירה בתבנית חדשה היא בקשה מפורשת לסידור חדש. */
+  rects?: Rect[];
+}
+
+/** המלבנים שבתוקף לעמוד: מה שהצלם קבע, ואם לא נגע — מה שהתבנית נותנת. */
+export function pageRects(page: Page): Rect[] {
+  const base = templateById(page.templateId).slots;
+  if (!page.rects || page.rects.length !== base.length) return base;
+  return page.rects;
 }
 
 /** כפולה — שני עמודים שנקראים יחד.

@@ -44,9 +44,24 @@ import {
   place,
   samePlace,
   saveDoc,
+  pageRects,
   usedFrames,
   whereUsed,
 } from './model';
+import {
+  type Handle,
+  type Side,
+  type SnapLine,
+  HANDLES,
+  MIN_SIZE,
+  clampToPage,
+  resizeBy,
+  snapMove,
+  snapResize,
+  snapTargets,
+  toPage,
+  toSpread,
+} from './geometry';
 import { DEFAULT_TEMPLATE, type Rect, templateById, templatesByCount } from './templates';
 import {
   type AlbumSpec,
@@ -352,10 +367,9 @@ export default function AlbumDesk({
       const slots: AlbumDeskExportSlot[] = [];
       for (const side of ['first', 'second'] as PageSide[]) {
         const page = sp[side];
-        const t = templateById(page.templateId);
         // 'first' = העמוד הימני = החצי הימני של הגיליון.
         const originX = side === 'first' ? 0.5 : 0;
-        t.slots.forEach((rect, i) => {
+        pageRects(page).forEach((rect, i) => {
           const pl = page.slots[i];
           if (!pl) return;
           slots.push({
@@ -411,6 +425,73 @@ export default function AlbumDesk({
     ),
     [doc],
   );
+
+  /* ------------------------------------------------------------ geometry
+   *
+   * ההצמדה מחושבת על הכפולה כולה ולא על העמוד, כי המקרה שחשוב הוא יישור
+   * *לרוחב הקיפול*: קצה עליון של תמונה בעמוד השמאלי שמתיישר לזו שבימני.
+   * זה מה שהעין קולטת, וזה מה שאי אפשר לכוון ביד.
+   */
+  const [snapLines, setSnapLines] = useState<SnapLine[]>([]);
+
+  const safeFrac = {
+    x: mmOfPageWidth(doc.spec, doc.spec.safeMm) * 0.5,
+    y: mmOfPageHeight(doc.spec, doc.spec.safeMm),
+  };
+
+  /** כל שאר המלבנים בכפולה, בשברי כפולה — משני העמודים. */
+  const otherRects = (skip: SlotRef) => {
+    const out = [];
+    for (const side of ['first', 'second'] as PageSide[]) {
+      const rects = pageRects(spread[side]);
+      for (let i = 0; i < rects.length; i += 1) {
+        if (side === skip.side && i === skip.slot) continue;
+        out.push(toSpread(rects[i], side as Side));
+      }
+    }
+    return out;
+  };
+
+  /** גרירה/מתיחה חיה. `handle` ריק = הזזה. */
+  const applyGeom = (ref: SlotRef, dx: number, dy: number, handle: Handle | null, base: Rect) => {
+    const side = ref.side as Side;
+    const baseSpread = toSpread(base, side);
+    const targets = snapTargets(otherRects(ref), safeFrac.x, safeFrac.y);
+
+    const moved = handle
+      ? resizeBy(baseSpread, handle, dx, dy, MIN_SIZE / 2, MIN_SIZE)
+      : { ...baseSpread, x: baseSpread.x + dx, y: baseSpread.y + dy };
+
+    const snapped = handle
+      ? snapResize(moved, handle, targets)
+      : snapMove(moved, targets);
+
+    const final = clampToPage(snapped.rect, side);
+    setSnapLines(snapped.lines);
+
+    mutateLive((d) => {
+      const page = d.spreads[ref.spread][ref.side];
+      /* ברגע הראשון שנוגעים, העמוד מאמץ את מלבני התבנית ומפסיק לגזור
+       * מהם. התבנית היא נקודת התחלה, לא כלוב. */
+      if (!page.rects || page.rects.length !== pageRects(page).length) {
+        page.rects = pageRects(page).map((r) => ({ ...r }));
+      }
+      page.rects[ref.slot] = toPage(final, side);
+    });
+  };
+
+  const endGeom = () => {
+    setSnapLines([]);
+    endLive();
+  };
+
+  /** חזרה למה שהתבנית אומרת — הדרך החוצה מסידור שהשתבש. */
+  const resetGeometry = (side: PageSide) => {
+    mutate((d) => {
+      delete d.spreads[spreadIdx][side].rects;
+    });
+    setSel(null);
+  };
 
   const moveSpread = (from: number, to: number) => {
     if (from === to || to < 0 || to >= doc.spreads.length) return;
@@ -633,12 +714,26 @@ export default function AlbumDesk({
               page={spread.first} side="first" spreadIndex={spreadIdx}
               sel={sel} onSelect={setSel} onDrop={dropOn}
               onNudge={nudge} onZoom={zoomBy} onEndLive={endLive}
+              onGeom={applyGeom} onEndGeom={endGeom}
             />
             <PageView
               page={spread.second} side="second" spreadIndex={spreadIdx}
               sel={sel} onSelect={setSel} onDrop={dropOn}
               onNudge={nudge} onZoom={zoomBy} onEndLive={endLive}
+              onGeom={applyGeom} onEndGeom={endGeom}
             />
+            {/* קווי ההצמדה. נראים רק בזמן גרירה — הצלם חייב לראות *למה*
+              * המלבן קפץ, אחרת הצמדה מרגישה כמו תקלה. */}
+            {snapLines.map((l, i) => (
+              <span
+                key={i}
+                className={`ad-snap ad-snap-${l.axis}`}
+                style={l.axis === 'x'
+                  ? { insetInlineStart: `${l.at * 100}%` }
+                  : { top: `${l.at * 100}%` }}
+                aria-hidden
+              />
+            ))}
             {guides && <Guides spec={doc.spec} />}
           </div>
 
@@ -662,12 +757,16 @@ export default function AlbumDesk({
             <TemplateRow
               label="עמוד 1 · ימין"
               current={spread.first.templateId}
+              moved={!!spread.first.rects}
               onPick={(id) => setTemplate('first', id)}
+              onReset={() => resetGeometry('first')}
             />
             <TemplateRow
               label="עמוד 2 · שמאל"
               current={spread.second.templateId}
+              moved={!!spread.second.rects}
               onPick={(id) => setTemplate('second', id)}
+              onReset={() => resetGeometry('second')}
             />
           </div>
         </main>
@@ -689,6 +788,7 @@ export default function AlbumDesk({
 
 function PageView({
   page, side, spreadIndex, sel, onSelect, onDrop, onNudge, onZoom, onEndLive,
+  onGeom, onEndGeom,
 }: {
   page: Page;
   side: PageSide;
@@ -699,11 +799,14 @@ function PageView({
   onNudge: (r: SlotRef, dx: number, dy: number, live?: boolean) => void;
   onZoom: (r: SlotRef, d: number, live?: boolean) => void;
   onEndLive: () => void;
+  onGeom: (r: SlotRef, dx: number, dy: number, h: Handle | null, base: Rect) => void;
+  onEndGeom: () => void;
 }) {
   const t = templateById(page.templateId);
+  const rects = pageRects(page);
   return (
     <div className={`ad-page${t.bleed ? ' is-bleed' : ''}`}>
-      {t.slots.map((rect, i) => {
+      {rects.map((rect, i) => {
         const ref: SlotRef = { spread: spreadIndex, side, slot: i };
         return (
           <Slot
@@ -717,10 +820,12 @@ function PageView({
             onNudge={onNudge}
             onZoom={onZoom}
             onEndLive={onEndLive}
+            onGeom={onGeom}
+            onEndGeom={onEndGeom}
           />
         );
       })}
-      {t.slots.length === 0 && <span className="ad-blank">עמוד ריק</span>}
+      {rects.length === 0 && <span className="ad-blank">עמוד ריק</span>}
     </div>
   );
 }
@@ -743,6 +848,7 @@ function PageView({
  */
 function Slot({
   rect, refr, placement, selected, onSelect, onDrop, onNudge, onZoom, onEndLive,
+  onGeom, onEndGeom,
 }: {
   rect: Rect;
   refr: SlotRef;
@@ -753,10 +859,51 @@ function Slot({
   onNudge: (r: SlotRef, dx: number, dy: number, live?: boolean) => void;
   onZoom: (r: SlotRef, d: number, live?: boolean) => void;
   onEndLive: () => void;
+  onGeom: (r: SlotRef, dx: number, dy: number, h: Handle | null, base: Rect) => void;
+  onEndGeom: () => void;
 }) {
   const [over, setOver] = useState(false);
   const box = useRef<HTMLDivElement | null>(null);
   const drag = useRef<{ x: number; y: number; live: boolean } | null>(null);
+
+  /* גרירת מסגרת (הזזה או מתיחה). המידות מחושבות מול הכפולה, כי ההצמדה
+   * חיה שם — ולכן צריך את רוחב הכפולה, לא של המשבצת. */
+  const geo = useRef<{ x: number; y: number; sw: number; sh: number; h: Handle | null; base: Rect } | null>(null);
+
+  const startGeo = (e: React.PointerEvent, handle: Handle | null) => {
+    e.preventDefault();
+    e.stopPropagation();
+    onSelect(refr);
+    const spreadEl = box.current?.closest('.ad-spread') as HTMLElement | null;
+    if (!spreadEl) return;
+    (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
+    geo.current = {
+      x: e.clientX,
+      y: e.clientY,
+      sw: spreadEl.clientWidth || 1,
+      sh: spreadEl.clientHeight || 1,
+      h: handle,
+      base: { ...rect },
+    };
+  };
+
+  const moveGeo = (e: React.PointerEvent) => {
+    const g = geo.current;
+    if (!g) return;
+    e.stopPropagation();
+    /* RTL: תזוזת עכבר ימינה על המסך היא ירידה ב-x הלוגי, כי המקור
+     * הלוגי נמצא בימין. בלי ההיפוך הזה המלבן רץ לכיוון ההפוך. */
+    const dx = -(e.clientX - g.x) / g.sw;
+    const dy = (e.clientY - g.y) / g.sh;
+    onGeom(refr, dx, dy, g.h, g.base);
+  };
+
+  const endGeo = (e: React.PointerEvent) => {
+    if (!geo.current) return;
+    (e.currentTarget as HTMLElement).releasePointerCapture?.(e.pointerId);
+    geo.current = null;
+    onEndGeom();
+  };
 
   const style: React.CSSProperties = {
     insetInlineStart: `${rect.x * 100}%`,
@@ -831,19 +978,23 @@ function Slot({
     >
       {placement ? (
         <>
-          <div
-            className="ad-img"
-            style={{
-              backgroundImage: `url("${thumbUrl(placement.path, 1200)}")`,
-              backgroundPosition: `${placement.fx}% ${placement.fy}%`,
-              transform: `scale(${placement.zoom})`,
-              transformOrigin: `${placement.fx}% ${placement.fy}%`,
-            }}
-          />
+          {/* התמונה נחתכת בעוטף ולא במשבצת עצמה: המשבצת חייבת לאפשר
+            * לידיות לחרוג מהפינות, והתמונה חייבת להישאר גזורה. */}
+          <span className="ad-clip">
+            <span
+              className="ad-img"
+              style={{
+                backgroundImage: `url("${thumbUrl(placement.path, 1200)}")`,
+                backgroundPosition: `${placement.fx}% ${placement.fy}%`,
+                transform: `scale(${placement.zoom})`,
+                transformOrigin: `${placement.fx}% ${placement.fy}%`,
+              }}
+            />
+          </span>
           {/* הידית. זו — ורק זו — מעבירה את התמונה למשבצת אחרת. */}
           <span
             className="ad-grip"
-            title="גרור כדי להעביר למשבצת אחרת"
+            title="גרור כדי להעביר את התמונה למשבצת אחרת"
             draggable
             onPointerDown={(e) => e.stopPropagation()}
             onDragStart={(e) => {
@@ -860,6 +1011,36 @@ function Slot({
       ) : (
         <span className="ad-slot-hint">גרור תמונה</span>
       )}
+
+      {/* מסגרת: הזזה ושינוי גודל.
+        *
+        * שלוש גרירות שונות חיות על אותה משבצת, וההפרדה היא כל העניין:
+        *   בתוך התמונה  → מזיז את החיתוך
+        *   ידית פינה/צד → מותח את המסגרת
+        *   ידית העברה   → מזיז את המסגרת כולה
+        * כולן נראות רק כשהמשבצת נבחרה, כדי שהכפולה תישאר נקייה. */}
+      {selected && (
+        <>
+          <span
+            className="ad-move"
+            title="גרור כדי להזיז את המסגרת"
+            onPointerDown={(e) => startGeo(e, null)}
+            onPointerMove={moveGeo}
+            onPointerUp={endGeo}
+            onPointerCancel={endGeo}
+          />
+          {HANDLES.map((h) => (
+            <span
+              key={h}
+              className={`ad-h ad-h-${h}`}
+              onPointerDown={(e) => startGeo(e, h)}
+              onPointerMove={moveGeo}
+              onPointerUp={endGeo}
+              onPointerCancel={endGeo}
+            />
+          ))}
+        </>
+      )}
     </div>
   );
 }
@@ -867,15 +1048,21 @@ function Slot({
 /* ---------------------------------------------------------------- templates */
 
 function TemplateRow({
-  label, current, onPick,
+  label, current, moved, onPick, onReset,
 }: {
   label: string;
   current: string;
+  /** נגעו במלבנים, ולכן העמוד כבר לא זהה לתבנית. */
+  moved: boolean;
   onPick: (id: string) => void;
+  onReset: () => void;
 }) {
   return (
     <div className="ad-trow">
-      <span className="ad-trow-label">{label}</span>
+      <span className="ad-trow-label">
+        {label}
+        {moved && <em className="ad-moved" title="המלבנים הוזזו ידנית">· שונה</em>}
+      </span>
       <div className="ad-trow-items">
         {templatesByCount().map((g) => (
           <div className="ad-tgroup" key={g.count}>
@@ -905,6 +1092,11 @@ function TemplateRow({
           </div>
         ))}
       </div>
+      {moved && (
+        <button className="ad-ghost ad-trow-reset" onClick={onReset} title="חזרה לפריסת התבנית">
+          אפס פריסה
+        </button>
+      )}
     </div>
   );
 }
@@ -967,10 +1159,9 @@ function Filmstrip({
 }
 
 function MiniPage({ page }: { page: Page }) {
-  const t = templateById(page.templateId);
   return (
     <span className="ad-mini">
-      {t.slots.map((r, i) => {
+      {pageRects(page).map((r, i) => {
         const s = page.slots[i];
         return (
           <i
