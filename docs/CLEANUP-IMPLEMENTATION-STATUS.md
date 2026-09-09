@@ -112,6 +112,93 @@ https://perfectlyclear.ai/compare-our-solutions/
 https://docs.eyeq.photos/docs/general-info/licensing
 https://perfectlyclear.ai/pricing/
 
+## Pixel-boundary protection audit (2026-09-09)
+
+User narrowed the work to skin/hair protection, specifically individual beard
+hairs and eyelashes, not broad facial ellipses. Added repeatable native-grid
+audits in `tools/evaluate_skin_protection.py`. Green means model-eligible skin,
+never validated safety. The output separates raw BiSeNet skin from the existing
+agent's erosion/ellipses/oval. Four-times nearest-neighbor inspection windows are
+derived from landmarks, not manually drawn reference annotations.
+
+Ran on 321A5078 (7 faces) and 321A1809 (4 faces). On the frontal bearded face in
+5078, raw and existing masks both include much of the beard as skin. The eye
+ellipses exclude healthy skin while the raw mask includes upper-lid/lash regions.
+Artifacts: `test-results/original-5078-protection/` and
+`test-results/original-1809-protection/`.
+
+A lower-face diagnostic box passed to original SAM-HQ selected mouth/chin and
+extraneous pixels rather than the beard. This was a geometry-derived diagnostic
+prompt on one selected face, not automatic beard detection or ground truth.
+Artifact: `test-results/original-5078-hair-hq/`.
+
+### EasyPortrait candidate and verified input correction
+
+EasyPortrait explicitly excludes beard from skin in its annotation convention.
+Evaluated its SegFormer-B0 1024 face-parsing checkpoint using a third-party ONNX
+conversion. This is evaluation only, not product integration. The converter's
+Apache metadata does not resolve upstream's custom attribution/share-alike
+license; the original PDF explicitly says it is not a Creative Commons license.
+Product distribution has not been approved under the project's MIT/Apache/BSD
+model rule. No supplier contacted, user photos uploaded, or purchases made.
+
+Sources:
+https://github.com/ai-forever/easyportrait
+https://huggingface.co/sadzip/EasyPortrait-ONNX
+https://raw.githubusercontent.com/ai-forever/easyportrait/main/license/en_us.pdf
+
+Found a concrete error in the converter's documented BGR input preprocessing.
+The original checkpoint's `img_norm_cfg` specifies `to_rgb=True`; its original
+first convolution weights exactly match the converted weights, and ONNX passes
+input values directly into that convolution (other input consumers read shape
+only). Corrected the evaluator to RGB. `tools/verify_easy_portrait_input.py`
+reproduces these checks using restricted checkpoint loading and AST inspection
+of config text, without executing it. This is input-contract verification, not
+independent full-network parity. Converter-reported logit parity has not been
+independently reproduced here.
+
+Original checkpoint SHA-256:
+`5ab2628aeaa3b6746aa7d79f7c67d7d052357d94d1a7c596d4bea18b87406f48`
+ONNX SHA-256:
+`d3d2172f6fd2c97660a1c0c7f5f8480626eafcb902ba3f56f065bd1f5f1d9bdc`
+
+After RGB correction, visual review shows substantially better beard/moustache
+exclusion on the frontal bearded face, including retained exposed skin beside
+the chin hair. The side-profile beard also improves. The model still has hard,
+imprecise boundaries and misses lashes. Removed mask pixel counts are not true
+positive counts. About 0.4-0.6 seconds per face on CPU in this audit, with some
+runtime variation. Artifacts: `test-results/original-*-easyportrait-rgb/`.
+Older non-rgb directories retain the rejected preprocessing for comparison.
+
+### Native-resolution matting diagnostic
+
+`tools/evaluate_protection_matting.py` applies published closed-form matting from
+PyMatting 1.1.16 (MIT) to the native crop. Dependencies installed in the isolated
+`test-results/protection-research/matting-deps` directory, not the production
+environment. Numba 0.67.0 and llvmlite 0.49.0. Restricted sandbox cannot read
+those installed directories; inference worked with an approved escalated run.
+Reference: https://pymatting.github.io/alpha.html
+
+Symmetric 4-pixel trimaps can re-open parts of previously excluded eye boundaries.
+The evaluator therefore defaults to an inward-only band: all existing excluded
+pixels remain alpha 0. Both anchor classes are checked exactly, finite outputs
+checked, solver warnings retained. All 11 faces passed those numerical contracts
+without solver warnings. This says nothing about semantic correctness of anchors.
+
+Four-pixel inward matting smooths jagged borders but leaves missed lashes. A
+12-pixel diagnostic on 1809 protects more of the lash area but also suppresses
+surrounding healthy skin, visible in the eye inspection. Neither variant proves
+individual-hair accuracy. An opacity estimate is not a semantic confidence score.
+Artifacts: `original-5078-protection-matting-inward`,
+`original-1809-protection-matting-inward`, and
+`original-1809-protection-matting-wide` under `test-results/`.
+
+No production route/UI changed. Current unresolved acceptance: accurate eyelash
+and fine-hair protection without broad loss of editable skin; validated native
+reference masks and independent conversion parity; usable distribution terms
+for the chosen semantic model. Do not present the beard improvement as completion
+of the pixel-accurate protection stage.
+
 ## Specialized candidate access and product integration remain pending
 
 No production cleanup route or UI was changed in this implementation step.
