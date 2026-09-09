@@ -143,7 +143,417 @@
   min-height: 0 !important;
   display: flex !important;
   flex-direction: column !important;
+  background-color: var(--tz-bg) !important;
+  font-family: var(--tz-font) !important;
 }
+
+/* ==========================================================================
+   ALBUM STUDIO — V2 DESIGN SYSTEM HARMONIZATION
+   ========================================================================== */
+
+.album-studio,
+.album-library,
+.album-timeline-shell {
+  font-family: var(--tz-font) !important;
+  direction: rtl !important;
+  background-color: var(--tz-bg) !important;
+  color: var(--tz-text-main) !important;
+  height: 100% !important;
+  width: 100% !important;
+  min-height: 0 !important;
+  display: flex !important;
+  flex-direction: column !important;
+}
+
+/* Top Actionbar in V2 */
+.album-actionbar {
+  direction: rtl !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  height: 56px !important;
+  min-height: 56px !important;
+  padding: 0 18px !important;
+  background: #ffffff !important;
+  border-bottom: 1px solid var(--tz-border) !important;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03) !important;
+  z-index: 10 !important;
+}
+
+.album-save-state {
+  display: flex !important;
+  align-items: center !important;
+  gap: 12px !important;
+}
+
+.album-actionbar-main {
+  display: flex !important;
+  align-items: center !important;
+  gap: 8px !important;
+  direction: rtl !important;
+}
+
+/* Back button in Album actionbar */
+.album-back-btn,
+.library-back {
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 6px !important;
+  height: 32px !important;
+  padding: 0 12px !important;
+  border-radius: 8px !important;
+  background: var(--tz-btn-peach) !important;
+  border: 1px solid var(--tz-brand-stroke) !important;
+  color: var(--tz-brand) !important;
+  font-size: 13px !important;
+  font-weight: 600 !important;
+  cursor: pointer !important;
+  transition: all 0.15s ease !important;
+}
+
+.album-back-btn:hover,
+.library-back:hover {
+  background: var(--tz-btn-peach-hover) !important;
+}
+
+.album-back-to-library {
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 6px !important;
+  height: 32px !important;
+  padding: 0 12px !important;
+  border-radius: 8px !important;
+  background: #ffffff !important;
+  border: 1px solid var(--tz-border-darker) !important;
+  color: var(--tz-text-sub) !important;
+  font-size: 12.5px !important;
+  font-weight: 500 !important;
+  cursor: pointer !important;
+  transition: all 0.15s ease !important;
+}
+
+.album-back-to-library:hover {
+  background: #f8f8f8 !important;
+  color: var(--tz-text-main) !important;
+}
+
+/* Mode Switch Pills */
+.album-mode-switch {
+  display: inline-flex !important;
+  background: #f0f0f2 !important;
+  padding: 3px !important;
+  border-radius: 8px !important;
+  gap: 2px !important;
+}
+
+.album-mode-switch button {
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 6px !important;
+  height: 28px !important;
+  padding: 0 12px !important;
+  border: none !important;
+  border-radius: 6px !important;
+  background: transparent !important;
+  color: var(--tz-text-sub) !important;
+  font-size: 12.5px !important;
+  font-weight: 500 !important;
+  cursor: pointer !important;
+  transition: all 0.15s ease !important;
+}
+
+.album-mode-switch button.on {
+  background: #ffffff !important;
+  color: var(--tz-text-main) !important;
+  font-weight: 600 !important;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08) !important;
+}
+
+/* Actionbar status text */
+.album-status-indicator {
+  display: flex !important;
+  align-items: center !important;
+  gap: 6px !important;
+}
+
+.album-saved-dot {
+  width: 20px !important;
+  height: 20px !important;
+  border-radius: 50% !important;
+  background: var(--tz-green-bg) !important;
+  color: var(--tz-green) !important;
+  display: grid !important;
+  place-items: center !important;
+}
+
+.album-notice-text {
+  font-size: 12px !important;
+  color: var(--tz-text-muted) !important;
+}
+
+/* Action Buttons */
+.album-action {
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 6px !important;
+  height: 34px !important;
+  padding: 0 14px !important;
+  border-radius: 8px !important;
+  font-size: 13px !important;
+  font-weight: 600 !important;
+  cursor: pointer !important;
+  transition: all 0.15s ease !important;
+}
+
+.album-action.secondary {
+  background: #ffffff !important;
+  border: 1px solid var(--tz-border-darker) !important;
+  color: var(--tz-text-main) !important;
+}
+
+.album-action.secondary:hover {
+  background: #f8f8f8 !important;
+  border-color: #d4d4d8 !important;
+}
+
+.album-action.primary,
+.library-new {
+  background: var(--tz-brand) !important;
+  border: 1px solid var(--tz-brand) !important;
+  color: #ffffff !important;
+}
+
+.album-action.primary:hover,
+.library-new:hover {
+  background: #d2542b !important;
+  border-color: #d2542b !important;
+}
+
+/* 3-Column Workspace in Design Mode */
+.album-workspace.design {
+  display: grid !important;
+  grid-template-columns: 250px minmax(540px, 1fr) 280px !important;
+  grid-template-areas: "navigator canvas inspector" !important;
+  gap: 12px !important;
+  padding: 12px !important;
+  height: calc(100% - 56px) !important;
+  min-height: 0 !important;
+  background: var(--tz-bg) !important;
+  overflow: hidden !important;
+}
+
+/* Navigator: Spreads strip on the RIGHT */
+.album-spread-navigator {
+  grid-area: navigator !important;
+  background: #ffffff !important;
+  border: 1px solid var(--tz-border) !important;
+  border-radius: 10px !important;
+  overflow: hidden !important;
+  display: flex !important;
+  flex-direction: column !important;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04) !important;
+}
+
+.album-spread-navigator > header {
+  padding: 12px 14px !important;
+  border-bottom: 1px solid var(--tz-border) !important;
+  background: #ffffff !important;
+}
+
+.album-spread-nav-item {
+  border-radius: 8px !important;
+  border: 1.5px solid transparent !important;
+  transition: all 0.15s !important;
+}
+
+.album-spread-nav-item:hover {
+  background: #f8f8f8 !important;
+}
+
+.album-spread-nav-item.active {
+  background: var(--tz-brand-light) !important;
+  border-color: var(--tz-brand) !important;
+}
+
+.album-spread-nav-item.active .album-spread-nav-number {
+  color: var(--tz-brand) !important;
+  font-weight: 700 !important;
+}
+
+/* Canvas: Center big work area */
+.album-center {
+  grid-area: canvas !important;
+  background: #ffffff !important;
+  border: 1px solid var(--tz-border) !important;
+  border-radius: 10px !important;
+  overflow: hidden !important;
+  display: grid !important;
+  grid-template-rows: 46px minmax(0, 1fr) 136px !important;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04) !important;
+}
+
+.album-canvas-toolbar {
+  background: #ffffff !important;
+  border-bottom: 1px solid var(--tz-border) !important;
+  padding: 0 16px !important;
+}
+
+.album-canvas-area {
+  background: #f4f4f5 !important;
+  padding: 20px !important;
+  display: grid !important;
+  place-items: center !important;
+}
+
+.album-photo-tray {
+  background: #ffffff !important;
+  border-top: 1px solid var(--tz-border) !important;
+  padding: 8px 14px !important;
+}
+
+/* Inspector: Layouts & styling tools on the LEFT */
+.album-layout-panel {
+  grid-area: inspector !important;
+  background: #ffffff !important;
+  border: 1px solid var(--tz-border) !important;
+  border-radius: 10px !important;
+  overflow: hidden !important;
+  display: flex !important;
+  flex-direction: column !important;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04) !important;
+}
+
+.album-panel-tabs {
+  background: #ffffff !important;
+  border-bottom: 1px solid var(--tz-border) !important;
+  padding: 8px !important;
+  display: flex !important;
+  gap: 6px !important;
+}
+
+.album-panel-tabs button {
+  flex: 1 !important;
+  height: 32px !important;
+  border-radius: 6px !important;
+  border: 1px solid var(--tz-border) !important;
+  background: #f8f8f8 !important;
+  color: var(--tz-text-sub) !important;
+  font-size: 12.5px !important;
+  font-weight: 500 !important;
+  cursor: pointer !important;
+}
+
+.album-panel-tabs button.on {
+  background: var(--tz-btn-peach) !important;
+  border-color: var(--tz-brand-stroke) !important;
+  color: var(--tz-brand) !important;
+  font-weight: 600 !important;
+}
+
+.album-layout-card {
+  border: 1.5px solid var(--tz-border) !important;
+  border-radius: 8px !important;
+  background: #ffffff !important;
+  transition: all 0.15s !important;
+}
+
+.album-layout-card:hover {
+  border-color: #d4d4d8 !important;
+}
+
+.album-layout-card.on {
+  border-color: var(--tz-brand) !important;
+  box-shadow: 0 0 0 1px var(--tz-brand) !important;
+}
+
+/* Organize Mode: Spreads Grid */
+.album-organize {
+  padding: 24px 32px !important;
+  overflow-y: auto !important;
+  height: calc(100% - 56px) !important;
+  background: var(--tz-bg) !important;
+}
+
+.organize-head {
+  display: flex !important;
+  justify-content: space-between !important;
+  align-items: center !important;
+  margin-bottom: 18px !important;
+}
+
+.organize-head strong {
+  font-size: 18px !important;
+  color: var(--tz-text-main) !important;
+}
+
+.organize-head span {
+  font-size: 13px !important;
+  color: var(--tz-text-muted) !important;
+}
+
+.organize-add {
+  display: inline-flex !important;
+  align-items: center !important;
+  height: 34px !important;
+  padding: 0 16px !important;
+  border-radius: 8px !important;
+  background: var(--tz-btn-peach) !important;
+  border: 1px solid var(--tz-brand-stroke) !important;
+  color: var(--tz-brand) !important;
+  font-size: 13px !important;
+  font-weight: 600 !important;
+  cursor: pointer !important;
+}
+
+.organize-card {
+  border: 1.5px solid var(--tz-border) !important;
+  border-radius: 10px !important;
+  background: #ffffff !important;
+  transition: all 0.2s !important;
+}
+
+.organize-card:hover {
+  border-color: #cbd5e1 !important;
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.06) !important;
+}
+
+.organize-card.current {
+  border-color: var(--tz-brand) !important;
+  box-shadow: 0 0 0 2px var(--tz-brand-light) !important;
+}
+
+/* Library View */
+.album-library {
+  background: var(--tz-bg) !important;
+}
+
+.library-head {
+  padding: 16px 24px !important;
+  background: #ffffff !important;
+  border-bottom: 1px solid var(--tz-border) !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+}
+
+.library-head strong {
+  font-size: 18px !important;
+  color: var(--tz-text-main) !important;
+}
+
+.library-card {
+  border: 1px solid var(--tz-border) !important;
+  border-radius: 12px !important;
+  background: #ffffff !important;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04) !important;
+  transition: all 0.2s !important;
+}
+
+.library-card:hover {
+  box-shadow: 0 8px 24px -4px rgba(0, 0, 0, 0.08) !important;
+  border-color: #d4d4d8 !important;
+}
+
 
 
 /* Logo */

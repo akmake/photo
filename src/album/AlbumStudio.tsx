@@ -174,7 +174,17 @@ export default function AlbumStudio({ job, onBack }: {
   const [timelineRequested, setTimelineRequested] = useState(false);
   /* Null means the library is showing. An album is a saved thing you come back
    * to, so nothing is open until the photographer picks one. */
-  const [activeAlbumId, setActiveAlbumId] = useState<string | null>(null);
+  const [activeAlbumId, setActiveAlbumId] = useState<string | null>(() => {
+    if (job) {
+      const all = listAlbums();
+      const projName = (job as any).name || job.client || '';
+      const match = all.find(
+        (a) => a.id === `album-${job.id}` || (projName && a.name.includes(projName)) || a.id.includes(job.id)
+      );
+      if (match) return match.id;
+    }
+    return null;
+  });
   const [albums, setAlbums] = useState<AlbumSummary[]>(() => listAlbums());
   const [showPreview, setShowPreview] = useState(false);
   const [showReview, setShowReview] = useState(false);
@@ -300,6 +310,36 @@ export default function AlbumStudio({ job, onBack }: {
     }, 600);
     return () => window.clearTimeout(timer);
   }, [activeAlbumId, isHydrated, photos, project]);
+
+  // Auto-initialize project album if inside a project cockpit and no album is active
+  useEffect(() => {
+    if (!job || activeAlbumId) return;
+    const all = listAlbums();
+    const projName = (job as any).name || job.client || 'פרויקט';
+    const existing = all.find(
+      (a) => a.id === `album-${job.id}` || (projName && a.name.includes(projName)) || a.id.includes(job.id)
+    );
+    if (existing) {
+      setActiveAlbumId(existing.id);
+      return;
+    }
+    const clientChoices = clientAlbumsOf(job.id) || [];
+    const clientPicks = clientChoices.flatMap((ca) => ca.frames);
+    const pool = framesToPool(jobFiles.frames);
+    const photoPool = pool.length > 0 ? pool : DEMO_PHOTOS;
+    const selectedIds = clientPicks.length > 0 ? clientPicks : photoPool.slice(0, 16).map((p) => p.id);
+
+    createAlbum({
+      name: `אלבום ${projName}`,
+      closedWidthMm: 300,
+      closedHeightMm: 300,
+      styleName: 'Fine Art',
+      background: '#f8f6f1',
+      selectedPhotoIds: selectedIds,
+      openingDirection: 'rtl',
+      coverStyle: 'photo',
+    });
+  }, [job?.id, activeAlbumId, jobFiles.frames.length]);
 
   /* THE POOL IS THE PROJECT.
    *
@@ -600,12 +640,16 @@ export default function AlbumStudio({ job, onBack }: {
   }: AlbumCreateInput) {
     const selectedProfile = ensurePrintProfile(closedWidthMm, closedHeightMm, baseProfileId);
     const id = `album-${Date.now()}`;
-    const initialPhotos = job ? framesToPool(jobFiles.frames) : photos;
+    const basePool = job ? framesToPool(jobFiles.frames) : photos;
+    const initialPhotos = basePool.length ? basePool : DEMO_PHOTOS;
     const knownIds = new Set(initialPhotos.map((photo) => photo.id));
     const chosenIds = selectedPhotoIds.filter((photoId) => knownIds.has(photoId));
-    const initialSpreads = chosenIds.length
+    const effectiveChosen = chosenIds.length
+      ? chosenIds
+      : initialPhotos.slice(0, 16).map((photo) => photo.id);
+    const initialSpreads = effectiveChosen.length
       ? buildAutomaticAlbum(
-        chosenIds,
+        effectiveChosen,
         initialPhotos,
         selectedProfile.closedWidthMm / selectedProfile.closedHeightMm,
         styleName,
@@ -632,13 +676,13 @@ export default function AlbumStudio({ job, onBack }: {
     setHistoryFuture([]);
     setSelectedSlotIndex(null);
     setSelectedPhotoId(null);
-    setAlbumSelectedIds(new Set(chosenIds));
+    setAlbumSelectedIds(new Set(effectiveChosen));
     setSelectionMode(false);
     setTimelineRequested(false);
-    setMode(chosenIds.length ? 'design' : 'select');
+    setMode('organize');
     setActiveAlbumId(id);
-    setNotice(chosenIds.length
-      ? `${chosenIds.length} תמונות שובצו · האלבום מוכן לעריכה`
+    setNotice(effectiveChosen.length
+      ? `${effectiveChosen.length} תמונות שובצו · האלבום מוכן לעריכה`
       : 'בחרו את התמונות שייכנסו לאלבום');
   }
 
@@ -1560,34 +1604,40 @@ export default function AlbumStudio({ job, onBack }: {
     <div className="album-studio">
       <header className="album-actionbar">
         <div className="album-save-state">
+          {onBack && (
+            <button className="album-back-btn" onClick={onBack} title="חזרה לעריכת גלריה">
+              <IcChevron size={14} style={{ transform: 'rotate(180deg)' }} />
+              <span>חזרה לעריכה</span>
+            </button>
+          )}
           <button className="album-back-to-library" onClick={closeAlbum} title="כל האלבומים">
-            <IcChevron size={15} style={{ transform: 'rotate(180deg)' }} />
-            <span>האלבומים</span>
+            <IcBook size={14} />
+            <span>ספרייה</span>
           </button>
           <div className="album-mode-switch" role="group" aria-label="מצב עבודה">
-            {/* Pure entry point — when the timeline is active the studio takes
-                the full-bleed timeline branch above, so this is never "on" here. */}
-            <button
-              onClick={() => { setTimelineRequested(true); setMode('timeline'); }}
-              title="ציר הזמן — חלוקת התמונות לכפולות"
-            >
-              <IcSparkle size={15} />ציר הזמן
-            </button>
             <button
               className={mode === 'organize' ? 'on' : ''}
               onClick={() => setMode('organize')}
+              title="תצוגת כל הכפולות"
             >
-              <IcBook size={15} />האלבום
+              <IcBook size={14} />האלבום כולו
             </button>
             <button
               className={mode === 'design' ? 'on' : ''}
               onClick={() => setMode('design')}
+              title="עריכת כפולה ספציפית"
             >
-              <IcGallery size={15} />עריכת כפולה
+              <IcGallery size={14} />עריכת כפולה
+            </button>
+            <button
+              onClick={() => { setTimelineRequested(true); setMode('timeline'); }}
+              title="ציר הזמן — חלוקת התמונות לכפולות"
+            >
+              <IcSparkle size={14} />ציר הזמן
             </button>
           </div>
           <span className="album-saved-dot"><IcCheck size={12} /></span>
-          <span>{notice}</span>
+          <span className="album-notice-text">{notice}</span>
         </div>
         <div className="album-actionbar-main">
           <div className="album-output">
