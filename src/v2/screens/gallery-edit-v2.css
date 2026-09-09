@@ -1,519 +1,482 @@
 /* ==========================================================================
-   GALLERY EDIT V2 — COLOR MATCH & BATCH GRADING (TEZA AI)
+   GALLERY EDIT V2 — POWERPOINT-STYLE SLIDE DECK & STUDIO EDITOR (TEZA AI)
    ========================================================================== */
 
-.tz-ge-container {
+.tz-ge-studio-root {
   display: flex;
   flex-direction: column;
-  gap: 24px;
+  gap: 12px;
+  height: calc(100vh - 110px);
+  min-height: 650px;
 }
 
-/* Edit Mode Switcher Bar */
-.tz-ge-mode-bar {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  background: #fbfbf9;
-  border: 1px solid #f0eee9;
-  border-radius: 16px;
-  padding: 6px;
-  width: fit-content;
-}
-
-.tz-ge-mode-btn {
-  background: transparent;
-  border: none;
-  border-radius: 12px;
-  padding: 8px 18px;
-  font-size: 13.5px;
-  font-weight: 600;
-  color: #52525b;
-  cursor: pointer;
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  transition: all 0.15s ease;
-}
-
-.tz-ge-mode-btn:hover {
-  color: #18181b;
-  background: rgba(0, 0, 0, 0.04);
-}
-
-.tz-ge-mode-btn.active {
-  background: #ffffff;
-  color: var(--tz-brand);
-  font-weight: 700;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04), 0 1px 2px rgba(0, 0, 0, 0.02);
-}
-
-/* Reference Frame Bar */
-.tz-ge-frame-bar {
-  background: #ffffff;
-  border: 1px solid #f0eee9;
-  border-radius: 16px;
-  padding: 14px 20px;
+/* Top Bar: Batches & Global Actions */
+.tz-ge-top-bar {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  flex-wrap: wrap;
-}
-
-.tz-ge-frame-info {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  font-size: 13.5px;
-}
-
-.tz-ge-frame-name {
-  font-family: var(--tz-font-mono, monospace);
-  font-weight: 700;
-  color: #18181b;
-  background: #f4f3ef;
-  padding: 3px 10px;
-  border-radius: 8px;
-  direction: ltr;
-}
-
-/* Lab Embedded Container */
-.tz-ge-lab-wrapper {
-  background: #18181b;
-  border: 1px solid #27272a;
-  border-radius: 18px;
-  overflow: hidden;
-  height: calc(100vh - 240px);
-  min-height: 750px;
-  display: flex;
-  flex-direction: column;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.12);
-}
-
-.tz-ge-lab-wrapper .bench {
-  height: 100%;
-  border: none;
-}
-
-/* Batch Selector Bar */
-.tz-ge-batches-card {
   background: #ffffff;
   border: 1px solid #f0eee9;
-  border-radius: 20px;
-  padding: 20px 24px;
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.02);
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
+  border-radius: 16px;
+  padding: 10px 18px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.02);
+  flex-shrink: 0;
 }
 
-.tz-ge-batches-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.tz-ge-batches-title {
-  margin: 0;
-  font-family: var(--tz-font-display);
-  font-size: 16px;
-  font-weight: 700;
-  color: #18181b;
+.tz-ge-batch-tabs {
   display: flex;
   align-items: center;
   gap: 8px;
+  overflow-x: auto;
+  max-width: 70%;
 }
 
-.tz-ge-batches-pills {
-  display: flex;
-  gap: 10px;
-  flex-wrap: wrap;
-}
-
-.tz-ge-batch-pill {
+.tz-ge-batch-tab {
   background: #fbfbf9;
   border: 1px solid #e7e5df;
-  border-radius: 12px;
-  padding: 8px 16px;
-  font-size: 13.5px;
+  border-radius: 10px;
+  padding: 6px 14px;
+  font-size: 13px;
   font-weight: 600;
   color: #3f3f46;
   cursor: pointer;
   display: inline-flex;
   align-items: center;
   gap: 8px;
+  white-space: nowrap;
   transition: all 0.15s ease;
 }
 
-.tz-ge-batch-pill:hover {
+.tz-ge-batch-tab:hover {
   background: #f5f4ef;
   border-color: #d4d0c7;
 }
 
-.tz-ge-batch-pill.active {
+.tz-ge-batch-tab.active {
   background: #fef3ec;
   border-color: var(--tz-brand);
   color: var(--tz-brand);
+  font-weight: 700;
 }
 
-.tz-ge-batch-count {
+.tz-ge-batch-pill-badge {
   background: rgba(0, 0, 0, 0.06);
-  padding: 2px 7px;
-  border-radius: 12px;
-  font-size: 11.5px;
-  font-weight: 700;
+  padding: 1px 6px;
+  border-radius: 10px;
+  font-size: 11px;
   font-family: var(--tz-font-mono, monospace);
 }
 
-.tz-ge-batch-pill.active .tz-ge-batch-count {
+.tz-ge-batch-tab.active .tz-ge-batch-pill-badge {
   background: rgba(232, 99, 56, 0.15);
   color: var(--tz-brand);
 }
 
-.tz-ge-batch-tag {
-  font-size: 11px;
-  color: #059669;
-  background: #ecfdf5;
-  padding: 2px 6px;
-  border-radius: 6px;
-  font-weight: 600;
-}
-
-/* Already Graded Alert Card */
-.tz-ge-known-card {
-  background: #ffffff;
-  border: 1px solid #e2ded5;
-  border-radius: 18px;
-  padding: 20px 24px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 18px;
-  flex-wrap: wrap;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.02);
-}
-
-.tz-ge-known-info {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.tz-ge-known-title {
-  margin: 0;
-  font-size: 15px;
-  font-weight: 700;
-  color: #18181b;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.tz-ge-known-sub {
-  font-size: 13px;
-  color: #71717a;
-}
-
-.tz-ge-known-actions {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-/* Main Pair Cards Grid (Source vs Edited) */
-.tz-ge-pair-grid {
+/* Workspace 3-Column Studio Layout */
+.tz-ge-studio-workspace {
   display: grid;
-  grid-template-columns: 1fr;
-  gap: 20px;
+  grid-template-columns: 220px 1fr 360px;
+  gap: 14px;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
 }
 
-@media (min-width: 900px) {
-  .tz-ge-pair-grid {
-    grid-template-columns: 1fr 1fr;
-    gap: 24px;
-  }
-}
-
-.tz-ge-slot-card {
+/* 1. RIGHT: PowerPoint-Style Slide Deck */
+.tz-ge-slide-deck {
   background: #ffffff;
   border: 1px solid #f0eee9;
-  border-radius: 20px;
-  padding: 22px 24px;
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.02);
+  border-radius: 18px;
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  overflow: hidden;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.02);
 }
 
-.tz-ge-slot-header {
+.tz-ge-deck-header {
+  padding: 12px 14px;
+  border-bottom: 1px solid #f4f3ef;
   display: flex;
   justify-content: space-between;
   align-items: center;
-}
-
-.tz-ge-slot-title {
-  margin: 0;
-  font-size: 15px;
+  font-size: 12.5px;
   font-weight: 700;
   color: #18181b;
+  background: #fbfbf9;
+}
+
+.tz-ge-deck-scroll {
+  flex: 1;
+  overflow-y: auto;
+  padding: 10px;
   display: flex;
-  align-items: center;
+  flex-direction: column;
   gap: 8px;
 }
 
-.tz-ge-slot-subtitle {
-  font-size: 12px;
-  color: #71717a;
-  background: #f4f3ef;
-  padding: 2px 8px;
-  border-radius: 6px;
-}
-
-/* Slot Media Well */
-.tz-ge-slot-well {
-  position: relative;
-  aspect-ratio: 4 / 3;
-  max-height: 380px;
-  background: #fbfbf9;
-  border: 1px dashed #d4d0c7;
-  border-radius: 16px;
-  overflow: hidden;
+.tz-ge-slide-item {
   display: flex;
   align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  transition: all 0.2s ease;
-}
-
-.tz-ge-slot-well:hover {
-  border-color: var(--tz-brand);
-  background: #fefcfb;
-}
-
-.tz-ge-slot-well.filled {
-  border: 1px solid #e7e5df;
-  background: #18181b;
-}
-
-.tz-ge-slot-img {
-  width: 100%;
-  height: 100%;
-  object-fit: contain;
-  display: block;
-}
-
-.tz-ge-slot-empty-content {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 10px;
-  padding: 20px;
-  text-align: center;
-  color: #71717a;
-}
-
-.tz-ge-slot-empty-icon {
-  width: 48px;
-  height: 48px;
+  gap: 8px;
+  padding: 6px 8px;
   border-radius: 12px;
-  background: #f4f3ef;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  background: #fbfbf9;
+  border: 2px solid transparent;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  user-select: none;
+}
+
+.tz-ge-slide-item:hover {
+  background: #f5f4ef;
+  border-color: #e4e4e7;
+}
+
+.tz-ge-slide-item.active {
+  background: #ffffff;
+  border-color: var(--tz-brand);
+  box-shadow: 0 4px 12px rgba(232, 99, 56, 0.15);
+}
+
+.tz-ge-slide-idx {
+  font-size: 11px;
+  font-family: var(--tz-font-mono, monospace);
+  font-weight: 700;
+  color: #a1a1aa;
+  min-width: 18px;
+  text-align: center;
+}
+
+.tz-ge-slide-item.active .tz-ge-slide-idx {
   color: var(--tz-brand);
 }
 
-.tz-ge-slot-empty-text {
-  font-size: 13.5px;
-  font-weight: 600;
-  color: #27272a;
-}
-
-.tz-ge-slot-empty-hint {
-  font-size: 12px;
-  color: #a1a1aa;
-  max-width: 240px;
-}
-
-.tz-ge-slot-footer {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  font-size: 12.5px;
-}
-
-.tz-ge-slot-file-name {
-  font-family: var(--tz-font-mono, monospace);
-  color: #52525b;
-  direction: ltr;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-/* Learn Action Toolbar */
-.tz-ge-learn-card {
-  background: #ffffff;
-  border: 1px solid #f0eee9;
-  border-radius: 20px;
-  padding: 24px 28px;
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.02);
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 20px;
-  flex-wrap: wrap;
-}
-
-.tz-ge-learn-copy {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  max-width: 540px;
-}
-
-.tz-ge-learn-title {
-  margin: 0;
-  font-size: 16px;
-  font-weight: 700;
-  color: #18181b;
-}
-
-.tz-ge-learn-desc {
-  margin: 0;
-  font-size: 13px;
-  color: #71717a;
-  line-height: 1.45;
-}
-
-.tz-ge-learn-btn {
-  background: linear-gradient(135deg, #f07044, #e45b30);
-  color: #ffffff;
-  border: none;
-  border-radius: 14px;
-  padding: 13px 28px;
-  font-size: 15px;
-  font-weight: 700;
-  cursor: pointer;
-  display: inline-flex;
-  align-items: center;
-  gap: 10px;
-  box-shadow: 0 4px 14px rgba(232, 99, 56, 0.28);
-  transition: all 0.2s ease;
-}
-
-.tz-ge-learn-btn:hover:not(:disabled) {
-  transform: translateY(-1px);
-  box-shadow: 0 6px 18px rgba(232, 99, 56, 0.35);
-}
-
-.tz-ge-learn-btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-  transform: none;
-  box-shadow: none;
-}
-
-/* Results & Metrics Panel */
-.tz-ge-results-card {
-  background: #ffffff;
-  border: 1px solid #f0eee9;
-  border-radius: 20px;
-  padding: 26px 28px;
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.02);
-  display: flex;
-  flex-direction: column;
-  gap: 20px;
-}
-
-.tz-ge-preview-compare {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 16px;
-}
-
-.tz-ge-compare-fig {
-  margin: 0;
-  position: relative;
-  border-radius: 14px;
+.tz-ge-slide-thumb-wrap {
+  width: 72px;
+  height: 48px;
+  border-radius: 8px;
   overflow: hidden;
   background: #18181b;
-  aspect-ratio: 4 / 3;
+  flex-shrink: 0;
+  position: relative;
 }
 
-.tz-ge-compare-fig img {
+.tz-ge-slide-thumb {
   width: 100%;
   height: 100%;
-  object-fit: contain;
+  object-fit: cover;
   display: block;
 }
 
-.tz-ge-compare-badge {
-  position: absolute;
-  bottom: 10px;
-  right: 10px;
-  background: rgba(0, 0, 0, 0.7);
-  backdrop-filter: blur(4px);
-  color: #ffffff;
-  font-size: 12px;
-  font-weight: 600;
-  padding: 4px 10px;
-  border-radius: 8px;
+.tz-ge-slide-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
 }
 
-/* Metrics Numbers */
-.tz-ge-metrics-row {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+.tz-ge-slide-title {
+  font-size: 11.5px;
+  font-family: var(--tz-font-mono, monospace);
+  color: #18181b;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  direction: ltr;
+  text-align: left;
+}
+
+.tz-ge-slide-badge {
+  font-size: 9.5px;
+  color: var(--tz-brand);
+  background: #fef3ec;
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-weight: 700;
+  width: fit-content;
+}
+
+/* 2. CENTER: Canvas Stage */
+.tz-ge-canvas-stage {
+  background: #18181b;
+  border: 1px solid #27272a;
+  border-radius: 18px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  position: relative;
+}
+
+.tz-ge-canvas-toolbar {
+  height: 44px;
+  padding: 0 16px;
+  background: rgba(24, 24, 27, 0.85);
+  backdrop-filter: blur(8px);
+  border-bottom: 1px solid #27272a;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  z-index: 5;
+}
+
+.tz-ge-canvas-nav {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #ffffff;
+  font-size: 12px;
+}
+
+.tz-ge-canvas-nav-btn {
+  background: #27272a;
+  border: 1px solid #3f3f46;
+  color: #ffffff;
+  width: 26px;
+  height: 26px;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  font-size: 13px;
+  transition: all 0.12s ease;
+}
+
+.tz-ge-canvas-nav-btn:hover:not(:disabled) {
+  background: var(--tz-brand);
+  border-color: var(--tz-brand);
+}
+
+.tz-ge-canvas-nav-btn:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+.tz-ge-canvas-compare-btn {
+  background: #27272a;
+  border: 1px solid #3f3f46;
+  color: #ffffff;
+  border-radius: 8px;
+  padding: 5px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  user-select: none;
+  transition: all 0.15s ease;
+}
+
+.tz-ge-canvas-compare-btn:hover,
+.tz-ge-canvas-compare-btn.active {
+  background: var(--tz-brand);
+  border-color: var(--tz-brand);
+}
+
+.tz-ge-canvas-viewport {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  overflow: hidden;
+  padding: 16px;
+}
+
+.tz-ge-canvas-img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+  border-radius: 6px;
+  user-select: none;
+}
+
+.tz-ge-canvas-badge-original {
+  position: absolute;
+  top: 60px;
+  right: 24px;
+  background: rgba(0, 0, 0, 0.75);
+  backdrop-filter: blur(6px);
+  color: #ffffff;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 4px 10px;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+/* 3. LEFT: Inspector Tools Panel */
+.tz-ge-tools-panel {
+  background: #ffffff;
+  border: 1px solid #f0eee9;
+  border-radius: 18px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.02);
+}
+
+.tz-ge-panel-head {
+  padding: 12px 16px;
+  border-bottom: 1px solid #f4f3ef;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: #fbfbf9;
+}
+
+.tz-ge-panel-title {
+  font-size: 13.5px;
+  font-weight: 700;
+  color: #18181b;
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.tz-ge-panel-scroll {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* Tool Category Section */
+.tz-ge-tool-sec {
+  background: #fbfbf9;
+  border: 1px solid #f0eee9;
+  border-radius: 14px;
+  overflow: hidden;
+}
+
+.tz-ge-tool-sec-head {
+  padding: 10px 14px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  cursor: pointer;
+  background: #f8f7f4;
+  border-bottom: 1px solid #f0eee9;
+  user-select: none;
+}
+
+.tz-ge-tool-sec-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: #27272a;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.tz-ge-tool-sec-body {
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
   gap: 12px;
 }
 
-.tz-ge-metric-box {
-  background: #fbfbf9;
-  border: 1px solid #f0eee9;
-  border-radius: 12px;
-  padding: 12px 14px;
+/* Sleek Slider Control */
+.tz-ge-slider-wrap {
   display: flex;
   flex-direction: column;
   gap: 4px;
 }
 
-.tz-ge-metric-box.good {
-  background: #f0fdf4;
-  border-color: #bbf7d0;
-}
-
-.tz-ge-metric-val {
-  font-family: var(--tz-font-mono, monospace);
-  font-size: 20px;
-  font-weight: 800;
-  color: #18181b;
-}
-
-.tz-ge-metric-box.good .tz-ge-metric-val {
-  color: #166534;
-}
-
-.tz-ge-metric-lbl {
-  font-size: 11.5px;
-  color: #71717a;
-}
-
-/* Apply Toolbar */
-.tz-ge-apply-bar {
+.tz-ge-slider-meta {
   display: flex;
-  align-items: center;
   justify-content: space-between;
-  gap: 16px;
-  padding-top: 16px;
-  border-top: 1px solid #f7f6f3;
-  flex-wrap: wrap;
+  font-size: 12px;
+  color: #52525b;
 }
 
-.tz-ge-apply-actions {
+.tz-ge-slider-val {
+  font-family: var(--tz-font-mono, monospace);
+  font-weight: 700;
+  color: #18181b;
+  font-size: 11.5px;
+}
+
+.tz-ge-range {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 5px;
+  border-radius: 5px;
+  background: #e4e4e7;
+  outline: none;
+  cursor: pointer;
+}
+
+.tz-ge-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  background: var(--tz-brand);
+  cursor: pointer;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+  transition: transform 0.1s ease;
+}
+
+.tz-ge-range::-webkit-slider-thumb:hover {
+  transform: scale(1.2);
+}
+
+/* Panel Bottom Action Bar */
+.tz-ge-panel-footer {
+  padding: 14px 16px;
+  border-top: 1px solid #f4f3ef;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  background: #fbfbf9;
+}
+
+.tz-ge-sync-batch-btn {
+  background: linear-gradient(135deg, #f07044, #e45b30);
+  color: #ffffff;
+  border: none;
+  border-radius: 12px;
+  padding: 11px 16px;
+  font-size: 13.5px;
+  font-weight: 700;
+  cursor: pointer;
   display: flex;
   align-items: center;
-  gap: 10px;
+  justify-content: center;
+  gap: 8px;
+  box-shadow: 0 3px 10px rgba(232, 99, 56, 0.25);
+  transition: all 0.15s ease;
+}
+
+.tz-ge-sync-batch-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 14px rgba(232, 99, 56, 0.32);
+}
+
+.tz-ge-reset-btn {
+  background: transparent;
+  border: 1px solid #e4e4e7;
+  border-radius: 10px;
+  padding: 7px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #71717a;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.tz-ge-reset-btn:hover {
+  background: #f4f3ef;
+  color: #18181b;
 }

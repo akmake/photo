@@ -1,18 +1,24 @@
-import React, { Suspense, lazy, useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Project } from '../../studio/store';
 import {
+  batchRecipe,
   colorStep,
+  effectiveRecipe,
   framesInBatch,
+  frameSteps,
+  removeFrameStep,
+  setFrameStep,
   setStep,
   unassignedFrames,
   useBatches,
   useProjectFiles,
+  useRecipe,
 } from '../../studio/store';
-import { learnColorModel, thumbUrl } from '../../api';
+import { learnColorModel, renderRecipeAtPath, thumbUrl } from '../../api';
 import type { LearnColorResponse } from '../../api';
 import type { LearnedColorModel } from '../../types';
+import type { ToolInstance } from '../../types';
 import { useSetPreview } from '../../studio/preview';
-import FramePicker from '../../studio/screens/FramePicker';
 import BeforeAfter from '../../studio/screens/BeforeAfter';
 import {
   TzIconSparkle,
@@ -21,13 +27,10 @@ import {
   TzIconLayers,
   TzIconGallery,
   TzIconSliders,
-  TzIconFlask,
   TzIconRefresh,
 } from '../TzIcons';
 import './stages-v2.css';
 import './gallery-edit-v2.css';
-
-const Lab = lazy(() => import('../../lab/Lab'));
 
 function baseName(p: string) {
   return p.split(/[\\/]/).pop() ?? p;
@@ -42,20 +45,6 @@ function readAsDataUrl(file: File): Promise<string> {
   });
 }
 
-/** The Expanded Primary Tools: Face Retouch, Skin Smoothing, Blemishes Cleanup,
- *  Contour (Dodge & Burn), Tone/Exposure/Color, Tonal Contrast, and Glow. */
-export const PRIMARY_TOOLS: readonly string[] = Object.freeze([
-  'face-retouch',    // ריטוש פנים (AI)
-  'skin-cleanup',   // ניקוי כתמים ואדמומיות
-  'skin',           // החלקת עור
-  'contour',        // פיסול אור וצל (Dodge & Burn)
-  'tone-color',     // חשיפה, ניגודיות, צללים, טמפרטורה וצבע
-  'tonal-contrast', // תלת מימד (קונטרסט טונאלי)
-  'glow',           // גלואו (Bloom)
-]);
-
-type EditMode = 'colormatch' | 'primary' | 'advanced';
-
 export default function GalleryEditV2({
   project,
   onNext,
@@ -67,153 +56,266 @@ export default function GalleryEditV2({
 }) {
   const batches = useBatches(project.id);
   const { frames, ready } = useProjectFiles(project.id);
+  const recipe = useRecipe(project.id);
   const preview = useSetPreview(project.id);
-
-  // Active edit mode
-  const [mode, setMode] = useState<EditMode>('colormatch');
 
   // Active batch selection
   const [at, setAt] = useState<string | null>(null);
-  const [chose, setChose] = useState(false);
+  const [choseBatch, setChoseBatch] = useState(false);
 
-  // Explicitly selected reference frame for tuning
-  const [selectedFramePath, setSelectedFramePath] = useState<string | null>(null);
+  // Active frame index within current batch slides
+  const [activeSlideIndex, setActiveSlideIndex] = useState<number>(0);
+
+  // Active tool category tab: 'primary' | 'colormatch'
+  const [activeTab, setActiveTab] = useState<'primary' | 'colormatch'>('primary');
+
+  // Canvas comparison state
+  const [showOriginal, setShowOriginal] = useState(false);
+  const [renderedSrc, setRenderedSrc] = useState<string | null>(null);
+  const [rawSrc, setRawSrc] = useState<string | null>(null);
+  const [busyRender, setBusyRender] = useState(false);
 
   // ColorMatch state
-  const [origin, setOrigin] = useState<{ path: string; folder: string } | null>(null);
-  const [pickingOrigin, setPickingOrigin] = useState(false);
-  const [pickingRefFrame, setPickingRefFrame] = useState(false);
-  const [edited, setEdited] = useState<{ name: string; data: string } | null>(null);
-
-  // Learning & Results
-  const [learning, setLearning] = useState(false);
-  const [learned, setLearned] = useState<LearnColorResponse | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [applied, setApplied] = useState(false);
+  const [cmEdited, setCmEdited] = useState<{ name: string; data: string } | null>(null);
+  const [cmLearning, setCmLearning] = useState(false);
+  const [cmLearned, setCmLearned] = useState<LearnColorResponse | null>(null);
+  const [cmError, setCmError] = useState<string | null>(null);
   const [sheetModel, setSheetModel] = useState<LearnedColorModel | null>(null);
-  const [redo, setRedo] = useState(false);
-  const [pending, setPending] = useState(0);
 
-  // Initialize on first batch if none selected
+  // Initialize batch
   useEffect(() => {
-    if (!chose && batches.length > 0) {
+    if (!choseBatch && batches.length > 0) {
       setAt(batches[0].id);
-      setChose(true);
+      setChoseBatch(true);
     }
-  }, [batches, chose]);
+  }, [batches, choseBatch]);
 
+  // Slides for current batch
   const currentBatch = batches.find((b) => b.id === at) ?? null;
-  const scopeFrames = at ? framesInBatch(project.id, at) : unassignedFrames(project.id);
-  const scopeLabel = currentBatch ? currentBatch.name : batches.length > 0 ? 'ללא מקבץ' : 'כל הפרויקט';
+  const slideFrames = useMemo(() => {
+    if (at) return framesInBatch(project.id, at);
+    if (batches.length > 0) return unassignedFrames(project.id);
+    return frames;
+  }, [at, batches.length, project.id, frames]);
 
-  // Robust active frame resolution: fallback to batch first photo or project first photo
-  const activeFrame = useMemo(() => {
-    if (selectedFramePath && frames.some((f) => f.path === selectedFramePath)) {
-      return frames.find((f) => f.path === selectedFramePath) ?? null;
-    }
-    if (scopeFrames.length > 0) return scopeFrames[0];
-    if (frames.length > 0) return frames[0];
-    return null;
-  }, [selectedFramePath, scopeFrames, frames]);
+  // Active frame
+  const currentFrame = slideFrames[activeSlideIndex] ?? slideFrames[0] ?? null;
 
-  const existingLook = colorStep(project.id, at);
-
-  const chooseBatch = useCallback((id: string | null) => {
-    setAt(id);
-    setSelectedFramePath(null);
-    setOrigin(null);
-    setEdited(null);
-    setLearned(null);
-    setApplied(false);
-    setSheetModel(null);
-    setRedo(false);
-    setError(null);
-  }, []);
-
-  const handleLearn = useCallback(async () => {
-    if (!origin || !edited) return;
-    setError(null);
-    setLearning(true);
-    setLearned(null);
-    try {
-      const res = await learnColorModel({ path: origin.path }, { data: edited.data });
-      setLearned(res);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'למידת הצבע נכשלה');
-    } finally {
-      setLearning(false);
-    }
-  }, [origin, edited]);
-
-  const handleApplyToSet = useCallback((model: LearnedColorModel) => {
-    setStep(project.id, { toolId: 'pixel-color', params: {}, enabled: true, model }, at);
-    setApplied(true);
-    setPending(scopeFrames.length);
-  }, [project.id, at, scopeFrames.length]);
-
+  // Clamp index if slides change
   useEffect(() => {
-    if (!pending) return;
-    preview.warm(scopeFrames.map((f) => f.path));
-    setPending(0);
-  }, [pending, preview, scopeFrames]);
+    if (activeSlideIndex >= slideFrames.length && slideFrames.length > 0) {
+      setActiveSlideIndex(0);
+    }
+  }, [slideFrames.length, activeSlideIndex]);
 
-  const report = learned?.report;
-  const gap = report ? Math.round(report.gapClosed * 100) : 0;
+  // Current effective tools for the active frame
+  const frameEffectiveTools = useMemo(() => {
+    if (!currentFrame) return [];
+    return effectiveRecipe(project.id, currentFrame.name);
+  }, [project.id, currentFrame, recipe]);
+
+  // Helper to extract slider value
+  const getParamVal = useCallback(
+    (toolId: string, paramId: string, fallback: number): number => {
+      const step = frameEffectiveTools.find((t) => t.toolId === toolId);
+      if (step && step.params && step.params[paramId] !== undefined) {
+        return Number(step.params[paramId]);
+      }
+      return fallback;
+    },
+    [frameEffectiveTools],
+  );
+
+  // Update a slider value for the active frame
+  const handleParamChange = useCallback(
+    (toolId: string, paramId: string, value: number) => {
+      if (!currentFrame) return;
+      const existing = frameEffectiveTools.find((t) => t.toolId === toolId);
+      const updatedParams = { ...(existing?.params ?? {}), [paramId]: value };
+      const nextStep: ToolInstance = {
+        toolId,
+        enabled: true,
+        params: updatedParams,
+        ...(existing?.model ? { model: existing.model } : {}),
+      };
+      setFrameStep(project.id, currentFrame.name, nextStep);
+    },
+    [currentFrame, frameEffectiveTools, project.id],
+  );
+
+  // Render the active frame when frame or recipe changes (debounced)
+  const renderTimeout = useRef<number | null>(null);
+  useEffect(() => {
+    if (!currentFrame) {
+      setRenderedSrc(null);
+      setRawSrc(null);
+      return;
+    }
+
+    // Warm preview in background
+    preview.warm([currentFrame.path]);
+
+    setBusyRender(true);
+    if (renderTimeout.current) clearTimeout(renderTimeout.current);
+
+    renderTimeout.current = window.setTimeout(async () => {
+      try {
+        const tools = effectiveRecipe(project.id, currentFrame.name).filter((t) => t.enabled);
+        const [resGraded, resRaw] = await Promise.all([
+          renderRecipeAtPath(currentFrame.path, tools, 1400),
+          renderRecipeAtPath(currentFrame.path, [], 1400),
+        ]);
+        setRenderedSrc(resGraded.image);
+        setRawSrc(resRaw.image);
+      } catch {
+        // Fallback to thumb if full render error
+        setRenderedSrc(thumbUrl(currentFrame.path, 1200));
+        setRawSrc(thumbUrl(currentFrame.path, 1200));
+      } finally {
+        setBusyRender(false);
+      }
+    }, 80);
+
+    return () => {
+      if (renderTimeout.current) clearTimeout(renderTimeout.current);
+    };
+  }, [currentFrame, recipe, project.id, preview]);
+
+  // Keyboard navigation for slides (ArrowUp / ArrowDown) and compare (Space)
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      const target = e.target as HTMLElement | null;
+      if (target?.matches('input, textarea, select')) return;
+
+      if (e.code === 'Space' && !e.repeat) {
+        e.preventDefault();
+        setShowOriginal(true);
+      }
+      if (e.key === 'ArrowDown' || e.key === 'ArrowLeft') {
+        e.preventDefault();
+        setActiveSlideIndex((idx) => Math.min(slideFrames.length - 1, idx + 1));
+      }
+      if (e.key === 'ArrowUp' || e.key === 'ArrowRight') {
+        e.preventDefault();
+        setActiveSlideIndex((idx) => Math.max(0, idx - 1));
+      }
+    }
+
+    function onKeyUp(e: KeyboardEvent) {
+      if (e.code === 'Space') {
+        setShowOriginal(false);
+      }
+    }
+
+    window.addEventListener('keydown', onKeyDown);
+    window.addEventListener('keyup', onKeyUp);
+    return () => {
+      window.removeEventListener('keydown', onKeyDown);
+      window.removeEventListener('keyup', onKeyUp);
+    };
+  }, [slideFrames.length]);
+
+  // Sync current photo's edits to the entire batch
+  const handleSyncToBatch = useCallback(() => {
+    if (!currentFrame || !at) return;
+    const tools = frameSteps(project.id, currentFrame.name);
+    if (!tools.length) return;
+
+    for (const tool of tools) {
+      setStep(project.id, tool, at);
+    }
+    // Warm all frames in the batch
+    preview.warm(slideFrames.map((f) => f.path));
+  }, [currentFrame, at, project.id, slideFrames, preview]);
+
+  // Reset current frame back to batch defaults
+  const handleResetFrame = useCallback(() => {
+    if (!currentFrame) return;
+    const tools = frameSteps(project.id, currentFrame.name);
+    for (const tool of tools) {
+      removeFrameStep(project.id, currentFrame.name, tool.toolId);
+    }
+  }, [currentFrame, project.id]);
+
+  // ColorMatch learn
+  const handleLearnColorMatch = useCallback(async () => {
+    if (!currentFrame || !cmEdited) return;
+    setCmError(null);
+    setCmLearning(true);
+    setCmLearned(null);
+    try {
+      const res = await learnColorModel({ path: currentFrame.path }, { data: cmEdited.data });
+      setCmLearned(res);
+      // Automatically apply to batch
+      setStep(project.id, { toolId: 'pixel-color', params: {}, enabled: true, model: res.model }, at);
+      preview.warm(slideFrames.map((f) => f.path));
+    } catch (e) {
+      setCmError(e instanceof Error ? e.message : 'למידת הצבע נכשלה');
+    } finally {
+      setCmLearning(false);
+    }
+  }, [currentFrame, cmEdited, project.id, at, preview, slideFrames]);
+
+  const hasCustomEdits = Boolean(currentFrame && frameSteps(project.id, currentFrame.name).length > 0);
+  const displayImage = showOriginal ? (rawSrc || thumbUrl(currentFrame?.path ?? '', 1200)) : (renderedSrc || thumbUrl(currentFrame?.path ?? '', 1200));
 
   return (
-    <div className="tz-stage-container" style={{ maxWidth: '100%' }}>
-      {/* Mode Switcher Segmented Bar & Header */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 14 }}>
-        <div className="tz-ge-mode-bar">
-          <button
-            type="button"
-            className={`tz-ge-mode-btn ${mode === 'colormatch' ? 'active' : ''}`}
-            onClick={() => setMode('colormatch')}
-          >
-            <TzIconSparkle size={16} />
-            <span>התאמת צבעים (מקור וערוך)</span>
-          </button>
+    <div className="tz-ge-studio-root">
+      {/* 1. TOP BAR: BATCH TABS & ACTIONS */}
+      <header className="tz-ge-top-bar">
+        <div className="tz-ge-batch-tabs">
+          <span style={{ fontSize: 13, fontWeight: 700, color: '#18181b', marginLeft: 6 }}>
+            מקבץ עבודה:
+          </span>
+          {batches.map((b) => {
+            const count = framesInBatch(project.id, b.id).length;
+            const hasGrade = Boolean(colorStep(project.id, b.id));
+            return (
+              <button
+                key={b.id}
+                type="button"
+                className={`tz-ge-batch-tab ${at === b.id ? 'active' : ''}`}
+                onClick={() => {
+                  setAt(b.id);
+                  setActiveSlideIndex(0);
+                }}
+              >
+                <span>{b.name}</span>
+                <span className="tz-ge-batch-pill-badge">{count}</span>
+                {hasGrade && <span style={{ color: '#059669', fontSize: 11 }}>✓</span>}
+              </button>
+            );
+          })}
 
-          <button
-            type="button"
-            className={`tz-ge-mode-btn ${mode === 'primary' ? 'active' : ''}`}
-            onClick={() => setMode('primary')}
-          >
-            <TzIconSliders size={16} />
-            <span>כלים ראשוניים (ריטוש פנים, עור, אור וצל)</span>
-          </button>
-
-          <button
-            type="button"
-            className={`tz-ge-mode-btn ${mode === 'advanced' ? 'active' : ''}`}
-            onClick={() => setMode('advanced')}
-          >
-            <TzIconFlask size={16} />
-            <span>מעבדה מלאה (כל הכלים המורכבים)</span>
-          </button>
+          {unassignedFrames(project.id).length > 0 && (
+            <button
+              type="button"
+              className={`tz-ge-batch-tab ${at === null ? 'active' : ''}`}
+              onClick={() => {
+                setAt(null);
+                setActiveSlideIndex(0);
+              }}
+            >
+              <span>ללא מקבץ</span>
+              <span className="tz-ge-batch-pill-badge">{unassignedFrames(project.id).length}</span>
+            </button>
+          )}
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          {/* If in Primary or Advanced mode, show reference frame indicator */}
-          {mode !== 'colormatch' && activeFrame && (
-            <div className="tz-ge-frame-info">
-              <span style={{ color: '#71717a', fontSize: 13 }}>תמונת עבודה:</span>
-              <span className="tz-ge-frame-name">{activeFrame.name}</span>
-              <button
-                type="button"
-                className="tz-sc-subtle-btn"
-                onClick={() => setPickingRefFrame(true)}
-              >
-                <TzIconGallery size={14} />
-                החלף תמונה
-              </button>
-            </div>
+          {onBack && (
+            <button
+              type="button"
+              className="tz-sc-subtle-btn"
+              onClick={onBack}
+            >
+              ← שלב קודם
+            </button>
           )}
-
           {onNext && (
             <button
-              className="tz-btn-projects-primary"
               type="button"
+              className="tz-btn-projects-primary"
               style={{ padding: '7px 16px', fontSize: 13 }}
               onClick={onNext}
             >
@@ -221,449 +323,460 @@ export default function GalleryEditV2({
             </button>
           )}
         </div>
-      </div>
+      </header>
 
-      {!ready ? (
-        <div className="tz-stage-card">
-          <p style={{ margin: 0, color: '#71717a' }}>טוען את נתוני הפרויקט והקבצים...</p>
-        </div>
-      ) : (
-        <div className="tz-ge-container">
-          {/* Batch Selector Bar */}
-          {batches.length > 0 && (
-            <div className="tz-ge-batches-card" style={{ padding: '14px 18px' }}>
-              <div className="tz-ge-batches-pills">
-                <span style={{ fontSize: 13, fontWeight: 700, color: '#18181b', alignSelf: 'center', marginLeft: 6 }}>
-                  מקבץ פעיל:
-                </span>
-                {batches.map((b) => {
-                  const count = framesInBatch(project.id, b.id).length;
-                  const hasGrade = Boolean(colorStep(project.id, b.id));
-                  return (
-                    <button
-                      key={b.id}
-                      type="button"
-                      className={`tz-ge-batch-pill ${at === b.id ? 'active' : ''}`}
-                      onClick={() => chooseBatch(b.id)}
-                    >
-                      <span>{b.name}</span>
-                      <span className="tz-ge-batch-count">{count}</span>
-                      {hasGrade && <span className="tz-ge-batch-tag">יש מראה ✓</span>}
-                    </button>
-                  );
-                })}
+      {/* 2. 3-COLUMN STUDIO WORKSPACE */}
+      <div className="tz-ge-studio-workspace">
+        {/* RIGHT COLUMN: POWERPOINT-STYLE SLIDE DECK */}
+        <aside className="tz-ge-slide-deck">
+          <div className="tz-ge-deck-header">
+            <span>שקופיות ({slideFrames.length})</span>
+            <span style={{ fontSize: 11.5, color: '#71717a' }}>בחר לעריכה</span>
+          </div>
 
-                {unassignedFrames(project.id).length > 0 && (
-                  <button
-                    type="button"
-                    className={`tz-ge-batch-pill ${at === null ? 'active' : ''}`}
-                    onClick={() => chooseBatch(null)}
-                  >
-                    <span>ללא מקבץ</span>
-                    <span className="tz-ge-batch-count">
-                      {unassignedFrames(project.id).length}
-                    </span>
-                  </button>
-                )}
+          <div className="tz-ge-deck-scroll">
+            {slideFrames.length === 0 ? (
+              <div style={{ padding: 20, textAlign: 'center', color: '#a1a1aa', fontSize: 12 }}>
+                אין תמונות במקבץ זה
               </div>
-            </div>
-          )}
-
-          {/* MODE 1: COLOR MATCH */}
-          {mode === 'colormatch' && (
-            <>
-              {/* If already graded, show alert card */}
-              {existingLook && !redo && (
-                <div className="tz-ge-known-card">
-                  <div className="tz-ge-known-info">
-                    <h4 className="tz-ge-known-title">
-                      <TzIconCheckCircle size={18} />
-                      למקבץ "{scopeLabel}" כבר יש מראה צבע פעיל
-                    </h4>
-                    <span className="tz-ge-known-sub">
-                      המראה חל על <strong>{scopeFrames.length}</strong> תמונות במקבץ ({existingLook.anchors?.length ?? 0} עוגני צבע{existingLook.skinAnchors?.length ? ' · מודל עור ייעודי' : ''}).
+            ) : (
+              slideFrames.map((f, idx) => {
+                const isActive = idx === activeSlideIndex;
+                const isCustomized = frameSteps(project.id, f.name).length > 0;
+                return (
+                  <div
+                    key={f.path}
+                    className={`tz-ge-slide-item ${isActive ? 'active' : ''}`}
+                    onClick={() => setActiveSlideIndex(idx)}
+                  >
+                    <span className="tz-ge-slide-idx">
+                      {String(idx + 1).padStart(2, '0')}
                     </span>
-                  </div>
 
-                  <div className="tz-ge-known-actions">
-                    <button
-                      type="button"
-                      className="tz-sc-subtle-btn"
-                      onClick={() => setSheetModel(existingLook)}
-                    >
-                      <TzIconGallery size={15} />
-                      הצג השוואת לפני / אחרי לכל המקבץ
-                    </button>
-                    <button
-                      type="button"
-                      className="tz-sc-subtle-btn"
-                      style={{ color: 'var(--tz-brand)' }}
-                      onClick={() => setRedo(true)}
-                    >
-                      <TzIconRefresh size={14} />
-                      בצע התאמה חדשה
-                    </button>
-                  </div>
-                </div>
-              )}
-
-              {/* Workflow Pair: Source vs Edited */}
-              {(!existingLook || redo) && (
-                <>
-                  <div className="tz-ge-pair-grid">
-                    {/* Source Photo (From Project) */}
-                    <div className="tz-ge-slot-card">
-                      <div className="tz-ge-slot-header">
-                        <h3 className="tz-ge-slot-title">
-                          <TzIconGallery size={17} />
-                          תמונת מקור (מהמקבץ)
-                        </h3>
-                        <span className="tz-ge-slot-subtitle">{scopeLabel}</span>
-                      </div>
-
-                      <div
-                        className={`tz-ge-slot-well ${origin ? 'filled' : ''}`}
-                        onClick={() => setPickingOrigin(true)}
-                      >
-                        {origin ? (
-                          <img
-                            className="tz-ge-slot-img"
-                            src={thumbUrl(origin.path, 900)}
-                            alt="מקור"
-                          />
-                        ) : (
-                          <div className="tz-ge-slot-empty-content">
-                            <div className="tz-ge-slot-empty-icon">
-                              <TzIconGallery size={22} />
-                            </div>
-                            <span className="tz-ge-slot-empty-text">
-                              בחר תמונה מייצגת מהמקבץ
-                            </span>
-                            <span className="tz-ge-slot-empty-hint">
-                              בחר תמונה בעלת תאורה אופיינית וגווני עור ברורים
-                            </span>
-                          </div>
-                        )}
-                      </div>
-
-                      <div className="tz-ge-slot-footer">
-                        <span className="tz-ge-slot-file-name">
-                          {origin ? baseName(origin.path) : 'טרם נבחרה תמונה'}
-                        </span>
-                        <button
-                          type="button"
-                          className="tz-sc-subtle-btn"
-                          onClick={() => setPickingOrigin(true)}
-                        >
-                          {origin ? 'החלף תמונה' : 'בחר מהמקבץ'}
-                        </button>
-                      </div>
+                    <div className="tz-ge-slide-thumb-wrap">
+                      <img
+                        className="tz-ge-slide-thumb"
+                        src={thumbUrl(f.path, 320)}
+                        alt={f.name}
+                        loading="lazy"
+                      />
                     </div>
 
-                    {/* Edited Photo (From Computer) */}
-                    <div className="tz-ge-slot-card">
-                      <div className="tz-ge-slot-header">
-                        <h3 className="tz-ge-slot-title">
-                          <TzIconUpload size={17} />
-                          תמונה ערוכה (מהמחשב)
-                        </h3>
-                        <span className="tz-ge-slot-subtitle">Lightroom / Photoshop</span>
-                      </div>
-
-                      <label
-                        htmlFor="tz-ge-file-upload"
-                        className={`tz-ge-slot-well ${edited ? 'filled' : ''}`}
-                      >
-                        {edited ? (
-                          <img
-                            className="tz-ge-slot-img"
-                            src={edited.data}
-                            alt="ערוך"
-                          />
-                        ) : (
-                          <div className="tz-ge-slot-empty-content">
-                            <div className="tz-ge-slot-empty-icon">
-                              <TzIconUpload size={22} />
-                            </div>
-                            <span className="tz-ge-slot-empty-text">
-                              העלה את אותה התמונה לאחר עריכה
-                            </span>
-                            <span className="tz-ge-slot-empty-hint">
-                              לחץ או גרור קובץ JPG / PNG שעבר עריכת צבע
-                            </span>
-                          </div>
-                        )}
-                        <input
-                          id="tz-ge-file-upload"
-                          type="file"
-                          accept="image/*"
-                          hidden
-                          onChange={async (e) => {
-                            const f = e.target.files?.[0];
-                            if (f) {
-                              const data = await readAsDataUrl(f);
-                              setEdited({ name: f.name, data });
-                            }
-                          }}
-                        />
-                      </label>
-
-                      <div className="tz-ge-slot-footer">
-                        <span className="tz-ge-slot-file-name">
-                          {edited ? edited.name : 'טרם הועלה קובץ'}
-                        </span>
-                        <label
-                          htmlFor="tz-ge-file-upload"
-                          className="tz-sc-subtle-btn"
-                          style={{ cursor: 'pointer' }}
-                        >
-                          {edited ? 'החלף קובץ' : 'העלה קובץ'}
-                        </label>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Action Toolbar: Learn */}
-                  <div className="tz-ge-learn-card">
-                    <div className="tz-ge-learn-copy">
-                      <h4 className="tz-ge-learn-title">למידת מודל הצבע והעור</h4>
-                      <p className="tz-ge-learn-desc">
-                        המנוע משווה פיקסל-לפיקסל בין המקור לגרסה הערוכה, בונה עוגני צבע תלת-ממדיים ומייצר מודל נפרד לגווני עור כדי לשמור עליהם טבעיים.
-                      </p>
-                    </div>
-
-                    <button
-                      type="button"
-                      className="tz-ge-learn-btn"
-                      disabled={!origin || !edited || learning}
-                      onClick={handleLearn}
-                    >
-                      <TzIconSparkle size={18} />
-                      {learning ? 'מעבד ולומד את הצבע... (10–30 שניות)' : 'למד את הצבע מהזוג ✨'}
-                    </button>
-                  </div>
-                </>
-              )}
-
-              {error && (
-                <div style={{ background: '#fef2f2', padding: 14, borderRadius: 12, color: '#ef4444', fontSize: 13 }}>
-                  {error}
-                </div>
-              )}
-
-              {/* Learned Results & Application Panel */}
-              {learned && report && origin && (
-                <div className="tz-ge-results-card">
-                  <div className="tz-sc-card-header">
-                    <div className="tz-sc-card-title-wrap">
-                      <h3 className="tz-sc-card-title">
-                        <TzIconSparkle size={18} />
-                        תוצאת למידת הצבע
-                      </h3>
-                      <p className="tz-sc-card-desc">
-                        בדוק את תוצאת המודל על תמונת המקור מול היעד לפני החלה על כל המקבץ.
-                      </p>
-                    </div>
-                  </div>
-
-                  <div className="tz-ge-preview-compare">
-                    <figure className="tz-ge-compare-fig">
-                      <img src={learned.preview} alt="המודל שלמדנו" />
-                      <span className="tz-ge-compare-badge">המודל שנלמד על המקור</span>
-                    </figure>
-                    <figure className="tz-ge-compare-fig">
-                      <img src={edited!.data} alt="היעד הערוך שלך" />
-                      <span className="tz-ge-compare-badge">היעד (העריכה שלך)</span>
-                    </figure>
-                  </div>
-
-                  {/* Metrics */}
-                  <div className="tz-ge-metrics-row">
-                    <div className={`tz-ge-metric-box ${gap >= 70 ? 'good' : ''}`}>
-                      <span className="tz-ge-metric-val">{gap}%</span>
-                      <span className="tz-ge-metric-lbl">מהפער נסגר</span>
-                    </div>
-                    <div className="tz-ge-metric-box">
-                      <span className="tz-ge-metric-val">{report.clusters}</span>
-                      <span className="tz-ge-metric-lbl">עוגני צבע</span>
-                    </div>
-                    <div className="tz-ge-metric-box">
-                      <span className="tz-ge-metric-val">
-                        {report.skinModel ? 'כן' : 'לא'}
+                    <div className="tz-ge-slide-info">
+                      <span className="tz-ge-slide-title" title={f.name}>
+                        {f.name}
                       </span>
-                      <span className="tz-ge-metric-lbl">מודל עור נפרד</span>
-                    </div>
-                    <div className="tz-ge-metric-box">
-                      <span className="tz-ge-metric-val">{report.fitSeconds.toFixed(1)}s</span>
-                      <span className="tz-ge-metric-lbl">זמן למידה</span>
-                    </div>
-                    <div className={`tz-ge-metric-box ${report.safe ? 'good' : ''}`}>
-                      <span className="tz-ge-metric-val">{report.safe ? 'תקין' : 'זהיר'}</span>
-                      <span className="tz-ge-metric-lbl">בדיקת ולידציה</span>
+                      {isCustomized && (
+                        <span className="tz-ge-slide-badge">מותאם</span>
+                      )}
                     </div>
                   </div>
+                );
+              })
+            )}
+          </div>
+        </aside>
 
-                  {/* Apply Actions */}
-                  <div className="tz-ge-apply-bar">
-                    <span style={{ fontSize: 13.5, color: '#3f3f46' }}>
-                      המראה מוכן להחלה על <strong>{scopeFrames.length}</strong> תמונות במקבץ "<strong>{scopeLabel}</strong>".
+        {/* CENTER COLUMN: ACTIVE PHOTO CANVAS */}
+        <main className="tz-ge-canvas-stage">
+          {/* Top Canvas Bar */}
+          <div className="tz-ge-canvas-toolbar">
+            <div className="tz-ge-canvas-nav">
+              <button
+                type="button"
+                className="tz-ge-canvas-nav-btn"
+                disabled={activeSlideIndex <= 0}
+                onClick={() => setActiveSlideIndex((i) => Math.max(0, i - 1))}
+                title="שקופית קודמת"
+              >
+                ›
+              </button>
+              <button
+                type="button"
+                className="tz-ge-canvas-nav-btn"
+                disabled={activeSlideIndex >= slideFrames.length - 1}
+                onClick={() => setActiveSlideIndex((i) => Math.min(slideFrames.length - 1, i + 1))}
+                title="שקופית הבאה"
+              >
+                ‹
+              </button>
+              <span style={{ fontWeight: 600, color: '#e4e4e7', fontFamily: 'monospace' }}>
+                {activeSlideIndex + 1} / {slideFrames.length}
+              </span>
+              <span style={{ color: '#71717a', fontSize: 11, marginRight: 8 }}>
+                {currentFrame ? baseName(currentFrame.path) : ''}
+              </span>
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <button
+                type="button"
+                className={`tz-ge-canvas-compare-btn ${showOriginal ? 'active' : ''}`}
+                onMouseDown={() => setShowOriginal(true)}
+                onMouseUp={() => setShowOriginal(false)}
+                onMouseLeave={() => setShowOriginal(false)}
+                title="לחץ והחזק להשוואה מול המקור (או מקש רווח)"
+              >
+                <TzIconGallery size={14} />
+                <span>{showOriginal ? 'מציג מקור' : 'החזק למקור'}</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Viewport */}
+          <div className="tz-ge-canvas-viewport">
+            {currentFrame ? (
+              <>
+                <img
+                  key={currentFrame.path}
+                  className="tz-ge-canvas-img"
+                  src={displayImage}
+                  alt={currentFrame.name}
+                />
+                {showOriginal && (
+                  <div className="tz-ge-canvas-badge-original">
+                    תמונת מקור (לפני עריכה)
+                  </div>
+                )}
+                {busyRender && (
+                  <div style={{ position: 'absolute', bottom: 16, left: 16, background: 'rgba(0,0,0,0.65)', color: '#ffffff', padding: '4px 10px', borderRadius: 8, fontSize: 11 }}>
+                    מרנדר שינויים...
+                  </div>
+                )}
+              </>
+            ) : (
+              <div style={{ color: '#71717a' }}>אין תמונה מוצגת</div>
+            )}
+          </div>
+        </main>
+
+        {/* LEFT COLUMN: INSPECTOR & PRIMARY TOOLS */}
+        <aside className="tz-ge-tools-panel">
+          <div className="tz-ge-panel-head">
+            <div style={{ display: 'flex', gap: 6 }}>
+              <button
+                type="button"
+                className={`tz-sc-source-pill ${activeTab === 'primary' ? 'active' : ''}`}
+                style={{ padding: '5px 12px', fontSize: 12 }}
+                onClick={() => setActiveTab('primary')}
+              >
+                <TzIconSliders size={14} />
+                כלים ראשוניים
+              </button>
+              <button
+                type="button"
+                className={`tz-sc-source-pill ${activeTab === 'colormatch' ? 'active' : ''}`}
+                style={{ padding: '5px 12px', fontSize: 12 }}
+                onClick={() => setActiveTab('colormatch')}
+              >
+                <TzIconSparkle size={14} />
+                ColorMatch
+              </button>
+            </div>
+          </div>
+
+          <div className="tz-ge-panel-scroll">
+            {activeTab === 'primary' ? (
+              <>
+                {/* 1. Face Retouch & Skin Smoothing */}
+                <div className="tz-ge-tool-sec">
+                  <div className="tz-ge-tool-sec-head">
+                    <span className="tz-ge-tool-sec-title">
+                      <TzIconSparkle size={15} />
+                      ריטוש פנים והחלקת עור (AI)
                     </span>
-
-                    <div className="tz-ge-apply-actions">
-                      <button
-                        type="button"
-                        className="tz-sc-subtle-btn"
-                        onClick={() => setSheetModel(learned.model)}
-                      >
-                        <TzIconGallery size={15} />
-                        הצג את כל התמונות לפני ואחרי
-                      </button>
-
-                      <button
-                        type="button"
-                        className="tz-sc-publish-btn"
-                        style={{ width: 'auto', padding: '10px 22px' }}
-                        onClick={() => handleApplyToSet(learned.model)}
-                      >
-                        <TzIconCheckCircle size={17} />
-                        החל מראה על כל המקבץ ({scopeFrames.length} תמונות)
-                      </button>
-                    </div>
                   </div>
+                  <div className="tz-ge-tool-sec-body">
+                    <SliderField
+                      label="עוצמת ריטוש פנים"
+                      value={getParamVal('face-retouch', 'strength', 70)}
+                      min={0}
+                      max={100}
+                      onChange={(v) => handleParamChange('face-retouch', 'strength', v)}
+                    />
+                    <SliderField
+                      label="החלקת עור"
+                      value={getParamVal('skin', 'strength', 60)}
+                      min={0}
+                      max={100}
+                      onChange={(v) => handleParamChange('skin', 'strength', v)}
+                    />
+                    <SliderField
+                      label="שימור טקסטורת עור"
+                      value={getParamVal('skin', 'texture', 100)}
+                      min={0}
+                      max={100}
+                      onChange={(v) => handleParamChange('skin', 'texture', v)}
+                    />
+                    <SliderField
+                      label="ניקוי אדמומיות"
+                      value={getParamVal('skin-cleanup', 'redness', 90)}
+                      min={0}
+                      max={100}
+                      onChange={(v) => handleParamChange('skin-cleanup', 'redness', v)}
+                    />
+                    <SliderField
+                      label="ברק ולובן עיניים"
+                      value={getParamVal('eye-sparkle', 'strength', 50)}
+                      min={0}
+                      max={100}
+                      onChange={(v) => handleParamChange('eye-sparkle', 'strength', v)}
+                    />
+                  </div>
+                </div>
 
-                  {applied && (
-                    <div className="tz-sc-imported-card">
-                      <div className="tz-sc-imported-copy">
-                        <TzIconCheckCircle size={22} />
-                        <span>
-                          המראה נקבע בהצלחה על מקבץ <strong>"{scopeLabel}"</strong>! כל {scopeFrames.length} התמונות מוצגות כעת עם הצבע החדש.
-                        </span>
-                      </div>
+                {/* 2. Light & Shadow Sculpting (Contour / Dodge & Burn) */}
+                <div className="tz-ge-tool-sec">
+                  <div className="tz-ge-tool-sec-head">
+                    <span className="tz-ge-tool-sec-title">
+                      <TzIconSliders size={15} />
+                      פיסול אור וצל (Dodge & Burn)
+                    </span>
+                  </div>
+                  <div className="tz-ge-tool-sec-body">
+                    <SliderField
+                      label="עצמות לחיים"
+                      value={getParamVal('contour', 'cheekbones', 0)}
+                      min={-100}
+                      max={100}
+                      onChange={(v) => handleParamChange('contour', 'cheekbones', v)}
+                    />
+                    <SliderField
+                      label="מרכז המצח"
+                      value={getParamVal('contour', 'forehead', 0)}
+                      min={-100}
+                      max={100}
+                      onChange={(v) => handleParamChange('contour', 'forehead', v)}
+                    />
+                    <SliderField
+                      label="קו הלסת"
+                      value={getParamVal('contour', 'jaw', 0)}
+                      min={-100}
+                      max={100}
+                      onChange={(v) => handleParamChange('contour', 'jaw', v)}
+                    />
+                    <SliderField
+                      label="מתחת לעיניים"
+                      value={getParamVal('contour', 'undereye', 0)}
+                      min={-100}
+                      max={100}
+                      onChange={(v) => handleParamChange('contour', 'undereye', v)}
+                    />
+                    <SliderField
+                      label="הגברת תאורה קיימת"
+                      value={getParamVal('contour', 'sculpt', 0)}
+                      min={0}
+                      max={100}
+                      onChange={(v) => handleParamChange('contour', 'sculpt', v)}
+                    />
+                  </div>
+                </div>
+
+                {/* 3. Tone, Exposure & Color */}
+                <div className="tz-ge-tool-sec">
+                  <div className="tz-ge-tool-sec-head">
+                    <span className="tz-ge-tool-sec-title">
+                      <TzIconSliders size={15} />
+                      טון, חשיפה וצבע
+                    </span>
+                  </div>
+                  <div className="tz-ge-tool-sec-body">
+                    <SliderField
+                      label="חשיפה"
+                      value={getParamVal('tone-color', 'exposure', 0)}
+                      min={-200}
+                      max={200}
+                      onChange={(v) => handleParamChange('tone-color', 'exposure', v)}
+                    />
+                    <SliderField
+                      label="ניגודיות"
+                      value={getParamVal('tone-color', 'contrast', 0)}
+                      min={-100}
+                      max={100}
+                      onChange={(v) => handleParamChange('tone-color', 'contrast', v)}
+                    />
+                    <SliderField
+                      label="היילייטים"
+                      value={getParamVal('tone-color', 'highlights', 0)}
+                      min={-100}
+                      max={100}
+                      onChange={(v) => handleParamChange('tone-color', 'highlights', v)}
+                    />
+                    <SliderField
+                      label="צלליות"
+                      value={getParamVal('tone-color', 'shadows', 0)}
+                      min={-100}
+                      max={100}
+                      onChange={(v) => handleParamChange('tone-color', 'shadows', v)}
+                    />
+                    <SliderField
+                      label="חום (טמפרטורה)"
+                      value={getParamVal('tone-color', 'temperature', 0)}
+                      min={-200}
+                      max={200}
+                      onChange={(v) => handleParamChange('tone-color', 'temperature', v)}
+                    />
+                    <SliderField
+                      label="רוויה"
+                      value={getParamVal('tone-color', 'saturation', 0)}
+                      min={-100}
+                      max={100}
+                      onChange={(v) => handleParamChange('tone-color', 'saturation', v)}
+                    />
+                  </div>
+                </div>
+
+                {/* 4. Tonal Contrast & Glow */}
+                <div className="tz-ge-tool-sec">
+                  <div className="tz-ge-tool-sec-head">
+                    <span className="tz-ge-tool-sec-title">
+                      <TzIconSparkle size={15} />
+                      תלת מימד וגלואו (Bloom)
+                    </span>
+                  </div>
+                  <div className="tz-ge-tool-sec-body">
+                    <SliderField
+                      label="קונטרסט תלת מימד"
+                      value={getParamVal('tonal-contrast', 'contrast', 40)}
+                      min={0}
+                      max={100}
+                      onChange={(v) => handleParamChange('tonal-contrast', 'contrast', v)}
+                    />
+                    <SliderField
+                      label="עוצמת גלואו"
+                      value={getParamVal('glow', 'strength', 30)}
+                      min={0}
+                      max={100}
+                      onChange={(v) => handleParamChange('glow', 'strength', v)}
+                    />
+                  </div>
+                </div>
+              </>
+            ) : (
+              /* ColorMatch Tab */
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                <p style={{ margin: 0, fontSize: 13, color: '#52525b', lineHeight: 1.45 }}>
+                  העלה את הגרסה הערוכה של תמונה זו מ-Lightroom/Photoshop, והמנוע ילמד את הצבע ויחיל אותו על כל המקבץ.
+                </p>
+
+                <label
+                  htmlFor="tz-ge-cm-upload"
+                  className={`tz-ge-slot-well ${cmEdited ? 'filled' : ''}`}
+                  style={{ height: 160 }}
+                >
+                  {cmEdited ? (
+                    <img className="tz-ge-slot-img" src={cmEdited.data} alt="ערוך" />
+                  ) : (
+                    <div className="tz-ge-slot-empty-content" style={{ padding: 10 }}>
+                      <TzIconUpload size={20} />
+                      <span style={{ fontSize: 12, fontWeight: 600 }}>העלה קובץ ערוך מהמחשב</span>
                     </div>
                   )}
-                </div>
-              )}
-            </>
-          )}
-
-          {/* MODE 2: PRIMARY TOOLS (EXPANDED LIGHT, SHADOW, FACE RETOUCH & GLOW) */}
-          {mode === 'primary' && (
-            <div className="tz-ge-lab-wrapper">
-              <Suspense fallback={<div style={{ padding: 40, textAlign: 'center', color: '#71717a' }}>טוען את הכלים הראשוניים...</div>}>
-                <Lab
-                  only={PRIMARY_TOOLS}
-                  frame={activeFrame ? {
-                    projectId: project.id,
-                    path: activeFrame.path,
-                    name: activeFrame.name,
-                    batchId: at,
-                    onChange: () => setPickingRefFrame(true),
-                  } : undefined}
-                />
-              </Suspense>
-            </div>
-          )}
-
-          {/* MODE 3: ADVANCED LAB & FULL WORKBENCH */}
-          {mode === 'advanced' && (
-            <div className="tz-ge-lab-wrapper">
-              <Suspense fallback={<div style={{ padding: 40, textAlign: 'center', color: '#71717a' }}>טוען את מעבדת הכלים המורכבים...</div>}>
-                <Lab
-                  frame={activeFrame ? {
-                    projectId: project.id,
-                    path: activeFrame.path,
-                    name: activeFrame.name,
-                    batchId: at,
-                    onChange: () => setPickingRefFrame(true),
-                  } : undefined}
-                />
-              </Suspense>
-            </div>
-          )}
-
-          {/* Modal Dialog: Pick Origin Frame for ColorMatch */}
-          {pickingOrigin && (
-            <div className="scrim" onMouseDown={() => setPickingOrigin(false)}>
-              <div
-                className="dialog cm-picker"
-                role="dialog"
-                aria-modal="true"
-                aria-label="בחר תמונת מקור"
-                onMouseDown={(e) => e.stopPropagation()}
-              >
-                <div className="dialog-head">
-                  <h2>בחר תמונת מקור · {scopeLabel}</h2>
-                  <button
-                    className="dialog-x"
-                    onClick={() => setPickingOrigin(false)}
-                    aria-label="סגור"
-                  >
-                    ✕
-                  </button>
-                </div>
-                <div className="dialog-body cm-picker-body">
-                  <FramePicker
-                    projectId={project.id}
-                    batchId={at}
-                    lock
-                    label="בחר תמונה זו כמקור"
-                    onPick={(path) => {
-                      setOrigin({ path, folder: path.replace(/[\/][^\/]+$/, '') });
-                      setLearned(null);
-                      setPickingOrigin(false);
+                  <input
+                    id="tz-ge-cm-upload"
+                    type="file"
+                    accept="image/*"
+                    hidden
+                    onChange={async (e) => {
+                      const file = e.target.files?.[0];
+                      if (file) {
+                        const data = await readAsDataUrl(file);
+                        setCmEdited({ name: file.name, data });
+                      }
                     }}
                   />
-                </div>
-              </div>
-            </div>
-          )}
+                </label>
 
-          {/* Modal Dialog: Pick Reference Frame for Lab Tuning */}
-          {pickingRefFrame && (
-            <div className="scrim" onMouseDown={() => setPickingRefFrame(false)}>
-              <div
-                className="dialog cm-picker"
-                role="dialog"
-                aria-modal="true"
-                aria-label="בחר תמונת ייחוס לעריכה"
-                onMouseDown={(e) => e.stopPropagation()}
+                {cmError && (
+                  <div style={{ background: '#fef2f2', color: '#ef4444', padding: 8, borderRadius: 8, fontSize: 12 }}>
+                    {cmError}
+                  </div>
+                )}
+
+                <button
+                  type="button"
+                  className="tz-ge-sync-batch-btn"
+                  disabled={!cmEdited || cmLearning}
+                  onClick={handleLearnColorMatch}
+                >
+                  <TzIconSparkle size={16} />
+                  {cmLearning ? 'לומד צבע...' : 'למד והחל על כל המקבץ'}
+                </button>
+
+                {cmLearned && (
+                  <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', color: '#166534', padding: 10, borderRadius: 10, fontSize: 12 }}>
+                    המראה נלמד והוחל בהצלחה על כל {slideFrames.length} התמונות במקבץ!
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* Footer Action Bar */}
+          <div className="tz-ge-panel-footer">
+            <button
+              type="button"
+              className="tz-ge-sync-batch-btn"
+              onClick={handleSyncToBatch}
+              disabled={!hasCustomEdits}
+            >
+              <TzIconCheckCircle size={16} />
+              החל עריכה על כל המקבץ ({slideFrames.length} תמונות)
+            </button>
+
+            {hasCustomEdits && (
+              <button
+                type="button"
+                className="tz-ge-reset-btn"
+                onClick={handleResetFrame}
               >
-                <div className="dialog-head">
-                  <h2>בחר תמונת ייחוס לכוונון · {scopeLabel}</h2>
-                  <button
-                    className="dialog-x"
-                    onClick={() => setPickingRefFrame(false)}
-                    aria-label="סגור"
-                  >
-                    ✕
-                  </button>
-                </div>
-                <div className="dialog-body cm-picker-body">
-                  <FramePicker
-                    projectId={project.id}
-                    batchId={at}
-                    lock
-                    label="ערוך תמונה זו"
-                    onPick={(path) => {
-                      setSelectedFramePath(path);
-                      setPickingRefFrame(false);
-                    }}
-                  />
-                </div>
-              </div>
-            </div>
-          )}
+                אפס עריכה בתמונה זו
+              </button>
+            )}
+          </div>
+        </aside>
+      </div>
 
-          {/* Modal Dialog: Before / After Contact Sheet */}
-          {sheetModel && (
-            <BeforeAfter
-              frames={scopeFrames}
-              model={sheetModel}
-              onClose={() => setSheetModel(null)}
-            />
-          )}
-        </div>
+      {/* Modal Dialog: Before / After Contact Sheet */}
+      {sheetModel && (
+        <BeforeAfter
+          frames={slideFrames}
+          model={sheetModel}
+          onClose={() => setSheetModel(null)}
+        />
       )}
+    </div>
+  );
+}
+
+function SliderField({
+  label,
+  value,
+  min,
+  max,
+  onChange,
+}: {
+  label: string;
+  value: number;
+  min: number;
+  max: number;
+  onChange: (val: number) => void;
+}) {
+  return (
+    <div className="tz-ge-slider-wrap">
+      <div className="tz-ge-slider-meta">
+        <span>{label}</span>
+        <span className="tz-ge-slider-val">{value}</span>
+      </div>
+      <input
+        type="range"
+        className="tz-ge-range"
+        min={min}
+        max={max}
+        step={1}
+        value={value}
+        onChange={(e) => onChange(Number(e.target.value))}
+      />
     </div>
   );
 }
