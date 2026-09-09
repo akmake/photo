@@ -60,6 +60,67 @@
   overflow-y: auto;
   user-select: none;
   order: 1; /* In RTL: order 1 places the sidebar on the RIGHT side of the screen */
+  transition: width 0.2s ease, min-width 0.2s ease, padding 0.2s ease;
+  position: relative;
+}
+
+/* Collapsed Sidebar in Editing Mode or on Toggle */
+.tz-sidebar.collapsed {
+  width: 68px;
+  min-width: 68px;
+  padding: 20px 8px 16px;
+}
+
+.tz-sidebar.collapsed .tz-logo-subtitle,
+.tz-sidebar.collapsed .tz-nav-item span:not(.tz-nav-icon),
+.tz-sidebar.collapsed .tz-nav-counter,
+.tz-sidebar.collapsed .tz-ai-badge,
+.tz-sidebar.collapsed .tz-storage-card,
+.tz-sidebar.collapsed .tz-nav-user-copy,
+.tz-sidebar.collapsed .tz-help-link {
+  display: none !important;
+}
+
+.tz-sidebar.collapsed .tz-logo-wrap {
+  padding: 0 0 16px;
+  text-align: center;
+}
+
+.tz-sidebar.collapsed .tz-logo-title {
+  justify-content: center;
+  font-size: 16px;
+}
+
+.tz-sidebar.collapsed .tz-nav-item {
+  justify-content: center;
+  padding: 10px 0;
+}
+
+.tz-sidebar.collapsed .tz-nav-user-item {
+  justify-content: center;
+  padding: 8px 0;
+}
+
+.tz-sidebar-toggle-btn {
+  background: transparent;
+  border: 1px solid var(--tz-border);
+  border-radius: 8px;
+  color: var(--tz-text-sub);
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  margin-bottom: 12px;
+  align-self: center;
+  transition: all 0.15s ease;
+}
+
+.tz-sidebar-toggle-btn:hover {
+  background: var(--tz-brand-light);
+  color: var(--tz-brand);
+  border-color: var(--tz-brand);
 }
 
 .tz-main-wrapper {
@@ -69,6 +130,12 @@
   overflow: hidden;
   order: 2; /* Main content is on the left */
 }
+
+/* In editing mode: max space */
+.tz-app.is-editing .tz-content-scroll {
+  padding: 12px 18px 24px;
+}
+
 
 /* Logo */
 .tz-logo-wrap {

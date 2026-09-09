@@ -23,7 +23,11 @@ export default function V2App({ onSwitchToV1, onOpenProjectV1 }: V2AppProps) {
   const [activeNav, setActiveNav] = useState<'today' | 'projects' | 'project-detail' | string>('today');
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
   const [activeStage, setActiveStage] = useState('client-status');
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const studio = useStudio();
+
+  const isEditing = activeNav === 'project-detail' && activeStage === 'gallery-edit';
+  const isSidebarCollapsed = sidebarCollapsed || isEditing;
 
   // Active project selection
   const selectedProject = studio.projects.find((p) => p.id === selectedProjectId) || studio.projects[0];
@@ -155,9 +159,19 @@ export default function V2App({ onSwitchToV1, onOpenProjectV1 }: V2AppProps) {
   }
 
   return (
-    <div className="tz-app">
+    <div className={`tz-app ${isEditing ? 'is-editing' : ''}`}>
       {/* 1. SIDEBAR (Placed on Right in natural RTL) */}
-      <aside className="tz-sidebar">
+      <aside className={`tz-sidebar ${isSidebarCollapsed ? 'collapsed' : ''}`}>
+        {/* Toggle Sidebar Collapse Button */}
+        <button
+          type="button"
+          className="tz-sidebar-toggle-btn"
+          onClick={() => setSidebarCollapsed(!isSidebarCollapsed)}
+          title={isSidebarCollapsed ? 'הרחב תפריט' : 'כווץ תפריט לסרגל סמלים'}
+        >
+          {isSidebarCollapsed ? '›' : '‹'}
+        </button>
+
         {/* Logo */}
         <div className="tz-logo-wrap">
           <div className="tz-logo-title">
@@ -264,42 +278,44 @@ export default function V2App({ onSwitchToV1, onOpenProjectV1 }: V2AppProps) {
 
       {/* 2. MAIN CONTENT WRAPPER */}
       <div className="tz-main-wrapper">
-        {/* Top Header */}
-        <header className="tz-topbar">
-          {activeNav === 'project-detail' ? (
-            <button className="tz-topbar-back" type="button" onClick={() => setActiveNav('projects')}>
-              <span>‹</span> חזרה לפרויקטים
-            </button>
-          ) : activeNav === 'projects' ? (
-            <button className="tz-topbar-back" type="button" onClick={() => setActiveNav('today')}>
-              <span>‹</span> חזרה לדף הבית
-            </button>
-          ) : (
-            <div style={{ width: 100 }} />
-          )}
+        {/* Top Header - Hidden when editing to maximize workspace */}
+        {!isEditing && (
+          <header className="tz-topbar">
+            {activeNav === 'project-detail' ? (
+              <button className="tz-topbar-back" type="button" onClick={() => setActiveNav('projects')}>
+                <span>‹</span> חזרה לפרויקטים
+              </button>
+            ) : activeNav === 'projects' ? (
+              <button className="tz-topbar-back" type="button" onClick={() => setActiveNav('today')}>
+                <span>‹</span> חזרה לדף הבית
+              </button>
+            ) : (
+              <div style={{ width: 100 }} />
+            )}
 
-          <div className="tz-topbar-title">
-            {activeNav === 'today'
-              ? 'היום בסטודיו'
-              : activeNav === 'projects'
-              ? 'פרויקטים בסטודיו'
-              : projectTitle}
-          </div>
-
-          <div className="tz-topbar-user-area">
-            <button className="tz-icon-button" type="button" title="התראות">
-              <TzIconBell size={18} />
-              <span className="tz-badge-dot">3</span>
-            </button>
-            <button className="tz-icon-button" type="button" title="עזרה">
-              <TzIconHelp size={18} />
-            </button>
-            <div className="tz-user-avatar-wrap" title="יוסי">
-              <div className="tz-user-avatar-initial" style={{ width: 28, height: 28, fontSize: 13 }}>י</div>
-              <span className="tz-user-name">יוסי</span>
+            <div className="tz-topbar-title">
+              {activeNav === 'today'
+                ? 'היום בסטודיו'
+                : activeNav === 'projects'
+                ? 'פרויקטים בסטודיו'
+                : projectTitle}
             </div>
-          </div>
-        </header>
+
+            <div className="tz-topbar-user-area">
+              <button className="tz-icon-button" type="button" title="התראות">
+                <TzIconBell size={18} />
+                <span className="tz-badge-dot">3</span>
+              </button>
+              <button className="tz-icon-button" type="button" title="עזרה">
+                <TzIconHelp size={18} />
+              </button>
+              <div className="tz-user-avatar-wrap" title="יוסי">
+                <div className="tz-user-avatar-initial" style={{ width: 28, height: 28, fontSize: 13 }}>י</div>
+                <span className="tz-user-name">יוסי</span>
+              </div>
+            </div>
+          </header>
+        )}
 
         {/* Stage Tabs Bar (shown only when in single project cockpit mode) */}
         {activeNav === 'project-detail' && (

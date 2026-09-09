@@ -14,7 +14,6 @@ import type { LearnedColorModel } from '../../types';
 import { useSetPreview } from '../../studio/preview';
 import FramePicker from '../../studio/screens/FramePicker';
 import BeforeAfter from '../../studio/screens/BeforeAfter';
-import { PRIMARY_TOOLS } from '../../lab/PrimaryTools';
 import {
   TzIconSparkle,
   TzIconCheckCircle,
@@ -43,6 +42,18 @@ function readAsDataUrl(file: File): Promise<string> {
   });
 }
 
+/** The Expanded Primary Tools: Face Retouch, Skin Smoothing, Blemishes Cleanup,
+ *  Contour (Dodge & Burn), Tone/Exposure/Color, Tonal Contrast, and Glow. */
+export const PRIMARY_TOOLS: readonly string[] = Object.freeze([
+  'face-retouch',    // ריטוש פנים (AI)
+  'skin-cleanup',   // ניקוי כתמים ואדמומיות
+  'skin',           // החלקת עור
+  'contour',        // פיסול אור וצל (Dodge & Burn)
+  'tone-color',     // חשיפה, ניגודיות, צללים, טמפרטורה וצבע
+  'tonal-contrast', // תלת מימד (קונטרסט טונאלי)
+  'glow',           // גלואו (Bloom)
+]);
+
 type EditMode = 'colormatch' | 'primary' | 'advanced';
 
 export default function GalleryEditV2({
@@ -65,8 +76,8 @@ export default function GalleryEditV2({
   const [at, setAt] = useState<string | null>(null);
   const [chose, setChose] = useState(false);
 
-  // Active reference frame for tuning
-  const [activeFramePath, setActiveFramePath] = useState<string | null>(null);
+  // Explicitly selected reference frame for tuning
+  const [selectedFramePath, setSelectedFramePath] = useState<string | null>(null);
 
   // ColorMatch state
   const [origin, setOrigin] = useState<{ path: string; folder: string } | null>(null);
@@ -95,17 +106,21 @@ export default function GalleryEditV2({
   const scopeFrames = at ? framesInBatch(project.id, at) : unassignedFrames(project.id);
   const scopeLabel = currentBatch ? currentBatch.name : batches.length > 0 ? 'ללא מקבץ' : 'כל הפרויקט';
 
-  // Set default active frame for batch when batch changes
-  useEffect(() => {
-    if (scopeFrames.length > 0 && (!activeFramePath || !scopeFrames.some((f) => f.path === activeFramePath))) {
-      setActiveFramePath(scopeFrames[0].path);
+  // Robust active frame resolution: fallback to batch first photo or project first photo
+  const activeFrame = useMemo(() => {
+    if (selectedFramePath && frames.some((f) => f.path === selectedFramePath)) {
+      return frames.find((f) => f.path === selectedFramePath) ?? null;
     }
-  }, [scopeFrames, activeFramePath]);
+    if (scopeFrames.length > 0) return scopeFrames[0];
+    if (frames.length > 0) return frames[0];
+    return null;
+  }, [selectedFramePath, scopeFrames, frames]);
 
   const existingLook = colorStep(project.id, at);
 
   const chooseBatch = useCallback((id: string | null) => {
     setAt(id);
+    setSelectedFramePath(null);
     setOrigin(null);
     setEdited(null);
     setLearned(null);
@@ -145,114 +160,82 @@ export default function GalleryEditV2({
   const report = learned?.report;
   const gap = report ? Math.round(report.gapClosed * 100) : 0;
 
-  const activeFrameName = useMemo(() => {
-    if (!activeFramePath) return '';
-    return frames.find((f) => f.path === activeFramePath)?.name ?? baseName(activeFramePath);
-  }, [activeFramePath, frames]);
-
   return (
-    <div className="tz-stage-container">
-      {/* Stage Header */}
-      <section className="tz-stage-header">
-        <div className="tz-stage-header-copy">
-          <div className="tz-stage-tag">שלב 4 · עריכת צבע וסגנון</div>
-          <h1>עריכת מקבצים ועיבוד תמונות</h1>
-          <p>
-            התאם צבעים באמצעות למידת AI מזוג תמונות, כוונן את ארבעת הכלים הראשוניים המעצבים תאורה ופיסול,
-            או פתח את המעבדה המלאה לעריכה פרטנית וריטושי עור ופנים מתקדמים.
-          </p>
+    <div className="tz-stage-container" style={{ maxWidth: '100%' }}>
+      {/* Mode Switcher Segmented Bar & Header */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 14 }}>
+        <div className="tz-ge-mode-bar">
+          <button
+            type="button"
+            className={`tz-ge-mode-btn ${mode === 'colormatch' ? 'active' : ''}`}
+            onClick={() => setMode('colormatch')}
+          >
+            <TzIconSparkle size={16} />
+            <span>התאמת צבעים (מקור וערוך)</span>
+          </button>
+
+          <button
+            type="button"
+            className={`tz-ge-mode-btn ${mode === 'primary' ? 'active' : ''}`}
+            onClick={() => setMode('primary')}
+          >
+            <TzIconSliders size={16} />
+            <span>כלים ראשוניים (ריטוש פנים, עור, אור וצל)</span>
+          </button>
+
+          <button
+            type="button"
+            className={`tz-ge-mode-btn ${mode === 'advanced' ? 'active' : ''}`}
+            onClick={() => setMode('advanced')}
+          >
+            <TzIconFlask size={16} />
+            <span>מעבדה מלאה (כל הכלים המורכבים)</span>
+          </button>
         </div>
 
-        <div className="tz-stage-actions">
-          {onBack && (
-            <button
-              className="tz-btn-projects-secondary"
-              type="button"
-              onClick={onBack}
-            >
-              ← חזרה לשליחה ללקוח
-            </button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          {/* If in Primary or Advanced mode, show reference frame indicator */}
+          {mode !== 'colormatch' && activeFrame && (
+            <div className="tz-ge-frame-info">
+              <span style={{ color: '#71717a', fontSize: 13 }}>תמונת עבודה:</span>
+              <span className="tz-ge-frame-name">{activeFrame.name}</span>
+              <button
+                type="button"
+                className="tz-sc-subtle-btn"
+                onClick={() => setPickingRefFrame(true)}
+              >
+                <TzIconGallery size={14} />
+                החלף תמונה
+              </button>
+            </div>
           )}
+
           {onNext && (
             <button
               className="tz-btn-projects-primary"
               type="button"
+              style={{ padding: '7px 16px', fontSize: 13 }}
               onClick={onNext}
             >
               המשך לעיצוב אלבום ←
             </button>
           )}
         </div>
-      </section>
+      </div>
 
       {!ready ? (
         <div className="tz-stage-card">
-          <p style={{ margin: 0, color: '#71717a' }}>טוען את נתוני הפרויקט...</p>
+          <p style={{ margin: 0, color: '#71717a' }}>טוען את נתוני הפרויקט והקבצים...</p>
         </div>
       ) : (
         <div className="tz-ge-container">
-          {/* Mode Switcher Segmented Bar */}
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 14 }}>
-            <div className="tz-ge-mode-bar">
-              <button
-                type="button"
-                className={`tz-ge-mode-btn ${mode === 'colormatch' ? 'active' : ''}`}
-                onClick={() => setMode('colormatch')}
-              >
-                <TzIconSparkle size={16} />
-                התאמת צבעים (מקור וערוך)
-              </button>
-
-              <button
-                type="button"
-                className={`tz-ge-mode-btn ${mode === 'primary' ? 'active' : ''}`}
-                onClick={() => setMode('primary')}
-              >
-                <TzIconSliders size={16} />
-                כלים ראשוניים (אור, צל וגלואו)
-              </button>
-
-              <button
-                type="button"
-                className={`tz-ge-mode-btn ${mode === 'advanced' ? 'active' : ''}`}
-                onClick={() => setMode('advanced')}
-              >
-                <TzIconFlask size={16} />
-                מעבדה וכלים מורכבים (ריטוש AI)
-              </button>
-            </div>
-
-            {/* If in Primary or Advanced mode, show reference frame indicator */}
-            {mode !== 'colormatch' && activeFramePath && (
-              <div className="tz-ge-frame-info">
-                <span style={{ color: '#71717a', fontSize: 13 }}>תמונת ייחוס:</span>
-                <span className="tz-ge-frame-name">{activeFrameName}</span>
-                <button
-                  type="button"
-                  className="tz-sc-subtle-btn"
-                  onClick={() => setPickingRefFrame(true)}
-                >
-                  <TzIconGallery size={14} />
-                  החלף תמונה
-                </button>
-              </div>
-            )}
-          </div>
-
           {/* Batch Selector Bar */}
           {batches.length > 0 && (
-            <div className="tz-ge-batches-card">
-              <div className="tz-ge-batches-header">
-                <h3 className="tz-ge-batches-title">
-                  <TzIconLayers size={18} />
-                  בחר מקבץ לעריכה
-                </h3>
-                <span style={{ fontSize: 13, color: '#71717a' }}>
-                  כל מקבץ מקבל סגנון צבע ייעודי לאור שבו צולם
-                </span>
-              </div>
-
+            <div className="tz-ge-batches-card" style={{ padding: '14px 18px' }}>
               <div className="tz-ge-batches-pills">
+                <span style={{ fontSize: 13, fontWeight: 700, color: '#18181b', alignSelf: 'center', marginLeft: 6 }}>
+                  מקבץ פעיל:
+                </span>
                 {batches.map((b) => {
                   const count = framesInBatch(project.id, b.id).length;
                   const hasGrade = Boolean(colorStep(project.id, b.id));
@@ -563,36 +546,36 @@ export default function GalleryEditV2({
             </>
           )}
 
-          {/* MODE 2: PRIMARY TOOLS (LIGHT & TONE BENCH) */}
-          {mode === 'primary' && activeFramePath && (
+          {/* MODE 2: PRIMARY TOOLS (EXPANDED LIGHT, SHADOW, FACE RETOUCH & GLOW) */}
+          {mode === 'primary' && (
             <div className="tz-ge-lab-wrapper">
               <Suspense fallback={<div style={{ padding: 40, textAlign: 'center', color: '#71717a' }}>טוען את הכלים הראשוניים...</div>}>
                 <Lab
                   only={PRIMARY_TOOLS}
-                  frame={{
+                  frame={activeFrame ? {
                     projectId: project.id,
-                    path: activeFramePath,
-                    name: activeFrameName,
+                    path: activeFrame.path,
+                    name: activeFrame.name,
                     batchId: at,
                     onChange: () => setPickingRefFrame(true),
-                  }}
+                  } : undefined}
                 />
               </Suspense>
             </div>
           )}
 
-          {/* MODE 3: ADVANCED LAB & RETOUCHING */}
-          {mode === 'advanced' && activeFramePath && (
+          {/* MODE 3: ADVANCED LAB & FULL WORKBENCH */}
+          {mode === 'advanced' && (
             <div className="tz-ge-lab-wrapper">
               <Suspense fallback={<div style={{ padding: 40, textAlign: 'center', color: '#71717a' }}>טוען את מעבדת הכלים המורכבים...</div>}>
                 <Lab
-                  frame={{
+                  frame={activeFrame ? {
                     projectId: project.id,
-                    path: activeFramePath,
-                    name: activeFrameName,
+                    path: activeFrame.path,
+                    name: activeFrame.name,
                     batchId: at,
                     onChange: () => setPickingRefFrame(true),
-                  }}
+                  } : undefined}
                 />
               </Suspense>
             </div>
@@ -662,7 +645,7 @@ export default function GalleryEditV2({
                     lock
                     label="ערוך תמונה זו"
                     onPick={(path) => {
-                      setActiveFramePath(path);
+                      setSelectedFramePath(path);
                       setPickingRefFrame(false);
                     }}
                   />
