@@ -6,6 +6,7 @@ import ProjectsV2 from './screens/ProjectsV2';
 import ImportV2 from './screens/ImportV2';
 import BatchesV2 from './screens/BatchesV2';
 import SendToClientV2 from './screens/SendToClientV2';
+import GalleryEditV2 from './screens/GalleryEditV2';
 import {
   TzIconBell, TzIconBook, TzIconCalendar, TzIconFilter, TzIconFlask,
   TzIconFolder, TzIconGear, TzIconHeart, TzIconHelp, TzIconHome,
@@ -114,6 +115,16 @@ export default function V2App({ onSwitchToV1, onOpenProjectV1 }: V2AppProps) {
             project={proj}
             onNext={() => setActiveStage('gallery-edit')}
             onBack={() => setActiveStage('batches')}
+          />
+        );
+      }
+
+      if (activeStage === 'gallery-edit' && proj) {
+        return (
+          <GalleryEditV2
+            project={proj}
+            onNext={() => setActiveStage('album-design')}
+            onBack={() => setActiveStage('send-to-client')}
           />
         );
       }
