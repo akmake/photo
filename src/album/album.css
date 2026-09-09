@@ -213,8 +213,8 @@
 }
 
 .album-workspace.design {
-  grid-template-columns: 240px minmax(520px, 1fr) 280px;
-  grid-template-areas: "navigator canvas inspector";
+  grid-template-columns: 248px minmax(520px, 1fr) 226px;
+  grid-template-areas: "inspector canvas navigator";
 }
 
 /* ----------------------------------------------------------- the library */
@@ -4169,36 +4169,31 @@
  */
 .shell-section-project .album-studio,
 .album-studio {
-  --album-work-bg: #f8f8f8;
+  --album-work-bg: #f6f7f4;
   --album-panel-bg: #ffffff;
-  --album-panel-soft: #fef1ec;
-  --album-line-ui: #e4e4e7;
-  --album-ink-ui: #18181b;
-  --album-muted-ui: #71717a;
-  --album-green-ui: #e86338;
-  --album-green-dark-ui: #d2542b;
-  --album-shadow-ui: 0 10px 25px -5px rgba(0, 0, 0, .08);
-  grid-template-rows: 56px minmax(0, 1fr);
+  --album-panel-soft: #eef6f3;
+  --album-line-ui: #dde6e1;
+  --album-ink-ui: #18211e;
+  --album-muted-ui: #65726d;
+  --album-green-ui: #47786e;
+  --album-green-dark-ui: #2f5c53;
+  --album-shadow-ui: 0 24px 58px rgba(35, 49, 45, .12);
+  grid-template-rows: 64px minmax(0, 1fr);
   background: var(--album-work-bg);
   color: var(--album-ink-ui);
   font-family: Assistant, "Segoe UI", system-ui, sans-serif;
 }
 
 .album-actionbar {
-  direction: rtl;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  height: 56px;
-  padding: 0 20px;
+  grid-template-columns: minmax(210px, 1fr) auto minmax(160px, .8fr);
+  padding: 0 22px;
   border-bottom-color: var(--album-line-ui);
-  background: #ffffff;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
+  background: rgba(255,255,255,.96);
+  box-shadow: none;
 }
 
 .album-action,
 .album-back-to-library,
-.album-back-btn,
 .album-mode-switch button,
 .album-history button,
 .album-page-nav button,
@@ -4221,9 +4216,7 @@
 }
 
 .album-actionbar-main {
-  display: flex;
-  align-items: center;
-  gap: 10px;
+  gap: 8px;
 }
 
 .album-output-trigger,
@@ -4232,10 +4225,10 @@
 }
 
 .album-workspace.design {
-  grid-template-columns: 260px minmax(580px, 1fr) 290px;
-  grid-template-areas: "navigator canvas inspector";
-  gap: 12px;
-  padding: 12px;
+  grid-template-columns: 292px minmax(620px, 1fr) 250px;
+  grid-template-areas: "inspector canvas navigator";
+  gap: 14px;
+  padding: 14px;
   background: var(--album-work-bg);
 }
 

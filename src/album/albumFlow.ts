@@ -49,24 +49,6 @@ export function groupsFromCuts(photoIds: string[], cuts: number[]): string[][] {
   return groups.filter((group) => group.length > 0);
 }
 
-export const DEFAULT_CHAPTERS = [
-  'התארגנות ופרטים',
-  'צילומי חוץ ולוקיישן',
-  'חופה ורגעים מרגשים',
-  'פורטרטים ומשפחות',
-  'מסיבה וריקודים',
-];
-
-export function getChapterForSpread(index: number, total: number): string {
-  if (total <= 1) return DEFAULT_CHAPTERS[0];
-  const ratio = index / total;
-  if (ratio < 0.22) return DEFAULT_CHAPTERS[0];
-  if (ratio < 0.48) return DEFAULT_CHAPTERS[1];
-  if (ratio < 0.68) return DEFAULT_CHAPTERS[2];
-  if (ratio < 0.82) return DEFAULT_CHAPTERS[3];
-  return DEFAULT_CHAPTERS[4];
-}
-
 /** Turn ready-made groups into spreads, one layout chosen per group. This is the
  *  single place a grouping becomes an album, so the timeline and the legacy
  *  auto-builder produce identical spreads. */
@@ -91,7 +73,6 @@ export function buildAlbumFromGroups(
       locked: false,
       status: 'draft',
       frameSettings: {},
-      chapterName: getChapterForSpread(index, groups.length),
     };
   });
 }
