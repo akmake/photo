@@ -168,9 +168,9 @@ export default function AlbumStudio({ job, onBack }: {
   const [photoLimit, setPhotoLimit] = useState(60);
   const [isExporting, setIsExporting] = useState(false);
   const [showProfileEditor, setShowProfileEditor] = useState(false);
-  /* `organize` is the album; `design` is one spread. The module opens on the
-   * album, because that is the question a photographer actually asks first. */
-  const [mode, setMode] = useState<'select' | 'timeline' | 'organize' | 'design'>('organize');
+  /* `design` is one spread; `organize` is the overview. The module opens on the
+   * spread design view so the photographer can start designing immediately. */
+  const [mode, setMode] = useState<'select' | 'timeline' | 'organize' | 'design'>('design');
   const [timelineRequested, setTimelineRequested] = useState(false);
   /* Null means the library is showing. An album is a saved thing you come back
    * to, so nothing is open until the photographer picks one. */
@@ -696,7 +696,7 @@ export default function AlbumStudio({ job, onBack }: {
     setAlbumSelectedIds(new Set(effectiveChosen));
     setSelectionMode(false);
     setTimelineRequested(false);
-    setMode('organize');
+    setMode('design');
     setActiveAlbumId(id);
     setNotice(effectiveChosen.length
       ? `${effectiveChosen.length} תמונות שובצו · האלבום מוכן לעריכה`

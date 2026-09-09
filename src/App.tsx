@@ -129,7 +129,7 @@ export default function App() {
    * dance floor's colour onto the garden. */
   const [batch, setBatch] = useState<string | null>(null);
   const [isV2, setIsV2] = useState<boolean>(() => {
-    return window.location.hash.startsWith('#/v2') || localStorage.getItem('photo_ui_version') === 'v2';
+    return localStorage.getItem('photo_ui_version') !== 'v1';
   });
 
   useEffect(() => {
