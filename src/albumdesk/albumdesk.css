@@ -263,8 +263,6 @@
 }
 .ad-slot-hint { font-size: 11px; color: var(--cyc-400, #b6aa9d); pointer-events: none; }
 
-.ad-slot.is-filled { cursor: grab; }
-.ad-slot.is-filled:active { cursor: grabbing; }
 
 /* נבחרת — קו שיער בצבע המותג. אין מילוי ואין מסגרת עבה: סימון לא מכסה
  * תמונה, במיוחד לא כשמכוונים עליה חיתוך. */
@@ -395,3 +393,119 @@
   .ad-body { grid-template-columns: 216px 1fr; }
   .ad-thumbs { grid-template-columns: repeat(2, 1fr); }
 }
+
+
+/* ------------------------------------------------------------------- grip
+ *
+ * הידית שמעבירה תמונה למשבצת אחרת. קטנה, בפינה, ומופיעה רק כשהעכבר על
+ * המשבצת — כדי שהגרירה הרגילה בתוך המסגרת תישאר הפעולה הטבעית.
+ */
+.ad-grip {
+  position: absolute;
+  inset-block-start: 6px;
+  inset-inline-end: 6px;
+  width: 20px;
+  height: 20px;
+  border-radius: 5px;
+  background: rgba(20, 20, 22, .62);
+  cursor: grab;
+  opacity: 0;
+  transition: opacity .12s;
+}
+.ad-slot:hover .ad-grip,
+.ad-slot.is-sel .ad-grip { opacity: 1; }
+.ad-grip:active { cursor: grabbing; }
+/* שלוש נקודות — סימן אחיזה מוכר, בלי טקסט ובלי אייקון לטעון. */
+.ad-grip::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image:
+    radial-gradient(circle, #fff 1px, transparent 1.2px),
+    radial-gradient(circle, #fff 1px, transparent 1.2px),
+    radial-gradient(circle, #fff 1px, transparent 1.2px);
+  background-size: 100% 33.33%;
+  background-position: center 22%, center 50%, center 78%;
+  background-repeat: no-repeat;
+  opacity: .85;
+}
+
+/* תמונה בתוך משבצת: הסמן אומר שאפשר להזיז אותה כאן. */
+.ad-slot.is-filled { cursor: move; }
+.ad-slot.is-filled:active { cursor: grabbing; }
+
+.ad-sep {
+  width: 1px;
+  height: 16px;
+  background: var(--wall-600, #343946);
+  display: inline-block;
+}
+
+/* תבנית שנוגעת בקצה — מסומנת בתצוגה המוקטנת, כי זו החלטת דפוס. */
+.ad-tmini.is-bleed .ad-tmini-page { outline: 1px solid var(--st-money, #f79009); outline-offset: 1px; }
+
+/* --------------------------------------------------------------- filmstrip
+ *
+ * הספר כולו בשורה אחת. זה המקום היחיד שבו קצב נראה.
+ */
+.ad-strip {
+  flex: 0 0 auto;
+  display: flex;
+  gap: 8px;
+  align-items: flex-end;
+  overflow-x: auto;
+  padding: 9px 12px;
+  background: var(--wall-800, #1d2027);
+  border-top: 1px solid var(--wall-700, #272b34);
+}
+
+.ad-strip-item {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  padding: 0;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  flex: 0 0 auto;
+}
+
+.ad-strip-spread {
+  position: relative;
+  display: flex;
+  width: 104px;
+  height: 52px;
+  background: #fff;
+  border-radius: 2px;
+  outline: 1px solid var(--wall-600, #343946);
+  outline-offset: 0;
+  overflow: hidden;
+}
+.ad-strip-item:hover .ad-strip-spread { outline-color: var(--wall-300, #7d8492); }
+.ad-strip-item.on .ad-strip-spread { outline: 2px solid var(--brand, #b95c2a); }
+.ad-strip-item.is-over .ad-strip-spread { outline: 2px solid var(--st-work, #0bb3ad); }
+
+.ad-strip-fold {
+  position: absolute;
+  inset-block: 0;
+  inset-inline-start: 50%;
+  width: 1px;
+  background: rgba(0, 0, 0, .22);
+}
+
+.ad-mini { position: relative; flex: 1 1 50%; min-width: 0; }
+.ad-mini i {
+  position: absolute;
+  background-color: var(--cyc-150, #efeae4);
+  background-size: cover;
+  background-repeat: no-repeat;
+}
+
+.ad-strip-n {
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  color: var(--wall-300, #7d8492);
+}
+.ad-strip-item.on .ad-strip-n { color: var(--brand, #b95c2a); }

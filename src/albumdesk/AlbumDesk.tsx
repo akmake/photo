@@ -9,9 +9,20 @@
  *   3. תבנית לעמוד       — אחרי שיודעים כמה תמונות, לא לפני.
  *   4. הזזה בתוך המסגרת  — הפעולה שנעשית מאות פעמים באלבום אחד.
  *
- * מה שאין כאן בכוונה: פריסה אוטומטית. הצלם ביקש שהוא יניח, ושהמכונה תעזור
- * ולא תחליט. העזרה תיכנס בהמשך כאזהרות (פנים על הקיפול, תמונה כפולה) —
- * לא כהחלטה במקומו.
+ * שלוש החלטות שנלמדו מכישלון של הגרסה הראשונה, ושמסבירות למה הקוד נראה כך:
+ *
+ *   • גרירה בתוך משבצת מלאה = הזזת התמונה, תמיד. העברת תמונה למקום אחר
+ *     יוצאת מידית אחיזה בפינה. קודם שניהם ישבו על אותה גרירה, והדפדפן
+ *     נתן לגרירה שלו לנצח — כלומר הפעולה הכי שכיחה בכלי פשוט לא עבדה.
+ *
+ *   • כל שינוי עובר דרך `mutate`, ולכן הכול ניתן לביטול. כלי אלבום בלי
+ *     Ctrl+Z אינו כלי עבודה.
+ *
+ *   • רצועת הכפולות למטה. קצב לא נראה בכפולה בודדת — זו הייתה המסקנה
+ *     המרכזית מהמחקר, והמסך הראשון סתר אותה כשהראה כפולה אחת בלבד.
+ *
+ * מה שאין כאן בכוונה: פריסה אוטומטית. הצלם ביקש שהוא יניח, ושהמכונה
+ * תעזור ולא תחליט.
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -39,12 +50,17 @@ import {
 import { DEFAULT_TEMPLATE, type Rect, templateById, templatesByCount } from './templates';
 import './albumdesk.css';
 
-/* יחס העמוד. 1 = ריבועי, שהוא הנפוץ באלבומי חתונה. הכפולה היא פי שניים. */
 const PAGE_RATIO = 1;
 
-/* גובה אזור הסכנה של החריץ, כשבר מרוחב העמוד. פנים שנופלות כאן נבלעות
- * בכריכה. מסומן בקו שיער בלבד — סימון לא מכסה תוכן. */
+/* רוחב אזור הסכנה של החריץ, כשבר מרוחב הכפולה. פנים שנופלות כאן נבלעות
+ * בכריכה. מסומן בקו שיער ובהצללה עדינה — סימון לא מכסה תוכן. */
 const GUTTER = 0.045;
+
+/* כמה פיקסלים העכבר חייב לזוז לפני שזו הזזה ולא לחיצה. בלי זה כל בחירה
+ * של משבצת גם מזיזה את התמונה בה. */
+const DRAG_SLOP = 3;
+
+const HISTORY_MAX = 60;
 
 interface DragPayload {
   frame: string;
@@ -86,8 +102,6 @@ export default function AlbumDesk({
     }
   }, [project.id]);
 
-  /* איזה פריים שייך לאיזה מקבץ. נבנה פעם אחת ומשמש גם את המגש וגם את
-   * שורת המקבצים. */
   const byBatch = useMemo(() => {
     const map = new Map<string, Frame[]>();
     for (const b of batches) {
@@ -110,12 +124,21 @@ export default function AlbumDesk({
   /* ------------------------------------------------------------------ the album */
   const [doc, setDoc] = useState<AlbumDoc>(() => {
     const saved = loadDoc(project.id);
-    if (saved) return saved;
-    return { projectId: project.id, spreads: [newSpread()] };
+    return saved ?? { projectId: project.id, spreads: [newSpread()] };
   });
+
+  /* ההיסטוריה. כל `mutate` דוחף את המצב הקודם לעבר ומרוקן את העתיד —
+   * הכלל הרגיל של ביטול: פעולה חדשה אחרי ביטול מוחקת את הענף שנזנח. */
+  const past = useRef<AlbumDoc[]>([]);
+  const future = useRef<AlbumDoc[]>([]);
+  const [depth, setDepth] = useState({ back: 0, fwd: 0 });
+  const syncDepth = () => setDepth({ back: past.current.length, fwd: future.current.length });
 
   useEffect(() => {
     const saved = loadDoc(project.id);
+    past.current = [];
+    future.current = [];
+    syncDepth();
     setDoc(saved ?? { projectId: project.id, spreads: [newSpread()] });
     setAt(0);
     setSel(null);
@@ -126,8 +149,69 @@ export default function AlbumDesk({
   }, [doc]);
 
   const [at, setAt] = useState(0);
-  const spread = doc.spreads[Math.min(at, doc.spreads.length - 1)];
+  const [sel, setSel] = useState<SlotRef | null>(null);
 
+  const clone = (d: AlbumDoc): AlbumDoc => JSON.parse(JSON.stringify(d));
+
+  const mutate = useCallback((fn: (d: AlbumDoc) => void) => {
+    setDoc((prev) => {
+      past.current.push(prev);
+      if (past.current.length > HISTORY_MAX) past.current.shift();
+      future.current = [];
+      const next = clone(prev);
+      fn(next);
+      return next;
+    });
+    syncDepth();
+  }, []);
+
+  /* הזזה רציפה (גרירה בתוך מסגרת) לא אמורה לייצר צעד ביטול לכל פיקסל.
+   * `coalesce` מצרף לצעד שנפתח בתחילת הגרירה. */
+  const coalescing = useRef(false);
+  const mutateLive = useCallback((fn: (d: AlbumDoc) => void) => {
+    setDoc((prev) => {
+      if (!coalescing.current) {
+        past.current.push(prev);
+        if (past.current.length > HISTORY_MAX) past.current.shift();
+        future.current = [];
+        coalescing.current = true;
+      }
+      const next = clone(prev);
+      fn(next);
+      return next;
+    });
+  }, []);
+  const endLive = useCallback(() => {
+    if (coalescing.current) {
+      coalescing.current = false;
+      syncDepth();
+    }
+  }, []);
+
+  const undo = useCallback(() => {
+    setDoc((cur) => {
+      const prev = past.current.pop();
+      if (!prev) return cur;
+      future.current.push(cur);
+      return prev;
+    });
+    setSel(null);
+    syncDepth();
+  }, []);
+
+  const redo = useCallback(() => {
+    setDoc((cur) => {
+      const next = future.current.pop();
+      if (!next) return cur;
+      past.current.push(cur);
+      return next;
+    });
+    setSel(null);
+    syncDepth();
+  }, []);
+
+  const spreadIdx = Math.min(at, doc.spreads.length - 1);
+  const spread = doc.spreads[spreadIdx];
   const used = useMemo(() => usedFrames(doc), [doc]);
 
   /* ------------------------------------------------------------------- the tray */
@@ -144,31 +228,27 @@ export default function AlbumDesk({
   }, [frames, trayBatch, byBatch, loose, showUsed, used]);
 
   /* ------------------------------------------------------------- editing a slot */
-  const [sel, setSel] = useState<SlotRef | null>(null);
-
-  const mutate = useCallback(
-    (fn: (d: AlbumDoc) => void) => {
-      setDoc((prev) => {
-        const next: AlbumDoc = JSON.parse(JSON.stringify(prev));
-        fn(next);
-        return next;
-      });
-    },
-    [],
-  );
 
   const pageAt = (d: AlbumDoc, ref: SlotRef): Page => d.spreads[ref.spread][ref.side];
 
   const setTemplate = (side: PageSide, templateId: string) => {
+    const page = spread[side];
+    const filled = page.slots.filter(Boolean).length;
+    const room = templateById(templateId).slots.length;
+    if (filled > room) {
+      /* תבנית קטנה יותר ממה שכבר מונח. שקט כאן = תמונות שנעלמות בלי
+       * שהצלם ידע. שואלים. */
+      const ok = window.confirm(
+        `לתבנית הזאת ${room} משבצות, ובעמוד יש ${filled} תמונות.\n` +
+          `${filled - room} תמונות יורדו מהעמוד. להמשיך?`,
+      );
+      if (!ok) return;
+    }
     mutate((d) => {
-      const page = d.spreads[at][side];
-      const t = templateById(templateId);
-      const kept = page.slots.filter(Boolean) as Placement[];
-      page.templateId = templateId;
-      /* התמונות שכבר הונחו נשמרות ונכנסות למשבצות החדשות לפי הסדר. החלפת
-       * תבנית היא שינוי סידור, לא מחיקה — מי שמדפדף בין וריאציות לא אמור
-       * לאבד את מה שהניח. */
-      page.slots = t.slots.map((_, i) => kept[i] ?? null);
+      const p = d.spreads[spreadIdx][side];
+      const kept = p.slots.filter(Boolean) as Placement[];
+      p.templateId = templateId;
+      p.slots = templateById(templateId).slots.map((_, i) => kept[i] ?? null);
     });
     setSel(null);
   };
@@ -178,8 +258,6 @@ export default function AlbumDesk({
       const target = pageAt(d, ref);
       const incoming = target.slots[ref.slot];
       if (payload.from) {
-        /* גרירה ממשבצת למשבצת = החלפת מקומות. זו פעולה שנעשית כל הזמן,
-         * ולכן היא הגרירה עצמה ולא תפריט. */
         const src = pageAt(d, payload.from);
         const moving = src.slots[payload.from.slot];
         src.slots[payload.from.slot] = incoming ?? null;
@@ -198,8 +276,10 @@ export default function AlbumDesk({
     setSel(null);
   };
 
-  const nudge = (ref: SlotRef, dx: number, dy: number) => {
-    mutate((d) => {
+  /* כוונון חיתוך. `live` מבדיל בין גרירה רציפה לבין צעד בודד (חץ, כפתור),
+   * כדי שביטול אחד יבטל גרירה שלמה ולא פיקסל אחד. */
+  const nudge = (ref: SlotRef, dx: number, dy: number, live = false) => {
+    (live ? mutateLive : mutate)((d) => {
       const s = pageAt(d, ref).slots[ref.slot];
       if (!s) return;
       s.fx = Math.max(0, Math.min(100, s.fx + dx));
@@ -207,11 +287,11 @@ export default function AlbumDesk({
     });
   };
 
-  const zoomBy = (ref: SlotRef, d: number) => {
-    mutate((doc2) => {
-      const s = pageAt(doc2, ref).slots[ref.slot];
+  const zoomBy = (ref: SlotRef, delta: number, live = false) => {
+    (live ? mutateLive : mutate)((d) => {
+      const s = pageAt(d, ref).slots[ref.slot];
       if (!s) return;
-      s.zoom = Math.max(1, Math.min(3, +(s.zoom + d).toFixed(2)));
+      s.zoom = Math.max(1, Math.min(3, +(s.zoom + delta).toFixed(2)));
     });
   };
 
@@ -225,16 +305,56 @@ export default function AlbumDesk({
     });
   };
 
-  /* מקלדת: מחיקה על משבצת נבחרת, וחיצים לכוונון עדין של החיתוך. */
+  /* --------------------------------------------------------------- the spreads */
+
+  const addSpread = () => {
+    mutate((d) => d.spreads.splice(spreadIdx + 1, 0, newSpread()));
+    setAt(spreadIdx + 1);
+    setSel(null);
+  };
+
+  const removeSpread = () => {
+    if (doc.spreads.length <= 1) return;
+    mutate((d) => d.spreads.splice(spreadIdx, 1));
+    setAt(Math.max(0, spreadIdx - 1));
+    setSel(null);
+  };
+
+  const moveSpread = (from: number, to: number) => {
+    if (from === to || to < 0 || to >= doc.spreads.length) return;
+    mutate((d) => {
+      const [s] = d.spreads.splice(from, 1);
+      d.spreads.splice(to, 0, s);
+    });
+    setAt(to);
+    setSel(null);
+  };
+
+  /* ----------------------------------------------------------------- keyboard */
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (!sel) return;
       const tag = (e.target as HTMLElement | null)?.tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA') return;
-      if (e.key === 'Delete' || e.key === 'Backspace') {
+
+      const mod = e.ctrlKey || e.metaKey;
+      if (mod && e.key.toLowerCase() === 'z') {
         e.preventDefault();
-        clearSlot(sel);
-      } else if (e.key === 'ArrowLeft') { e.preventDefault(); nudge(sel, 2, 0); }
+        if (e.shiftKey) redo();
+        else undo();
+        return;
+      }
+      if (mod && e.key.toLowerCase() === 'y') {
+        e.preventDefault();
+        redo();
+        return;
+      }
+
+      if (e.key === 'PageDown') { e.preventDefault(); setAt((n) => Math.min(doc.spreads.length - 1, n + 1)); setSel(null); return; }
+      if (e.key === 'PageUp') { e.preventDefault(); setAt((n) => Math.max(0, n - 1)); setSel(null); return; }
+
+      if (!sel) return;
+      if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); clearSlot(sel); }
+      else if (e.key === 'ArrowLeft') { e.preventDefault(); nudge(sel, 2, 0); }
       else if (e.key === 'ArrowRight') { e.preventDefault(); nudge(sel, -2, 0); }
       else if (e.key === 'ArrowUp') { e.preventDefault(); nudge(sel, 0, 2); }
       else if (e.key === 'ArrowDown') { e.preventDefault(); nudge(sel, 0, -2); }
@@ -245,31 +365,14 @@ export default function AlbumDesk({
     return () => window.removeEventListener('keydown', onKey);
   });
 
-  const addSpread = () => {
-    mutate((d) => {
-      d.spreads.splice(at + 1, 0, newSpread());
-    });
-    setAt((n) => n + 1);
-    setSel(null);
-  };
-
-  const removeSpread = () => {
-    if (doc.spreads.length <= 1) return;
-    mutate((d) => {
-      d.spreads.splice(at, 1);
-    });
-    setAt((n) => Math.max(0, n - 1));
-    setSel(null);
-  };
-
-  /* ------------------------------------------------------------------- rendering */
+  /* ------------------------------------------------------------------- render */
 
   if (readFailed) {
     return (
       <div className="ad-fail">
         <h2>לא ניתן לקרוא את תמונות הפרויקט</h2>
         <p>המנוע לא ענה, או שהתיקייה אינה זמינה. אין כאן אלבום ריק — יש קריאה שנכשלה.</p>
-        {onBack && <button className="btn" onClick={onBack}>חזרה</button>}
+        {onBack && <button className="ad-ghost" onClick={onBack}>חזרה</button>}
       </div>
     );
   }
@@ -281,7 +384,7 @@ export default function AlbumDesk({
       <div className="ad-fail">
         <h2>אין עדיין תמונות בפרויקט הזה</h2>
         <p>אחרי הייבוא אפשר להרכיב אלבום מהתמונות של {project.client}.</p>
-        {onBack && <button className="btn" onClick={onBack}>חזרה</button>}
+        {onBack && <button className="ad-ghost" onClick={onBack}>חזרה</button>}
       </div>
     );
   }
@@ -290,31 +393,21 @@ export default function AlbumDesk({
 
   return (
     <div className="ad">
-      {/* ---------------------------------------------------------- top bar */}
       <header className="ad-bar">
         <div className="ad-bar-side">
-          {onBack && (
-            <button className="ad-ghost" onClick={onBack}>← חזרה</button>
-          )}
+          {onBack && <button className="ad-ghost" onClick={onBack}>← חזרה</button>}
           <span className="ad-client">{project.client}</span>
         </div>
 
         <div className="ad-nav">
-          <button
-            className="ad-ghost"
-            disabled={at === 0}
-            onClick={() => { setAt((n) => Math.max(0, n - 1)); setSel(null); }}
-          >
-            הקודמת
+          <button className="ad-ghost" disabled={depth.back === 0} onClick={undo} title="Ctrl+Z">
+            ביטול
           </button>
-          <span className="ad-count">כפולה {at + 1} מתוך {doc.spreads.length}</span>
-          <button
-            className="ad-ghost"
-            disabled={at >= doc.spreads.length - 1}
-            onClick={() => { setAt((n) => Math.min(doc.spreads.length - 1, n + 1)); setSel(null); }}
-          >
-            הבאה
+          <button className="ad-ghost" disabled={depth.fwd === 0} onClick={redo} title="Ctrl+Shift+Z">
+            שחזור
           </button>
+          <span className="ad-sep" />
+          <span className="ad-count">כפולה {spreadIdx + 1} מתוך {doc.spreads.length}</span>
         </div>
 
         <div className="ad-bar-side ad-bar-end">
@@ -326,20 +419,18 @@ export default function AlbumDesk({
       </header>
 
       <div className="ad-body">
-        {/* ------------------------------------------------------- the tray */}
         <aside className="ad-tray">
           <div className="ad-tray-head">
             <strong>המגש</strong>
             <span className="ad-remaining">{remaining} עוד לא בשימוש</span>
           </div>
 
-          {/* המקבצים. זו הדרך שבה הצלם באמת מחפש: "התמונות של הרכבת". */}
           <div className="ad-batches">
             <button
               className={`ad-chip${trayBatch === 'all' ? ' on' : ''}`}
               onClick={() => setTrayBatch('all')}
             >
-              הכול
+              הכול<span className="ad-chip-n">{frames.length}</span>
             </button>
             {batches.map((b) => (
               <button
@@ -347,8 +438,7 @@ export default function AlbumDesk({
                 className={`ad-chip${trayBatch === b.id ? ' on' : ''}`}
                 onClick={() => setTrayBatch(b.id)}
               >
-                {b.name}
-                <span className="ad-chip-n">{(byBatch.get(b.id) ?? []).length}</span>
+                {b.name}<span className="ad-chip-n">{(byBatch.get(b.id) ?? []).length}</span>
               </button>
             ))}
             {loose.length > 0 && (
@@ -356,8 +446,7 @@ export default function AlbumDesk({
                 className={`ad-chip${trayBatch === 'loose' ? ' on' : ''}`}
                 onClick={() => setTrayBatch('loose')}
               >
-                ללא מקבץ
-                <span className="ad-chip-n">{loose.length}</span>
+                ללא מקבץ<span className="ad-chip-n">{loose.length}</span>
               </button>
             )}
           </div>
@@ -378,80 +467,63 @@ export default function AlbumDesk({
               </p>
             )}
             {trayFrames.map((f) => {
-              const at2 = whereUsed(doc, f.name);
+              const where = whereUsed(doc, f.name);
               return (
                 <div
                   key={f.name}
-                  className={`ad-thumb${at2 ? ' is-used' : ''}`}
+                  className={`ad-thumb${where ? ' is-used' : ''}`}
                   draggable
                   onDragStart={(e) => {
                     const payload: DragPayload = { frame: f.name, path: f.shown, from: null };
                     e.dataTransfer.setData('application/json', JSON.stringify(payload));
                     e.dataTransfer.effectAllowed = 'copy';
                   }}
-                  title={at2 ? `${f.name} — כבר בכפולה ${at2}` : f.name}
+                  title={where ? `${f.name} — כבר בכפולה ${where}` : f.name}
                 >
                   <img src={thumbUrl(f.shown, 240)} alt="" loading="lazy" draggable={false} />
-                  {at2 && <span className="ad-usedtag">כפולה {at2}</span>}
+                  {where && <span className="ad-usedtag">כפולה {where}</span>}
                 </div>
               );
             })}
           </div>
         </aside>
 
-        {/* ----------------------------------------------------- the spread */}
         <main className="ad-stage">
           <div className="ad-spread" style={{ aspectRatio: String(2 * PAGE_RATIO) }}>
             {/* בכריכה עברית הספר נפתח מימין, ולכן העמוד הראשון הוא הימני.
-              * המכולה היא rtl, ולכן `first` בקוד יושב מימין על המסך. */}
+              * המכולה rtl, ולכן `first` בקוד יושב מימין על המסך. */}
             <PageView
-              page={spread.first}
-              side="first"
-              spreadIndex={at}
-              sel={sel}
-              onSelect={setSel}
-              onDrop={dropOn}
-              onNudge={nudge}
-              onZoom={zoomBy}
+              page={spread.first} side="first" spreadIndex={spreadIdx}
+              sel={sel} onSelect={setSel} onDrop={dropOn}
+              onNudge={nudge} onZoom={zoomBy} onEndLive={endLive}
             />
             <PageView
-              page={spread.second}
-              side="second"
-              spreadIndex={at}
-              sel={sel}
-              onSelect={setSel}
-              onDrop={dropOn}
-              onNudge={nudge}
-              onZoom={zoomBy}
+              page={spread.second} side="second" spreadIndex={spreadIdx}
+              sel={sel} onSelect={setSel} onDrop={dropOn}
+              onNudge={nudge} onZoom={zoomBy} onEndLive={endLive}
             />
-
-            {/* הקיפול. קו שיער בלבד, ורצועת הסכנה משני צדיו — סימון לא
-              * מכסה תוכן, הוא רק אומר איפה הכריכה תבלע פנים. */}
             <div className="ad-fold" aria-hidden>
               <span className="ad-fold-line" />
               <span className="ad-fold-zone" style={{ width: `${GUTTER * 100}%` }} />
             </div>
           </div>
 
-          {/* פקדי המשבצת הנבחרת. קיימים רק כשיש מה לכוונן. */}
           {sel && (
             <div className="ad-slotbar">
               <span className="ad-slotbar-title">חיתוך בתוך המסגרת</span>
               <button className="ad-ghost" onClick={() => zoomBy(sel, -0.1)}>−</button>
               <span className="ad-zoom">
-                {Math.round(
-                  ((doc.spreads[sel.spread][sel.side].slots[sel.slot]?.zoom ?? 1) as number) * 100,
-                )}%
+                {Math.round((doc.spreads[sel.spread][sel.side].slots[sel.slot]?.zoom ?? 1) * 100)}%
               </span>
               <button className="ad-ghost" onClick={() => zoomBy(sel, 0.1)}>+</button>
               <button className="ad-ghost" onClick={() => resetSlot(sel)}>אפס</button>
               <button className="ad-ghost ad-danger" onClick={() => clearSlot(sel)}>הסר תמונה</button>
-              <span className="ad-hint">גרירה בתוך המסגרת מזיזה · גלגלת מקרבת · חיצים לכוונון עדין</span>
+              <span className="ad-hint">
+                גרירה בתוך המסגרת מזיזה · גלגלת מקרבת · חיצים לכוונון · הפינה מעבירה למקום אחר
+              </span>
             </div>
           )}
 
-          {/* התבניות. לכל עמוד בנפרד, כפי שביקשת — מסודרות לפי מספר
-            * תמונות, כי ככה מחפשים אותן: "יש לי שלוש לכפולה הזאת". */}
           <div className="ad-templates">
             <TemplateRow
               label="עמוד 1 · ימין"
@@ -466,6 +538,15 @@ export default function AlbumDesk({
           </div>
         </main>
       </div>
+
+      {/* רצועת הכפולות. הספר כולו בשורה אחת — כאן רואים קצב, ורק כאן.
+        * גרירה מסדרת מחדש. */}
+      <Filmstrip
+        doc={doc}
+        current={spreadIdx}
+        onGo={(i) => { setAt(i); setSel(null); }}
+        onMove={moveSpread}
+      />
     </div>
   );
 }
@@ -473,14 +554,7 @@ export default function AlbumDesk({
 /* --------------------------------------------------------------------- a page */
 
 function PageView({
-  page,
-  side,
-  spreadIndex,
-  sel,
-  onSelect,
-  onDrop,
-  onNudge,
-  onZoom,
+  page, side, spreadIndex, sel, onSelect, onDrop, onNudge, onZoom, onEndLive,
 }: {
   page: Page;
   side: PageSide;
@@ -488,8 +562,9 @@ function PageView({
   sel: SlotRef | null;
   onSelect: (r: SlotRef) => void;
   onDrop: (r: SlotRef, p: DragPayload) => void;
-  onNudge: (r: SlotRef, dx: number, dy: number) => void;
-  onZoom: (r: SlotRef, d: number) => void;
+  onNudge: (r: SlotRef, dx: number, dy: number, live?: boolean) => void;
+  onZoom: (r: SlotRef, d: number, live?: boolean) => void;
+  onEndLive: () => void;
 }) {
   const t = templateById(page.templateId);
   return (
@@ -507,6 +582,7 @@ function PageView({
             onDrop={onDrop}
             onNudge={onNudge}
             onZoom={onZoom}
+            onEndLive={onEndLive}
           />
         );
       })}
@@ -517,22 +593,22 @@ function PageView({
 
 /* --------------------------------------------------------------------- a slot
  *
- * זהו המקום שבו נעשית הפעולה השכיחה ביותר באלבום: הזזת התמונה בתוך
- * המסגרת. לכן היא מחווה אחת ישירה על הקנבס — גרירה — ולא דיאלוג.
+ * שתי גרירות שונות חיות כאן, וההפרדה ביניהן היא כל העניין:
  *
- * המימוש: `background-size: cover` נותן את המילוי, `background-position`
- * את נקודת המיקוד, ו-`transform-origin` מוצמד לאותה נקודה כך שהזום מתרחש
- * *סביבה*. מה שכיוונת אליו נשאר במקום כשמקרבים.
+ *   • גרירה בתוך המסגרת  → מזיזה את התמונה בחיתוך. הפעולה השכיחה ביותר,
+ *                          ולכן היא הישירה. עכבר בלבד, בלי גרירת דפדפן.
+ *   • גרירה מהפינה       → מעבירה את התמונה למשבצת אחרת. נדירה יותר,
+ *                          ולכן היא זו שמקבלת ידית.
+ *
+ * בגרסה הראשונה שתיהן ישבו על אותה גרירה; הדפדפן העדיף את שלו, וההזזה
+ * בתוך המסגרת פשוט לא עבדה.
+ *
+ * המימוש של החיתוך: `background-size: cover` נותן את המילוי,
+ * `background-position` את נקודת המיקוד, ו-`transform-origin` מוצמד לאותה
+ * נקודה — כך שהזום מתרחש סביבה ומה שכיוונת אליו נשאר במקום.
  */
 function Slot({
-  rect,
-  refr,
-  placement,
-  selected,
-  onSelect,
-  onDrop,
-  onNudge,
-  onZoom,
+  rect, refr, placement, selected, onSelect, onDrop, onNudge, onZoom, onEndLive,
 }: {
   rect: Rect;
   refr: SlotRef;
@@ -540,12 +616,13 @@ function Slot({
   selected: boolean;
   onSelect: (r: SlotRef) => void;
   onDrop: (r: SlotRef, p: DragPayload) => void;
-  onNudge: (r: SlotRef, dx: number, dy: number) => void;
-  onZoom: (r: SlotRef, d: number) => void;
+  onNudge: (r: SlotRef, dx: number, dy: number, live?: boolean) => void;
+  onZoom: (r: SlotRef, d: number, live?: boolean) => void;
+  onEndLive: () => void;
 }) {
   const [over, setOver] = useState(false);
   const box = useRef<HTMLDivElement | null>(null);
-  const drag = useRef<{ x: number; y: number } | null>(null);
+  const drag = useRef<{ x: number; y: number; live: boolean } | null>(null);
 
   const style: React.CSSProperties = {
     insetInlineStart: `${rect.x * 100}%`,
@@ -555,25 +632,37 @@ function Slot({
   };
 
   const onPointerDown = (e: React.PointerEvent) => {
+    if (e.button !== 0) return;
     onSelect(refr);
     if (!placement) return;
-    (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
-    drag.current = { x: e.clientX, y: e.clientY };
+    box.current?.setPointerCapture?.(e.pointerId);
+    drag.current = { x: e.clientX, y: e.clientY, live: false };
   };
 
   const onPointerMove = (e: React.PointerEvent) => {
-    if (!drag.current || !placement || !box.current) return;
+    const d = drag.current;
+    if (!d || !placement || !box.current) return;
+    const dx = e.clientX - d.x;
+    const dy = e.clientY - d.y;
+    /* מתחת לסף זו לחיצה, לא גרירה — אחרת כל בחירת משבצת מזיזה את התמונה. */
+    if (!d.live && Math.abs(dx) < DRAG_SLOP && Math.abs(dy) < DRAG_SLOP) return;
+    d.live = true;
+    d.x = e.clientX;
+    d.y = e.clientY;
     const w = box.current.clientWidth || 1;
     const h = box.current.clientHeight || 1;
-    const dx = e.clientX - drag.current.x;
-    const dy = e.clientY - drag.current.y;
-    drag.current = { x: e.clientX, y: e.clientY };
-    /* גרירה ימינה מזיזה את התמונה ימינה, כלומר חושפת יותר משמאל —
-     * ולכן נקודת המיקוד זזה בכיוון ההפוך. */
-    onNudge(refr, (-dx / w) * 100, (-dy / h) * 100);
+    /* גרירה ימינה מזיזה את התמונה ימינה, כלומר חושפת יותר משמאל — ולכן
+     * נקודת המיקוד זזה בכיוון ההפוך. */
+    onNudge(refr, (-dx / w) * 100, (-dy / h) * 100, true);
   };
 
-  const endDrag = () => { drag.current = null; };
+  const endDrag = (e: React.PointerEvent) => {
+    if (drag.current) {
+      box.current?.releasePointerCapture?.(e.pointerId);
+      drag.current = null;
+      onEndLive();
+    }
+  };
 
   return (
     <div
@@ -585,17 +674,6 @@ function Slot({
         over ? 'is-over' : '',
       ].join(' ')}
       style={style}
-      draggable={!!placement}
-      onDragStart={(e) => {
-        if (!placement) return;
-        const payload: DragPayload = {
-          frame: placement.frame,
-          path: placement.path,
-          from: refr,
-        };
-        e.dataTransfer.setData('application/json', JSON.stringify(payload));
-        e.dataTransfer.effectAllowed = 'move';
-      }}
       onDragOver={(e) => { e.preventDefault(); setOver(true); }}
       onDragLeave={() => setOver(false)}
       onDrop={(e) => {
@@ -605,7 +683,7 @@ function Slot({
           const p = JSON.parse(e.dataTransfer.getData('application/json')) as DragPayload;
           if (p && p.frame) onDrop(refr, p);
         } catch {
-          /* גרירה ממקור שאינו המגש. מתעלמים בשקט. */
+          /* גרירה ממקור שאינו המגש או משבצת. מתעלמים בשקט. */
         }
       }}
       onPointerDown={onPointerDown}
@@ -618,15 +696,33 @@ function Slot({
       }}
     >
       {placement ? (
-        <div
-          className="ad-img"
-          style={{
-            backgroundImage: `url("${thumbUrl(placement.path, 1200)}")`,
-            backgroundPosition: `${placement.fx}% ${placement.fy}%`,
-            transform: `scale(${placement.zoom})`,
-            transformOrigin: `${placement.fx}% ${placement.fy}%`,
-          }}
-        />
+        <>
+          <div
+            className="ad-img"
+            style={{
+              backgroundImage: `url("${thumbUrl(placement.path, 1200)}")`,
+              backgroundPosition: `${placement.fx}% ${placement.fy}%`,
+              transform: `scale(${placement.zoom})`,
+              transformOrigin: `${placement.fx}% ${placement.fy}%`,
+            }}
+          />
+          {/* הידית. זו — ורק זו — מעבירה את התמונה למשבצת אחרת. */}
+          <span
+            className="ad-grip"
+            title="גרור כדי להעביר למשבצת אחרת"
+            draggable
+            onPointerDown={(e) => e.stopPropagation()}
+            onDragStart={(e) => {
+              const payload: DragPayload = {
+                frame: placement.frame,
+                path: placement.path,
+                from: refr,
+              };
+              e.dataTransfer.setData('application/json', JSON.stringify(payload));
+              e.dataTransfer.effectAllowed = 'move';
+            }}
+          />
+        </>
       ) : (
         <span className="ad-slot-hint">גרור תמונה</span>
       )}
@@ -637,27 +733,24 @@ function Slot({
 /* ---------------------------------------------------------------- templates */
 
 function TemplateRow({
-  label,
-  current,
-  onPick,
+  label, current, onPick,
 }: {
   label: string;
   current: string;
   onPick: (id: string) => void;
 }) {
-  const groups = templatesByCount();
   return (
     <div className="ad-trow">
       <span className="ad-trow-label">{label}</span>
       <div className="ad-trow-items">
-        {groups.map((g) => (
+        {templatesByCount().map((g) => (
           <div className="ad-tgroup" key={g.count}>
             <span className="ad-tgroup-n">{g.count === 0 ? 'ריק' : g.count}</span>
             {g.items.map((t) => (
               <button
                 key={t.id}
-                className={`ad-tmini${current === t.id ? ' on' : ''}`}
-                title={t.label}
+                className={`ad-tmini${current === t.id ? ' on' : ''}${t.bleed ? ' is-bleed' : ''}`}
+                title={t.bleed ? `${t.label} · עד הקצה` : t.label}
                 onClick={() => onPick(t.id)}
               >
                 <span className="ad-tmini-page">
@@ -679,5 +772,87 @@ function TemplateRow({
         ))}
       </div>
     </div>
+  );
+}
+
+/* --------------------------------------------------------------- filmstrip
+ *
+ * הספר כולו בשורה אחת. קצב — איפה עמוס ואיפה נח, איפה תמונה גדולה נושמת
+ * ואיפה יש רצף של רשתות — לא נראה בכפולה בודדת, ולכן הוא לא ניתן לעריכה
+ * בלי המסך הזה. גרירה מסדרת מחדש.
+ */
+function Filmstrip({
+  doc, current, onGo, onMove,
+}: {
+  doc: AlbumDoc;
+  current: number;
+  onGo: (i: number) => void;
+  onMove: (from: number, to: number) => void;
+}) {
+  const [dragFrom, setDragFrom] = useState<number | null>(null);
+  const [overIdx, setOverIdx] = useState<number | null>(null);
+
+  return (
+    <footer className="ad-strip">
+      {doc.spreads.map((sp, i) => (
+        <button
+          key={sp.id}
+          className={[
+            'ad-strip-item',
+            i === current ? 'on' : '',
+            overIdx === i && dragFrom !== null && dragFrom !== i ? 'is-over' : '',
+          ].join(' ')}
+          onClick={() => onGo(i)}
+          draggable
+          onDragStart={(e) => {
+            setDragFrom(i);
+            e.dataTransfer.effectAllowed = 'move';
+            e.dataTransfer.setData('text/plain', String(i));
+          }}
+          onDragOver={(e) => { e.preventDefault(); setOverIdx(i); }}
+          onDragLeave={() => setOverIdx((n) => (n === i ? null : n))}
+          onDrop={(e) => {
+            e.preventDefault();
+            if (dragFrom !== null) onMove(dragFrom, i);
+            setDragFrom(null);
+            setOverIdx(null);
+          }}
+          onDragEnd={() => { setDragFrom(null); setOverIdx(null); }}
+          title={`כפולה ${i + 1}`}
+        >
+          <span className="ad-strip-spread">
+            <MiniPage page={sp.first} />
+            <MiniPage page={sp.second} />
+            <i className="ad-strip-fold" />
+          </span>
+          <span className="ad-strip-n">{i + 1}</span>
+        </button>
+      ))}
+    </footer>
+  );
+}
+
+function MiniPage({ page }: { page: Page }) {
+  const t = templateById(page.templateId);
+  return (
+    <span className="ad-mini">
+      {t.slots.map((r, i) => {
+        const s = page.slots[i];
+        return (
+          <i
+            key={i}
+            className={s ? 'has' : ''}
+            style={{
+              insetInlineStart: `${r.x * 100}%`,
+              top: `${r.y * 100}%`,
+              width: `${r.w * 100}%`,
+              height: `${r.h * 100}%`,
+              backgroundImage: s ? `url("${thumbUrl(s.path, 120)}")` : undefined,
+              backgroundPosition: s ? `${s.fx}% ${s.fy}%` : undefined,
+            }}
+          />
+        );
+      })}
+    </span>
   );
 }
