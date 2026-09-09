@@ -72,8 +72,10 @@ export default function V2App({ onSwitchToV1, onOpenProjectV1 }: V2AppProps) {
   ];
 
   const projectTitle = selectedProject
-    ? `${selectedProject.client} – ${selectedProject.event || 'בת מצווה'}`
-    : 'מלי כץ – בת מצווה';
+    ? [selectedProject.client, selectedProject.event].filter(Boolean).join(' – ')
+    // No project selected: name the screen, do not name a client who does not
+    // exist. "מלי כץ – בת מצווה" sat in this header over real projects.
+    : 'לא נבחר פרויקט';
 
   const handleOpenProject = (id: string, stage: string = 'client-status') => {
     setSelectedProjectId(id);

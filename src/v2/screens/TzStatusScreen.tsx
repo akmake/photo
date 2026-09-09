@@ -5,7 +5,6 @@ import {
   TzIconCopy, TzIconExternal, TzIconFilter, TzIconGallery, TzIconGear,
   TzIconHeart, TzIconMail, TzIconSend, TzIconSliders,
 } from '../TzIcons';
-import { getProjectCover } from '../projectCovers';
 
 export default function TzStatusScreen({
   project,
@@ -17,30 +16,74 @@ export default function TzStatusScreen({
   const [copied, setCopied] = useState(false);
   const [message, setMessage] = useState('');
 
-  const clientName = project?.client || 'מלי כץ';
-  const eventName = project?.event || 'בת מצווה';
-  const shootDate = project?.date || '10.05.2024';
-  const totalImported = project ? (project.imported ?? 0) : 1842;
-  const cullingRemaining = project ? (project.kept ?? 0) : 1246;
-  const pickedPhotos = project ? (project.picked ?? 0) : 214;
-  const renderedPhotos = project ? (project.rendered ?? 0) : 0;
-  const shareUrl = `https://teza.ai/gallery/${encodeURIComponent(clientName.replace(/\s+/g, '').toLowerCase())}`;
+  // NOTHING on this screen is invented. It used to open on "מלי כץ · בת
+  // מצווה" with 1,842 photographs uploaded on 11.05.2024, and a real project
+  // with 31 frames still showed those dates because the fallbacks fired
+  // whenever a counter was zero. A screen the photographer plans against must
+  // not contain a number nobody measured — CLAUDE.md §5.
+  const clientName = project?.client ?? '';
+  const eventName = project?.event ?? '';
+  const shootDate = project?.date ?? '';
+  const totalImported = project?.imported ?? 0;
+  const cullingRemaining = project?.kept ?? 0;
+  const pickedPhotos = project?.picked ?? 0;
+  const renderedPhotos = project?.rendered ?? 0;
+  // What is actually still in the queue, not the selection over again.
+  const inProcessing = Math.max(0, pickedPhotos - renderedPhotos);
+  // The published gallery lives in the workspace state, not on the project, so
+  // this screen does not have its address. It says so rather than printing a
+  // teza.ai link that resolves to nothing.
+  const galleryUrl = '';
 
   function copyLink() {
-    navigator.clipboard.writeText(shareUrl);
+    if (!galleryUrl) return;
+    navigator.clipboard.writeText(galleryUrl);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   }
 
-  // Progress percentage based on project.at or 75%
-  const progressPercent = project
-    ? project.state === 'done'
+  // Only steps that actually happened, described by their own counters.
+  const activity: { title: string; detail: string; done: boolean }[] = [];
+  if (totalImported > 0) {
+    activity.push({ title: 'ייבוא הושלם', detail: `${totalImported.toLocaleString('he-IL')} תמונות`, done: true });
+  }
+  if (cullingRemaining > 0) {
+    activity.push({ title: 'סינון הושלם', detail: `נותרו ${cullingRemaining.toLocaleString('he-IL')} תמונות`, done: true });
+  }
+  if (pickedPhotos > 0) {
+    activity.push({ title: 'הלקוחה בחרה תמונות', detail: `נבחרו ${pickedPhotos.toLocaleString('he-IL')} תמונות`, done: true });
+  }
+  if (renderedPhotos > 0 || inProcessing > 0) {
+    activity.push({
+      title: renderedPhotos >= pickedPhotos && pickedPhotos > 0 ? 'עיבוד הושלם' : 'עיבוד גלריה',
+      detail: `${renderedPhotos.toLocaleString('he-IL')} עובדו${inProcessing > 0 ? `, ${inProcessing.toLocaleString('he-IL')} ממתינות` : ''}`,
+      done: pickedPhotos > 0 && renderedPhotos >= pickedPhotos,
+    });
+  }
+
+  const progressPercent = !project
+    ? 0
+    : project.state === 'done'
       ? 100
-      : Math.max(10, Math.min(95, Math.round(((project.at + 1) / 5) * 100)))
-    : 75;
+      : Math.max(10, Math.min(95, Math.round(((project.at + 1) / 5) * 100)));
   const radius = 42;
   const circumference = 2 * Math.PI * radius;
   const strokeDashoffset = circumference - ((progressPercent / 100) * circumference);
+
+  if (!project) {
+    return (
+      <div className="tz-status-screen">
+        <section className="tz-card">
+          <div className="tz-overall-top">
+            <div className="tz-overall-title">לא נבחר פרויקט</div>
+            <div className="tz-overall-sub">
+              בחר פרויקט כדי לראות את הסטטוס שלו. אין כאן נתוני דוגמה.
+            </div>
+          </div>
+        </section>
+      </div>
+    );
+  }
 
   return (
     <div className="tz-status-screen">
@@ -76,7 +119,10 @@ export default function TzStatusScreen({
               />
             </svg>
             <div className="tz-gauge-center">
-              <span className="tz-gauge-val">75%</span>
+              {/* The arc below was already drawn from progressPercent; this
+                  number was the string "75%", so the gauge and its own label
+                  disagreed on every project in the studio. */}
+              <span className="tz-gauge-val">{progressPercent}%</span>
               <span className="tz-gauge-txt">הושלם</span>
             </div>
           </div>
@@ -116,7 +162,7 @@ export default function TzStatusScreen({
               <span className={`tz-step-status ${(project && (project.at >= 2 || project.kept > 0)) ? 'done' : (project && project.at === 1) ? 'active' : 'pending'}`}>
                 {(project && (project.at >= 2 || project.kept > 0)) ? 'הושלם' : (project && project.at === 1) ? 'בתהליך' : 'ממתין'}
               </span>
-              <span className="tz-step-date">{project?.kept ? `${project.kept} סוננו` : '11.05.2024'}</span>
+              <span className="tz-step-date">{project.kept ? `${project.kept} סוננו` : 'טרם סונן'}</span>
             </div>
 
             {/* 3. Picked / Send to client */}
@@ -133,7 +179,7 @@ export default function TzStatusScreen({
               <span className={`tz-step-status ${(project && project.picked > 0) ? 'done' : (project && project.state === 'waiting') ? 'active' : 'pending'}`}>
                 {(project && project.picked > 0) ? 'הושלם' : (project && project.state === 'waiting') ? 'אישור לקוח' : 'ממתין'}
               </span>
-              <span className="tz-step-date">{project?.picked ? `${project.picked} נבחרו` : '12.05.2024'}</span>
+              <span className="tz-step-date">{project.picked ? `${project.picked} נבחרו` : 'טרם נבחרו'}</span>
             </div>
 
             {/* 4. Editing */}
@@ -151,7 +197,7 @@ export default function TzStatusScreen({
                 {(project && project.rendered > 0 && project.rendered >= (project.picked || 1)) ? 'הושלם' : (project && project.at >= 3) ? 'בתהליך' : 'ממתין'}
               </span>
               <span className="tz-step-date" style={{ color: '#e86338', fontWeight: 600 }}>
-                {project ? (project.rendered ? `${project.rendered} עובדו` : 'בהמתנה') : '50%'}
+                {project.rendered ? `${project.rendered} עובדו` : 'בהמתנה'}
               </span>
             </div>
 
@@ -183,27 +229,49 @@ export default function TzStatusScreen({
             <div className="tz-panel-title">פרטי הלקוחה</div>
 
             <div className="tz-client-header">
-              <img
-                src={getProjectCover(project)}
-                alt={clientName}
-                className="tz-client-photo"
-                style={{ objectPosition: project?.pos || 'center 30%' }}
-              />
+              {/* The project's OWN frame or nothing. getProjectCover falls
+                  back to a stock library, and a stranger's face sitting under
+                  the client's name, labelled with it, is the plainest kind of
+                  invented data there is. */}
+              {project.thumb ? (
+                <img
+                  src={project.thumb}
+                  alt={clientName}
+                  className="tz-client-photo"
+                  style={{ objectPosition: project.pos || 'center 30%' }}
+                />
+              ) : (
+                <div
+                  className="tz-client-photo"
+                  aria-hidden="true"
+                  style={{
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    background: 'var(--tz-peach-soft, #f3ece8)',
+                    color: 'var(--tz-ink-soft, #9b8b83)',
+                    fontSize: 22, fontWeight: 600,
+                  }}
+                >
+                  {(clientName.trim()[0] || '·')}
+                </div>
+              )}
               <div className="tz-client-meta">
-                <h3>{clientName}</h3>
-                <p>{project ? `${clientName.replace(/\s+/g, '').toLowerCase()}@gmail.com` : 'mali.katz@email.com'}</p>
-                <p>050-1234567</p>
+                <h3>{clientName || 'ללא שם'}</h3>
+                {/* There is no email or phone on the project record, so there
+                    is none to show. A plausible-looking address built from the
+                    client's name is worse than an empty line: it is dialled. */}
+                <p className="tz-muted">לא הוזן דוא״ל</p>
+                <p className="tz-muted">לא הוזן טלפון</p>
               </div>
             </div>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
               <div className="tz-data-row">
                 <span>תאריך צילום</span>
-                <span>{shootDate} <TzIconCalendar size={14} /></span>
+                <span>{shootDate || 'לא נקבע'} <TzIconCalendar size={14} /></span>
               </div>
               <div className="tz-data-row">
                 <span>סוג צילום</span>
-                <span>{eventName} <TzIconCamera size={14} /></span>
+                <span>{eventName || 'לא הוגדר'} <TzIconCamera size={14} /></span>
               </div>
               <div className="tz-data-row">
                 <span>מספר תמונות מקוריות</span>
@@ -236,7 +304,7 @@ export default function TzStatusScreen({
                 <span className="tz-summary-right">נבחרו על ידי הלקוחה</span>
               </div>
               <div className="tz-summary-row">
-                <span className="tz-summary-left"><TzIconSliders size={15} /> {pickedPhotos.toLocaleString('he-IL')}</span>
+                <span className="tz-summary-left"><TzIconSliders size={15} /> {inProcessing.toLocaleString('he-IL')}</span>
                 <span className="tz-summary-right">בתהליך עיבוד</span>
               </div>
               <div className="tz-summary-row">
@@ -255,61 +323,30 @@ export default function TzStatusScreen({
         <div className="tz-card">
           <div className="tz-panel-title">פעילות אחרונה</div>
 
-          <div className="tz-timeline">
-            <div className="tz-timeline-line" />
-
-            <div className="tz-timeline-item">
-              <div className="tz-timeline-left">
-                <span className="tz-timeline-dot done"><TzIconCheck size={10} /></span>
-                <div className="tz-timeline-text">
-                  <h4>העלאה הושלמה</h4>
-                  <p>הועלו 1,842 תמונות</p>
+          {activity.length === 0 ? (
+            <p className="tz-muted" style={{ margin: '12px 4px' }}>
+              אין עדיין פעילות בפרויקט הזה.
+            </p>
+          ) : (
+            <div className="tz-timeline">
+              <div className="tz-timeline-line" />
+              {activity.map((item) => (
+                <div className="tz-timeline-item" key={item.title}>
+                  <div className="tz-timeline-left">
+                    <span className={`tz-timeline-dot ${item.done ? 'done' : 'active'}`}>
+                      {item.done ? <TzIconCheck size={10} /> : <TzIconGear size={10} />}
+                    </span>
+                    <div className="tz-timeline-text">
+                      <h4>{item.title}</h4>
+                      <p>{item.detail}</p>
+                    </div>
+                  </div>
+                  {/* No time column: the project record keeps counters, not a
+                      timestamp per step. An invented hour is still invented. */}
                 </div>
-              </div>
-              <div className="tz-timeline-time">
-                11.05.2024<br />14:30
-              </div>
+              ))}
             </div>
-
-            <div className="tz-timeline-item">
-              <div className="tz-timeline-left">
-                <span className="tz-timeline-dot done"><TzIconCheck size={10} /></span>
-                <div className="tz-timeline-text">
-                  <h4>סינון אוטומטי הושלם</h4>
-                  <p>נותרו 1,246 תמונות</p>
-                </div>
-              </div>
-              <div className="tz-timeline-time">
-                11.05.2024<br />15:10
-              </div>
-            </div>
-
-            <div className="tz-timeline-item">
-              <div className="tz-timeline-left">
-                <span className="tz-timeline-dot done"><TzIconCheck size={10} /></span>
-                <div className="tz-timeline-text">
-                  <h4>הלקוחה בחרה תמונות</h4>
-                  <p>נבחרו 214 תמונות</p>
-                </div>
-              </div>
-              <div className="tz-timeline-time">
-                12.05.2024<br />10:25
-              </div>
-            </div>
-
-            <div className="tz-timeline-item">
-              <div className="tz-timeline-left">
-                <span className="tz-timeline-dot active"><TzIconGear size={10} /></span>
-                <div className="tz-timeline-text">
-                  <h4>עיבוד גלריה התחיל</h4>
-                  <p>בתהליך…</p>
-                </div>
-              </div>
-              <div className="tz-timeline-time">
-                12.05.2024<br />11:00
-              </div>
-            </div>
-          </div>
+          )}
         </div>
       </div>
 
@@ -344,18 +381,24 @@ export default function TzStatusScreen({
           <div className="tz-box-title">קישור לגלריה</div>
           <div className="tz-box-sub">שלחי ללקוחה קישור לצפייה ובחירת תמונות</div>
 
-          <div className="tz-input-action-row">
-            <input
-              type="text"
-              readOnly
-              className="tz-input"
-              value={shareUrl}
-              style={{ direction: 'ltr' }}
-            />
-            <button className="tz-btn-peach-inline" type="button" onClick={copyLink}>
-              {copied ? '✓ הועתק' : 'העתק קישור'} <TzIconExternal size={14} />
-            </button>
-          </div>
+          {galleryUrl ? (
+            <div className="tz-input-action-row">
+              <input
+                type="text"
+                readOnly
+                className="tz-input"
+                value={galleryUrl}
+                style={{ direction: 'ltr' }}
+              />
+              <button className="tz-btn-peach-inline" type="button" onClick={copyLink}>
+                {copied ? '✓ הועתק' : 'העתק קישור'} <TzIconExternal size={14} />
+              </button>
+            </div>
+          ) : (
+            <p className="tz-muted" style={{ margin: '12px 4px' }}>
+              עוד לא נוצרה גלריה לפרויקט הזה, ולכן אין קישור לשלוח.
+            </p>
+          )}
         </div>
       </div>
     </div>
