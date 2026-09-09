@@ -16,8 +16,8 @@ import {
 } from '../../studio/store';
 import { learnColorModel, renderRecipeAtPath, thumbUrl } from '../../api';
 import type { LearnColorResponse } from '../../api';
-import type { LearnedColorModel } from '../../types';
-import type { ToolInstance } from '../../types';
+import type { LearnedColorModel, ToolInstance } from '../../types';
+import { defaultParams, getTool } from '../../toolRegistry';
 import { useSetPreview } from '../../studio/preview';
 import BeforeAfter from '../../studio/screens/BeforeAfter';
 import {
@@ -69,12 +69,54 @@ export default function GalleryEditV2({
   // Active tool category tab: 'primary' | 'colormatch'
   const [activeTab, setActiveTab] = useState<'primary' | 'colormatch'>('primary');
 
+  // Tool categories mapping
+  const CATEGORY_TOOLS: Record<string, string[]> = useMemo(
+    () => ({
+      retouch: ['face-retouch', 'skin', 'skin-cleanup', 'eye-sparkle'],
+      glow: ['glow'],
+      contour: ['contour'],
+      tone: ['tone-color'],
+      contrast: ['tonal-contrast'],
+      sharpen: ['sharpen'],
+    }),
+    [],
+  );
+
+  // Default activation values when user flips a category switch ON
+  const DEFAULT_ACTIVATION_PARAMS: Record<string, Record<string, Record<string, number>>> = useMemo(
+    () => ({
+      retouch: {
+        'face-retouch': { strength: 70 },
+        skin: { strength: 60, texture: 100 },
+        'skin-cleanup': { redness: 90 },
+        'eye-sparkle': { strength: 50 },
+      },
+      glow: {
+        glow: { amount: 35, people: 25, skin: 20, fabric: 15, radius: 40 },
+      },
+      contour: {
+        contour: { cheekbones: 25, forehead: 15, jaw: 15, undereye: -10, sculpt: 20 },
+      },
+      tone: {
+        'tone-color': { exposure: 0, contrast: 15, highlights: -10, shadows: 15, temperature: 0, saturation: 5 },
+      },
+      contrast: {
+        'tonal-contrast': { contrast: 40 },
+      },
+      sharpen: {
+        sharpen: { amount: 30, radius: 20, masking: 25 },
+      },
+    }),
+    [],
+  );
+
   // Accordion state for tool categories
   const [openCategories, setOpenCategories] = useState<Record<string, boolean>>({
     retouch: true, // Default open
+    glow: true,    // Glow open & accessible
     contour: false,
     tone: false,
-    glow: false,
+    contrast: false,
     sharpen: false,
   });
 
@@ -88,9 +130,10 @@ export default function GalleryEditV2({
     const nextVal = !allOpen;
     setOpenCategories({
       retouch: nextVal,
+      glow: nextVal,
       contour: nextVal,
       tone: nextVal,
-      glow: nextVal,
+      contrast: nextVal,
       sharpen: nextVal,
     });
   }, [allOpen]);
@@ -167,9 +210,46 @@ export default function GalleryEditV2({
     [frameEffectiveTools],
   );
 
+  // Category enable state (true if any tool in category is enabled)
+  const isCategoryEnabled = useCallback(
+    (catId: string): boolean => {
+      const toolIds = CATEGORY_TOOLS[catId] || [];
+      return toolIds.some((tid) => {
+        const step = frameEffectiveTools.find((t) => t.toolId === tid);
+        return step ? step.enabled : false;
+      });
+    },
+    [CATEGORY_TOOLS, frameEffectiveTools],
+  );
+
+  // Toggle category on/off
+  const toggleCategoryEnabled = useCallback(
+    (catId: string, enabled: boolean) => {
+      if (!currentFrame) return;
+      const toolIds = CATEGORY_TOOLS[catId] || [];
+      for (const tid of toolIds) {
+        const existing = frameEffectiveTools.find((t) => t.toolId === tid);
+        if (existing) {
+          setFrameStep(project.id, currentFrame.name, { ...existing, enabled });
+        } else if (enabled) {
+          const defaults = DEFAULT_ACTIVATION_PARAMS[catId]?.[tid] ?? {};
+          setFrameStep(project.id, currentFrame.name, {
+            toolId: tid,
+            enabled: true,
+            params: defaults,
+          });
+        }
+      }
+    },
+    [currentFrame, CATEGORY_TOOLS, DEFAULT_ACTIVATION_PARAMS, frameEffectiveTools, project.id],
+  );
+
   // Category tweak indicators
   const hasRetouchTweaks = Boolean(
     frameEffectiveTools.some((t) => ['face-retouch', 'skin', 'skin-cleanup', 'eye-sparkle'].includes(t.toolId) && t.enabled),
+  );
+  const hasGlowTweaks = Boolean(
+    frameEffectiveTools.some((t) => t.toolId === 'glow' && t.enabled),
   );
   const hasContourTweaks = Boolean(
     frameEffectiveTools.some((t) => t.toolId === 'contour' && t.enabled),
@@ -177,8 +257,8 @@ export default function GalleryEditV2({
   const hasToneTweaks = Boolean(
     frameEffectiveTools.some((t) => t.toolId === 'tone-color' && t.enabled),
   );
-  const hasGlowTweaks = Boolean(
-    frameEffectiveTools.some((t) => ['tonal-contrast', 'glow'].includes(t.toolId) && t.enabled),
+  const hasContrastTweaks = Boolean(
+    frameEffectiveTools.some((t) => t.toolId === 'tonal-contrast' && t.enabled),
   );
   const hasSharpenTweaks = Boolean(
     frameEffectiveTools.some((t) => t.toolId === 'sharpen' && t.enabled),
@@ -398,9 +478,132 @@ export default function GalleryEditV2({
         </div>
       </header>
 
-      {/* 2. 3-COLUMN STUDIO WORKSPACE: Tools (Right) | Canvas (Center) | Slide Deck (Left) */}
+      {/* 2. 3-COLUMN STUDIO WORKSPACE: Slide Deck (Right) | Canvas (Center) | Tools (Left) */}
       <div className="tz-ge-studio-workspace">
-        {/* RIGHT COLUMN: INSPECTOR & ACCORDION TOOLS PANEL */}
+        {/* RIGHT COLUMN: POWERPOINT-STYLE SLIDE DECK */}
+        <aside className="tz-ge-slide-deck">
+          <div className="tz-ge-deck-header">
+            <span>שקופיות ({slideFrames.length})</span>
+            <span style={{ fontSize: 11.5, color: '#71717a' }}>בחר לעריכה</span>
+          </div>
+
+          <div className="tz-ge-deck-scroll">
+            {slideFrames.length === 0 ? (
+              <div style={{ padding: 20, textAlign: 'center', color: '#a1a1aa', fontSize: 12 }}>
+                אין תמונות במקבץ זה
+              </div>
+            ) : (
+              slideFrames.map((f, idx) => {
+                const isActive = idx === activeSlideIndex;
+                const isCustomized = frameSteps(project.id, f.name).length > 0;
+                return (
+                  <div
+                    key={f.path}
+                    className={`tz-ge-slide-item ${isActive ? 'active' : ''}`}
+                    onClick={() => setActiveSlideIndex(idx)}
+                  >
+                    <span className="tz-ge-slide-idx">
+                      {String(idx + 1).padStart(2, '0')}
+                    </span>
+
+                    <div className="tz-ge-slide-thumb-wrap">
+                      <img
+                        className="tz-ge-slide-thumb"
+                        src={thumbUrl(f.path, 320)}
+                        alt={f.name}
+                        loading="lazy"
+                      />
+                    </div>
+
+                    <div className="tz-ge-slide-info">
+                      <span className="tz-ge-slide-title" title={f.name}>
+                        {f.name}
+                      </span>
+                      {isCustomized && (
+                        <span className="tz-ge-slide-badge">מותאם</span>
+                      )}
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
+        </aside>
+
+        {/* CENTER COLUMN: ACTIVE PHOTO CANVAS */}
+        <main className="tz-ge-canvas-stage">
+          {/* Top Canvas Bar */}
+          <div className="tz-ge-canvas-toolbar">
+            <div className="tz-ge-canvas-nav">
+              <button
+                type="button"
+                className="tz-ge-canvas-nav-btn"
+                disabled={activeSlideIndex <= 0}
+                onClick={() => setActiveSlideIndex((i) => Math.max(0, i - 1))}
+                title="שקופית קודמת (חץ למעלה)"
+              >
+                ›
+              </button>
+              <button
+                type="button"
+                className="tz-ge-canvas-nav-btn"
+                disabled={activeSlideIndex >= slideFrames.length - 1}
+                onClick={() => setActiveSlideIndex((i) => Math.min(slideFrames.length - 1, i + 1))}
+                title="שקופית הבאה (חץ למטה)"
+              >
+                ‹
+              </button>
+              <span style={{ fontWeight: 600, color: '#e4e4e7', fontFamily: 'monospace' }}>
+                {activeSlideIndex + 1} / {slideFrames.length}
+              </span>
+              <span style={{ color: '#71717a', fontSize: 11, marginRight: 8 }}>
+                {currentFrame ? baseName(currentFrame.path) : ''}
+              </span>
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <button
+                type="button"
+                className={`tz-ge-canvas-compare-btn ${showOriginal ? 'active' : ''}`}
+                onMouseDown={() => setShowOriginal(true)}
+                onMouseUp={() => setShowOriginal(false)}
+                onMouseLeave={() => setShowOriginal(false)}
+                title="לחץ והחזק להשוואה מול המקור (או מקש רווח)"
+              >
+                <TzIconGallery size={14} />
+                <span>{showOriginal ? 'מציג מקור' : 'החזק למקור'}</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Viewport */}
+          <div className="tz-ge-canvas-viewport">
+            {currentFrame ? (
+              <>
+                <img
+                  key={currentFrame.path}
+                  className="tz-ge-canvas-img"
+                  src={displayImage}
+                  alt={currentFrame.name}
+                />
+                {showOriginal && (
+                  <div className="tz-ge-canvas-badge-original">
+                    תמונת מקור (לפני עריכה)
+                  </div>
+                )}
+                {busyRender && (
+                  <div style={{ position: 'absolute', bottom: 16, left: 16, background: 'rgba(0,0,0,0.65)', color: '#ffffff', padding: '4px 10px', borderRadius: 8, fontSize: 11 }}>
+                    מרנדר שינויים...
+                  </div>
+                )}
+              </>
+            ) : (
+              <div style={{ color: '#71717a' }}>אין תמונה מוצגת</div>
+            )}
+          </div>
+        </main>
+
+        {/* LEFT COLUMN: INSPECTOR & ACCORDION TOOLS PANEL */}
         <aside className="tz-ge-tools-panel">
           <div className="tz-ge-panel-head">
             <div style={{ display: 'flex', gap: 6 }}>
@@ -440,8 +643,7 @@ export default function GalleryEditV2({
               <>
                 {/* 1. Face Retouch & Skin Smoothing */}
                 <div className={`tz-ge-accordion-sec ${openCategories.retouch ? 'open' : ''}`}>
-                  <button
-                    type="button"
+                  <div
                     className="tz-ge-accordion-head"
                     onClick={() => toggleCategory('retouch')}
                   >
@@ -451,11 +653,23 @@ export default function GalleryEditV2({
                     </div>
                     <div className="tz-ge-accordion-meta">
                       {hasRetouchTweaks && <span className="tz-ge-accordion-dot" title="ערכים שונו בתמונה זו" />}
+                      <label
+                        className="tz-ge-switch"
+                        onClick={(e) => e.stopPropagation()}
+                        title={isCategoryEnabled('retouch') ? 'כבה ריטוש' : 'הפעל ריטוש'}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={isCategoryEnabled('retouch')}
+                          onChange={(e) => toggleCategoryEnabled('retouch', e.target.checked)}
+                        />
+                        <span className="tz-ge-switch-slider" />
+                      </label>
                       <span className={`tz-ge-accordion-chevron ${openCategories.retouch ? 'open' : ''}`}>
                         ⌄
                       </span>
                     </div>
-                  </button>
+                  </div>
                   {openCategories.retouch && (
                     <div className="tz-ge-accordion-body">
                       <SliderField
@@ -502,10 +716,84 @@ export default function GalleryEditV2({
                   )}
                 </div>
 
-                {/* 2. Light & Shadow Sculpting (Contour / Dodge & Burn) */}
+                {/* 2. Glow (Bloom & Glow) */}
+                <div className={`tz-ge-accordion-sec ${openCategories.glow ? 'open' : ''}`}>
+                  <div
+                    className="tz-ge-accordion-head"
+                    onClick={() => toggleCategory('glow')}
+                  >
+                    <div className="tz-ge-accordion-title">
+                      <TzIconSparkle size={15} />
+                      <span>גלואו רך (Bloom & Glow)</span>
+                    </div>
+                    <div className="tz-ge-accordion-meta">
+                      {hasGlowTweaks && <span className="tz-ge-accordion-dot" title="ערכים שונו בתמונה זו" />}
+                      <label
+                        className="tz-ge-switch"
+                        onClick={(e) => e.stopPropagation()}
+                        title={isCategoryEnabled('glow') ? 'כבה גלואו' : 'הפעל גלואו'}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={isCategoryEnabled('glow')}
+                          onChange={(e) => toggleCategoryEnabled('glow', e.target.checked)}
+                        />
+                        <span className="tz-ge-switch-slider" />
+                      </label>
+                      <span className={`tz-ge-accordion-chevron ${openCategories.glow ? 'open' : ''}`}>
+                        ⌄
+                      </span>
+                    </div>
+                  </div>
+                  {openCategories.glow && (
+                    <div className="tz-ge-accordion-body">
+                      <SliderField
+                        label="עוצמת גלואו כללית"
+                        value={getParamVal('glow', 'amount', 0)}
+                        min={0}
+                        max={100}
+                        defaultVal={35}
+                        onChange={(v) => handleParamChange('glow', 'amount', v)}
+                      />
+                      <SliderField
+                        label="אנשים ופנים"
+                        value={getParamVal('glow', 'people', 0)}
+                        min={0}
+                        max={100}
+                        defaultVal={25}
+                        onChange={(v) => handleParamChange('glow', 'people', v)}
+                      />
+                      <SliderField
+                        label="עור בלבד"
+                        value={getParamVal('glow', 'skin', 0)}
+                        min={0}
+                        max={100}
+                        defaultVal={20}
+                        onChange={(v) => handleParamChange('glow', 'skin', v)}
+                      />
+                      <SliderField
+                        label="בגדים ולבנים"
+                        value={getParamVal('glow', 'fabric', 0)}
+                        min={0}
+                        max={100}
+                        defaultVal={15}
+                        onChange={(v) => handleParamChange('glow', 'fabric', v)}
+                      />
+                      <SliderField
+                        label="רכות ורדיוס"
+                        value={getParamVal('glow', 'radius', 40)}
+                        min={0}
+                        max={100}
+                        defaultVal={40}
+                        onChange={(v) => handleParamChange('glow', 'radius', v)}
+                      />
+                    </div>
+                  )}
+                </div>
+
+                {/* 3. Light & Shadow Sculpting (Contour / Dodge & Burn) */}
                 <div className={`tz-ge-accordion-sec ${openCategories.contour ? 'open' : ''}`}>
-                  <button
-                    type="button"
+                  <div
                     className="tz-ge-accordion-head"
                     onClick={() => toggleCategory('contour')}
                   >
@@ -515,11 +803,23 @@ export default function GalleryEditV2({
                     </div>
                     <div className="tz-ge-accordion-meta">
                       {hasContourTweaks && <span className="tz-ge-accordion-dot" title="ערכים שונו בתמונה זו" />}
+                      <label
+                        className="tz-ge-switch"
+                        onClick={(e) => e.stopPropagation()}
+                        title={isCategoryEnabled('contour') ? 'כבה פיסול אור וצל' : 'הפעל פיסול אור וצל'}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={isCategoryEnabled('contour')}
+                          onChange={(e) => toggleCategoryEnabled('contour', e.target.checked)}
+                        />
+                        <span className="tz-ge-switch-slider" />
+                      </label>
                       <span className={`tz-ge-accordion-chevron ${openCategories.contour ? 'open' : ''}`}>
                         ⌄
                       </span>
                     </div>
-                  </button>
+                  </div>
                   {openCategories.contour && (
                     <div className="tz-ge-accordion-body">
                       <SliderField
@@ -566,10 +866,9 @@ export default function GalleryEditV2({
                   )}
                 </div>
 
-                {/* 3. Tone, Exposure & Color */}
+                {/* 4. Tone, Exposure & Color */}
                 <div className={`tz-ge-accordion-sec ${openCategories.tone ? 'open' : ''}`}>
-                  <button
-                    type="button"
+                  <div
                     className="tz-ge-accordion-head"
                     onClick={() => toggleCategory('tone')}
                   >
@@ -579,11 +878,23 @@ export default function GalleryEditV2({
                     </div>
                     <div className="tz-ge-accordion-meta">
                       {hasToneTweaks && <span className="tz-ge-accordion-dot" title="ערכים שונו בתמונה זו" />}
+                      <label
+                        className="tz-ge-switch"
+                        onClick={(e) => e.stopPropagation()}
+                        title={isCategoryEnabled('tone') ? 'כבה טון וצבע' : 'הפעל טון וצבע'}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={isCategoryEnabled('tone')}
+                          onChange={(e) => toggleCategoryEnabled('tone', e.target.checked)}
+                        />
+                        <span className="tz-ge-switch-slider" />
+                      </label>
                       <span className={`tz-ge-accordion-chevron ${openCategories.tone ? 'open' : ''}`}>
                         ⌄
                       </span>
                     </div>
-                  </button>
+                  </div>
                   {openCategories.tone && (
                     <div className="tz-ge-accordion-body">
                       <SliderField
@@ -638,25 +949,36 @@ export default function GalleryEditV2({
                   )}
                 </div>
 
-                {/* 4. Tonal Contrast & Glow */}
-                <div className={`tz-ge-accordion-sec ${openCategories.glow ? 'open' : ''}`}>
-                  <button
-                    type="button"
+                {/* 5. Tonal Contrast */}
+                <div className={`tz-ge-accordion-sec ${openCategories.contrast ? 'open' : ''}`}>
+                  <div
                     className="tz-ge-accordion-head"
-                    onClick={() => toggleCategory('glow')}
+                    onClick={() => toggleCategory('contrast')}
                   >
                     <div className="tz-ge-accordion-title">
                       <TzIconSparkle size={15} />
-                      <span>תלת מימד וגלואו (Bloom)</span>
+                      <span>תלת מימד ומבנה (Tonal Contrast)</span>
                     </div>
                     <div className="tz-ge-accordion-meta">
-                      {hasGlowTweaks && <span className="tz-ge-accordion-dot" title="ערכים שונו בתמונה זו" />}
-                      <span className={`tz-ge-accordion-chevron ${openCategories.glow ? 'open' : ''}`}>
+                      {hasContrastTweaks && <span className="tz-ge-accordion-dot" title="ערכים שונו בתמונה זו" />}
+                      <label
+                        className="tz-ge-switch"
+                        onClick={(e) => e.stopPropagation()}
+                        title={isCategoryEnabled('contrast') ? 'כבה תלת מימד' : 'הפעל תלת מימד'}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={isCategoryEnabled('contrast')}
+                          onChange={(e) => toggleCategoryEnabled('contrast', e.target.checked)}
+                        />
+                        <span className="tz-ge-switch-slider" />
+                      </label>
+                      <span className={`tz-ge-accordion-chevron ${openCategories.contrast ? 'open' : ''}`}>
                         ⌄
                       </span>
                     </div>
-                  </button>
-                  {openCategories.glow && (
+                  </div>
+                  {openCategories.contrast && (
                     <div className="tz-ge-accordion-body">
                       <SliderField
                         label="קונטרסט תלת מימד"
@@ -666,22 +988,13 @@ export default function GalleryEditV2({
                         defaultVal={40}
                         onChange={(v) => handleParamChange('tonal-contrast', 'contrast', v)}
                       />
-                      <SliderField
-                        label="עוצמת גלואו"
-                        value={getParamVal('glow', 'strength', 30)}
-                        min={0}
-                        max={100}
-                        defaultVal={30}
-                        onChange={(v) => handleParamChange('glow', 'strength', v)}
-                      />
                     </div>
                   )}
                 </div>
 
-                {/* 5. Sharpen & Details */}
+                {/* 6. Sharpen & Details */}
                 <div className={`tz-ge-accordion-sec ${openCategories.sharpen ? 'open' : ''}`}>
-                  <button
-                    type="button"
+                  <div
                     className="tz-ge-accordion-head"
                     onClick={() => toggleCategory('sharpen')}
                   >
@@ -691,11 +1004,23 @@ export default function GalleryEditV2({
                     </div>
                     <div className="tz-ge-accordion-meta">
                       {hasSharpenTweaks && <span className="tz-ge-accordion-dot" title="ערכים שונו בתמונה זו" />}
+                      <label
+                        className="tz-ge-switch"
+                        onClick={(e) => e.stopPropagation()}
+                        title={isCategoryEnabled('sharpen') ? 'כבה חידוד' : 'הפעל חידוד'}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={isCategoryEnabled('sharpen')}
+                          onChange={(e) => toggleCategoryEnabled('sharpen', e.target.checked)}
+                        />
+                        <span className="tz-ge-switch-slider" />
+                      </label>
                       <span className={`tz-ge-accordion-chevron ${openCategories.sharpen ? 'open' : ''}`}>
                         ⌄
                       </span>
                     </div>
-                  </button>
+                  </div>
                   {openCategories.sharpen && (
                     <div className="tz-ge-accordion-body">
                       <SliderField
@@ -703,7 +1028,7 @@ export default function GalleryEditV2({
                         value={getParamVal('sharpen', 'amount', 0)}
                         min={0}
                         max={100}
-                        defaultVal={0}
+                        defaultVal={30}
                         onChange={(v) => handleParamChange('sharpen', 'amount', v)}
                       />
                       <SliderField
@@ -810,129 +1135,6 @@ export default function GalleryEditV2({
               >
                 אפס עריכה בתמונה זו
               </button>
-            )}
-          </div>
-        </aside>
-
-        {/* CENTER COLUMN: ACTIVE PHOTO CANVAS */}
-        <main className="tz-ge-canvas-stage">
-          {/* Top Canvas Bar */}
-          <div className="tz-ge-canvas-toolbar">
-            <div className="tz-ge-canvas-nav">
-              <button
-                type="button"
-                className="tz-ge-canvas-nav-btn"
-                disabled={activeSlideIndex <= 0}
-                onClick={() => setActiveSlideIndex((i) => Math.max(0, i - 1))}
-                title="שקופית קודמת (חץ למעלה)"
-              >
-                ›
-              </button>
-              <button
-                type="button"
-                className="tz-ge-canvas-nav-btn"
-                disabled={activeSlideIndex >= slideFrames.length - 1}
-                onClick={() => setActiveSlideIndex((i) => Math.min(slideFrames.length - 1, i + 1))}
-                title="שקופית הבאה (חץ למטה)"
-              >
-                ‹
-              </button>
-              <span style={{ fontWeight: 600, color: '#e4e4e7', fontFamily: 'monospace' }}>
-                {activeSlideIndex + 1} / {slideFrames.length}
-              </span>
-              <span style={{ color: '#71717a', fontSize: 11, marginRight: 8 }}>
-                {currentFrame ? baseName(currentFrame.path) : ''}
-              </span>
-            </div>
-
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-              <button
-                type="button"
-                className={`tz-ge-canvas-compare-btn ${showOriginal ? 'active' : ''}`}
-                onMouseDown={() => setShowOriginal(true)}
-                onMouseUp={() => setShowOriginal(false)}
-                onMouseLeave={() => setShowOriginal(false)}
-                title="לחץ והחזק להשוואה מול המקור (או מקש רווח)"
-              >
-                <TzIconGallery size={14} />
-                <span>{showOriginal ? 'מציג מקור' : 'החזק למקור'}</span>
-              </button>
-            </div>
-          </div>
-
-          {/* Viewport */}
-          <div className="tz-ge-canvas-viewport">
-            {currentFrame ? (
-              <>
-                <img
-                  key={currentFrame.path}
-                  className="tz-ge-canvas-img"
-                  src={displayImage}
-                  alt={currentFrame.name}
-                />
-                {showOriginal && (
-                  <div className="tz-ge-canvas-badge-original">
-                    תמונת מקור (לפני עריכה)
-                  </div>
-                )}
-                {busyRender && (
-                  <div style={{ position: 'absolute', bottom: 16, left: 16, background: 'rgba(0,0,0,0.65)', color: '#ffffff', padding: '4px 10px', borderRadius: 8, fontSize: 11 }}>
-                    מרנדר שינויים...
-                  </div>
-                )}
-              </>
-            ) : (
-              <div style={{ color: '#71717a' }}>אין תמונה מוצגת</div>
-            )}
-          </div>
-        </main>
-
-        {/* LEFT COLUMN: POWERPOINT-STYLE SLIDE DECK */}
-        <aside className="tz-ge-slide-deck">
-          <div className="tz-ge-deck-header">
-            <span>שקופיות ({slideFrames.length})</span>
-            <span style={{ fontSize: 11.5, color: '#71717a' }}>בחר לעריכה</span>
-          </div>
-
-          <div className="tz-ge-deck-scroll">
-            {slideFrames.length === 0 ? (
-              <div style={{ padding: 20, textAlign: 'center', color: '#a1a1aa', fontSize: 12 }}>
-                אין תמונות במקבץ זה
-              </div>
-            ) : (
-              slideFrames.map((f, idx) => {
-                const isActive = idx === activeSlideIndex;
-                const isCustomized = frameSteps(project.id, f.name).length > 0;
-                return (
-                  <div
-                    key={f.path}
-                    className={`tz-ge-slide-item ${isActive ? 'active' : ''}`}
-                    onClick={() => setActiveSlideIndex(idx)}
-                  >
-                    <span className="tz-ge-slide-idx">
-                      {String(idx + 1).padStart(2, '0')}
-                    </span>
-
-                    <div className="tz-ge-slide-thumb-wrap">
-                      <img
-                        className="tz-ge-slide-thumb"
-                        src={thumbUrl(f.path, 320)}
-                        alt={f.name}
-                        loading="lazy"
-                      />
-                    </div>
-
-                    <div className="tz-ge-slide-info">
-                      <span className="tz-ge-slide-title" title={f.name}>
-                        {f.name}
-                      </span>
-                      {isCustomized && (
-                        <span className="tz-ge-slide-badge">מותאם</span>
-                      )}
-                    </div>
-                  </div>
-                );
-              })
             )}
           </div>
         </aside>

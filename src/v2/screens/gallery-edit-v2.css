@@ -73,17 +73,17 @@
   color: var(--tz-brand);
 }
 
-/* Workspace 3-Column Studio Layout: Tools (Right) | Canvas (Center) | Slide Deck (Left) */
+/* Workspace 3-Column Studio Layout: Slide Deck (Right) | Canvas (Center) | Tools (Left) */
 .tz-ge-studio-workspace {
   display: grid;
-  grid-template-columns: 360px 1fr 230px;
+  grid-template-columns: 230px 1fr 360px;
   gap: 14px;
   flex: 1;
   min-height: 0;
   overflow: hidden;
 }
 
-/* 1. LEFT: PowerPoint-Style Slide Deck */
+/* 1. RIGHT: PowerPoint-Style Slide Deck */
 .tz-ge-slide-deck {
   background: #ffffff;
   border: 1px solid #f0eee9;
@@ -431,7 +431,56 @@
 .tz-ge-accordion-meta {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
+}
+
+/* Category On/Off Switch */
+.tz-ge-switch {
+  position: relative;
+  display: inline-block;
+  width: 32px;
+  height: 18px;
+  flex-shrink: 0;
+  cursor: pointer;
+}
+
+.tz-ge-switch input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+  position: absolute;
+}
+
+.tz-ge-switch-slider {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: #e4e4e7;
+  border-radius: 18px;
+  transition: all 0.2s ease;
+}
+
+.tz-ge-switch-slider:before {
+  position: absolute;
+  content: "";
+  height: 14px;
+  width: 14px;
+  left: 2px;
+  bottom: 2px;
+  background-color: white;
+  border-radius: 50%;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+}
+
+.tz-ge-switch input:checked + .tz-ge-switch-slider {
+  background-color: var(--tz-brand);
+}
+
+.tz-ge-switch input:checked + .tz-ge-switch-slider:before {
+  transform: translateX(14px);
 }
 
 .tz-ge-accordion-dot {
