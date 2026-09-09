@@ -1,0 +1,397 @@
+/* שולחן האלבום.
+ *
+ * הכפולה היא הדבר היחיד שמואר. כל השאר — מגש, תבניות, פקדים — יושב על
+ * רקע כהה ושקט, כי בדיוק ככה מסתכלים על ספר: הדף מואר והחדר לא.
+ */
+
+.ad {
+  direction: rtl;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  background: var(--wall-900, #16181e);
+  color: var(--wall-000, #eef0f4);
+  font: inherit;
+}
+
+/* ------------------------------------------------------------------ top bar */
+
+.ad-bar {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  gap: 16px;
+  padding: 10px 16px;
+  background: var(--wall-800, #1d2027);
+  border-bottom: 1px solid var(--wall-700, #272b34);
+  flex: 0 0 auto;
+}
+
+.ad-bar-side { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.ad-bar-end { justify-content: flex-end; }
+
+.ad-client {
+  font-weight: 600;
+  color: var(--wall-000, #eef0f4);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ad-nav { display: flex; align-items: center; gap: 12px; }
+.ad-count { font-variant-numeric: tabular-nums; color: var(--wall-100, #c3c8d2); font-size: 13px; }
+
+.ad-ghost {
+  appearance: none;
+  border: 1px solid var(--wall-600, #343946);
+  background: transparent;
+  color: var(--wall-100, #c3c8d2);
+  border-radius: 7px;
+  padding: 5px 11px;
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  transition: background .12s, color .12s, border-color .12s;
+}
+.ad-ghost:hover:not(:disabled) {
+  background: var(--wall-700, #272b34);
+  color: var(--wall-000, #eef0f4);
+}
+.ad-ghost:disabled { opacity: .35; cursor: default; }
+.ad-danger { border-color: #6b2b2b; color: #f0a0a0; }
+.ad-danger:hover:not(:disabled) { background: #3a1c1c; color: #ffd0d0; }
+
+/* --------------------------------------------------------------------- body */
+
+.ad-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 268px 1fr;
+}
+
+/* --------------------------------------------------------------------- tray */
+
+.ad-tray {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--wall-800, #1d2027);
+  border-inline-start: 1px solid var(--wall-700, #272b34);
+  padding: 12px;
+  gap: 10px;
+}
+
+.ad-tray-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+.ad-tray-head strong { font-size: 14px; }
+
+/* המספר שהצלם באמת שואל: כמה עוד לא שמתי. */
+.ad-remaining {
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: var(--st-work, #0bb3ad);
+}
+
+.ad-batches { display: flex; flex-wrap: wrap; gap: 6px; }
+
+.ad-chip {
+  appearance: none;
+  border: 1px solid var(--wall-600, #343946);
+  background: transparent;
+  color: var(--wall-100, #c3c8d2);
+  border-radius: 999px;
+  padding: 4px 10px;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.ad-chip:hover { background: var(--wall-700, #272b34); }
+.ad-chip.on {
+  background: var(--brand, #b95c2a);
+  border-color: var(--brand, #b95c2a);
+  color: #fff;
+}
+.ad-chip-n { opacity: .6; font-variant-numeric: tabular-nums; }
+
+.ad-showused {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--wall-300, #7d8492);
+  cursor: pointer;
+}
+
+.ad-thumbs {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+  align-content: start;
+}
+
+.ad-thumb {
+  position: relative;
+  aspect-ratio: 1;
+  border-radius: 5px;
+  overflow: hidden;
+  background: var(--wall-700, #272b34);
+  cursor: grab;
+  border: 1px solid transparent;
+}
+.ad-thumb:hover { border-color: var(--wall-300, #7d8492); }
+.ad-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+
+/* תמונה שכבר באלבום. מעומעמת ומתויגת — לא מוסתרת, כי לפעמים רוצים
+ * לשים אותה שוב במכוון. */
+.ad-thumb.is-used img { opacity: .3; }
+.ad-usedtag {
+  position: absolute;
+  inset-block-end: 3px;
+  inset-inline-start: 3px;
+  font-size: 10px;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: rgba(0, 0, 0, .7);
+  color: var(--st-money, #f79009);
+  pointer-events: none;
+}
+
+.ad-empty { color: var(--wall-300, #7d8492); font-size: 12px; grid-column: 1 / -1; }
+
+/* -------------------------------------------------------------------- stage */
+
+.ad-stage {
+  min-width: 0;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 22px 26px 26px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+}
+
+/* הכפולה. לבנה, עם צל שמרים אותה מהחדר. */
+.ad-spread {
+  position: relative;
+  width: 100%;
+  max-width: 1060px;
+  display: flex;
+  background: #fff;
+  box-shadow: 0 18px 48px rgba(0, 0, 0, .55);
+  flex: 0 0 auto;
+}
+
+.ad-page {
+  position: relative;
+  flex: 1 1 50%;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.ad-blank {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: var(--cyc-300, #d3cabf);
+  font-size: 12px;
+  pointer-events: none;
+}
+
+/* --------------------------------------------------------------------- fold */
+
+.ad-fold {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  display: grid;
+  place-items: center;
+}
+
+/* קו שיער. לא מכסה תוכן. */
+.ad-fold-line {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: rgba(0, 0, 0, .3);
+}
+
+/* רצועת הסכנה — פנים כאן נבלעות בכריכה. עדינה במכוון. */
+.ad-fold-zone {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background: linear-gradient(
+    90deg,
+    rgba(0, 0, 0, 0) 0%,
+    rgba(0, 0, 0, .1) 45%,
+    rgba(0, 0, 0, .13) 50%,
+    rgba(0, 0, 0, .1) 55%,
+    rgba(0, 0, 0, 0) 100%
+  );
+}
+
+/* --------------------------------------------------------------------- slot */
+
+.ad-slot {
+  position: absolute;
+  overflow: hidden;
+  background: var(--cyc-100, #f6f3ef);
+  outline: 1px solid rgba(0, 0, 0, .06);
+  outline-offset: -1px;
+}
+
+.ad-slot.is-empty {
+  display: grid;
+  place-items: center;
+  border: 1px dashed var(--cyc-300, #d3cabf);
+  background: var(--cyc-050, #fbfaf8);
+}
+.ad-slot-hint { font-size: 11px; color: var(--cyc-400, #b6aa9d); pointer-events: none; }
+
+.ad-slot.is-filled { cursor: grab; }
+.ad-slot.is-filled:active { cursor: grabbing; }
+
+/* נבחרת — קו שיער בצבע המותג. אין מילוי ואין מסגרת עבה: סימון לא מכסה
+ * תמונה, במיוחד לא כשמכוונים עליה חיתוך. */
+.ad-slot.is-sel { outline: 2px solid var(--brand, #b95c2a); outline-offset: -2px; }
+.ad-slot.is-over { outline: 2px solid var(--st-work, #0bb3ad); outline-offset: -2px; }
+
+.ad-img {
+  position: absolute;
+  inset: 0;
+  background-repeat: no-repeat;
+  background-size: cover;
+  will-change: transform;
+}
+
+/* ----------------------------------------------------------------- slot bar */
+
+.ad-slotbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 8px 12px;
+  border-radius: 9px;
+  background: var(--wall-800, #1d2027);
+  border: 1px solid var(--wall-700, #272b34);
+  flex: 0 0 auto;
+}
+.ad-slotbar-title { font-size: 13px; font-weight: 600; }
+.ad-zoom {
+  min-width: 46px;
+  text-align: center;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  color: var(--wall-100, #c3c8d2);
+}
+.ad-hint { font-size: 12px; color: var(--wall-300, #7d8492); margin-inline-start: 4px; }
+
+/* ---------------------------------------------------------------- templates */
+
+.ad-templates {
+  width: 100%;
+  max-width: 1060px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex: 0 0 auto;
+}
+
+.ad-trow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 12px;
+  border-radius: 9px;
+  background: var(--wall-800, #1d2027);
+  border: 1px solid var(--wall-700, #272b34);
+}
+
+.ad-trow-label {
+  font-size: 12px;
+  color: var(--wall-100, #c3c8d2);
+  white-space: nowrap;
+  flex: 0 0 auto;
+  min-width: 92px;
+}
+
+.ad-trow-items {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  overflow-x: auto;
+  padding-bottom: 2px;
+}
+
+.ad-tgroup { display: flex; align-items: center; gap: 5px; flex: 0 0 auto; }
+.ad-tgroup-n {
+  font-size: 11px;
+  color: var(--wall-300, #7d8492);
+  min-width: 16px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.ad-tmini {
+  appearance: none;
+  border: 1px solid var(--wall-600, #343946);
+  background: transparent;
+  border-radius: 5px;
+  padding: 3px;
+  cursor: pointer;
+  line-height: 0;
+}
+.ad-tmini:hover { border-color: var(--wall-300, #7d8492); }
+.ad-tmini.on { border-color: var(--brand, #b95c2a); box-shadow: 0 0 0 1px var(--brand, #b95c2a); }
+
+.ad-tmini-page {
+  position: relative;
+  display: block;
+  width: 34px;
+  height: 34px;
+  background: var(--wall-000, #eef0f4);
+  border-radius: 2px;
+}
+.ad-tmini-page i { position: absolute; background: var(--wall-600, #343946); }
+
+/* ------------------------------------------------------------ empty / fail */
+
+.ad-wait,
+.ad-fail {
+  direction: rtl;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  height: 100%;
+  padding: 40px;
+  text-align: center;
+  color: var(--wall-100, #c3c8d2);
+  background: var(--wall-900, #16181e);
+}
+.ad-fail h2 { margin: 0; font-size: 17px; color: var(--wall-000, #eef0f4); }
+.ad-fail p { margin: 0; max-width: 46ch; font-size: 13px; color: var(--wall-300, #7d8492); }
+
+/* ------------------------------------------------------------- narrow room */
+
+@media (max-width: 1100px) {
+  .ad-body { grid-template-columns: 216px 1fr; }
+  .ad-thumbs { grid-template-columns: repeat(2, 1fr); }
+}

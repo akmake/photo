@@ -39,7 +39,7 @@ import {
 /** `bench` is the lab on a frame of this project — the primary way to edit a
  *  photograph. `edit` is SetWorkbench, kept and still reachable for the batch
  *  strip and applying to a whole batch. */
-type ToolWhat = 'bench' | 'edit' | 'album' | 'color';
+type ToolWhat = 'bench' | 'edit' | 'album' | 'color' | 'desk';
 type View = 'overview' | StageKey;
 
 /** The number a stage is responsible for. Empty means the stage has no count of
@@ -332,7 +332,10 @@ export default function Project({
                   </p>
                 )}
                 <div className="stage-actions">
-                  <button className="btn btn-primary" onClick={() => onOpenTool('album')}>
+                  <button className="btn btn-primary" onClick={() => onOpenTool('desk')}>
+                    שולחן האלבום
+                  </button>
+                  <button className="btn" onClick={() => onOpenTool('album')}>
                     {project.hasAlbum ? 'פתח את עיצוב האלבום' : 'צור אלבום מהפרויקט'}
                   </button>
                   {project.hasAlbum && (
