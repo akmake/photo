@@ -77,7 +77,10 @@ def main():
         result = json.loads(answer[answer.find('{'):answer.rfind('}')+1])
         if result.get('category') not in CATEGORIES or type(result.get('temporary_evidence')) is not bool:
             raise ValueError(f'Invalid classification: {result}')
+        contradiction = result['temporary_evidence'] and result['category'] not in {
+            'temporary_material', 'possible_blemish'}
         record = {**component, 'index': index, 'detailBox': detail_box,
+                  'internallyConsistent': not contradiction,
                   'assessment': result, 'seconds': round(time.perf_counter()-started, 2)}
         records.append(record)
         panel = Image.new('RGB', (1024, 560), 'white')

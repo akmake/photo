@@ -196,3 +196,41 @@ Next diagnostic: `tools/evaluate_candidate_semantics.py` checks every learned
 detector proposal with face context and an enlarged local crop, including tiny
 proposals. Its classifications are an audit, not permission to remove regions.
 No image is sent to an external service by these scripts.
+
+### Candidate-context audit result
+
+Completed all proposals without selecting only favorable examples:
+
+| Photograph | Detected faces | Proposals | Classified temporary material |
+| --- | ---: | ---: | ---: |
+| 321A1809 | 4 | 6 | 2 |
+| 321A5078 | 7 | 18 | 0 |
+| 321A4934 | 2 | 8 | 0 |
+
+This is model output, not measured accuracy. In 1809, different fragments of the
+same forehead line receive contradictory temporary/permanent interpretations.
+The droplet is recognized as saliva. In 5078, enlarged crops still produce
+unsupported hair/permanent-mark explanations. In 4934, the model calls two
+lighting regions temporary in its boolean while categorizing them as lighting.
+One similar category/boolean contradiction occurs in 1809. Raw responses are
+preserved under each `original-*-candidate-semantics` directory. The diagnostic
+now explicitly flags contradictory fields; no classification authorizes repair.
+There is not enough evidence to promote this combination to the one-click tool.
+
+### Dedicated vendor alternatives researched, not tested
+
+Retouch4me Heal offers a Windows demo and a documented Cloud API with a Heal-only
+task and optional layers. Cloud execution requires a verified account token.
+The desktop product license is not evidence of redistribution/SDK permission.
+No installer executed, account created, credits purchased, vendor contacted or
+user image uploaded. Primary documentation:
+https://retouch4.me/heal
+https://retouch4.me/docs/cloud_retouching_api/en/
+
+EyeQ offers a native Windows/Desktop SDK for licensed integration. Its August
+2026 update announces AI Blemish Removal in Playground. This does not establish
+that this specific new model is available in the native SDK; confirm that and
+integration pricing before choosing it. Vendor quality claims have not been
+validated on our photographs. Primary sources:
+https://perfectlyclear.ai/perfectly-clear-sdks/
+https://perfectlyclear.ai/perfectly-clear-technology-updates/
