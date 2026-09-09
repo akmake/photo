@@ -143,9 +143,56 @@ these masks for autonomous removal. Outputs: `test-results/sam2-blemish-case/`.
    do not rebuild a paper model from random initialization or copy unlicensed code.
 2. Validate semantic preservation (especially beard and lashes) separately from
    the compositor's already-tested immutable-pixel contract.
-3. Prove reconstruction on the specified image, at original resolution and normal
-   viewing size. Diagnostic exact masks may isolate reconstruction from detection,
-   but do not count as automatic cleanup success.
+3. Prove reconstruction on the original test photographs, at original resolution
+   and normal viewing size. Diagnostic masks may isolate reconstruction from
+   detection, but do not count as automatic cleanup success.
 4. Integrate through the existing engine pipeline only after the visual result
-   satisfies both removal and preservation. Additional photos come after this
-   case works, not as a substitute for it.
+   satisfies both removal and preservation. The user explicitly changed the
+   primary benchmark to the original test photos; retain the dense-acne image
+   as a later stress case, not the sole acceptance image.
+
+## Original-photo benchmark and semantic localization (2026-09-09)
+
+The user requested the original experimental photographs. Located and evaluated
+`17072026/11/44/321A1809.JPG` (four children) and
+`17072026/11/33/321A5078.JPG` (seven detected faces). Source SHA-256 values are
+recorded in each diagnostic report. The lower part of 321A1809 decodes as a grey
+region already in the source; these experiments do not restore that region.
+
+Fixed Qwen3-VL coordinates in the standalone agent: model boxes are relative
+0..1000, not overview pixels. Conversion uses outward rounding and validates
+bounds. Three coordinate tests plus existing contracts test pass. Reference:
+https://github.com/QwenLM/Qwen3-VL/blob/main/cookbooks/2d_grounding.ipynb
+
+The corrected learned detector finds only fragments of the white forehead mark
+and saliva in 1809. General Qwen localization finds saliva with a conservative
+prompt and the forehead line with an observation-only prompt. Neither prompt
+finds both reliably. All seven 5078 faces yield no marks with both prompts;
+enlarging one face does not resolve this. Empty predictions do not demonstrate
+preservation of beard or lashes.
+
+`tools/evaluate_face_grounding.py` records all automatic boxes and raw responses.
+`tools/evaluate_grounded_boundaries.py` compares SAM2, converted Transformers
+SAM-HQ and original SAM-HQ. SAM2's highest predicted IoU selects an overly broad
+forehead mask. Converted SAM-HQ produces disconnected regions outside the prompt
+box, also with eager attention. Original authors' SAM-HQ code/checkpoint gives
+the same score but a different, still overly broad mask. Conversion parity is
+not established; neither result is approved for autonomous cleanup. Original
+checkpoint was loaded with weights_only=True and strict=True. References:
+https://github.com/SysCV/sam-hq and https://huggingface.co/lkeab/hq-sam
+
+`tools/evaluate_semantic_repairs.py` tests LaMa using automatically grounded
+rectangles intersected with eroded learned skin masks. The context variant
+removes the forehead line and saliva in 1809 in visual review. It changes 11778
+pixels across two faces and zero pixels outside the permitted masks. The other
+two detected faces remain unchanged. Output comparison:
+`test-results/original-1809-context-repairs/before-after.png`.
+These are broad rectangles, not precise defect boundaries; healthy skin texture
+inside them can change. Numerical mask containment is not semantic preservation.
+BiSeNet has no explicit beard class. This is encouraging reconstruction evidence,
+not a finished one-click tool, and it is not integrated into the production UI.
+
+Next diagnostic: `tools/evaluate_candidate_semantics.py` checks every learned
+detector proposal with face context and an enlarged local crop, including tiny
+proposals. Its classifications are an audit, not permission to remove regions.
+No image is sent to an external service by these scripts.

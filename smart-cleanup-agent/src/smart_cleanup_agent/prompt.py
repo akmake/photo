@@ -31,11 +31,11 @@ Return ONLY valid JSON with this exact structure:
   ]
 }
 
-Coordinates MUST be absolute pixels in the original image dimensions supplied
-below. Allowed kinds: skin_blemish, temporary_skin_mark, stray_hair,
+Coordinates MUST be normalized to 0..1000 relative to the supplied image:
+x=0 is the left edge, x=1000 the right edge; y=0 the top, y=1000 the bottom.
+Allowed kinds: skin_blemish, temporary_skin_mark, stray_hair,
 clothing_lint, clothing_stain, sensor_dust, surface_dirt, distracting_object,
 red_eye, glare, reflection, compression_artifact, noise, blur, exposure,
 color_cast, other. Allowed repair strategies: texture_inpaint, object_inpaint,
 color_correct, denoise, deblur, exposure_correct, manual_review.
 """.strip()
-

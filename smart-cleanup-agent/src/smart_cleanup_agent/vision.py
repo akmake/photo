@@ -2,12 +2,13 @@ from __future__ import annotations
 
 import json
 import re
+import math
 from threading import Lock
 
 from PIL import Image, ImageOps
 
 from .config import settings
-from .contracts import Diagnosis
+from .contracts import Box, Diagnosis
 from .prompt import DIAGNOSIS_PROMPT
 
 
@@ -17,6 +18,20 @@ def _json_object(text: str) -> dict:
     if start < 0 or end <= start:
         raise ValueError(f"Vision model did not return JSON: {text[:240]}")
     return json.loads(cleaned[start : end + 1])
+
+
+def normalized_box_to_pixels(box: Box, width: int, height: int) -> Box:
+    """Qwen3-VL uses 0..1000 relative coordinates, independent of overview size.
+
+    Round outwards so small boxes do not collapse. Invalid model output is an
+    error, never silently clamped into an apparently valid repair location.
+    """
+    if width < 1 or height < 1 or box.x2 > 1000 or box.y2 > 1000:
+        raise ValueError('Expected a valid image and Qwen3 box in 0..1000')
+    return Box(x1=math.floor(box.x1*width/1000),
+               y1=math.floor(box.y1*height/1000),
+               x2=math.ceil(box.x2*width/1000),
+               y2=math.ceil(box.y2*height/1000))
 
 
 class VisionDiagnoser:
@@ -57,11 +72,7 @@ class VisionDiagnoser:
             (settings.overview_max_side, settings.overview_max_side),
             Image.Resampling.LANCZOS,
         )
-        view_width, view_height = overview.size
-        prompt = (
-            f"{DIAGNOSIS_PROMPT}\nThe supplied overview dimensions are "
-            f"{view_width}x{view_height}; return coordinates in those dimensions."
-        )
+        prompt = DIAGNOSIS_PROMPT
         messages = [{"role": "user", "content": [
             {"type": "image", "image": overview},
             {"type": "text", "text": prompt},
@@ -82,10 +93,6 @@ class VisionDiagnoser:
         payload = _json_object(answer)
         payload.update({"width": width, "height": height, "model": settings.vision_model})
         diagnosis = Diagnosis.model_validate(payload)
-        scale_x, scale_y = width / view_width, height / view_height
         for problem in diagnosis.problems:
-            problem.box.x1 = min(round(problem.box.x1 * scale_x), width - 1)
-            problem.box.x2 = min(round(problem.box.x2 * scale_x), width)
-            problem.box.y1 = min(round(problem.box.y1 * scale_y), height - 1)
-            problem.box.y2 = min(round(problem.box.y2 * scale_y), height)
+            problem.box = normalized_box_to_pixels(problem.box, width, height)
         return diagnosis

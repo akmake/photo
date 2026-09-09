@@ -30,6 +30,8 @@ def main():
     parser=argparse.ArgumentParser()
     parser.add_argument('image',type=Path)
     parser.add_argument('--output',type=Path,required=True)
+    parser.add_argument('--crop-policy', choices=['agent','upstream'], default='agent')
+    parser.add_argument('--inference-side', type=int, choices=[768,1536], default=768)
     args=parser.parse_args()
     started=time.perf_counter()
     image=ImageOps.exif_transpose(Image.open(args.image)).convert('RGB')
@@ -46,13 +48,23 @@ def main():
     del weights
     full_score=np.zeros(rgb.shape[:2],np.float32)
     records=[]
+    crops=[]
     args.output.mkdir(parents=True,exist_ok=True)
     for face in faces:
         x0,y0,x1,y1=face.crop_box
+        if args.crop_policy == 'upstream':
+            # ModelScope get_crop_bbox: square, 1.5 times largest face side.
+            # Face localization remains YuNet, not upstream RetinaFace.
+            fx0,fy0,fx1,fy1=face.box
+            cx,cy=(fx0+fx1)/2,(fy0+fy1)/2
+            side=int(1.5*max(fx1-fx0,fy1-fy0))
+            x0,y0=max(0,int(cx-side/2)),max(0,int(cy-side/2))
+            x1,y1=min(image.width,int(cx+side/2)),min(image.height,int(cy+side/2))
+        crops.append([x0,y0,x1,y1])
         crop=rgb[y0:y1,x0:x1]
         tensor=torch.from_numpy(crop.transpose(2,0,1).copy()).float().unsqueeze(0).to(device)/127.5-1
         with torch.inference_mode():
-            standard=F.interpolate(tensor,(768,768),mode='bilinear',align_corners=True)
+            standard=F.interpolate(tensor,(args.inference_side,args.inference_side),mode='bilinear',align_corners=True)
             prediction=torch.sigmoid(model(standard))
             score=F.interpolate(prediction,crop.shape[:2],mode='nearest')[0,0].cpu().numpy()
         full_score[y0:y1,x0:x1]=np.maximum(full_score[y0:y1,x0:x1],score)
@@ -74,7 +86,8 @@ def main():
         Image.fromarray(overlay).save(args.output/f'{name}-overlay.png')
     report={'source':str(args.image.resolve()),'sha256':hashlib.sha256(args.image.read_bytes()).hexdigest(),
             'device':device,'seconds':round(time.perf_counter()-started,2),
-            'faceCrops':[list(face.crop_box) for face in faces], 'components':records,
+            'faceCrops':crops, 'components':records,
+            'cropPolicy':args.crop_policy,'inferenceSide':args.inference_side,
             'lowMaskPx':int((full_score>=.35).sum()),'highMaskPx':int((full_score>=.5).sum()),
             'pixelAccuracyValidated':False,'protectionApplied':False,'retouchingExecuted':False}
     (args.output/'report.json').write_text(json.dumps(report,indent=2),encoding='utf-8')
