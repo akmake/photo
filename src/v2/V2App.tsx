@@ -15,6 +15,9 @@ import {
 import './tz-exact.css';
 
 const AlbumStudio = lazy(() => import('../album/AlbumStudio'));
+/* שולחן האלבום — the third album tool. Its own stage beside עיצוב אלבום, so
+ * both stay reachable while the new one is being built. */
+const AlbumDesk = lazy(() => import('../albumdesk/AlbumDesk'));
 
 interface V2AppProps {
   onSwitchToV1: () => void;
@@ -30,7 +33,8 @@ export default function V2App({ onSwitchToV1, onOpenProjectV1 }: V2AppProps) {
 
   const isEditing = activeNav === 'project-detail' && activeStage === 'gallery-edit';
   const isAlbumMode =
-    (activeNav === 'project-detail' && activeStage === 'album-design') ||
+    (activeNav === 'project-detail' &&
+      (activeStage === 'album-design' || activeStage === 'album-desk')) ||
     activeNav === 'albums';
   const isSidebarCollapsed = sidebarCollapsed || isEditing || isAlbumMode;
 
@@ -64,6 +68,7 @@ export default function V2App({ onSwitchToV1, onOpenProjectV1 }: V2AppProps) {
     { id: 'send-to-client', label: 'שלח ללקוח', icon: TzIconSend },
     { id: 'gallery-edit', label: 'עריכה', icon: TzIconSliders },
     { id: 'album-design', label: 'אלבום', icon: TzIconBook },
+    { id: 'album-desk', label: 'שולחן האלבום', icon: TzIconBook },
   ];
 
   const projectTitle = selectedProject
@@ -135,6 +140,17 @@ export default function V2App({ onSwitchToV1, onOpenProjectV1 }: V2AppProps) {
             onNext={() => setActiveStage('album-design')}
             onBack={() => setActiveStage('send-to-client')}
           />
+        );
+      }
+
+      if (activeStage === 'album-desk' && proj) {
+        return (
+          <Suspense fallback={<div className="tz-screen-wait" style={{ padding: 40, textAlign: 'center', color: '#71717a' }}>טוען את שולחן האלבום...</div>}>
+            <AlbumDesk
+              project={proj}
+              onBack={() => setActiveStage('album-design')}
+            />
+          </Suspense>
         );
       }
 
