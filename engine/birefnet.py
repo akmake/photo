@@ -113,7 +113,13 @@ def subject_alpha(rgb: np.ndarray) -> np.ndarray:
         out = sess.run(None, {"input_image": x})[0]
         try:
             os.makedirs(os.path.dirname(cached_at), exist_ok=True)
-            tmp = cached_at + ".tmp"
+            # ".tmp.npy", not ".tmp": np.save APPENDS ".npy" to any name that
+            # lacks it, so this wrote "<digest>.npy.tmp.npy" and the replace
+            # below renamed a path that did not exist. The OSError went into
+            # the handler underneath and the cache stored nothing, ever — every
+            # file in the subject cache was an orphaned temp, and the 6.4s
+            # below was paid again on every single frame.
+            tmp = cached_at + ".tmp.npy"
             np.save(tmp, out)
             os.replace(tmp, cached_at)
         except OSError:
