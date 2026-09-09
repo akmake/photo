@@ -1,4 +1,4 @@
-"""Audit a published mask refiner on saved SAM predictions, without repair.
+"""Audit a published mask refiner on saved coarse predictions, without repair.
 
 CascadePSP's dataset uses PIL RGB, despite its quickstart passing cv2.imread.
 Use RGB here, the authors' model checksum, and unchanged inference defaults.
@@ -59,7 +59,7 @@ def main():
         selected=refined>127
         Image.fromarray(selected.astype(np.uint8)*255).save(args.output/f'{key}-mask.png')
         panel=Image.new('RGB',(w*3,h+30),'white');draw=ImageDraw.Draw(panel)
-        for j,(label,mask) in enumerate([('Original',np.zeros_like(selected)),('Coarse SAM mask',coarse>127),('CascadePSP',selected)]):
+        for j,(label,mask) in enumerate([('Original',np.zeros_like(selected)),('Coarse input mask',coarse>127),('CascadePSP',selected)]):
             overlay=rgb.copy()
             overlay[mask]=np.rint(.5*rgb[mask]+.5*np.array([255,30,40])).astype(np.uint8)
             panel.paste(Image.fromarray(overlay),(j*w,30));draw.text((j*w+4,5),label,fill='black')

@@ -150,6 +150,27 @@ being written; opening a partial file and seeking to its end shows current size.
 Sources: https://huggingface.co/Qwen/Qwen3-VL-8B-Thinking and
 https://huggingface.co/docs/bitsandbytes/installation
 
+### CascadePSP boundary audit while localization weights download
+
+Installed the authors' `segmentation-refinement==0.6` with `--no-deps` in the GPU
+evaluation environment. Downloaded the 271067364-byte checkpoint from their
+GitHub v1.0 release and verified publisher MD5
+`7478d4a9c42ab52beb6d7e9683402fe0`. Restricted weights-only loading is forced.
+Used RGB: the authors' offline dataset explicitly opens PIL RGB, even though
+their quickstart passes OpenCV BGR. No training or threshold search.
+
+`tools/evaluate_boundary_refiner.py` runs the unchanged fast=False, L=900
+inference on native saved masks. It preserves soft masks and source hashes.
+Results do not repair the semantic errors: the forehead patch remains broad
+(2814 to 2692 pixels), the upper saliva prompt still selects the lip (663 to
+686), and the lower saliva mask remains incomplete (301 to 219). On the thin
+SegGPT forehead mask, it shrinks 79 pixels to 30; the false hair/clothing mask
+grows from 131 to 181. Not approved for cleanup.
+
+Artifacts: `original-1809-cascadepsp-line`, `original-1809-cascadepsp-saliva`,
+`original-1809-cascadepsp-thin` under `test-results/`.
+Primary source: https://github.com/hkchengrex/CascadePSP
+
 ### Product and cost constraint clarified by user
 
 Commercial licensing is not approved merely because it exists: the user needs
