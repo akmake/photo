@@ -155,6 +155,15 @@ const FACTS: Record<string, (v: MetaValue) => string> = {
   zonesUsed: (v) => `טווחי טון שנצבעו: ${int(v)}`,
   dodgedPx: (v) => `פיקסלים שהוארו: ${int(v)}`,
   burnedPx: (v) => `פיקסלים שהוכהו: ${int(v)}`,
+  movedPx: (v) => `פיקסלים שזזו: ${int(v)}`,
+  // The two lines a tone move is judged by. They count what THIS tool clipped,
+  // so a frame that arrived with a blown window does not read as damage the
+  // slider did — and a zero here is a real answer, not a missing one.
+  clippedWhitePx: (v) => `נשרפו ללבן על ידי הכלי: ${int(v)} פיקסלים`,
+  clippedBlackPx: (v) => `נסתמו לשחור על ידי הכלי: ${int(v)} פיקסלים`,
+  zonesFromArea: (v) => (num(v)
+    ? 'האזור הטונאלי נקרא מהסביבה של הפיקסל (שחזור מקומי)'
+    : 'האזור הטונאלי נקרא מהפיקסל עצמו'),
   meanAbsL: (v) => `דחיפת L* ממוצעת: ${num(v).toFixed(2)}`,
   lightFollow: (v) => `מהדחיפה האנטומית שרד את אור הסצנה: ${Math.round(num(v) * 100)}%`,
   pushOnFabric: (v) => `מהמבנה נחת על בגדים: ${pct(v)}`,

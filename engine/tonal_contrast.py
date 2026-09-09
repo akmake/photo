@@ -27,7 +27,10 @@ chroma in the same regions (hers via Nik; ours defaults to 0 = none).
 
 Highlight headroom and a black floor guard both scales: a white knit must not
 clip (the niche's every frame has a white garment) and a boosted shadow must
-not block up.
+not block up. BOTH scales means both layers on each side -- a zone-wide guard
+off the blurred base, and a per-pixel cap the blur cannot see past. The floor
+had only the first until it was measured crushing 0.16% of a frame to solid
+black.
 """
 
 import cv2
@@ -135,6 +138,18 @@ def apply(rgb, params: dict):
     # converts L-units to a safe RGB bound: raising L on a coloured pixel can
     # move its top channel faster than dl itself.
     dl = np.minimum(dl, 0.6 * np.clip(252.0 - rgb.max(axis=2).astype(np.float32), 0.0, None))
+    # ...and the same cap on the way DOWN, which was missing. `floor` above is
+    # read off the BLURRED base, so it protects a dark region and cannot see a
+    # dark pixel inside a normal one: measured on 321A1770 at amount 60, the
+    # 31,941 pixels this tool crushed to solid black sat in a neighbourhood of
+    # median L* 25 -- `floor` was exactly 1.000 on every one of them, wide open,
+    # while the pixels themselves came in at RGB ~25 and left at 0. That is a
+    # fold in a dark suit losing its weave, which is the same failure the
+    # highlight cap was added to stop, upside down. Mirrored constants: 3 is the
+    # floor 252 is the ceiling of, and 0.6 converts L-units to a safe RGB bound
+    # for the same reason -- lowering L on a coloured pixel can move its bottom
+    # channel faster than dl itself.
+    dl = np.maximum(dl, -0.6 * np.clip(rgb.min(axis=2).astype(np.float32) - 3.0, 0.0, None))
 
     lab[..., 0] = np.clip((L + dl) / 2.55, 0.0, 100.0)
     if sat:

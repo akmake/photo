@@ -77,15 +77,40 @@ def _luma(rgb):
     return rgb @ LUM
 
 
-def _wrap(fn):
+def _wrap(fn, report=None):
     """Expose each tool with the same (rgb, params) -> (rgb, meta) contract as
-    the AI tools, so render.py can chain them all without serialising."""
+    the AI tools, so render.py can chain them all without serialising.
+
+    `report(before_u8, after_u8, params) -> dict` is optional and per tool. It
+    is not a default for all of them: a report is a measurement, it costs a pass
+    over the frame on every slider move, and a number nobody can act on is worse
+    than silence. A tool gets one when there is something the photographer needs
+    told. Without it the meta stays `{}`, exactly as before."""
 
     def inner(rgb, params: dict):
+        # fn works on its own float copy, so `rgb` is still the untouched input
+        # when the report reads it.
         out = fn(rgb.astype(np.float32), params)
-        return np.clip(out, 0, 255).astype(np.uint8), {}
+        u8 = np.clip(out, 0, 255).astype(np.uint8)
+        return u8, (report(rgb, u8, params) if report is not None else {})
 
     return inner
+
+
+# sRGB byte -> L*, for the 256 greys. Reporting a tone move in L* is what every
+# other tool in the panel does (contour, tonal_contrast), and L* is the scale a
+# person reads: a fixed number of L* points looks like the same size of move in
+# the shadows as in the highlights, which byte levels do not. A full Lab
+# conversion of a 20MP frame, twice, to print two numbers is not worth its
+# second; this is exact for neutrals and within half a point elsewhere.
+def _build_lstar():
+    v = np.arange(256, dtype=np.float64) / 255.0
+    lin = np.where(v <= 0.04045, v / 12.92, ((v + 0.055) / 1.055) ** 2.4)
+    f = np.where(lin > 0.008856, np.cbrt(lin), 7.787 * lin + 16.0 / 116.0)
+    return (116.0 * f - 16.0).astype(np.float32)
+
+
+_LSTAR = _build_lstar()
 
 
 def _local_luma(lum):
@@ -99,6 +124,50 @@ def _local_luma(lum):
     for _ in range(3):
         out = cv2.blur(out, (n, n), borderType=cv2.BORDER_REPLICATE)
     return out
+
+
+def _tc_from_area(params):
+    """Are tone-color's zones read from the AREA around a pixel or from the
+    pixel itself? Defined once, because the tool and its report both need the
+    answer and two copies of a condition drift."""
+    return _p(params, "recovery") > 0 and (
+        _p(params, "highlights") or _p(params, "shadows")
+    )
+
+
+def _tone_color_report(before, after, params):
+    """What a tone tool owes the photographer.
+
+    It was the only tool of the four on כלים ראשוניים that reported nothing —
+    measured on seven wedding frames it moved 98.3%-99.8% of the pixels and the
+    panel said `{}` while ניקוי, פיסול, תלת מימד and גלואו each said what they
+    had done. Silence from the tool that moves everything is the worst place for
+    it.
+
+    The two clipping counts are the point. A tone move is judged at its ends:
+    a stop of exposure that looks right on screen can have taken a dress with
+    it, and the frame that says so is this one — not the export. They count
+    pixels THIS tool clipped, so a frame that arrived with a blown window does
+    not read as damage the slider did."""
+    lb = _LSTAR[np.clip(_luma(before.astype(np.float32)), 0, 255).astype(np.uint8)]
+    la = _LSTAR[np.clip(_luma(after.astype(np.float32)), 0, 255).astype(np.uint8)]
+    d = np.abs(la - lb)
+    moved = int((d > 0.05).sum())
+    if not moved:
+        return {"applied": 0}
+
+    # any channel at an end is a channel with nothing left in it — per channel,
+    # not per pixel, because that is where the detail is actually lost
+    was_hi = (before >= 255).any(axis=2)
+    was_lo = (before <= 0).any(axis=2)
+    return {
+        "applied": 1,
+        "meanAbsL": round(float(d.mean()), 2),
+        "movedPx": moved,
+        "clippedWhitePx": int((((after >= 255).any(axis=2)) & ~was_hi).sum()),
+        "clippedBlackPx": int((((after <= 0).any(axis=2)) & ~was_lo).sum()),
+        "zonesFromArea": 1 if _tc_from_area(params) else 0,
+    }
 
 
 def _tone_color(rgb, params):
@@ -148,7 +217,7 @@ def _tone_color(rgb, params):
         lum = _luma(x)
         li = np.clip(lum * (n - 1), 0, n - 1).astype(np.int32)
 
-        if recovery > 0 and (highlights or shadows):
+        if _tc_from_area(params):
             # Adaptive recovery: the zone is chosen by how bright the AREA is,
             # not the pixel. A catchlight inside a dark braid then rides up with
             # the shadow it lives in instead of being read as a highlight and
@@ -629,7 +698,7 @@ def _curves(rgb, params):
     return np.clip(out, 0, 255)
 
 
-tone_color = _wrap(_tone_color)
+tone_color = _wrap(_tone_color, _tone_color_report)
 curves = _wrap(_curves)
 noise_reduction = _wrap(_noise)
 dimension = _wrap(_dimension)
