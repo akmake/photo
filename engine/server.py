@@ -66,6 +66,9 @@ import workspace
 import cloud_sources
 import storage_locations
 import db
+import sys
+import traceback
+
 import albumdesk_export
 import gallery
 import gallery_store
@@ -1946,6 +1949,33 @@ if ($path) {
             self._json(500, {"error": str(e)})
 
     def _json(self, code, obj):
+        """Answer in JSON — and never let a 5xx leave without a trace.
+
+        Forty handlers in this file end in `self._json(500, {"error": str(e)})`
+        and not one of them wrote anything down. The text went to the browser,
+        where it showed up in the console as the bare word "500", and the
+        engine's own window stayed clean — `log_message` is silenced on purpose
+        to keep it readable.
+
+        So the one window that should have said what broke was the one place
+        guaranteed not to. Debugging a 500 meant opening the Network tab and
+        reading a response body by hand, and a crash that followed one looked
+        unrelated because nothing tied them together.
+
+        A silent failure is the most expensive bug to find. 5xx is the engine's
+        own fault by definition, so it prints, with the live exception's
+        traceback when there is one. 4xx stays quiet: that is the caller being
+        told something, not a fault here.
+        """
+        if code >= 500:
+            try:
+                detail = obj.get("error") if isinstance(obj, dict) else obj
+                print(f"[{code}] {self.command} {self.path} -> {detail}", flush=True)
+                if sys.exc_info()[0] is not None:
+                    traceback.print_exc()
+                    sys.stderr.flush()
+            except Exception:  # noqa: BLE001 — reporting must never be the crash
+                pass
         payload = json.dumps(obj).encode("utf-8")
         self.send_response(code)
         self._cors()
