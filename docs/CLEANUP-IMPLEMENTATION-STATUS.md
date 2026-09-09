@@ -82,6 +82,36 @@ vendor documentation states local/cloud/mobile availability and separate blemish
 removal/skin smoothing. It was not tested, licensed, purchased, or contacted:
 https://perfectlyclear.ai/perfectly-clear-technology-updates/
 
+### Product and cost constraint clarified by user
+
+Commercial licensing is not approved merely because it exists: the user needs
+an economical solution and editing must remain embedded in this product, without
+switching into the supplier's application. Do not substitute a purchased desktop
+plugin for an embedded product engine.
+
+Public Retouch4me annual offers checked 2026-09-09: USD 169 / 2400 retouches,
+299 / 6000, 759 / 18000. Effective unit costs at full utilization are about
+USD 0.0704, 0.0498, 0.0422 respectively; these require the stated annual purchase,
+are displayed as offers, and are not a negotiated redistribution quote.
+API documentation says each accepted job deducts one retouch credit. Editing
+can use an embedded UI with background API processing, but the documented token
+flow requires a verified supplier account. Invisible end-customer onboarding
+and resale terms have not been established.
+https://retouch4.me/pricing
+https://retouch4.me/docs/cloud_retouching_api/en/webhooks.html
+
+EyeQ describes Desktop SDK pricing as monthly service pricing, with computation
+on the end-customer computer. Exact embedded-license cost was not found.
+Its license documentation includes protected, time-limited, and unprotected
+bundles; the latter two do not require separate license activation. Availability
+and cost of the appropriate bundle must be obtained from the vendor, together
+with confirmation of the new AI Blemish Removal model's native availability.
+The public USD 0.10 Photo Corrections price is not a verified price for that
+new model or for a redistributable native SDK.
+https://perfectlyclear.ai/compare-our-solutions/
+https://docs.eyeq.photos/docs/general-info/licensing
+https://perfectlyclear.ai/pricing/
+
 ## Specialized candidate access and product integration remain pending
 
 No production cleanup route or UI was changed in this implementation step.
