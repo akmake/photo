@@ -80,9 +80,16 @@ interface Loaded {
   h: number;
 }
 
-function emptyRecipe(): Recipe {
+/* `only` narrows the bench to a named set of tools, and narrows nothing else:
+ * same render path, same per-step report, same save. The filter lives HERE, in
+ * the one place the recipe is born, because every other part of this screen
+ * reads the recipe and only the recipe — what the panel lists, what is sent to
+ * the engine, what "כבה הכל" clears, and which steps a project frame owns. A
+ * second filter at the render site would be a second truth. */
+function emptyRecipe(only?: readonly string[]): Recipe {
   const r = defaultRecipe();
-  return { tools: r.tools.map((t) => ({ ...t, enabled: false })) };
+  const tools = only ? r.tools.filter((t) => only.includes(t.toolId)) : r.tools;
+  return { tools: tools.map((t) => ({ ...t, enabled: false })) };
 }
 
 /** The project's decisions, poured into the switches this screen already has.
@@ -91,8 +98,8 @@ function emptyRecipe(): Recipe {
  *  STATE of every tool — on or off, at what values — and a project recipe is
  *  precisely that. So a frame opens showing what has already been decided about
  *  it, rather than switched off over a set that carries a look. */
-function recipeFromSteps(steps: ToolInstance[]): Recipe {
-  let r = emptyRecipe();
+function recipeFromSteps(steps: ToolInstance[], only?: readonly string[]): Recipe {
+  let r = emptyRecipe(only);
   for (const step of steps) {
     if (!r.tools.some((t) => t.toolId === step.toolId)) continue;
     r = {
@@ -127,9 +134,11 @@ function paramNote(toolId: string, params: Record<string, number>): string {
   }
 }
 
-export default function Lab({ frame }: { frame?: LabFrame } = {}) {
+export default function Lab(
+  { frame, only }: { frame?: LabFrame; only?: readonly string[] } = {},
+) {
   const [img, setImg] = useState<Loaded | null>(null);
-  const [recipe, setRecipe] = useState<Recipe>(emptyRecipe);
+  const [recipe, setRecipe] = useState<Recipe>(() => emptyRecipe(only));
   const [out, setOut] = useState<string | null>(null);
   const [reports, setReports] = useState<StepReport[]>([]);
   const [missing, setMissing] = useState<string[]>([]);
@@ -348,7 +357,7 @@ export default function Lab({ frame }: { frame?: LabFrame } = {}) {
   }, []);
 
   const load = useCallback(async (file: File) => {
-    forget(emptyRecipe());
+    forget(emptyRecipe(only));
     setImg(null);
     try {
       const full = await readFile(file);
@@ -357,7 +366,7 @@ export default function Lab({ frame }: { frame?: LabFrame } = {}) {
     } catch (e) {
       setError(`טעינת הקובץ נכשלה: ${(e as Error).message}`);
     }
-  }, [forget]);
+  }, [forget, only]);
 
   /* A PROJECT'S FRAME. The engine renders the original with an empty recipe to
    * produce something displayable — the same call the workbench makes for its
@@ -373,7 +382,7 @@ export default function Lab({ frame }: { frame?: LabFrame } = {}) {
   useEffect(() => {
     if (!framePath || !frameProject) return;
     let alive = true;
-    forget(recipeFromSteps(effectiveRecipe(frameProject, framePath)));
+    forget(recipeFromSteps(effectiveRecipe(frameProject, framePath), only));
     seeded.current = framePath;
     setImg(null);
     renderRecipeAtPath(framePath, [])
@@ -394,7 +403,7 @@ export default function Lab({ frame }: { frame?: LabFrame } = {}) {
       alive = false;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [framePath, frameProject, forget]);
+  }, [framePath, frameProject, forget, only]);
 
   /* ------------------------------------------------------------ render */
 
@@ -484,6 +493,11 @@ export default function Lab({ frame }: { frame?: LabFrame } = {}) {
 
   const cleanupInst = recipe.tools.find((t) => t.toolId === CLEANUP_ID);
   const cleanupOrder = getTool(CLEANUP_ID).order;
+  /* Marking is ניקוי כתמים's own view — it scans for spots and writes outlines
+   * into that tool's selection. On a bench narrowed to a set that does not
+   * carry it, the mode is not "empty", it is meaningless: it would offer a
+   * multi-second full-resolution scan whose result nothing could apply. */
+  const hasCleanup = recipe.tools.some((t) => t.toolId === CLEANUP_ID);
 
   /* Everything the candidate set depends on. Not just the cleanup sliders: a
    * tool that runs EARLIER changes the frame cleanup receives, so it changes
@@ -636,11 +650,11 @@ export default function Lab({ frame }: { frame?: LabFrame } = {}) {
   // Staleness is surfaced instead — and the marks already chosen stay valid
   // whatever the sliders do, because an outline describes itself.
   useEffect(() => {
-    if (mode !== 'marks' || !img || marks || marksBusy) return;
+    if (!hasCleanup || mode !== 'marks' || !img || marks || marksBusy) return;
     if (scanAttempt.current === scanKey) return;
     scanAttempt.current = scanKey;
     runScan();
-  }, [mode, img, marks, marksBusy, scanKey, runScan]);
+  }, [hasCleanup, mode, img, marks, marksBusy, scanKey, runScan]);
 
   /** The bulk moves. `accepted` is the engine's own answer applied in one go —
    *  which reproduces the automatic result exactly (test_cleanup_marking.py),
@@ -1214,13 +1228,15 @@ export default function Lab({ frame }: { frame?: LabFrame } = {}) {
               disabled={!out}>
               הפרש
             </button>
-            <button
-              className={mode === 'marks' ? 'on' : ''}
-              onClick={() => setMode('marks')}
-              title="מראה כל מה שהמנוע מצא — מאושר ונדחה — ונותן לבחור מה לתקן"
-            >
-              סימון
-            </button>
+            {hasCleanup && (
+              <button
+                className={mode === 'marks' ? 'on' : ''}
+                onClick={() => setMode('marks')}
+                title="מראה כל מה שהמנוע מצא — מאושר ונדחה — ונותן לבחור מה לתקן"
+              >
+                סימון
+              </button>
+            )}
             {mode === 'diff' && (
               <select value={gain} onChange={(e) => setGain(Number(e.target.value))}>
                 <option value={1}>×1</option>
@@ -1262,7 +1278,7 @@ export default function Lab({ frame }: { frame?: LabFrame } = {}) {
       <aside className="lab-tools scroll-y">
         <div className="lab-tools-head">
           <h2>כלים</h2>
-          <button className="btn btn-ghost" onClick={() => setRecipe(emptyRecipe())}>
+          <button className="btn btn-ghost" onClick={() => setRecipe(emptyRecipe(only))}>
             כבה הכל
           </button>
         </div>

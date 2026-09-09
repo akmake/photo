@@ -40,6 +40,7 @@ export type SectionId =
   | 'calendar'
   | 'experiments'
   | 'smart-cleanup'
+  | 'primary-tools'
   | 'lab'
   | 'settings'
   /* Not rail destinations. Still reachable by hash while the screens that will
@@ -75,6 +76,10 @@ export const SECTIONS: SectionDef[] = [
   { id: 'clients', label: 'לקוחות', icon: 'users' },
   { id: 'calendar', label: 'יומן', icon: 'calendar' },
   { id: 'smart-cleanup', label: 'ניקוי חכם', icon: 'smart-cleanup' },
+  /* The lab bench on four tools — פיסול אור וצל, טון וצבע, תלת מימד, גלואו.
+   * It sits BEFORE the lab because it is the everyday door and the lab is the
+   * examining room: the set here is what most frames actually need. */
+  { id: 'primary-tools', label: 'כלים ראשוניים', icon: 'sliders' },
   { id: 'lab', label: 'מעבדה', icon: 'lab' },
   { id: 'experiments', label: 'כלים בניסיון', icon: 'flask' },
   { id: 'settings', label: 'הגדרות', icon: 'gear', foot: true },

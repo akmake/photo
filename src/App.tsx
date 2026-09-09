@@ -25,6 +25,9 @@ const GalleryEdit = lazy(() => import('./studio/screens/GalleryEdit'));
  * keeps each of them behind its own lazy boundary, so this one import does not
  * pull both into a single chunk. */
 const LabSection = lazy(() => import('./lab/LabSection'));
+/* כלים ראשוניים — the same lab bench, narrowed to the four tools that shape
+ * light. Its own lazy boundary: opening it must not also fetch the reader. */
+const PrimaryTools = lazy(() => import('./lab/PrimaryTools'));
 const AlbumStudio = lazy(() => import('./album/AlbumStudio'));
 /* כלים בניסיון — the experimental-tools room. Its own workspace, deliberately
  * decoupled from the project tools, so nothing half-built can touch a real job.
@@ -64,7 +67,8 @@ const RETIRED: Partial<Record<string, SectionId>> = {
 };
 
 const LIVE_SECTIONS = new Set<string>([
-  'today', 'projects', 'project', 'clients', 'calendar', 'smart-cleanup', 'experiments', 'lab', 'settings',
+  'today', 'projects', 'project', 'clients', 'calendar', 'smart-cleanup', 'experiments',
+  'primary-tools', 'lab', 'settings',
   // pre-direction workspaces, still reachable until the project screen absorbs them
   'editing', 'albums',
 ]);
@@ -95,6 +99,7 @@ const SECTION_TITLE: Partial<Record<SectionId, string>> = {
   clients: 'לקוחות',
   calendar: 'יומן',
   'smart-cleanup': 'ניקוי חכם',
+  'primary-tools': 'כלים ראשוניים',
   experiments: 'כלים בניסיון',
   settings: 'הגדרות',
 };
@@ -156,7 +161,9 @@ export default function App() {
         ? `#/lab/${labView}`
         : section === 'experiments'
           ? '#/experiments'
-          : `#/${section}/${stage}`;
+          : section === 'primary-tools'
+            ? '#/primary-tools'
+            : `#/${section}/${stage}`;
     if (window.location.hash !== want) {
       window.history.replaceState(null, '', want);
     }
@@ -206,6 +213,8 @@ export default function App() {
   // כלים בניסיון — a full-bleed workspace of its own, like the lab.
   const isExperiments = section === 'experiments';
   const isSmartCleanup = section === 'smart-cleanup';
+  // כלים ראשוניים — the lab bench on four tools. Full-bleed like the lab it is.
+  const isPrimaryTools = section === 'primary-tools';
   // The supplied dashboard owns the opening content, while its navigation and
   // top bar now live in Shell so the same frame persists across the whole app.
   const isDashboard = section === 'today';
@@ -298,6 +307,9 @@ export default function App() {
   } else if (isLab) {
     body = <LabSection view={labView} onView={setLabView} />;
     title = labView === 'compare' ? 'קריאת עריכה · מעבדה' : 'מעבדה';
+  } else if (isPrimaryTools) {
+    body = <PrimaryTools />;
+    title = 'כלים ראשוניים';
   } else if (isSmartCleanup) {
     body = <SmartCleanup />;
     title = 'ניקוי חכם';
@@ -350,13 +362,14 @@ export default function App() {
         title={title}
         flush={
           isDashboard || isEditor || isAlbum || isLab || isSmartCleanup || isExperiments
+          || isPrimaryTools
           || Boolean(openedProject && (workbench || bench || album))
         }
         // Editing a photograph owns the whole window: the business rail comes off
         // and the strip it used becomes the set being edited. The bench and the
         // album both carry their own way back, so nothing is stranded.
         rail={!(openedProject && (workbench || bench || album))}
-        bare={isDashboard || isAlbum || isLab || isSmartCleanup || isExperiments}
+        bare={isDashboard || isAlbum || isLab || isSmartCleanup || isExperiments || isPrimaryTools}
         // Only the pre-direction project routes still carry the tab row.
         stages={!Standalone && !openedProject}
       >

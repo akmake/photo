@@ -31,7 +31,7 @@ export function NavRail({
   onSection: (s: SectionId) => void;
 }) {
   const studio = useStudio();
-  const workshopIds: SectionId[] = ['smart-cleanup', 'lab', 'experiments'];
+  const workshopIds: SectionId[] = ['smart-cleanup', 'primary-tools', 'lab', 'experiments'];
   const main = SECTIONS.filter((s) => !s.foot && !workshopIds.includes(s.id));
   const tools = SECTIONS.filter((s) => workshopIds.includes(s.id));
   const foot = SECTIONS.filter((s) => s.foot);
