@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { Suspense, lazy, useState } from 'react';
 import { useStudio } from '../studio/store';
 import TzStatusScreen from './screens/TzStatusScreen';
 import TodayV2 from './screens/TodayV2';
@@ -14,6 +14,8 @@ import {
 } from './TzIcons';
 import './tz-exact.css';
 
+const AlbumStudio = lazy(() => import('../album/AlbumStudio'));
+
 interface V2AppProps {
   onSwitchToV1: () => void;
   onOpenProjectV1?: (id: string) => void;
@@ -27,7 +29,10 @@ export default function V2App({ onSwitchToV1, onOpenProjectV1 }: V2AppProps) {
   const studio = useStudio();
 
   const isEditing = activeNav === 'project-detail' && activeStage === 'gallery-edit';
-  const isSidebarCollapsed = sidebarCollapsed || isEditing;
+  const isAlbumMode =
+    (activeNav === 'project-detail' && activeStage === 'album-design') ||
+    activeNav === 'albums';
+  const isSidebarCollapsed = sidebarCollapsed || isEditing || isAlbumMode;
 
   // Active project selection
   const selectedProject = studio.projects.find((p) => p.id === selectedProjectId) || studio.projects[0];
@@ -133,11 +138,34 @@ export default function V2App({ onSwitchToV1, onOpenProjectV1 }: V2AppProps) {
         );
       }
 
+      if (activeStage === 'album-design' && proj) {
+        return (
+          <Suspense fallback={<div className="tz-screen-wait" style={{ padding: 40, textAlign: 'center', color: '#71717a' }}>טוען עיצוב אלבום...</div>}>
+            <AlbumStudio
+              job={proj}
+              onBack={() => setActiveStage('gallery-edit')}
+            />
+          </Suspense>
+        );
+      }
+
       return (
         <TzStatusScreen
           project={selectedProject}
           onNavigateStage={(stage) => setActiveStage(stage)}
         />
+      );
+    }
+
+    if (activeNav === 'albums') {
+      const proj = selectedProject || studio.projects[0];
+      return (
+        <Suspense fallback={<div className="tz-screen-wait" style={{ padding: 40, textAlign: 'center', color: '#71717a' }}>טוען אלבומים...</div>}>
+          <AlbumStudio
+            job={proj}
+            onBack={() => setActiveNav('projects')}
+          />
+        </Suspense>
       );
     }
 
@@ -278,8 +306,8 @@ export default function V2App({ onSwitchToV1, onOpenProjectV1 }: V2AppProps) {
 
       {/* 2. MAIN CONTENT WRAPPER */}
       <div className="tz-main-wrapper">
-        {/* Top Header - Hidden when editing to maximize workspace */}
-        {!isEditing && (
+        {/* Top Header - Hidden when editing or in album mode to maximize workspace */}
+        {!isEditing && !isAlbumMode && (
           <header className="tz-topbar">
             {activeNav === 'project-detail' ? (
               <button className="tz-topbar-back" type="button" onClick={() => setActiveNav('projects')}>
@@ -339,7 +367,7 @@ export default function V2App({ onSwitchToV1, onOpenProjectV1 }: V2AppProps) {
         )}
 
         {/* Content Area */}
-        <main className="tz-content-scroll">
+        <main className={`tz-content-scroll ${isAlbumMode ? 'album-mode' : ''}`}>
           {renderMainContent()}
         </main>
       </div>

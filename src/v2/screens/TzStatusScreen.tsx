@@ -137,7 +137,12 @@ export default function TzStatusScreen({
             </div>
 
             {/* 4. Editing */}
-            <div className="tz-milestone-step">
+            <div
+              className="tz-milestone-step"
+              onClick={() => onNavigateStage?.('gallery-edit')}
+              style={{ cursor: onNavigateStage ? 'pointer' : 'default' }}
+              title="לחץ למעבר לעריכת גלריה"
+            >
               <div className={`tz-step-icon-wrap ${(project && project.rendered > 0 && project.rendered >= (project.picked || 1)) ? 'done' : (project && project.at >= 3) ? 'active' : 'pending'}`}>
                 <TzIconSliders size={18} />
               </div>
@@ -151,7 +156,12 @@ export default function TzStatusScreen({
             </div>
 
             {/* 5. Album */}
-            <div className="tz-milestone-step">
+            <div
+              className="tz-milestone-step"
+              onClick={() => onNavigateStage?.('album-design')}
+              style={{ cursor: onNavigateStage ? 'pointer' : 'default' }}
+              title="לחץ למעבר לעיצוב אלבום"
+            >
               <div className={`tz-step-icon-wrap ${(project && project.state === 'done') ? 'done' : (project && project.at >= 4) ? 'active' : 'pending'}`}>
                 <TzIconBook size={18} />
               </div>

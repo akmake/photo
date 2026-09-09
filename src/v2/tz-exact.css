@@ -136,6 +136,15 @@
   padding: 12px 18px 24px;
 }
 
+.tz-content-scroll.album-mode {
+  padding: 0 !important;
+  overflow: hidden !important;
+  height: 100% !important;
+  min-height: 0 !important;
+  display: flex !important;
+  flex-direction: column !important;
+}
+
 
 /* Logo */
 .tz-logo-wrap {
