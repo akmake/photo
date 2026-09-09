@@ -82,6 +82,39 @@ vendor documentation states local/cloud/mobile availability and separate blemish
 removal/skin smoothing. It was not tested, licensed, purchased, or contacted:
 https://perfectlyclear.ai/perfectly-clear-technology-updates/
 
+### Missed-defect audit: tiled inference and native boundaries (2026-09-09)
+
+Ran the corrected ABPN detector on all three original photographs using four
+overlapping 65% face tiles, with the same pretrained weights, 768 input size and
+0.35/0.5 cutoffs. Overlaps use mean scores, not maximum union. This is an
+evaluation option in `tools/evaluate_learned_defect_masks.py`, not production.
+
+| Photo | Baseline components / low-mask pixels | Tiled components / low-mask pixels |
+| --- | ---: | ---: |
+| 321A1809 | 6 / 311 | 14 / 416 |
+| 321A5078 | 18 / 621 | 19 / 373 |
+| 321A4934 | 8 / 189 | 10 / 194 |
+
+These counts are predictions, not accuracy. Native comparison of the forehead
+line and saliva still shows incomplete detection; additional facial spots do
+not establish improvement. Do not promote tiling on the basis of proposal count.
+Artifacts: `test-results/original-*-tiled-detection/`.
+
+Also evaluated OpenCV GrabCut using the already saved automatic Qwen boxes and
+five iterations, without manually drawn seeds. Rectangle initialization returns
+zero pixels for the forehead line and lower saliva box, and 490 pixels in the
+upper box. Visual inspection shows those 490 pixels are the lower lip, not the
+saliva. A second run initialized with existing ABPN scores >=0.5 retains just
+two forehead seed pixels and four lower saliva seed pixels; the false lip mask
+remains. Both variants fail this benchmark and are rejected for automatic repair.
+`tools/evaluate_defect_grabcut.py` preserves source hashes and masks for repeatable
+audit. Artifacts: `test-results/original-1809-grabcut{,-seeded}/`.
+Reference: https://docs.opencv.org/4.12.0/d8/d83/tutorial_py_grabcut.html
+
+No production cleanup changes follow from these failed experiments. Beard
+protection progress does not resolve missing defects; reliable defect semantics
+and complete boundaries remain unproven. Original files were only read.
+
 ### Product and cost constraint clarified by user
 
 Commercial licensing is not approved merely because it exists: the user needs

@@ -32,6 +32,7 @@ def main():
     parser.add_argument('--output',type=Path,required=True)
     parser.add_argument('--crop-policy', choices=['agent','upstream'], default='agent')
     parser.add_argument('--inference-side', type=int, choices=[768,1536], default=768)
+    parser.add_argument('--tiles', action='store_true', help='Diagnostic: average four overlapping 65%% face tiles, retaining the same learned model and thresholds')
     args=parser.parse_args()
     started=time.perf_counter()
     image=ImageOps.exif_transpose(Image.open(args.image)).convert('RGB')
@@ -62,11 +63,25 @@ def main():
             x1,y1=min(image.width,int(cx+side/2)),min(image.height,int(cy+side/2))
         crops.append([x0,y0,x1,y1])
         crop=rgb[y0:y1,x0:x1]
-        tensor=torch.from_numpy(crop.transpose(2,0,1).copy()).float().unsqueeze(0).to(device)/127.5-1
-        with torch.inference_mode():
-            standard=F.interpolate(tensor,(args.inference_side,args.inference_side),mode='bilinear',align_corners=True)
-            prediction=torch.sigmoid(model(standard))
-            score=F.interpolate(prediction,crop.shape[:2],mode='nearest')[0,0].cpu().numpy()
+        def predict(part):
+            tensor=torch.from_numpy(part.transpose(2,0,1).copy()).float().unsqueeze(0).to(device)/127.5-1
+            with torch.inference_mode():
+                standard=F.interpolate(tensor,(args.inference_side,args.inference_side),mode='bilinear',align_corners=True)
+                prediction=torch.sigmoid(model(standard))
+                return F.interpolate(prediction,part.shape[:2],mode='nearest')[0,0].cpu().numpy()
+        if args.tiles:
+            h,w=crop.shape[:2]
+            th,tw=max(1,round(.65*h)),max(1,round(.65*w))
+            total=np.zeros((h,w),np.float32)
+            count_map=np.zeros((h,w),np.float32)
+            for top in sorted({0,h-th}):
+                for left in sorted({0,w-tw}):
+                    total[top:top+th,left:left+tw]+=predict(crop[top:top+th,left:left+tw])
+                    count_map[top:top+th,left:left+tw]+=1
+            assert np.all(count_map>0)
+            score=total/count_map
+        else:
+            score=predict(crop)
         full_score[y0:y1,x0:x1]=np.maximum(full_score[y0:y1,x0:x1],score)
         # These are upstream probability cutoffs, not calibrated retouching
         # confidence. Retain low/high masks separately in the output.
@@ -88,6 +103,7 @@ def main():
             'device':device,'seconds':round(time.perf_counter()-started,2),
             'faceCrops':crops, 'components':records,
             'cropPolicy':args.crop_policy,'inferenceSide':args.inference_side,
+            'tiledInference':args.tiles,'tileFraction':.65 if args.tiles else None,
             'lowMaskPx':int((full_score>=.35).sum()),'highMaskPx':int((full_score>=.5).sum()),
             'pixelAccuracyValidated':False,'protectionApplied':False,'retouchingExecuted':False}
     (args.output/'report.json').write_text(json.dumps(report,indent=2),encoding='utf-8')
