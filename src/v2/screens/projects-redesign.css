@@ -503,3 +503,97 @@
   max-width: 340px;
   line-height: 1.5;
 }
+
+/* ------------------------------------------------------- מחיקת פרויקט
+ *
+ * הכפתור יושב על התמונה ולא בגוף הכרטיס: כל הכרטיס לחיץ, ופתיחת פרויקט
+ * היא הפעולה הרגילה. מופיע במעבר עכבר כדי שרשימת הפרויקטים לא תיראה
+ * כמו רשימת מחיקות.
+ */
+.tz-pcard-del {
+  position: absolute;
+  top: 8px;
+  inset-inline-start: 8px;
+  z-index: 3;
+  width: 26px;
+  height: 26px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 7px;
+  background: rgba(16, 18, 22, .55);
+  backdrop-filter: blur(4px);
+  color: #fff;
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity .14s, background .14s;
+}
+.tz-project-card:hover .tz-pcard-del,
+.tz-pcard-del:focus-visible { opacity: 1; }
+.tz-pcard-del:hover { background: #d92d20; }
+
+.tz-del-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(10, 11, 14, .6);
+  backdrop-filter: blur(3px);
+}
+
+.tz-del {
+  direction: rtl;
+  width: min(460px, 100%);
+  background: #fff;
+  border-radius: 14px;
+  padding: 22px 24px 18px;
+  box-shadow: 0 24px 64px rgba(0, 0, 0, .35);
+  color: #211d1a;
+}
+.tz-del h3 { margin: 0 0 12px; font-size: 17px; }
+
+/* מה שנשמר נאמר ראשון ובאותה בולטות. זו השאלה האמיתית שעוברת בראש
+ * כשמוחקים פרויקט של חתונה. */
+.tz-del-keep {
+  margin: 0 0 10px;
+  padding: 10px 12px;
+  border-radius: 9px;
+  background: #e6f9f0;
+  color: #087443;
+  font-size: 13px;
+  line-height: 1.55;
+}
+.tz-del-lose {
+  margin: 0 0 14px;
+  font-size: 13px;
+  line-height: 1.55;
+  color: #50473f;
+}
+.tz-del-err {
+  margin: 0 0 12px;
+  padding: 8px 11px;
+  border-radius: 8px;
+  background: #fef3f2;
+  color: #b42318;
+  font-size: 13px;
+}
+
+.tz-del-actions { display: flex; gap: 8px; justify-content: flex-start; }
+.tz-del-cancel,
+.tz-del-go {
+  border-radius: 9px;
+  padding: 8px 16px;
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  border: 1px solid transparent;
+}
+.tz-del-cancel { background: #f6f3ef; border-color: #d3cabf; color: #50473f; }
+.tz-del-cancel:hover:not(:disabled) { background: #efeae4; }
+.tz-del-go { background: #d92d20; color: #fff; }
+.tz-del-go:hover:not(:disabled) { background: #b42318; }
+.tz-del-cancel:disabled, .tz-del-go:disabled { opacity: .55; cursor: default; }

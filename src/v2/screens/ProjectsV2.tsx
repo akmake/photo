@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { useStudio, stagesOf } from '../../studio/store';
+import { useStudio, stagesOf, removeProject } from '../../studio/store';
 import type { Project, ProjectState } from '../../studio/store';
 import NewProject from '../../studio/screens/NewProject';
 import { TzIconSearch, TzIconUpload } from '../TzIcons';
@@ -7,6 +7,13 @@ import { getProjectCover } from '../projectCovers';
 import './projects-redesign.css';
 
 type Filter = 'all' | ProjectState;
+
+/* המחיקה בשני שלבים ובכוונה. פרויקט נושא חודשי עבודה, ומחיקה בקליק אחד
+ * על כרטיס שכולו לחיץ היא תאונה שמחכה לקרות. */
+interface Pending {
+  id: string;
+  client: string;
+}
 
 const FILTERS: { id: Filter; label: string }[] = [
   { id: 'all', label: 'הכול' },
@@ -53,6 +60,25 @@ export default function ProjectsV2({
   const [filter, setFilter] = useState<Filter>('all');
   const [search, setSearch] = useState('');
   const [creating, setCreating] = useState(false);
+  const [pending, setPending] = useState<Pending | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const [delError, setDelError] = useState<string | null>(null);
+
+  const confirmDelete = async () => {
+    if (!pending) return;
+    setDeleting(true);
+    setDelError(null);
+    try {
+      await removeProject(pending.id);
+      setPending(null);
+    } catch (e) {
+      /* כישלון אינו ביטול. מחיקה שנכשלה במסד ונעלמה מהמסך הייתה חוזרת
+       * בטעינה הבאה, והצלם לא היה יודע. */
+      setDelError((e as Error).message || 'המחיקה נכשלה.');
+    } finally {
+      setDeleting(false);
+    }
+  };
 
   const active = useMemo(() => projects.filter((p) => p.state !== 'done'), [projects]);
 
@@ -202,6 +228,21 @@ export default function ProjectsV2({
                   />
                   <div className="tz-pcard-img-overlay" />
 
+                  {/* מחיקה. יושבת על התמונה ולא בתוך גוף הכרטיס, כי כל
+                    * הכרטיס לחיץ ופתיחת פרויקט היא הפעולה הרגילה. */}
+                  <button
+                    type="button"
+                    className="tz-pcard-del"
+                    title="מחיקת הפרויקט"
+                    aria-label={`מחיקת הפרויקט של ${project.client}`}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setPending({ id: project.id, client: project.client });
+                    }}
+                  >
+                    ✕
+                  </button>
+
                   {/* Top Badges */}
                   <div className="tz-pcard-badges-top">
                     <span className={`tz-status-badge ${st.className}`}>
@@ -283,6 +324,38 @@ export default function ProjectsV2({
             onOpenProject(created.id);
           }}
         />
+      )}
+
+      {pending && (
+        <div
+          className="tz-del-backdrop"
+          onClick={() => { if (!deleting) { setPending(null); setDelError(null); } }}
+        >
+          <div className="tz-del" onClick={(e) => e.stopPropagation()}>
+            <h3>למחוק את הפרויקט של {pending.client}?</h3>
+            <p className="tz-del-keep">
+              <strong>התמונות שלך לא ייגעו.</strong> הן נשארות בתיקייה שבה שמת אותן,
+              על הדיסק, בדיוק כמו עכשיו.
+            </p>
+            <p className="tz-del-lose">
+              מה שיימחק: פרטי הפרויקט, המקבצים, מתכוני העריכה, סטטוסי התמונות
+              והקישור לגלריה. אין לזה ביטול.
+            </p>
+            {delError && <p className="tz-del-err">{delError}</p>}
+            <div className="tz-del-actions">
+              <button
+                className="tz-del-cancel"
+                onClick={() => { setPending(null); setDelError(null); }}
+                disabled={deleting}
+              >
+                ביטול
+              </button>
+              <button className="tz-del-go" onClick={confirmDelete} disabled={deleting}>
+                {deleting ? 'מוחק…' : 'מחק את הפרויקט'}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

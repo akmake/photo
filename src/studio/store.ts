@@ -28,7 +28,7 @@ import {
   initProject, projectFrames, projectState, workspaceRoot,
 } from '../api';
 import type { Frame, GalleryLink, ProjectMemory } from '../api';
-import { dbFind, dbImport, dbSaveMany } from '../db';
+import { dbDelete, dbFind, dbImport, dbSaveMany } from '../db';
 import type { LearnedColorModel, ProjectRecipe, Batch, ToolInstance } from '../types';
 
 /** The stages a job moves through. Every project carries all of them — a shoot
@@ -281,6 +281,38 @@ export function studioStatus(): StudioStatus {
 export function updateProject(id: string, patch: Partial<Project>) {
   const next = projects.map((p) => (p.id === id ? { ...p, ...patch } : p));
   commit(next, next.filter((p) => p.id === id));
+}
+
+/** Removes a project from the studio. THE PHOTOGRAPHS ARE NOT TOUCHED.
+ *
+ *  This is the whole reason the function reads the way it does. A project here
+ *  is a record ABOUT a shoot — client, dates, batches, recipes, statuses. The
+ *  photographs live in the photographer's own folder, where he put them, and
+ *  this product's first promise is that they stay there. Deleting a job must
+ *  never become deleting a wedding.
+ *
+ *  The database row goes first. The mirror is updated only once the delete has
+ *  actually landed: removing it from the screen and failing to remove it from
+ *  the database is the silent divergence this file exists to prevent — the
+ *  project would be back on the next reload, and the photographer would be
+ *  told nothing.
+ */
+export async function removeProject(id: string): Promise<void> {
+  if (status !== 'ready') {
+    throw new Error(
+      status === 'loading'
+        ? 'עוד קוראים את הפרויקטים מהמסד — רגע.'
+        : `אין חיבור למסד, אז המחיקה לא הייתה נשמרת. ${fault ?? ''}`.trim(),
+    );
+  }
+  await dbDelete('projects', id);
+
+  projects = projects.filter((p) => p.id !== id);
+  /* The per-project caches, so a new project that happens to reuse an id
+   * cannot inherit a dead one's frames or recipe. */
+  delete states[id];
+  delete framesByProject[id];
+  notify();
 }
 
 export interface NewProjectInput {

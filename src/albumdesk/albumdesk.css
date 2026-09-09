@@ -687,3 +687,24 @@
   margin-inline-start: 4px;
 }
 .ad-trow-reset { flex: 0 0 auto; margin-inline-start: auto; }
+
+.ad-fail-sub { color: var(--wall-300, #7d8492); }
+.ad-fail-actions { display: flex; gap: 8px; margin-top: 6px; }
+
+/* קריאה חוזרת מהתיקייה. הדיסק הוא הסמכות על מה שקיים, ותמונה שנוספה
+ * בזמן שהמסך פתוח לא תופיע בלעדיה. */
+.ad-reread {
+  appearance: none;
+  border: 1px solid var(--wall-600, #343946);
+  background: transparent;
+  color: var(--wall-300, #7d8492);
+  border-radius: 6px;
+  width: 24px;
+  height: 22px;
+  font: inherit;
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+}
+.ad-reread:hover:not(:disabled) { background: var(--wall-700, #272b34); color: var(--wall-000, #eef0f4); }
+.ad-reread:disabled { opacity: .4; cursor: default; }

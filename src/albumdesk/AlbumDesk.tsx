@@ -29,7 +29,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { AlbumDeskExportSlot, Frame } from '../api';
 import { albumDeskExport, pickFolder, thumbUrl } from '../api';
 import type { Project } from '../studio/store';
-import { batchesOf, framesInBatch, framesOf } from '../studio/store';
+import { framesInBatch, reloadFrames, useBatches, useProjectFiles } from '../studio/store';
 import type { Batch } from '../types';
 import {
   type AlbumDoc,
@@ -104,22 +104,40 @@ export default function AlbumDesk({
 }) {
   /* ---------------------------------------------------------- the project's set
    *
-   * הקריאה נכשלת ← אומרים "לא ניתן לקרוא". ריק ולא-נקרא אינם אותו דבר,
-   * ואסור לכתוב אלבום על תמונות שלא הצלחנו לקרוא. */
-  const [frames, setFrames] = useState<Frame[] | null>(null);
-  const [batches, setBatches] = useState<Batch[]>([]);
-  const [readFailed, setReadFailed] = useState(false);
+   * `framesOf` הוא הצצה במטמון, לא קריאה מהדיסק — הוא מחזיר ריק עד
+   * ש-`openProject` רץ. השימוש בו כאן היה באג אמיתי: המגש נשאר ריק,
+   * והמסך הודיע "אין תמונות בפרויקט" על תיקייה מלאה שפשוט לא נקראה.
+   * זה בדיוק השקר שאסור כאן — ריק ולא-נקרא הם שני דברים.
+   *
+   * `useProjectFiles` הוא הקריאה האמיתית, והיא גם מנויה לשינויים.
+   * בנוסף מורצת קריאה מפורשת מהדיסק שאפשר לתפוס לה שגיאה, כי הכישלון
+   * של `openProject` נבלע ונראה בדיוק כמו תיקייה ריקה. */
+  const { frames, ready } = useProjectFiles(project.id);
+  const batches = useBatches(project.id);
+  const [readError, setReadError] = useState<string | null>(null);
+  const [rereading, setRereading] = useState(false);
 
-  useEffect(() => {
-    try {
-      setFrames(framesOf(project.id));
-      setBatches(batchesOf(project.id));
-      setReadFailed(false);
-    } catch {
-      setFrames(null);
-      setReadFailed(true);
+  const reread = useCallback(async () => {
+    if (!project.home) {
+      setReadError('לא הוגדרה תיקייה לפרויקט הזה.');
+      return;
     }
-  }, [project.id]);
+    setRereading(true);
+    setReadError(null);
+    try {
+      await reloadFrames(project.id);
+    } catch (e) {
+      setReadError((e as Error).message || 'המנוע לא ענה.');
+    } finally {
+      setRereading(false);
+    }
+  }, [project.id, project.home]);
+
+  /* הדיסק הוא הסמכות על מה שקיים. תמונה שהצלם הוסיף לתיקייה בזמן
+   * שהמסך פתוח לא תופיע בלי קריאה חוזרת. */
+  useEffect(() => {
+    void reread();
+  }, [reread]);
 
   const byBatch = useMemo(() => {
     const map = new Map<string, Frame[]>();
@@ -131,10 +149,11 @@ export default function AlbumDesk({
       }
     }
     return map;
-  }, [batches, project.id]);
+    // frames בתלות במכוון: השיוך נקרא מאותו מטמון, וחייב להיבנות מחדש
+    // אחרי שהתיקייה נקראה.
+  }, [batches, project.id, frames]);
 
   const loose = useMemo(() => {
-    if (!frames) return [];
     const assigned = new Set<string>();
     for (const list of byBatch.values()) for (const f of list) assigned.add(f.name);
     return frames.filter((f) => !assigned.has(f.name));
@@ -249,7 +268,6 @@ export default function AlbumDesk({
   const [showUsed, setShowUsed] = useState(false);
 
   const trayFrames = useMemo(() => {
-    if (!frames) return [];
     let list: Frame[];
     if (trayBatch === 'all') list = frames;
     else if (trayBatch === 'loose') list = loose;
@@ -540,24 +558,42 @@ export default function AlbumDesk({
 
   /* ------------------------------------------------------------------- render */
 
-  if (readFailed) {
+  /* שלושה מצבים שונים לחלוטין, ואסור להם לחלוק מסך: עוד קוראים · הקריאה
+   * נכשלה · נקרא בהצלחה והתיקייה באמת ריקה. קודם כל השלושה נראו כמו
+   * "אין תמונות", וזה שלח את הצלם לחפש באג בייבוא. */
+  if (readError) {
     return (
       <div className="ad-fail">
         <h2>לא ניתן לקרוא את תמונות הפרויקט</h2>
-        <p>המנוע לא ענה, או שהתיקייה אינה זמינה. אין כאן אלבום ריק — יש קריאה שנכשלה.</p>
-        {onBack && <button className="ad-ghost" onClick={onBack}>חזרה</button>}
+        <p>{readError}</p>
+        <p className="ad-fail-sub">
+          זו אינה תיקייה ריקה — זו קריאה שנכשלה. אם המנוע לא רץ, הפעל אותו ונסה שוב.
+        </p>
+        <div className="ad-fail-actions">
+          <button className="ad-ghost" onClick={() => void reread()} disabled={rereading}>
+            {rereading ? 'קורא…' : 'נסה שוב'}
+          </button>
+          {onBack && <button className="ad-ghost" onClick={onBack}>חזרה</button>}
+        </div>
       </div>
     );
   }
 
-  if (!frames) return <div className="ad-wait">טוען את תמונות הפרויקט…</div>;
+  if (!ready || (rereading && frames.length === 0)) {
+    return <div className="ad-wait">קורא את תיקיית הפרויקט…</div>;
+  }
 
   if (frames.length === 0) {
     return (
       <div className="ad-fail">
-        <h2>אין עדיין תמונות בפרויקט הזה</h2>
+        <h2>התיקייה נקראה, ואין בה תמונות</h2>
         <p>אחרי הייבוא אפשר להרכיב אלבום מהתמונות של {project.client}.</p>
-        {onBack && <button className="ad-ghost" onClick={onBack}>חזרה</button>}
+        <div className="ad-fail-actions">
+          <button className="ad-ghost" onClick={() => void reread()} disabled={rereading}>
+            {rereading ? 'קורא…' : 'קרא שוב את התיקייה'}
+          </button>
+          {onBack && <button className="ad-ghost" onClick={onBack}>חזרה</button>}
+        </div>
       </div>
     );
   }
@@ -638,6 +674,14 @@ export default function AlbumDesk({
           <div className="ad-tray-head">
             <strong>המגש</strong>
             <span className="ad-remaining">{remaining} עוד לא בשימוש</span>
+            <button
+              className="ad-reread"
+              onClick={() => void reread()}
+              disabled={rereading}
+              title="קרא שוב את התיקייה — הדיסק הוא הסמכות על מה שקיים"
+            >
+              {rereading ? '…' : '⟳'}
+            </button>
           </div>
 
           <div className="ad-batches">
