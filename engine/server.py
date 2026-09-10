@@ -164,42 +164,17 @@ def _warm_loop():
                 continue
             data = on_worker(_render_proxy, path, width, recipe)
             _store_proxy(target, data)
-            # …and pay the segmentation for the size the panel edits at, so the
-            # first click on this frame is not the one that waits for it.
-            on_worker(_prewarm_masks, path, recipe, _EDIT_WIDTH)
         except Exception:  # noqa: BLE001 — warming must never take the engine down
             pass
 
 
-def _prewarm_masks(path, recipe, width):
-    """Render once at the editing width purely to fill the mask cache.
-
-    The pixels are thrown away — what is kept is everything masks.py wrote to
-    disk on the way. This is the "do it once, when the photograph arrives" step:
-    without it the cost simply moves to whenever the photographer first touches
-    the frame.
-    """
-    try:
-        # The SAME decode /render uses, deliberately. Warming through the
-        # proxy's faster draft decode produced pixels a shade different from
-        # the ones the panel renders, the fingerprints disagreed, and the first
-        # real edit segmented the frame anyway — a warm-up that warmed nothing.
-        source = common.load_image(path)
-        size = _fit_size(source.size, width)
-        img, scale = source, 1.0
-        if size != source.size:
-            scale = max(source.size) / float(max(size))
-            img = source.resize(size, Image.LANCZOS)
-        # The source frame goes in too, for the same reason: with it the face
-        # rescue pass runs and asks for masks of its own, and a warm-up that
-        # skipped it left exactly those uncomputed.
-        render.render(
-            img, recipe, scale,
-            source if img is not source else None,
-            key=_photo_key(path),
-        )
-    except Exception:  # noqa: BLE001 — warming must never take the engine down
-        pass
+# NOTE — warming the editing width was tried here and removed. Rendering each
+# frame a second time at panel size cost ~9s per photograph on the one worker,
+# and the backoff below only checks BETWEEN jobs: a prewarm already running
+# still held the queue, so every interactive render waited behind it until the
+# browser gave up and dropped the connection. Warming a set of 31 frames made
+# the tools unusable. Whatever pays that cost ahead of time has to be
+# interruptible first; the proxy render above is not the place for it.
 
 
 def warm(key, paths, width=None):
@@ -369,20 +344,11 @@ def _shrink(data, width):
 # panel.
 _WIDTH_STEP = 256
 
-# The width the editing panel last asked for. Warming a set builds 640px
-# proxies, and masks are cached per picture-as-rendered — so warming alone left
-# the first real edit paying the whole segmentation anyway. The queue warms
-# THIS bucket too, and it learns it rather than guessing.
-_EDIT_WIDTH = 1280
 
-
-def _quantise_width(cap, size, remember=False):
-    global _EDIT_WIDTH
+def _quantise_width(cap, size):
     if cap <= 0:
         return cap
     stepped = -(-int(cap) // _WIDTH_STEP) * _WIDTH_STEP
-    if remember:
-        _EDIT_WIDTH = stepped
     return min(stepped, max(size))
 
 
@@ -1084,29 +1050,46 @@ class Handler(BaseHTTPRequestHandler):
         try:
             body = self._body()
             if body.get("path"):
-                img = common.load_image(body["path"])
+                path = body["path"]
             else:
-                img = common.b64_to_image(body["image"])
+                path = None
             # What the caller already shrank before we ever saw the frame.
-            scale = max(1.0, float(body.get("sourceScale") or 1.0))
+            asked = max(1.0, float(body.get("sourceScale") or 1.0))
+            recipe = body.get("recipe", [])
+            capreq = int(body.get("w") or 0)
+            inline = None if path else body["image"]
 
-            cap = _quantise_width(int(body.get("w") or 0), img.size, remember=True)
-            # THE frame being edited, and the one place worth keeping the file
-            # in hand for: a face the proxy is too small to serve is worked from
-            # these pixels instead of refused. Thumbnails go through /preview and
-            # deliberately do not get this.
-            source = img
-            if cap > 0:
-                size = _fit_size(img.size, cap)
-                if size != img.size:
-                    scale *= max(img.size) / float(max(size))
-                    img = img.resize(size, Image.LANCZOS)
-            with _INTERACTIVE:
-                out, meta = on_worker(
-                    render.render, img, body.get("recipe", []), scale,
+            # DECODING BELONGS ON THE WORKER TOO, and this is not tidiness.
+            # Every request arrives on its own thread, so a burst of renders
+            # decoded a burst of 20MP files AT ONCE — four at a time, measured
+            # in a stack dump, each one a full decode plus an EXIF copy plus an
+            # RGB copy — to then queue up and be rendered one at a time anyway.
+            # The machine thrashed, answers took long enough for the browser to
+            # drop the connection, and the panel showed nothing at all.
+            # Nothing is gained by preparing four frames a single worker can
+            # only take one of.
+            def work():
+                img = common.load_image(path) if path else common.b64_to_image(inline)
+                scale = asked
+                cap = _quantise_width(capreq, img.size)
+                # THE frame being edited, and the one place worth keeping the
+                # file in hand for: a face the proxy is too small to serve is
+                # worked from these pixels instead of refused. Thumbnails go
+                # through /preview and deliberately do not get this.
+                source = img
+                if cap > 0:
+                    size = _fit_size(img.size, cap)
+                    if size != img.size:
+                        scale *= max(img.size) / float(max(size))
+                        img = img.resize(size, Image.LANCZOS)
+                return render.render(
+                    img, recipe, scale,
                     source if img is not source else None,
-                    key=_photo_key(body["path"]) if body.get("path") else None,
+                    key=_photo_key(path) if path else None,
                 )
+
+            with _INTERACTIVE:
+                out, meta = on_worker(work)
             # A preview and a file the photographer keeps are not the same
             # picture. Previews stay small; `deliver` asks for the same settings
             # render.export writes to disk — q97, no chroma subsampling.
@@ -1970,6 +1953,17 @@ if ($path) {
         if code >= 500:
             try:
                 detail = obj.get("error") if isinstance(obj, dict) else obj
+                if isinstance(sys.exc_info()[1], (ConnectionError, BrokenPipeError)):
+                    # The panel navigated, reloaded or superseded the request
+                    # while we were answering. Nothing here failed, and the
+                    # socket is gone — printing a stack for it buried the real
+                    # faults in noise, and writing a 500 to it raised AGAIN and
+                    # took the whole handler thread down with a second stack.
+                    # ASCII only: this console is a Hebrew Windows code page and
+                    # an em dash prints as a replacement character there.
+                    print(f"[dropped] {self.command} {self.path} -- client left",
+                          flush=True)
+                    return
                 print(f"[{code}] {self.command} {self.path} -> {detail}", flush=True)
                 if sys.exc_info()[0] is not None:
                     traceback.print_exc()
@@ -1977,12 +1971,18 @@ if ($path) {
             except Exception:  # noqa: BLE001 — reporting must never be the crash
                 pass
         payload = json.dumps(obj).encode("utf-8")
-        self.send_response(code)
-        self._cors()
-        self.send_header("Content-Type", "application/json")
-        self.send_header("Content-Length", str(len(payload)))
-        self.end_headers()
-        self.wfile.write(payload)
+        try:
+            self.send_response(code)
+            self._cors()
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(payload)))
+            self.end_headers()
+            self.wfile.write(payload)
+        except (ConnectionError, BrokenPipeError):
+            # Same reason: answering a socket the client already closed is not
+            # an error worth a traceback, and it must not escape into
+            # socketserver, which prints one and kills the thread.
+            print(f"[dropped] {self.command} {self.path} -- client left", flush=True)
 
     def log_message(self, *args):
         pass  # keep the console quiet
