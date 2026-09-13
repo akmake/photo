@@ -441,6 +441,8 @@ TOOLS = [
         "params": [
             {"id": "blemishes", "min": 0, "max": 100, "default": skin_retouch.DEFAULT_BLEMISHES},
             {"id": "evenness", "min": 0, "max": 100, "default": skin_retouch.DEFAULT_EVENNESS},
+            {"id": "texture", "min": 0, "max": 100, "default": skin_retouch.DEFAULT_TEXTURE},
+            {"id": "glow", "min": 0, "max": 100, "default": skin_retouch.DEFAULT_GLOW},
             {"id": "keepMoles", "min": 0, "max": 1, "default": skin_retouch.DEFAULT_KEEP_MOLES},
         ],
     },

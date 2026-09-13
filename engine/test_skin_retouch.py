@@ -109,10 +109,17 @@ class Contracts(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.rgb = common.to_np(common.load_image(IMAGE))
-        cls.out, cls.meta = skin_retouch.apply(cls.rgb, {"blemishes": 100, "evenness": 100})
+        # every stage at full, so each guard below is tested against all of them
+        cls.params = {"blemishes": 100, "evenness": 100, "texture": 100, "glow": 100}
+        cls.out, cls.meta = skin_retouch.apply(cls.rgb, cls.params)
+
+    def test_stages_at_zero_change_nothing(self):
+        a, _ = skin_retouch.apply(self.rgb, {"blemishes": 100, "evenness": 70})
+        b, _ = skin_retouch.apply(self.rgb, {"blemishes": 100, "evenness": 70, "texture": 0, "glow": 0})
+        np.testing.assert_array_equal(a, b)
 
     def test_off_means_untouched(self):
-        out, meta = skin_retouch.apply(self.rgb, {"blemishes": 0, "evenness": 0})
+        out, meta = skin_retouch.apply(self.rgb, {"blemishes": 0, "evenness": 0, "texture": 0, "glow": 0})
         self.assertIs(out, self.rgb)
         self.assertEqual(meta["applied"], 0)
 
@@ -127,6 +134,10 @@ class Contracts(unittest.TestCase):
         np.testing.assert_array_equal(self.out[~inside], self.rgb[~inside])
 
     def test_kept_moles_are_left_exactly_as_they_were(self):
+        # Protected from REMOVAL and EVENING — the two stages that erase a mark.
+        # Softening and glow reach a mole with the skin around it on purpose
+        # (shielded, it read as a dark stain), so they are off for this check.
+        out, meta = skin_retouch.apply(self.rgb, {"blemishes": 100, "evenness": 100})
         h, w = self.rgb.shape[:2]
         kept = 0
         for (x0, y0, x1, y1), fw in skin_retouch.face_crops(self.rgb):
@@ -139,13 +150,13 @@ class Contracts(unittest.TestCase):
             a = skin_retouch._analyse(bc, allowed, skin, fw, True)
             if a["molesKept"]:
                 kept += a["molesKept"]
-                np.testing.assert_array_equal(self.out[y0:y1, x0:x1][a["moles"]], bc[a["moles"]])
+                np.testing.assert_array_equal(out[y0:y1, x0:x1][a["moles"]], bc[a["moles"]])
         # the acne photograph has brown marks; a guard that never engages proves nothing
         self.assertGreater(kept, 0)
-        self.assertEqual(kept, self.meta["molesKept"])
+        self.assertEqual(kept, meta["molesKept"])
 
     def test_switching_moles_off_removes_them(self):
-        _, meta = skin_retouch.apply(self.rgb, {"blemishes": 100, "evenness": 100, "keepMoles": 0})
+        _, meta = skin_retouch.apply(self.rgb, {**self.params, "keepMoles": 0})
         self.assertEqual(meta["molesKept"], 0)
         self.assertGreater(meta["blemishPx"], self.meta["blemishPx"])
 

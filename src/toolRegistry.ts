@@ -100,6 +100,9 @@ export const TOOLS: ToolDef[] = [
     params: [
       { id: 'blemishes', label: 'ניקוי פגמים', min: 0, max: 100, step: 1, default: 100 },
       { id: 'evenness', label: 'אחידות עור', min: 0, max: 100, step: 1, default: 70 },
+      // stages 3 and 4, off until the photographer climbs to them
+      { id: 'texture', label: 'ריכוך מרקם', min: 0, max: 100, step: 1, default: 0 },
+      { id: 'glow', label: 'זוהר', min: 0, max: 100, step: 1, default: 0 },
       // On by default: deleting a mole changes who the person is. It keys on
       // colour (brown, not red), so a brown post-acne mark is kept too.
       { id: 'keepMoles', label: 'שמירת שומות ונמשים', min: 0, max: 1, step: 1, default: 1, control: 'toggle' },

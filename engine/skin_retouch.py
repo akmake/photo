@@ -1,6 +1,8 @@
 """החלקת עור — skin retouching in the order a retoucher works.
 
-One tool, two operations, per face, at the photograph's own resolution:
+One tool, one slider per stage, per face, at the photograph's own resolution.
+A slider at 0 switches its stage off, so a photographer climbs from cleaning
+to a soft glowing finish one stage at a time:
 
   1. BLEMISHES — a trained detector finds what a retoucher would remove
      (pimples, spots, milia) and a trained inpainting network rebuilds skin
@@ -8,6 +10,14 @@ One tool, two operations, per face, at the photograph's own resolution:
   2. EVENNESS — a trained network predicts a soft-light blend layer that evens
      tone across the face (redness, blotches) while the pores stay where they
      are.
+  3. TEXTURE SOFTENING — the pore band is attenuated in lightness only. The
+     finest grain above it is kept whole, which is what separates soft skin
+     from the plastic look of removing all fine detail.
+  4. GLOW — a lightness lift on the skin's own lit side, shrinking toward
+     white so it never clips.
+
+Stages 3 and 4 are off by default. The micro dodge-and-burn stage a retoucher
+does between 2 and 3 is not here: no free model does it (RESEARCH-skin-smoothing).
 
 Removal runs FIRST, and that order is the point. The evening layer on its own
 (`abpn.py`, the retired `face-retouch`) was measured turning 26 of 54 pimples
@@ -368,8 +378,98 @@ def _keep_light(before01: np.ndarray, evened01: np.ndarray, face_w: float,
     return np.where(allow[..., None] > 0, out, evened01)
 
 
+# --- texture softening and glow ------------------------------------------------
+#
+# Scales are fractions of face width, so the same slider means the same thing
+# on a 180px face in a group and on a 900px portrait.
+#   TEX_GRAIN  below it: sensor grain and the finest skin detail — always kept
+#   TEX_PORE   the pore band, between GRAIN and PORE — attenuated by the slider
+#   TEX_MICRO  fine mottling just above pores — attenuated at MICRO_SHARE of it
+#
+# First calibration (grain 0.0012, full pore removal, half the mottling band)
+# read as a BLUR at 100 on a 515px face: a 0.7px grain band is almost nothing,
+# so nothing held the skin up. The grain band is wider and neither band is ever
+# taken out completely.
+TEX_GRAIN = 0.0025
+TEX_GRAIN_MIN_PX = 0.8
+TEX_PORE = 0.0068
+TEX_PORE_MIN_PX = 1.6
+TEX_MICRO = 0.018
+TEX_MAX_ATTEN = 0.75
+MICRO_SHARE = 0.3
+
+# Glow is a LIGHTNESS lift on the skin's lit side, not glow.py's screen bloom.
+# The bloom was tried first and failed on a bright studio face: screen pushed
+# the forehead to white, and glow.py's near-clipping protection (232..252)
+# switched off pixel by pixel on JPEG blocks, printing an 8x8 pattern.
+#   lit      where the skin's own broad light sits in its brighter part
+#   headroom the lift shrinks toward white, so nothing clips
+GLOW_MAX_L = 9.0          # Lab L units at 100
+GLOW_FIELD = 0.06         # face widths: the light field the lift follows
+GLOW_LIT_LO, GLOW_LIT_HI = 25.0, 90.0   # skin percentiles
+# The texture and glow stages have no network border fade of their own, and a
+# face crop cuts across the neck; this ramps them out toward the crop edge.
+STAGE_FADE = 0.12
+
+DEFAULT_TEXTURE = 0
+DEFAULT_GLOW = 0
+
+
+def border_fade(h: int, w: int, frac: float = STAGE_FADE) -> np.ndarray:
+    """1 in the middle, a smooth ramp to 0 over the outer `frac` of each side."""
+    def ramp(n):
+        width = max(1.0, n * frac)
+        i = np.arange(n, dtype=np.float32) + 0.5
+        t = np.clip(np.minimum(i, n - i) / width, 0.0, 1.0)
+        return t * t * (3.0 - 2.0 * t)
+    return np.minimum(ramp(h)[:, None], ramp(w)[None, :])
+
+
+def _masked_blur(x: np.ndarray, support: np.ndarray, sigma: float) -> np.ndarray:
+    """Gaussian that only listens to `support`: hair, brows and background never
+    bleed into skin statistics."""
+    num = cv2.GaussianBlur(x * support, (0, 0), sigma)
+    den = cv2.GaussianBlur(support, (0, 0), sigma)
+    return np.where(den > 1e-3, num / np.maximum(den, 1e-3), x)
+
+
+def soften_texture(img01: np.ndarray, support: np.ndarray, face_w: float,
+                   amount: float, weight: np.ndarray) -> np.ndarray:
+    """Attenuate the pore band (and half the mottling band) in L*, grain kept."""
+    s1 = max(TEX_GRAIN_MIN_PX, face_w * TEX_GRAIN)
+    s2 = max(TEX_PORE_MIN_PX, face_w * TEX_PORE)
+    s3 = max(s2 * 1.5, face_w * TEX_MICRO)
+    lab = cv2.cvtColor(img01.astype(np.float32), cv2.COLOR_RGB2Lab)
+    L = lab[..., 0]
+    l1 = _masked_blur(L, support, s1)
+    l2 = _masked_blur(L, support, s2)
+    l3 = _masked_blur(L, support, s3)
+    a = amount * TEX_MAX_ATTEN
+    lab[..., 0] = L - (a * (l1 - l2) + a * MICRO_SHARE * (l2 - l3)) * weight
+    out = cv2.cvtColor(lab, cv2.COLOR_Lab2RGB)
+    return np.where(weight[..., None] > 0, out, img01)
+
+
+def skin_glow(img01: np.ndarray, support: np.ndarray, face_w: float,
+              amount: float, weight: np.ndarray) -> np.ndarray:
+    lab = cv2.cvtColor(img01.astype(np.float32), cv2.COLOR_RGB2Lab)
+    L = lab[..., 0]
+    field = _masked_blur(L, support, max(2.0, face_w * GLOW_FIELD))
+    on = support > 0.5
+    if on.sum() < 64:
+        return img01
+    lo, hi = np.percentile(field[on], [GLOW_LIT_LO, GLOW_LIT_HI])
+    t = np.clip((field - lo) / max(1e-3, hi - lo), 0.0, 1.0)
+    lit = t * t * (3.0 - 2.0 * t)
+    headroom = np.clip((100.0 - L) / 50.0, 0.0, 1.0)
+    lab[..., 0] = L + amount * GLOW_MAX_L * lit * headroom * weight
+    out = cv2.cvtColor(lab, cv2.COLOR_Lab2RGB)
+    return np.where(weight[..., None] > 0, out, img01)
+
+
 def _retouch_face(mask_src: np.ndarray, crop: np.ndarray, face_w: float,
-                  blemishes: float, evenness: float, keep_moles: bool):
+                  blemishes: float, evenness: float, keep_moles: bool,
+                  texture: float = 0.0, glow: float = 0.0):
     skin = np.maximum(masks.get_mask(mask_src, "face-skin"),
                       masks.get_mask(mask_src, "body-skin"))
     features = masks.get_mask(mask_src, "face-features")
@@ -387,20 +487,34 @@ def _retouch_face(mask_src: np.ndarray, crop: np.ndarray, face_w: float,
     allow_even = np.clip(allow_even, 0.0, 1.0) * (1.0 - features)
 
     a = _analyse(np.ascontiguousarray(crop), allowed_blem, skin, face_w, keep_moles)
+    shield = np.zeros(crop.shape[:2], np.float32)
     if a["molesKept"]:
         # A kept mole keeps its colour as well. The evening layer lightens dark
         # marks, which is half of erasing one. Its core is shielded exactly (1),
         # its rim softly, so the evening does not stop on a visible ring.
         core = a["moles"].astype(np.float32)
         grown = cv2.dilate(core, np.ones((g, g), np.uint8))
-        shield = np.maximum(cv2.GaussianBlur(grown, (g * 2 + 1, g * 2 + 1), 0), core)
-        allow_even = allow_even * (1.0 - np.clip(shield, 0.0, 1.0))
+        shield = np.clip(np.maximum(cv2.GaussianBlur(grown, (g * 2 + 1, g * 2 + 1), 0), core), 0.0, 1.0)
+        allow_even = allow_even * (1.0 - shield)
 
     src01 = crop.astype(np.float32) / 255.0
     work = src01 + blemishes * (a["comp01"] - src01)
     if evenness > 0:
         evened = apply_layer(work, a["mg"], evenness, allow_even)
         work = _keep_light(work, evened, face_w, allow_even)
+    if texture > 0 or glow > 0:
+        support = allowed_blem  # hard skin, features out
+        # One soft weight for both stages. Kept moles are NOT shielded here:
+        # shielding them from a lift or a softening that the skin around them
+        # receives turned them into dark stains. They take the same light and
+        # keep their contrast. A mole's core is left exact by the contract test
+        # only for the removal and evening it is protected from.
+        feather = cv2.GaussianBlur(support, (g * 2 + 1, g * 2 + 1), 0)
+        weight = feather * (1.0 - features) * border_fade(*support.shape)
+        if texture > 0:
+            work = soften_texture(work, support, face_w, texture, weight)
+        if glow > 0:
+            work = skin_glow(work, support, face_w, glow, weight)
     out = np.clip(np.rint(work * 255.0), 0, 255).astype(np.uint8)
     return out, {
         "blemishPx": int((a["removal"] > 0).sum()) if blemishes > 0 else 0,
@@ -416,11 +530,13 @@ def _switch(value, default) -> bool:
 
 
 def apply(rgb: np.ndarray, params: dict):
-    """params: { blemishes, evenness } 0..100, { keepMoles } 0/1."""
+    """params: { blemishes, evenness, texture, glow } 0..100, { keepMoles } 0/1."""
     blemishes = common.clamp01(params.get("blemishes", DEFAULT_BLEMISHES), DEFAULT_BLEMISHES / 100)
     evenness = common.clamp01(params.get("evenness", DEFAULT_EVENNESS), DEFAULT_EVENNESS / 100)
+    texture = common.clamp01(params.get("texture", DEFAULT_TEXTURE), DEFAULT_TEXTURE / 100)
+    glow = common.clamp01(params.get("glow", DEFAULT_GLOW), DEFAULT_GLOW / 100)
     keep_moles = _switch(params.get("keepMoles", DEFAULT_KEEP_MOLES), DEFAULT_KEEP_MOLES)
-    if blemishes <= 0 and evenness <= 0:
+    if blemishes <= 0 and evenness <= 0 and texture <= 0 and glow <= 0:
         return rgb, {"applied": 0}
     if not available():
         return rgb, {"applied": 0, "error": "weights missing"}
@@ -439,7 +555,8 @@ def apply(rgb: np.ndarray, params: dict):
             # masks read the photograph as it came in; the pixels worked on are
             # the current ones, so an overlapping neighbour's retouch survives
             sub, m = _retouch_face(rgb[y0:y1, x0:x1], out[y0:y1, x0:x1],
-                                   face_w, blemishes, evenness, keep_moles)
+                                   face_w, blemishes, evenness, keep_moles,
+                                   texture, glow)
         out[y0:y1, x0:x1] = sub
         meta["applied"] += 1
         meta["blemishPx"] += m["blemishPx"]

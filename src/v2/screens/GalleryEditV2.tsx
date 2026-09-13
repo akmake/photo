@@ -86,7 +86,7 @@ export default function GalleryEditV2({
   const DEFAULT_ACTIVATION_PARAMS: Record<string, Record<string, Record<string, number>>> = useMemo(
     () => ({
       retouch: {
-        'skin-retouch': { blemishes: 100, evenness: 70, keepMoles: 1 },
+        'skin-retouch': { blemishes: 100, evenness: 70, texture: 0, glow: 0, keepMoles: 1 },
         'skin-cleanup': { redness: 90 },
         'eye-sparkle': { strength: 50 },
       },
@@ -706,6 +706,22 @@ export default function GalleryEditV2({
                         max={100}
                         defaultVal={70}
                         onChange={(v) => handleParamChange('skin-retouch', 'evenness', v)}
+                      />
+                      <SliderField
+                        label="ריכוך מרקם"
+                        value={getParamVal('skin-retouch', 'texture', 0)}
+                        min={0}
+                        max={100}
+                        defaultVal={0}
+                        onChange={(v) => handleParamChange('skin-retouch', 'texture', v)}
+                      />
+                      <SliderField
+                        label="זוהר"
+                        value={getParamVal('skin-retouch', 'glow', 0)}
+                        min={0}
+                        max={100}
+                        defaultVal={0}
+                        onChange={(v) => handleParamChange('skin-retouch', 'glow', v)}
                       />
                       <label className="tz-ge-toggle-row">
                         <span>שמירת שומות ונמשים</span>
