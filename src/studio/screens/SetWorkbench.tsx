@@ -72,7 +72,13 @@ const GROUPS: { id: ToolDef['category']; label: string }[] = [
  *  verdict than with the verdict alone. */
 function paramNote(toolId: string, params: Record<string, number>): string {
   try {
-    return getTool(toolId).params.map((p) => `${p.label} ${params[p.id]}`).join(' · ');
+    return getTool(toolId)
+      .params.map((p) =>
+        p.control === 'toggle'
+          ? `${p.label} ${params[p.id] >= 0.5 ? 'כן' : 'לא'}`
+          : `${p.label} ${params[p.id]}`,
+      )
+      .join(' · ');
   } catch {
     return '';
   }
@@ -775,7 +781,22 @@ export default function SetWorkbench({
               )}
 
               <div className="wb-params">
-                {def?.params.map((p) => (
+                {def?.params.map((p) =>
+                  p.control === 'toggle' ? (
+                    <label className="prm" key={p.id}>
+                      <span className="prm-label">{p.label}</span>
+                      <input
+                        type="checkbox"
+                        checked={(draft.params[p.id] ?? p.default) >= 0.5}
+                        onChange={(e) =>
+                          setDraft({
+                            ...draft,
+                            params: { ...draft.params, [p.id]: e.target.checked ? 1 : 0 },
+                          })
+                        }
+                      />
+                    </label>
+                  ) : (
                   <label className="prm" key={p.id}>
                     <span className="prm-label">{p.label}</span>
                     <input
@@ -813,7 +834,8 @@ export default function SetWorkbench({
                       }
                     />
                   </label>
-                ))}
+                  ),
+                )}
               </div>
 
               <div className="wb-commit">

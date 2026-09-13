@@ -314,6 +314,27 @@ export default function Editor({
                     {def.params.map((spec) => {
                       const val = inst.params[spec.id];
                       const on = val !== spec.default;
+                      if (spec.control === 'toggle') {
+                        return (
+                          <div className={`tool ${on ? 'active' : ''}`} key={spec.id}>
+                            <label className="tool-row" htmlFor={`${def.id}-${spec.id}`}>
+                              <span>{spec.label}</span>
+                              <input
+                                id={`${def.id}-${spec.id}`}
+                                type="checkbox"
+                                checked={val >= 0.5}
+                                onChange={(e) =>
+                                  onRecipeChange(
+                                    updateToolParams(recipe, def.id, {
+                                      [spec.id]: e.target.checked ? 1 : 0,
+                                    }),
+                                  )
+                                }
+                              />
+                            </label>
+                          </div>
+                        );
+                      }
                       return (
                         <div className={`tool ${on ? 'active' : ''}`} key={spec.id}>
                           <div className="tool-row">

@@ -51,6 +51,7 @@ import render
 import skin
 import background
 import cleanup
+import skin_retouch
 import compare
 import grade_zones
 import hsl
@@ -432,6 +433,18 @@ TOOLS = [
         "params": [{"id": "strength", "min": 0, "max": 100, "default": 70}],
     },
     {
+        # החלקת עור — replaces face-retouch and skin for new work (skin_retouch.py).
+        # Same contract as src/toolRegistry.ts; change both together.
+        "id": "skin-retouch",
+        "kind": "ai",
+        "category": "local-ai",
+        "params": [
+            {"id": "blemishes", "min": 0, "max": 100, "default": skin_retouch.DEFAULT_BLEMISHES},
+            {"id": "evenness", "min": 0, "max": 100, "default": skin_retouch.DEFAULT_EVENNESS},
+            {"id": "keepMoles", "min": 0, "max": 1, "default": skin_retouch.DEFAULT_KEEP_MOLES},
+        ],
+    },
+    {
         "id": "skin-cleanup",
         "kind": "ai",
         "category": "local-ai",
@@ -511,6 +524,7 @@ TOOLS = [
 # id -> callable(image_b64, params) -> (out_b64, meta)
 DISPATCH = {
     "face-retouch": abpn.process,
+    "skin-retouch": skin_retouch.process,
     "skin-cleanup": cleanup.process,
     "skin": skin.process,
     "blush": blush.process,

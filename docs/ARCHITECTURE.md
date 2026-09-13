@@ -650,6 +650,7 @@ POST /export                      → { photos[], recipe|perPhoto, format, dest 
 | **ציור שמן** | blur + posterize | **Kuwahara אמיתי** דרך integral images — O(n), הרדיוס לא עולה כלום *(מיושם ב-JS בלבד; Python חזר בשקט לגישה הנפסלת — §10.2)* |
 | **נקודת אור** | חיבור אדיטיבי → שטיחה | **screen blend** עם falloff חלק |
 | **החלקת עור** | מסכת צבע YCbCr → מרחה חצי תמונה · ואז bilateral → מוחק נקבוביות | **frequency separation**: מחליקים רק את שכבת ה**טון**, שכבת ה**מרקם** חוזרת שלמה |
+| **החלקת עור** (14.09.2026, `skin-retouch`) | frequency separation טיפל רק באחידות — בלי הסרת פגמים ובלי מעברי אור; במקסימום מחק נפח | הסדר המקצועי: **הסרת פגמים** (גלאי + inpainting של DAMO) ← **השוואת עור** (שכבת blend של DAMO, עם ה-sigmoid) ← שמירת שדה האור הרחב. מחליף את `skin` ואת `face-retouch` (legacy). ראו `docs/RESEARCH-skin-smoothing.md`, `BUGS.md` BUG-008 |
 | **ניקיון עור** | סף כתמים גורף → מוחק נחיריים | סף שטח יחסי לפנים + **סף רזולוציה** (`faceTooSmall`) |
 
 ## 10.2 ✅ ציור שמן — היה שבור בשלושה מקומות; **תוקן 2026-07-29**

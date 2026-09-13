@@ -45,9 +45,8 @@ WIDTHS = [(320, False), (1400, True)]
 # The shipped defaults, from src/toolRegistry.ts — the settings a photographer
 # actually gets, not maxed-out ones that would hide a weak result.
 RECIPE = [
-    {"toolId": "face-retouch", "params": {"strength": 70}, "enabled": True},
+    {"toolId": "skin-retouch", "params": {"blemishes": 100, "evenness": 70, "keepMoles": 1}, "enabled": True},
     {"toolId": "skin-cleanup", "params": {"redness": 90, "spots": 25}, "enabled": True},
-    {"toolId": "skin", "params": {"strength": 60}, "enabled": True},
     {"toolId": "contour", "params": {"cheek": 50, "sculpt": 40}, "enabled": True},
     {"toolId": "blush", "params": {"strength": 50}, "enabled": True},
 ]

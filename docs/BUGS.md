@@ -76,6 +76,7 @@ coming back. IDs are permanent and never reused.
 | [BUG-005](#bug-005--the-mask-cache-serves-stale-masks-after-any-change-to-mask-code) | `FIXED` | High | The mask cache serves stale masks after any change to mask code |
 | [BUG-006](#bug-006--facial-hair-is-face-skin-to-every-operator-so-repairs-paste-beard-onto-cheek-and-cheek-into-beard) | `OPEN` | High | Facial hair is `face-skin` to every operator, so repairs paste beard onto cheek and cheek into beard |
 | [BUG-007](#bug-007--face-lips-contains-the-teeth-so-lip-gloss-reduction-recolours-them) | `FIXED` | Medium | `face-lips` contains the teeth, so lip-gloss reduction recolours them |
+| [BUG-008](#bug-008--the-evening-network-runs-without-its-final-sigmoid-so-face-retouch-blends-raw-logits) | `OPEN` | High | The evening network runs without its final sigmoid, so `face-retouch` blends raw logits |
 
 ---
 
@@ -949,6 +950,58 @@ over-covering is damage.
 An assertion that `face-lips` and the inner-ring polygon do not intersect on an
 open-mouth frame. Cheap, and it is the exact invariant that was violated.
 
+
+---
+
+## BUG-008 — The evening network runs without its final sigmoid, so `face-retouch` blends raw logits
+
+**Status:** `OPEN` in `engine/abpn.py` (left as is: saved recipes render through it) · found 2026-09-14 · the new `skin-retouch` tool applies the sigmoid
+**Severity:** High — `face-retouch` is what the V2 editor's retouch switch turns on, at 70 (`src/v2/screens/GalleryEditV2.tsx:89`). Every frame it touched got a blend layer ~57x further from neutral than DAMO's model produces. Its documented failures — 26 of 54 pimples inverted, waxy skin (`docs/TOOLS-STATUS.md`) — were measured on this layer, not on the model.
+
+### Symptom
+The parity test of the new tool's evening stage against upstream's own `predict_roi` failed by up to **59 levels** on one face crop, while its blemish-removal stage matched upstream to 1e-5 on the same crop.
+
+### Measurement
+One face crop, `istockphoto-971105428-2048x2048.jpg`, 1093x1093, network input 512x512:
+
+| quantity | value |
+|---|---|
+| upstream `UNet` output (DAMO `unet_deploy.py`) | 0.302 .. 0.954, mean 0.4995 |
+| `models/abpn_unet.onnx` output | **-0.836 .. 3.040, mean -0.0015** |
+| ONNX vs our torch `abpn_net.UNet` | max 5e-6 (the export is faithful to what it was given) |
+| ONNX vs upstream `UNet` | max 2.086, mean 0.503 |
+| **sigmoid(ONNX) vs upstream `UNet`** | **max 1e-6** |
+| layer at `degree` 0.7, mean \|mg - 0.5\|: as `abpn.py` builds it vs upstream | **0.353 vs 0.0062** |
+| SHA-256 of `models/pytorch_model.pt` and `models/damo_skin_official/pytorch_model.pt` | both `760d0c0b95c4e0a6…` — same weights |
+| blend stage alone, identical layer fed to ours and upstream's | max 0 levels |
+
+Other frames are not measured. The defect is a missing operation in the graph, so it does not depend on the input. Whether it caused the 26 inversions is **UNMEASURED — hypothesis**: `abpn.py`'s guards restore the original low-frequency colour and clamp overshoot, and they were tuned on this broken layer.
+
+### Cause
+- `engine/abpn_net.py:103` ends `return self.outc(y1)`. Upstream `modelscope/models/cv/skin_retouching/unet_deploy.py` ends `x0 = self.outc(x11)` then `x0 = self.sigmoid(x0)`.
+- `abpn_net.py` was rebuilt from the checkpoint's weight shapes, and its docstring treats `load_state_dict(strict=True)` as proof of the architecture. A sigmoid has no weights, so strict loading cannot see it.
+- `engine/export_onnx.py:53` exports that net, so the graph has no sigmoid either.
+- `engine/abpn.py:96-97` feeds the output straight in as a blend layer: `mg = np.clip((mg - 0.5) * degree + 0.5, 0.0, 1.0)`.
+- `engine/test_onnx_parity.py` compares the export against `abpn_net`, not against upstream, so it passed.
+
+### Blast radius
+Checked every consumer of `abpn_net`, `abpn_unet.onnx` and `abpn.apply` (grep over `engine/` and `src/`, excluding `_*.py` diagnostics):
+- `abpn.py` — `face-retouch`: render order 8, server route `face-retouch`, V2 retouch category.
+- `test_blush.py` — its `abpn` PASS rows were measured on the broken layer.
+- `test_resolution_parity.py` — carries `face-retouch` in its recipe.
+- `test_onnx_parity.py` — guards the export against the wrong reference.
+- `skin_retouch.py` uses the same graph and applies the sigmoid in `evening_layer`.
+- `abpn_local.py` (detection and inpainting) is a different network. It is checked against upstream by `test_abpn_local_reference.py` and `test_skin_retouch.py`. It had the same CLASS of bug once — a missing final `tanh`, fixed 2026-09-08.
+
+### Options
+| option | verdict | why |
+|---|---|---|
+| Add the sigmoid in `abpn._infer` | **not done — the user's decision** | Changes how every saved recipe that uses `face-retouch` renders. The registry's contract for retired tools is that saved work renders as it was saved, and here that work was made on a broken layer. |
+| Re-export the ONNX graph with the sigmoid inside | rejected for now | Silently changes `abpn.py` too, which is the same decision as above, made without anyone deciding it. |
+| Apply the sigmoid in `skin_retouch.evening_layer` | **done** | A new tool with no saved recipes, and the call site says why. |
+
+### Guard
+`engine/test_skin_retouch.py` → `UpstreamParity.test_evening_is_upstreams` runs upstream's own `predict_roi` with upstream's own `UNet` and weights. Without the sigmoid it fails at 59 levels. The general rule: **a network rebuilt from weight shapes is checked against the upstream module, never against itself.** Operations without weights — activations, normalisation order, a final `tanh` or `sigmoid` — are invisible to strict loading.
 
 ---
 

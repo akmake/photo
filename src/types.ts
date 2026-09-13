@@ -11,6 +11,10 @@ export interface ToolParamSpec {
   max: number;
   step: number;
   default: number;
+  /** How the UI draws it. Values stay numbers either way (params are numbers
+   *  by contract, engine included): a toggle is 0 = off, 1 = on, with
+   *  min 0, max 1, step 1. Omitted = slider. */
+  control?: 'slider' | 'toggle';
 }
 
 export interface ToolDef {

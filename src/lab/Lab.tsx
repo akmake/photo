@@ -128,7 +128,13 @@ async function measure(dataUrl: string): Promise<Omit<Loaded, 'name' | 'full' | 
 
 function paramNote(toolId: string, params: Record<string, number>): string {
   try {
-    return getTool(toolId).params.map((s) => `${s.label} ${params[s.id]}`).join(' · ');
+    return getTool(toolId)
+      .params.map((s) =>
+        s.control === 'toggle'
+          ? `${s.label} ${params[s.id] >= 0.5 ? 'כן' : 'לא'}`
+          : `${s.label} ${params[s.id]}`,
+      )
+      .join(' · ');
   } catch {
     return '';
   }
@@ -1307,34 +1313,54 @@ export default function Lab(
 
               {open && (
                 <div className="lab-tool-body">
-                  {def.params.map((spec) => (
-                    <div className="lab-param" key={spec.id}>
-                      <div className="lab-param-row">
-                        <label>{spec.label}</label>
-                        <span className="val">{inst.params[spec.id]}</span>
+                  {def.params.map((spec) =>
+                    spec.control === 'toggle' ? (
+                      <div className="lab-param" key={spec.id}>
+                        <label className="lab-param-row">
+                          <span>{spec.label}</span>
+                          <input
+                            type="checkbox"
+                            checked={inst.params[spec.id] >= 0.5}
+                            disabled={!inst.enabled}
+                            onChange={(e) =>
+                              setRecipe(
+                                updateToolParams(recipe, def.id, {
+                                  [spec.id]: e.target.checked ? 1 : 0,
+                                }),
+                              )
+                            }
+                          />
+                        </label>
                       </div>
-                      <input
-                        type="range"
-                        min={spec.min}
-                        max={spec.max}
-                        step={spec.step}
-                        value={inst.params[spec.id]}
-                        disabled={!inst.enabled}
-                        onChange={(e) =>
-                          setRecipe(
-                            updateToolParams(recipe, def.id, {
-                              [spec.id]: Number(e.target.value),
-                            }),
-                          )
-                        }
-                        onDoubleClick={() =>
-                          setRecipe(
-                            updateToolParams(recipe, def.id, { [spec.id]: spec.default }),
-                          )
-                        }
-                      />
-                    </div>
-                  ))}
+                    ) : (
+                      <div className="lab-param" key={spec.id}>
+                        <div className="lab-param-row">
+                          <label>{spec.label}</label>
+                          <span className="val">{inst.params[spec.id]}</span>
+                        </div>
+                        <input
+                          type="range"
+                          min={spec.min}
+                          max={spec.max}
+                          step={spec.step}
+                          value={inst.params[spec.id]}
+                          disabled={!inst.enabled}
+                          onChange={(e) =>
+                            setRecipe(
+                              updateToolParams(recipe, def.id, {
+                                [spec.id]: Number(e.target.value),
+                              }),
+                            )
+                          }
+                          onDoubleClick={() =>
+                            setRecipe(
+                              updateToolParams(recipe, def.id, { [spec.id]: spec.default }),
+                            )
+                          }
+                        />
+                      </div>
+                    ),
+                  )}
 
                   {def.id === CLEANUP_ID && (
                     <div className="lab-mask-row">

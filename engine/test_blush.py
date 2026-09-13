@@ -17,8 +17,14 @@ import abpn
 import common
 import masks
 import cleanup
+import skin_retouch
 
-TOOLS = {"cleanup": cleanup.apply, "abpn": abpn.apply}
+TOOLS = {
+    "cleanup": cleanup.apply,
+    "abpn": abpn.apply,
+    # its own worst case: both dials at 100 (it has no `strength`)
+    "skin-retouch": lambda rgb, _p: skin_retouch.apply(rgb, {"blemishes": 100, "evenness": 100}),
+}
 
 # Max allowed drift of mean cheek colour, in Lab units. ~1.0 is the threshold
 # of human perception for a large flat area, so 0.6 is a strict bar.

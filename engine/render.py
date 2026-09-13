@@ -31,6 +31,7 @@ import pixel_color
 import grade_zones
 import dehaze
 import contour
+import skin_retouch
 import tonal_contrast
 
 # toolId -> (callable, pipeline order). Lower order runs first.
@@ -40,7 +41,13 @@ TOOLS = {
     # sensor noise goes first, before any tool sharpens or stretches it —
     # the same place a raw pipeline runs its denoise
     "noise-reduction": (globals_py.noise_reduction, 5),
-    "face-retouch": (abpn.apply, 8),  # learned model — the primary skin tool
+    # RETIRED for new work — see skin-retouch. Still dispatched so a recipe saved
+    # with it renders as it was saved (and see docs/BUGS.md BUG-008 before
+    # deciding whether it should).
+    "face-retouch": (abpn.apply, 8),
+    # החלקת עור: blemish removal, then evening, per face. Same slot the learned
+    # model always had — first, on neutral data. `skin` (20) is retired too.
+    "skin-retouch": (skin_retouch.apply, 8),
     "skin-cleanup": (cleanup.apply, 10),
     "skin": (skin.apply, 20),
     # sculpting comes AFTER smoothing — smoothing an added highlight would
@@ -119,6 +126,7 @@ FRAME_ONLY = {"light-point", "glow", "vignette"}
 # and the photographer saw almost nothing.
 FACE_FLOOR = {
     "face-retouch": abpn.MIN_FACE_PX,
+    "skin-retouch": skin_retouch.MIN_FACE_PX,
     "skin-cleanup": cleanup.MIN_WORK_PX,
     "skin": skin.MIN_FACE_PX,
     "contour": contour.MIN_FACE_PX,

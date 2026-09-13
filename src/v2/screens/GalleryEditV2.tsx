@@ -72,7 +72,7 @@ export default function GalleryEditV2({
   // Tool categories mapping
   const CATEGORY_TOOLS: Record<string, string[]> = useMemo(
     () => ({
-      retouch: ['face-retouch', 'skin', 'skin-cleanup', 'eye-sparkle'],
+      retouch: ['skin-retouch', 'skin-cleanup', 'eye-sparkle'],
       glow: ['glow'],
       contour: ['contour'],
       tone: ['tone-color'],
@@ -86,8 +86,7 @@ export default function GalleryEditV2({
   const DEFAULT_ACTIVATION_PARAMS: Record<string, Record<string, Record<string, number>>> = useMemo(
     () => ({
       retouch: {
-        'face-retouch': { strength: 70 },
-        skin: { strength: 60, texture: 100 },
+        'skin-retouch': { blemishes: 100, evenness: 70, keepMoles: 1 },
         'skin-cleanup': { redness: 90 },
         'eye-sparkle': { strength: 50 },
       },
@@ -210,16 +209,25 @@ export default function GalleryEditV2({
     [frameEffectiveTools],
   );
 
+  // Retired tools a category still has to reach. Work saved with them keeps
+  // rendering, so switching the category OFF must switch them off too. They
+  // are never switched ON: turning a category on uses the tool that replaced
+  // them, and reviving both would apply two retouches on top of each other.
+  const RETIRED_CATEGORY_TOOLS: Record<string, string[]> = useMemo(
+    () => ({ retouch: ['face-retouch', 'skin'] }),
+    [],
+  );
+
   // Category enable state (true if any tool in category is enabled)
   const isCategoryEnabled = useCallback(
     (catId: string): boolean => {
-      const toolIds = CATEGORY_TOOLS[catId] || [];
+      const toolIds = [...(CATEGORY_TOOLS[catId] || []), ...(RETIRED_CATEGORY_TOOLS[catId] || [])];
       return toolIds.some((tid) => {
         const step = frameEffectiveTools.find((t) => t.toolId === tid);
         return step ? step.enabled : false;
       });
     },
-    [CATEGORY_TOOLS, frameEffectiveTools],
+    [CATEGORY_TOOLS, RETIRED_CATEGORY_TOOLS, frameEffectiveTools],
   );
 
   // Toggle category on/off
@@ -240,13 +248,24 @@ export default function GalleryEditV2({
           });
         }
       }
+      if (!enabled) {
+        for (const tid of RETIRED_CATEGORY_TOOLS[catId] || []) {
+          const existing = frameEffectiveTools.find((t) => t.toolId === tid);
+          if (existing?.enabled) {
+            setFrameStep(project.id, currentFrame.name, { ...existing, enabled: false });
+          }
+        }
+      }
     },
-    [currentFrame, CATEGORY_TOOLS, DEFAULT_ACTIVATION_PARAMS, frameEffectiveTools, project.id],
+    [currentFrame, CATEGORY_TOOLS, RETIRED_CATEGORY_TOOLS, DEFAULT_ACTIVATION_PARAMS, frameEffectiveTools, project.id],
   );
 
   // Category tweak indicators
   const hasRetouchTweaks = Boolean(
-    frameEffectiveTools.some((t) => ['face-retouch', 'skin', 'skin-cleanup', 'eye-sparkle'].includes(t.toolId) && t.enabled),
+    frameEffectiveTools.some(
+      (t) =>
+        ['skin-retouch', 'face-retouch', 'skin', 'skin-cleanup', 'eye-sparkle'].includes(t.toolId) && t.enabled,
+    ),
   );
   const hasGlowTweaks = Boolean(
     frameEffectiveTools.some((t) => t.toolId === 'glow' && t.enabled),
@@ -673,29 +692,34 @@ export default function GalleryEditV2({
                   {openCategories.retouch && (
                     <div className="tz-ge-accordion-body">
                       <SliderField
-                        label="עוצמת ריטוש פנים"
-                        value={getParamVal('face-retouch', 'strength', 70)}
-                        min={0}
-                        max={100}
-                        defaultVal={70}
-                        onChange={(v) => handleParamChange('face-retouch', 'strength', v)}
-                      />
-                      <SliderField
-                        label="החלקת עור"
-                        value={getParamVal('skin', 'strength', 60)}
-                        min={0}
-                        max={100}
-                        defaultVal={60}
-                        onChange={(v) => handleParamChange('skin', 'strength', v)}
-                      />
-                      <SliderField
-                        label="שימור טקסטורת עור"
-                        value={getParamVal('skin', 'texture', 100)}
+                        label="ניקוי פגמים"
+                        value={getParamVal('skin-retouch', 'blemishes', 100)}
                         min={0}
                         max={100}
                         defaultVal={100}
-                        onChange={(v) => handleParamChange('skin', 'texture', v)}
+                        onChange={(v) => handleParamChange('skin-retouch', 'blemishes', v)}
                       />
+                      <SliderField
+                        label="אחידות עור"
+                        value={getParamVal('skin-retouch', 'evenness', 70)}
+                        min={0}
+                        max={100}
+                        defaultVal={70}
+                        onChange={(v) => handleParamChange('skin-retouch', 'evenness', v)}
+                      />
+                      <label className="tz-ge-toggle-row">
+                        <span>שמירת שומות ונמשים</span>
+                        <span className="tz-ge-switch">
+                          <input
+                            type="checkbox"
+                            checked={getParamVal('skin-retouch', 'keepMoles', 1) >= 0.5}
+                            onChange={(e) =>
+                              handleParamChange('skin-retouch', 'keepMoles', e.target.checked ? 1 : 0)
+                            }
+                          />
+                          <span className="tz-ge-switch-slider" />
+                        </span>
+                      </label>
                       <SliderField
                         label="ניקוי אדמומיות"
                         value={getParamVal('skin-cleanup', 'redness', 90)}

@@ -74,13 +74,36 @@ export const TOOLS: ToolDef[] = [
     ],
   },
   {
+    // RETIRED — replaced by skin-retouch. Kept so work saved with it still
+    // renders as it was saved. Read docs/BUGS.md BUG-008 before reviving it:
+    // its evening layer never had the network's final sigmoid.
     id: 'face-retouch',
-    label: 'ריטוש פנים (AI)',
+    label: 'ריטוש פנים (הוחלף)',
     kind: 'ai',
     category: 'local-ai',
-    order: 8, // the learned model runs first, on neutral data
+    order: 8,
     batchPolicy: 'absolute',
+    legacy: true,
     params: [{ id: 'strength', label: 'עוצמה', min: 0, max: 100, step: 1, default: 70 }],
+  },
+  {
+    // החלקת עור — the retoucher's order behind one tool (engine/skin_retouch.py):
+    // blemishes are REMOVED first, then tone is evened on skin that no longer
+    // has them. Two dials because they are two operations a photographer wants
+    // apart: a clean child with rosy cheeks, an adult with acne and good tone.
+    id: 'skin-retouch',
+    label: 'החלקת עור',
+    kind: 'ai',
+    category: 'local-ai',
+    order: 8, // learned models run first, on neutral data
+    batchPolicy: 'absolute',
+    params: [
+      { id: 'blemishes', label: 'ניקוי פגמים', min: 0, max: 100, step: 1, default: 100 },
+      { id: 'evenness', label: 'אחידות עור', min: 0, max: 100, step: 1, default: 70 },
+      // On by default: deleting a mole changes who the person is. It keys on
+      // colour (brown, not red), so a brown post-acne mark is kept too.
+      { id: 'keepMoles', label: 'שמירת שומות ונמשים', min: 0, max: 1, step: 1, default: 1, control: 'toggle' },
+    ],
   },
   {
     // Engine-side this is `cleanup.py`, and it is TWO operators, so it gets two
@@ -111,12 +134,15 @@ export const TOOLS: ToolDef[] = [
     ],
   },
   {
+    // RETIRED — replaced by skin-retouch, which does this job and blemishes in
+    // the retoucher's order. Kept so work saved with it renders as it was saved.
     id: 'skin',
-    label: 'החלקת עור',
+    label: 'החלקת עור (הוחלף)',
     kind: 'ai',
     category: 'local-ai',
     order: 20, // AI retouch runs on neutral data, before the creative grade
     batchPolicy: 'absolute',
+    legacy: true,
     params: [
       { id: 'strength', label: 'עוצמה', min: 0, max: 100, step: 1, default: 60 },
       // The two settings the frequency separation used to hardcode. `scale` is
