@@ -32,7 +32,7 @@
   align-items: center;
   gap: var(--s4);
   flex-wrap: wrap;
-  padding-bottom: var(--s3);
+  padding-bottom: var(--s2);
 }
 
 .gw-modes {
@@ -155,8 +155,8 @@
 
 .gw-tile {
   position: relative;
-  flex: 0 0 196px;
-  height: 128px;
+  flex: 0 0 172px;
+  height: 112px;
   display: flex;
   flex-direction: column;
   border: 1px solid var(--line);
@@ -325,8 +325,8 @@
 .gw-tile-more:focus-visible { opacity: 1; }
 
 .gw-tile-plus {
-  flex: 0 0 96px;
-  height: 128px;
+  flex: 0 0 84px;
+  height: 112px;
   border: 1px dashed var(--line-strong);
   border-radius: 3px;
   background: none;
@@ -343,7 +343,7 @@
 
 .gw-timeline {
   flex: 0 0 auto;
-  padding: 2px 0 var(--s2);
+  padding: 0 0 2px;
 }
 
 .gw-tl-bar {
@@ -397,7 +397,7 @@
   align-items: center;
   gap: var(--s4);
   flex-wrap: wrap;
-  padding: var(--s2) 0;
+  padding: 6px 0;
   border-top: 1px solid var(--line);
 }
 
@@ -407,6 +407,25 @@
   gap: 8px;
   font-size: var(--t-md);
 }
+
+/* The active group's name IS the title, and it is a field: click and type.
+ * It reads as a heading until hovered or focused, then shows its edge. */
+.gw-view-name {
+  font: inherit;
+  font-family: var(--font-display);
+  font-weight: 500;
+  font-size: var(--t-lg);
+  color: var(--ink);
+  background: none;
+  border: 0;
+  border-bottom: 1px dashed var(--line-strong);
+  padding: 0 2px;
+  min-width: 4ch;
+  max-width: 28ch;
+}
+
+.gw-view-name:hover { border-bottom-color: var(--ink-3); }
+.gw-view-name:focus { outline: none; border-bottom: 1px solid var(--gw-brand); }
 
 .gw-view-title strong { font-family: var(--font-display); font-weight: 500; font-size: var(--t-lg); }
 .gw-view-title .mono { color: var(--ink-2); font-size: var(--t-sm); }
@@ -932,13 +951,13 @@
 
 .gw-loading { gap: var(--s3); }
 .gw-skel-strip { display: flex; gap: var(--s2); }
-.gw-skel-strip i { flex: 0 0 196px; height: 128px; background: var(--card-2); border-radius: 3px; }
+.gw-skel-strip i { flex: 0 0 172px; height: 112px; background: var(--card-2); border-radius: 3px; }
 .gw-skel-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 6px; }
 .gw-skel-grid i { aspect-ratio: 1; background: var(--card-2); }
 .gw-empty-project { color: var(--ink-3); }
 
 @media (max-width: 1000px) {
   .gw-search { width: 140px; }
-  .gw-tile { flex-basis: 170px; height: 112px; }
-  .gw-tile-plus { height: 112px; }
+  .gw-tile { flex-basis: 150px; height: 100px; }
+  .gw-tile-plus { height: 100px; }
 }

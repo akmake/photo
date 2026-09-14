@@ -285,7 +285,7 @@ export default function GroupWorkspace({ projectId }: { projectId: string }) {
       const el = rootRef.current;
       if (!el) return;
       const top = Math.max(el.getBoundingClientRect().top, 0);
-      setHeight(Math.max(560, Math.round(window.innerHeight - top - 20)));
+      setHeight(Math.max(560, Math.round(window.innerHeight - top - 12)));
     };
     fit();
     window.addEventListener('resize', fit);
@@ -1137,7 +1137,16 @@ export default function GroupWorkspace({ projectId }: { projectId: string }) {
       {/* ---- toolbar ---- */}
       <div className="gw-toolbar">
         <div className="gw-view-title">
-          <strong>{viewTitle}</strong>
+          {activeGroup ? (
+            <ViewName
+              key={activeGroup.id}
+              name={activeGroup.name}
+              label={W.nameField}
+              onRename={(name) => rename(activeGroup.id, name)}
+            />
+          ) : (
+            <strong>{viewTitle}</strong>
+          )}
           <span className="mono">{count(inView.length)}</span>
           {activeGroup && <bdi dir="ltr" className="mono gw-span">{spanOf(inView)}</bdi>}
           {q && <span className="gw-filtered">· מוצגות <span className="mono">{count(visible.length)}</span></span>}
@@ -1771,6 +1780,37 @@ function GroupTile({
         ⋯
       </button>
     </div>
+  );
+}
+
+/** The active group's name, editable where it is read. Enter or leaving the
+ *  field saves (one undo step); Escape puts the old name back. */
+function ViewName({ name, label, onRename }: { name: string; label: string; onRename: (name: string) => void }) {
+  const [draft, setDraft] = useState(name);
+  const cancelled = useRef(false);
+  useEffect(() => { setDraft(name); }, [name]);
+  return (
+    <input
+      className="gw-view-name"
+      value={draft}
+      aria-label={label}
+      title="לחץ כדי לשנות את השם"
+      size={Math.max(4, draft.length + 1)}
+      onChange={(e) => setDraft(e.target.value)}
+      onFocus={(e) => { cancelled.current = false; e.currentTarget.select(); }}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') e.currentTarget.blur();
+        if (e.key === 'Escape') {
+          e.stopPropagation();
+          cancelled.current = true;
+          setDraft(name);
+          e.currentTarget.blur();
+        }
+      }}
+      onBlur={() => {
+        if (!cancelled.current && draft.trim() !== name) onRename(draft);
+      }}
+    />
   );
 }
 

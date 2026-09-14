@@ -13,7 +13,7 @@ export default function BatchesV2({
   onBack?: () => void;
 }) {
   return (
-    <div className="tz-stage-container">
+    <div className="tz-stage-container tz-stage-groups">
       <section className="tz-stage-header">
         <div className="tz-stage-header-copy">
           <div className="tz-stage-tag">שלב 2 · רצפים</div>
