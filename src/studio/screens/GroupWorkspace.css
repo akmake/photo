@@ -469,9 +469,11 @@
 
 /* ---- the contact sheet ---- */
 
+/* Never squeezed to nothing: on a short or narrow window the header, strip and
+ * toolbar wrap taller, and a flex child with min-height 0 simply vanished. */
 .gw-sheet {
   flex: 1 1 auto;
-  min-height: 0;
+  min-height: 320px;
   overflow-y: auto;
   overflow-x: hidden;
   position: relative;
