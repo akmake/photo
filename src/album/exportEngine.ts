@@ -122,6 +122,14 @@ async function renderSpread(
   canvas.height = height;
   const context = canvas.getContext('2d', { alpha: false });
   if (!context) throw new Error('הדפדפן אינו מאפשר רינדור הגהה');
+  /* Drawing only the photos of a Vault page would hand over a file without its
+   * colours, title and lines — a wrong file that looks finished. Refuse loudly
+   * until the layer export exists. */
+  if (item.spread.templateInstance) {
+    throw new Error(
+      `כפולה ${item.spread.pageStart}–${item.spread.pageStart + 1} היא עמוד מהכספת — ייצוא עמודים אלה עוד לא נבנה`,
+    );
+  }
 
   context.fillStyle = item.spread.background;
   context.fillRect(0, 0, width, height);

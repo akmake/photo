@@ -1,6 +1,8 @@
 import { useMemo, useState } from 'react';
 import { assessCrop } from './cropEngine';
 import { buildAlbumLayoutCandidates, EMPTY_GENERATED_LAYOUT } from './layoutEngine';
+import { spreadTemplate, templateBackground } from './templates/library';
+import { TemplatePage } from './templates/TemplateLayers';
 import type {
   AlbumPhoto, AlbumProject, PhotoFrameSettings, PrintProductProfile,
   ReviewComment, ReviewVersion,
@@ -59,6 +61,7 @@ export default function ReviewWorkspace({
       photoIds: spread.photoIds,
     } : generated;
   }, [photos, profile.closedHeightMm, profile.closedWidthMm, project.styleName, spread]);
+  const reviewTemplate = spread ? spreadTemplate(spread) : null;
 
   if (!version || (!isCover && !spread)) return null;
 
@@ -225,12 +228,22 @@ export default function ReviewWorkspace({
             <div
               className="review-spread"
               style={{
-                background: spread!.background,
+                background: reviewTemplate && spread!.templateInstance
+                  ? templateBackground(reviewTemplate, spread!.templateInstance)
+                  : spread!.background,
                 aspectRatio: `${profile.spreadWidthMm} / ${profile.spreadHeightMm}`,
               }}
             >
               <div className="review-gutter" />
-              {layout.slots.map((slot, index) => {
+              {reviewTemplate && spread!.templateInstance ? (
+                <TemplatePage
+                  template={reviewTemplate}
+                  instance={spread!.templateInstance}
+                  spread={spread!}
+                  photos={photos}
+                  spreadAspect={profile.spreadWidthMm / profile.spreadHeightMm}
+                />
+              ) : layout.slots.map((slot, index) => {
                 const photo = photos.find((item) => item.id === layout.photoIds[index]);
                 if (!photo) return null;
                 const settings = spread!.frameSettings?.[slot.id] ?? DEFAULT_SETTINGS;

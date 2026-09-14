@@ -12,6 +12,10 @@ import {
   buildAlbumLayoutCandidates, EMPTY_GENERATED_LAYOUT, type GeneratedAlbumLayout,
 } from './layoutEngine';
 import { assessCrop } from './cropEngine';
+import { applyTemplate, spreadTemplate, templateBackground, templateSlots } from './templates/library';
+import { TemplateDecor } from './templates/TemplateLayers';
+import TemplatePanel from './templates/TemplatePanel';
+import type { AlbumTemplate, SpreadTemplateInstance } from './templates/types';
 import { analyzeAlbumPhoto } from '../api';
 import { exportAlbumForPrint, exportAlbumProof } from './exportEngine';
 import {
@@ -433,7 +437,20 @@ export default function AlbumStudio({ job, onBack }: {
   const generatedLayout = layoutCandidates.find((candidate) => candidate.id === spread.layoutId)
     ?? layoutCandidates[0]
     ?? EMPTY_GENERATED_LAYOUT;
-  const layout = spread.customSlots?.length === spread.photoIds.length ? {
+  /* A Vault page decides where the photos sit. Its photo places are handed to
+   * the editor as ordinary slots, so placing, swapping and cropping a photo
+   * work exactly as on any other spread. */
+  const activeTemplate = spreadTemplate(spread);
+  const templatePlaces = activeTemplate ? templateSlots(activeTemplate) : [];
+  const layout = activeTemplate ? {
+    ...generatedLayout,
+    id: spread.layoutId,
+    name: activeTemplate.name,
+    photoCount: activeTemplate.photoCount,
+    slots: templatePlaces,
+    photoIds: templatePlaces.map((_, index) => spread.photoIds[index] ?? ''),
+    explanation: 'עמוד מעוצב מהכספת',
+  } : spread.customSlots?.length === spread.photoIds.length ? {
     ...generatedLayout,
     id: spread.layoutId,
     name: 'פריסה אישית',
@@ -441,6 +458,9 @@ export default function AlbumStudio({ job, onBack }: {
     photoIds: spread.photoIds,
     explanation: 'פריסה אישית שנערכה ידנית',
   } : generatedLayout;
+  const spreadPaper = activeTemplate && spread.templateInstance
+    ? templateBackground(activeTemplate, spread.templateInstance)
+    : spread.background;
   const usedIds = useMemo(() => new Set(project.spreads.flatMap((item) => item.photoIds)), [project.spreads]);
   const currentSpreadIds = useMemo(() => new Set(spread.photoIds), [spread.photoIds]);
   const filteredPhotos = useMemo(() => photos.filter((photo) => {
@@ -757,6 +777,8 @@ export default function AlbumStudio({ job, onBack }: {
         layoutId: 'balanced',
         customSlots: undefined,
         frameSettings: {},
+        /* A design is drawn for one album shape; a new size must not stretch it. */
+        templateInstance: undefined,
       })),
     }));
     setSelectedSlotIndex(null);
@@ -977,6 +999,7 @@ export default function AlbumStudio({ job, onBack }: {
   }
 
   function addFrame() {
+    if (blockTemplateGeometry()) return;
     // Base BOTH lists on the layout currently on screen so `customSlots.length`
     // and `photoIds.length` always match — otherwise the spread silently falls
     // back to a generated layout and the new frame vanishes. That mismatch was
@@ -1004,6 +1027,7 @@ export default function AlbumStudio({ job, onBack }: {
   }
 
   function removeFrame(index: number) {
+    if (blockTemplateGeometry()) return;
     if (layout.slots.length <= 1) return;
     const allSlots = layout.slots.filter((_, i) => i !== index);
     updateSpread({
@@ -1021,6 +1045,7 @@ export default function AlbumStudio({ job, onBack }: {
    * layering the photographer means, instead of whichever one happened to be
    * added last winning. Slot, its photo and its settings move together. */
   function reorderFrame(to: 'front' | 'back') {
+    if (blockTemplateGeometry()) return;
     if (selectedSlotIndex === null) return;
     const slots = layout.slots.map((s) => ({ ...s }));
     const ids = [...layout.photoIds];
@@ -1039,12 +1064,67 @@ export default function AlbumStudio({ job, onBack }: {
       photoIds: nextLayout.photoIds,
       frameSettings: {},
       customSlots: undefined,
+      templateInstance: undefined,
     });
     setSelectedSlotIndex(null);
     setNotice(`הוחלה הפריסה „${nextLayout.name}”`);
   }
 
+  /* The geometry of a Vault page is the designer's. Moving its frames belongs to
+   * the layer editor, a later stage — until then say so, instead of quietly
+   * turning the page back into a generic layout. */
+  function blockTemplateGeometry() {
+    if (!activeTemplate) return false;
+    setNotice('בעמוד מהכספת עוד אי אפשר להזיז, להוסיף או ליישר מסגרות — זה ייכנס בשלב העורך');
+    return true;
+  }
+
+  function placeTemplate(template: AlbumTemplate) {
+    updateSpread(applyTemplate(spread, template));
+    setSelectedSlotIndex(null);
+    setCropIndex(null);
+    setNotice(`הוצב ${template.name}`);
+  }
+
+  function removeTemplate() {
+    updateSpread({
+      templateInstance: undefined,
+      layoutId: 'balanced',
+      customSlots: undefined,
+      frameSettings: {},
+    });
+    setSelectedSlotIndex(null);
+    setNotice('הכפולה חזרה לפריסה רגילה');
+  }
+
+  /* Dragging a colour or typing a word would leave one undo step per pixel or
+   * letter. The page follows live; the history receives ONE step — the album as
+   * it was before the edit began — when the control is let go. */
+  const templateEditBase = useRef<AlbumProject | null>(null);
+
+  function editTemplateInstance(change: (instance: SpreadTemplateInstance) => SpreadTemplateInstance) {
+    if (!spread.templateInstance) return;
+    if (!templateEditBase.current) templateEditBase.current = project;
+    const next = change(spread.templateInstance);
+    setProject((current) => ({
+      ...current,
+      spreads: current.spreads.map((item) => (
+        item.id === spread.id ? { ...item, templateInstance: next } : item
+      )),
+    }));
+  }
+
+  function endTemplateEdit() {
+    const base = templateEditBase.current;
+    if (!base) return;
+    templateEditBase.current = null;
+    setHistoryPast((items) => [...items.slice(-49), base]);
+    setHistoryFuture([]);
+    setNotice('השינויים נשמרו');
+  }
+
   function updateSelectedSlot(patch: Partial<LayoutSlot>) {
+    if (blockTemplateGeometry()) return;
     if (selectedSlotIndex === null) return;
     const next = layout.slots.map((slot, index) => (
       index === selectedSlotIndex ? { ...slot, ...patch } : slot
@@ -1060,6 +1140,7 @@ export default function AlbumStudio({ job, onBack }: {
    * the selected frame is the reference and the command applies to every frame
    * on this spread — a visible, deterministic rule instead of hidden snapping. */
   function arrangeFrames(action: FrameArrangeAction) {
+    if (blockTemplateGeometry()) return;
     if (selectedSlotIndex === null || layout.slots.length < 2) return;
     const reference = layout.slots[selectedSlotIndex];
     const next = layout.slots.map((slot) => ({ ...slot }));
@@ -1138,6 +1219,7 @@ export default function AlbumStudio({ job, onBack }: {
   }
 
   function savePersonalLayout() {
+    if (blockTemplateGeometry()) return;
     if (!layout.slots.length) return;
     const next: PersonalLayout = {
       id: `personal-${Date.now()}`,
@@ -1154,7 +1236,9 @@ export default function AlbumStudio({ job, onBack }: {
   }
 
   function applyPersonalLayout(item: PersonalLayout) {
-    updateSpread({ layoutId: item.id, customSlots: item.slots, frameSettings: {} });
+    updateSpread({
+      layoutId: item.id, customSlots: item.slots, frameSettings: {}, templateInstance: undefined,
+    });
     setSelectedSlotIndex(null);
     setNotice(`הוחלה ${item.name}`);
   }
@@ -1406,7 +1490,13 @@ export default function AlbumStudio({ job, onBack }: {
       ...currentProject,
       activeSpreadId: target.id,
       spreads: currentProject.spreads.map((candidate) => candidate.id === target.id
-        ? { ...candidate, layoutId: next.id, customSlots: undefined, frameSettings: {} }
+        ? {
+          ...candidate,
+          layoutId: next.id,
+          customSlots: undefined,
+          frameSettings: {},
+          templateInstance: undefined,
+        }
         : candidate),
     }));
     setSelectedSlotIndex(null);
@@ -1422,6 +1512,28 @@ export default function AlbumStudio({ job, onBack }: {
     }
 
     const currentIds = [...layout.photoIds];
+    /* A Vault page keeps its design: a photo leaves an empty place behind, and
+     * a new one fills an empty place — the page never reorganises itself. */
+    if (activeTemplate) {
+      const at = currentIds.indexOf(selectedPhotoId);
+      if (at >= 0) {
+        currentIds[at] = '';
+        updateSpread({ photoIds: currentIds });
+        setNotice('התמונה הוצאה מהעמוד');
+      } else {
+        const empty = currentIds.indexOf('');
+        if (empty < 0) {
+          setNotice('כל המקומות בעמוד תפוסים — בחרו מסגרת כדי להחליף את התמונה שבה');
+          return;
+        }
+        currentIds[empty] = selectedPhotoId;
+        updateSpread({ photoIds: currentIds });
+        setNotice('התמונה שובצה בעמוד');
+      }
+      setSelectedPhotoId(null);
+      setSelectedSlotIndex(null);
+      return;
+    }
     if (currentIds.includes(selectedPhotoId)) {
       updateSpread({
         photoIds: currentIds.filter((id) => id !== selectedPhotoId),
@@ -1484,6 +1596,14 @@ export default function AlbumStudio({ job, onBack }: {
 
   function removeSelectedFramePhoto() {
     if (selectedSlotIndex === null) return;
+    if (activeTemplate) {
+      updateSpread({
+        photoIds: layout.photoIds.map((id, index) => (index === selectedSlotIndex ? '' : id)),
+      });
+      setSelectedSlotIndex(null);
+      setNotice('התמונה הוצאה מהעמוד · המקום נשאר בעיצוב');
+      return;
+    }
     updateSpread({
       photoIds: layout.photoIds.filter((_, index) => index !== selectedSlotIndex),
       layoutId: 'balanced',
@@ -1836,9 +1956,18 @@ export default function AlbumStudio({ job, onBack }: {
             {['#f8f6f1', '#f4efe7', '#e9e2d8', '#c9bfb2', '#222326'].map((color) => (
               <button
                 key={color}
-                className={spread.background === color ? 'on' : ''}
+                className={spreadPaper === color ? 'on' : ''}
                 style={{ background: color }}
-                onClick={() => updateSpread({ background: color })}
+                /* On a Vault page the background is one of the page's own colours —
+                 * writing the legacy field there would change nothing on screen. */
+                onClick={() => (activeTemplate && spread.templateInstance
+                  ? updateSpread({
+                    templateInstance: {
+                      ...spread.templateInstance,
+                      colors: { ...spread.templateInstance.colors, [activeTemplate.backgroundToken]: color },
+                    },
+                  })
+                  : updateSpread({ background: color }))}
                 aria-label={`רקע ${color}`}
               />
             ))}
@@ -2021,7 +2150,7 @@ export default function AlbumStudio({ job, onBack }: {
             <div
               className={`album-spread ${showGuides ? 'show-guides' : ''}`}
               style={{
-                background: spread.background,
+                background: spreadPaper,
                 aspectRatio: `${profile.spreadWidthMm} / ${profile.spreadHeightMm}`,
                 '--spread-aspect': profile.spreadWidthMm / profile.spreadHeightMm,
               } as React.CSSProperties}
@@ -2037,6 +2166,9 @@ export default function AlbumStudio({ job, onBack }: {
                 <div key={`h-${position}`} className="album-smart-guide horizontal" style={{ top: `${position * 100}%` }} />
               ))}
 
+              {activeTemplate && spread.templateInstance && (
+                <TemplateDecor template={activeTemplate} instance={spread.templateInstance} band="below" />
+              )}
               {layout.slots.map((slot, slotIndex) => {
                 const photoId = layout.photoIds[slotIndex];
                 const photo = photos.find((item) => item.id === photoId);
@@ -2056,7 +2188,7 @@ export default function AlbumStudio({ job, onBack }: {
                 return (
                   <button
                     key={slot.id}
-                    className={`album-frame ${slot.role === 'hero' ? 'hero' : ''} ${selectedPhotoId ? 'assignable' : ''} ${selectedSlotIndex === slotIndex ? 'selected' : ''} ${cropIndex === slotIndex ? 'cropping' : ''} ${crop?.letterboxed ? 'letterboxed' : ''}`}
+                    className={`album-frame ${slot.role === 'hero' ? 'hero' : ''} ${selectedPhotoId ? 'assignable' : ''} ${selectedSlotIndex === slotIndex ? 'selected' : ''} ${cropIndex === slotIndex ? 'cropping' : ''} ${crop?.letterboxed ? 'letterboxed' : ''} ${activeTemplate ? 'tpl-frame' : ''}`}
                     style={{
                       left: `${slot.x * 100}%`,
                       top: `${slot.y * 100}%`,
@@ -2065,7 +2197,7 @@ export default function AlbumStudio({ job, onBack }: {
                       /* Showing the whole photo is a choice, so what is left over
                        * has to read as the page it sits on — not as a white bar
                        * that looks like the frame failed to fill. */
-                      ...(crop?.letterboxed ? { background: spread.background } : null),
+                      ...(crop?.letterboxed ? { background: spreadPaper } : null),
                     }}
                     onClick={() => assignPhoto(slotIndex)}
                     onDoubleClick={() => {
@@ -2088,7 +2220,7 @@ export default function AlbumStudio({ job, onBack }: {
                     }}
                     onPointerDown={(event) => {
                       if (cropIndex === slotIndex && photo) beginPan(event, slotIndex, frameSettings);
-                      else if (selectedSlotIndex === slotIndex) beginFrameGesture(event, slotIndex, 'move');
+                      else if (selectedSlotIndex === slotIndex && !activeTemplate) beginFrameGesture(event, slotIndex, 'move');
                     }}
                     onPointerMove={(event) => {
                       if (cropIndex === slotIndex) movePan(event, slot.id);
@@ -2112,7 +2244,7 @@ export default function AlbumStudio({ job, onBack }: {
                     ) : (
                       <span className="album-empty-frame"><IcGallery size={22} />בחרי תמונה</span>
                     )}
-                    {selectedSlotIndex === slotIndex && cropIndex !== slotIndex && (
+                    {selectedSlotIndex === slotIndex && cropIndex !== slotIndex && !activeTemplate && (
                       <>
                         <span className="album-frame-bar" onPointerDown={(e) => e.stopPropagation()}>
                           <span
@@ -2145,6 +2277,9 @@ export default function AlbumStudio({ job, onBack }: {
                   </button>
                 );
               })}
+              {activeTemplate && spread.templateInstance && (
+                <TemplateDecor template={activeTemplate} instance={spread.templateInstance} band="above" />
+              )}
 
               <div className="album-page-number left">{spread.pageStart}</div>
               <div className="album-page-number right">{spread.pageStart + 1}</div>
@@ -2299,6 +2434,21 @@ export default function AlbumStudio({ job, onBack }: {
               <button onClick={() => cycleLayout(1)} aria-label="פריסה הבאה">↓</button>
             </div>
           </div>
+          <TemplatePanel
+            spread={spread}
+            photos={photos}
+            spreadAspect={profile.spreadWidthMm / profile.spreadHeightMm}
+            template={activeTemplate}
+            onApply={placeTemplate}
+            onRemove={removeTemplate}
+            onColor={(token, value) => editTemplateInstance((instance) => ({
+              ...instance, colors: { ...instance.colors, [token]: value },
+            }))}
+            onText={(layerId, value) => editTemplateInstance((instance) => ({
+              ...instance, texts: { ...instance.texts, [layerId]: value },
+            }))}
+            onEditEnd={endTemplateEdit}
+          />
           <details className="album-all-layouts">
             <summary>כל הפריסות</summary>
             <div className="album-layout-list secondary">

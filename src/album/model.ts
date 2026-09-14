@@ -1,3 +1,5 @@
+import type { SpreadTemplateInstance } from './templates/types';
+
 export type PhotoOrientation = 'portrait' | 'landscape' | 'square';
 export type FrameRole = 'hero' | 'support' | 'detail';
 
@@ -109,6 +111,10 @@ export interface AlbumSpread {
   /** True on the first spread of a session, so the book can present a chapter
    *  opening instead of an invisible change of scene. */
   sessionStart?: boolean;
+  /** A designed page from the template library (הכספת) placed on this spread.
+   *  When set, it — not `layoutId` or `customSlots` — decides where the photos
+   *  sit, and it carries this spread's own colours and texts. */
+  templateInstance?: SpreadTemplateInstance;
 }
 
 export interface AlbumSession {
@@ -213,6 +219,21 @@ export const PRINT_PROFILES: PrintProductProfile[] = [
       ...FIRST_PRINT_PROFILE.coverSpec,
       totalWidthMm: 620,
       totalHeightMm: 200,
+    },
+  },
+  {
+    /* The format the Vault (הכספת) is designed for: 560×210 mm spreads. */
+    ...FIRST_PRINT_PROFILE,
+    id: 'lab-proof-28-landscape',
+    name: 'אלבום רוחב 28×21',
+    closedWidthMm: 280,
+    closedHeightMm: 210,
+    spreadWidthMm: 560,
+    spreadHeightMm: 210,
+    coverSpec: {
+      ...FIRST_PRINT_PROFILE.coverSpec,
+      totalWidthMm: 580,
+      totalHeightMm: 210,
     },
   },
   {

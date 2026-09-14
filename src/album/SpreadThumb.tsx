@@ -1,5 +1,7 @@
 import { assessCrop } from './cropEngine';
 import { buildAlbumLayoutCandidates, EMPTY_GENERATED_LAYOUT } from './layoutEngine';
+import { spreadTemplate, templateBackground } from './templates/library';
+import { TemplatePage } from './templates/TemplateLayers';
 import type {
   AlbumPhoto, AlbumSpread, PhotoFrameSettings, PrintProductProfile,
 } from './model';
@@ -29,6 +31,34 @@ interface Props {
 export default function SpreadThumb({
   spread, photos, profile, styleName, showPageNumbers = true,
 }: Props) {
+  const template = spreadTemplate(spread);
+  if (template && spread.templateInstance) {
+    return (
+      <div
+        className="album-preview-spread"
+        style={{
+          background: templateBackground(template, spread.templateInstance),
+          aspectRatio: `${profile.spreadWidthMm} / ${profile.spreadHeightMm}`,
+        }}
+      >
+        <div className="album-preview-gutter" />
+        <TemplatePage
+          template={template}
+          instance={spread.templateInstance}
+          spread={spread}
+          photos={photos}
+          spreadAspect={profile.spreadWidthMm / profile.spreadHeightMm}
+        />
+        {showPageNumbers && (
+          <>
+            <span className="preview-page left">{spread.pageStart}</span>
+            <span className="preview-page right">{spread.pageStart + 1}</span>
+          </>
+        )}
+      </div>
+    );
+  }
+
   const candidates = buildAlbumLayoutCandidates(
     spread.photoIds,
     photos,

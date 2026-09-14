@@ -1,5 +1,6 @@
 import { assessCrop } from './cropEngine';
 import { buildAlbumLayoutCandidates } from './layoutEngine';
+import { spreadTemplate, templateSlots } from './templates/library';
 import type { AlbumPhoto, AlbumProject, PrintProductProfile } from './model';
 
 export interface PreflightIssue {
@@ -140,7 +141,30 @@ export function runAlbumPreflight(
   }
 
   project.spreads.forEach((spread) => {
-    const candidates = buildAlbumLayoutCandidates(
+    const template = spreadTemplate(spread);
+    if (spread.templateInstance && !template) {
+      issues.push({
+        id: `template-missing-${spread.id}`,
+        severity: 'blocker',
+        code: 'MISSING_TEMPLATE',
+        title: `העיצוב של כפולה ${spread.pageStart}–${spread.pageStart + 1} לא נמצא`,
+        detail: 'העמוד מהכספת שהוצב כאן אינו קיים בספרייה. יש לבחור עיצוב אחר לכפולה.',
+        spreadId: spread.id,
+        target: 'spread',
+      });
+    }
+    if (template) {
+      issues.push({
+        id: `template-export-${spread.id}`,
+        severity: 'blocker',
+        code: 'TEMPLATE_EXPORT_PENDING',
+        title: `כפולה ${spread.pageStart}–${spread.pageStart + 1} היא עמוד מהכספת`,
+        detail: 'במסך העמוד מוצג במלואו. ייצוא הגהה ודפוס לעמודים מהכספת עוד לא נבנה, ולכן הקובץ נחסם במקום לצאת בלי הטקסט והקישוטים.',
+        spreadId: spread.id,
+        target: 'spread',
+      });
+    }
+    const candidates = template ? [] : buildAlbumLayoutCandidates(
       spread.photoIds,
       photos,
       profile.closedWidthMm / profile.closedHeightMm,
@@ -148,10 +172,11 @@ export function runAlbumPreflight(
     );
     const generated = candidates.find((candidate) => candidate.id === spread.layoutId)
       ?? candidates[0];
-    const slots = spread.customSlots?.length === spread.photoIds.length
-      ? spread.customSlots
-      : generated?.slots ?? [];
-    const photoIds = spread.customSlots?.length === spread.photoIds.length
+    const isCustom = spread.customSlots?.length === spread.photoIds.length;
+    const slots = template
+      ? templateSlots(template)
+      : isCustom ? spread.customSlots! : generated?.slots ?? [];
+    const photoIds = template || isCustom
       ? spread.photoIds
       : generated?.photoIds ?? spread.photoIds;
 
