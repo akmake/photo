@@ -23,6 +23,8 @@ interface SavedAlbum {
 /** What the library lists, without paying to parse every album. */
 export interface AlbumSummary {
   id: string;
+  /** `null` means an older album that has not been linked yet. */
+  projectId: string | null;
   name: string;
   productProfileId: string;
   spreadCount: number;
@@ -139,6 +141,7 @@ function summarize(saved: SavedAlbum, createdAt?: string): AlbumSummary {
   const placed = new Set(saved.project.spreads.flatMap((spread) => spread.photoIds));
   return {
     id: saved.project.id,
+    projectId: saved.project.projectId ?? null,
     name: saved.project.name,
     productProfileId: saved.project.productProfileId,
     spreadCount: saved.project.spreads.length,
@@ -149,9 +152,16 @@ function summarize(saved: SavedAlbum, createdAt?: string): AlbumSummary {
   };
 }
 
-export function listAlbums(): AlbumSummary[] {
+/** List the albums that belong to one studio project.
+ *
+ * Calling without a project keeps the standalone library able to reach every
+ * album, including legacy unassigned ones. A project library is deliberately
+ * strict: an unassigned album must never leak into an arbitrary project. */
+export function listAlbums(projectId?: string): AlbumSummary[] {
   migrateLegacyWorkspace();
-  return readIndex().sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+  return readIndex()
+    .filter((album) => projectId === undefined || album.projectId === projectId)
+    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
 }
 
 export function saveAlbum(project: AlbumProject, photos: AlbumPhoto[]): void {
@@ -171,13 +181,14 @@ export function saveAlbum(project: AlbumProject, photos: AlbumPhoto[]): void {
   writeIndex([summary, ...entries.filter((entry) => entry.id !== project.id)]);
 }
 
-export async function loadAlbum(id: string): Promise<{
+export async function loadAlbum(id: string, expectedProjectId?: string): Promise<{
   project: AlbumProject;
   photos: AlbumPhoto[];
 } | null> {
   migrateLegacyWorkspace();
-  const saved = readAlbum(id);
+  let saved = readAlbum(id);
   if (!saved) return null;
+  if (expectedProjectId && saved.project.projectId !== expectedProjectId) return null;
   const photos = await Promise.all(saved.photos.map(async (photo) => {
     if (!photo.storageKey) return { ...photo, url: photo.url ?? '' } as AlbumPhoto;
     const blob = await readPhotoBlob(photo.storageKey);

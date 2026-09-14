@@ -297,6 +297,132 @@ function buildCandidate(
   };
 }
 
+/* The original generator composed each PAGE independently. That is useful for
+ * dense catalogues, but it cannot create the editorial spreads photographers
+ * expect from a finished story: a cinematic opener, a quiet duet, or one hero
+ * balanced by two supporting frames. These candidates use the whole spread as
+ * their canvas, while still going through the same crop-safety scoring as every
+ * other layout. They are deterministic, so every user gets the same quality
+ * from the same ordered selection. */
+function storyGeometry(
+  count: number,
+  variant: 'primary' | 'mirror' = 'primary',
+): Array<Pick<LayoutSlot, 'x' | 'y' | 'width' | 'height' | 'role' | 'allowCrossGutter'>> {
+  if (count === 1) {
+    return [{ x: 0, y: 0, width: 1, height: 1, role: 'hero', allowCrossGutter: true }];
+  }
+  if (count === 2 && variant === 'mirror') {
+    return [
+      { x: 0.025, y: 0.045, width: 0.615, height: 0.91, role: 'hero', allowCrossGutter: true },
+      { x: 0.655, y: 0.18, width: 0.32, height: 0.64, role: 'support' },
+    ];
+  }
+  if (count === 2) {
+    return [
+      { x: 0.025, y: 0.045, width: 0.467, height: 0.91, role: 'hero' },
+      { x: 0.508, y: 0.045, width: 0.467, height: 0.91, role: 'hero' },
+    ];
+  }
+  if (count === 3 && variant === 'mirror') {
+    return [
+      { x: 0, y: 0.04, width: 0.35, height: 0.452, role: 'support' },
+      { x: 0, y: 0.508, width: 0.35, height: 0.452, role: 'support' },
+      { x: 0.365, y: 0, width: 0.635, height: 1, role: 'hero', allowCrossGutter: true },
+    ];
+  }
+  if (count === 3) {
+    return [
+      { x: 0, y: 0, width: 0.635, height: 1, role: 'hero', allowCrossGutter: true },
+      { x: 0.65, y: 0.04, width: 0.35, height: 0.452, role: 'support' },
+      { x: 0.65, y: 0.508, width: 0.35, height: 0.452, role: 'support' },
+    ];
+  }
+  if (count === 4) {
+    return [
+      { x: 0.025, y: 0.025, width: 0.469, height: 0.469, role: 'support' },
+      { x: 0.506, y: 0.025, width: 0.469, height: 0.469, role: 'support' },
+      { x: 0.025, y: 0.506, width: 0.469, height: 0.469, role: 'support' },
+      { x: 0.506, y: 0.506, width: 0.469, height: 0.469, role: 'support' },
+    ];
+  }
+  return [];
+}
+
+function buildStoryCandidate(
+  photoIds: string[],
+  photosById: Map<string, AlbumPhoto>,
+  pageAspect: number,
+  variant: 'primary' | 'mirror',
+): GeneratedAlbumLayout | null {
+  const geometry = storyGeometry(photoIds.length, variant);
+  if (!geometry.length) return null;
+  const id = photoIds.length === 1
+    ? 'story-opener'
+    : photoIds.length === 2
+      ? variant === 'mirror' ? 'story-focus' : 'story-duet'
+      : photoIds.length === 3
+        ? variant === 'mirror' ? 'story-hero-right' : 'story-hero-left'
+        : 'story-grid';
+  const names: Record<string, string> = {
+    'story-opener': 'פתיחת סיפור',
+    'story-duet': 'זוג שקט',
+    'story-focus': 'ראשית ומשלים',
+    'story-hero-left': 'רגע מוביל משמאל',
+    'story-hero-right': 'רגע מוביל מימין',
+    'story-grid': 'רצף ארבע',
+  };
+  const slots: LayoutSlot[] = geometry.map((slot, index) => ({
+    ...slot,
+    id: `${id}-${index}`,
+    preferred: [photosById.get(photoIds[index])?.orientation ?? 'landscape'],
+  }));
+  const checks = slots.map((slot, index) => {
+    const photo = photosById.get(photoIds[index]);
+    return photo
+      ? assessCrop(photo, slot, { fit: 'smart', positionX: 50, positionY: 50 }, pageAspect * 2)
+      : null;
+  });
+  const unsafe = checks.filter((check) => check && !check.safe).length;
+  /* An intentional cross-gutter frame is allowed, a face on the fold is not.
+   * Project detected face centres through the chosen smart crop into spread
+   * coordinates and let the mirrored candidate win when it protects them. */
+  const foldRisk = slots.some((slot, index) => {
+    if (!slot.allowCrossGutter) return false;
+    const photo = photosById.get(photoIds[index]);
+    const crop = checks[index]?.crop;
+    if (!photo || !crop) return false;
+    return (photo.analysis?.faces ?? []).some((face) => {
+      const faceCenter = face.x + face.width / 2;
+      const inFrame = (faceCenter - crop.x) / Math.max(0.001, crop.width);
+      const onSpread = slot.x + inFrame * slot.width;
+      return Math.abs(onSpread - 0.5) < 0.035;
+    });
+  });
+  const unanalyzed = photoIds.filter(
+    (photoId) => photosById.get(photoId)?.analysis?.status !== 'ready',
+  ).length;
+  const score = Math.round(Math.max(
+    0,
+    Math.min(100, 99 - unsafe * 28 - unanalyzed * 0.6 - (foldRisk ? 24 : 0)),
+  ));
+  return {
+    id,
+    name: names[id],
+    family: 'story',
+    density: photoIds.length <= 2 ? 'airy' : 'balanced',
+    photoCount: photoIds.length,
+    slots,
+    photoIds: [...photoIds],
+    explanation: 'פריסת סיפור על הכפולה כולה, עם מוקד ברור וחיתוך מוגן פנים',
+    score,
+    warnings: [
+      ...(unsafe ? [`${unsafe} מסגרות דורשות בדיקת חיתוך`] : []),
+      ...(foldRisk ? ['פנים קרובות לקפל המרכזי'] : []),
+      ...(unanalyzed ? [`${unanalyzed} תמונות ממתינות לניתוח`] : []),
+    ],
+  };
+}
+
 export function buildAlbumLayoutCandidates(
   photoIds: string[],
   photos: AlbumPhoto[],
@@ -307,9 +433,15 @@ export function buildAlbumLayoutCandidates(
   if (!uniquePhotoIds.length) return [];
 
   const photosById = new Map(photos.map((photo) => [photo.id, photo]));
-  const candidates = CANDIDATES.map((definition) => (
-    buildCandidate(definition, uniquePhotoIds, photosById, pageAspect, styleName)
-  ));
+  const storyCandidates = (['primary', 'mirror'] as const)
+    .map((variant) => buildStoryCandidate(uniquePhotoIds, photosById, pageAspect, variant))
+    .filter((candidate): candidate is GeneratedAlbumLayout => Boolean(candidate));
+  const candidates = [
+    ...storyCandidates,
+    ...CANDIDATES.map((definition) => (
+      buildCandidate(definition, uniquePhotoIds, photosById, pageAspect, styleName)
+    )),
+  ];
   const signatures = new Set<string>();
 
   return candidates.filter((candidate) => {

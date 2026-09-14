@@ -1,18 +1,15 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { IcBook, IcChevron, IcSparkle } from '../design/Icons';
 import type { AlbumSummary } from './albumStorage';
 import type { AlbumPhoto, PrintProductProfile } from './model';
-import AlbumCreationWizard from './AlbumCreationWizard';
 
 interface Props {
   albums: AlbumSummary[];
   profiles: PrintProductProfile[];
   photos: AlbumPhoto[];
-  /** The client's own choice per album, passed through to the wizard so a new
-   *  album can start from what the couple picked. */
+  projectName?: string;
+  projectScoped?: boolean;
   clientAlbums?: { name: string; frames: string[] }[];
-  /** Back to the project this album belongs to. Absent on the legacy standalone
-   *  route, where there is no project to return to. */
   onBack?(): void;
   onOpen(id: string): void;
   onCreate(input: AlbumCreateInput): void;
@@ -47,308 +44,191 @@ function whenLabel(iso: string): string {
 }
 
 export default function AlbumLibrary({
-  albums, profiles, photos, clientAlbums, onBack, onOpen, onCreate, onRename, onDuplicate, onDelete,
+  albums, profiles, photos, projectName, projectScoped = false, clientAlbums = [], onBack,
+  onOpen, onCreate, onRename, onDuplicate, onDelete,
 }: Props) {
+  const defaultProfile = profiles[0];
+  const defaultSource = clientAlbums.length ? 'client-0' : 'all';
   const [creating, setCreating] = useState(false);
   const [name, setName] = useState('');
-  const [profileId, setProfileId] = useState(profiles[0]?.id ?? '');
-  const [widthCm, setWidthCm] = useState((profiles[0]?.closedWidthMm ?? 300) / 10);
-  const [heightCm, setHeightCm] = useState((profiles[0]?.closedHeightMm ?? 300) / 10);
-  const [styleName, setStyleName] = useState('Fine Art');
-  const [background, setBackground] = useState('#f8f6f1');
-  const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
+  const [profileId, setProfileId] = useState(defaultProfile?.id ?? '');
+  const [source, setSource] = useState(defaultSource);
   const [openMenu, setOpenMenu] = useState<string | null>(null);
+  const [renameId, setRenameId] = useState<string | null>(null);
+  const [renameValue, setRenameValue] = useState('');
+  const [deleteId, setDeleteId] = useState<string | null>(null);
+
+  const selectedProfile = profiles.find((profile) => profile.id === profileId) ?? defaultProfile;
+  const defaultName = useMemo(
+    () => `${projectName?.trim() || 'הפרויקט'} — אלבום`,
+    [projectName],
+  );
+
+  function openCreate() {
+    setName(defaultName);
+    setProfileId(defaultProfile?.id ?? '');
+    setSource(defaultSource);
+    setCreating(true);
+  }
 
   function submit() {
-    const trimmed = name.trim();
-    if (!trimmed) return;
+    const cleanName = name.trim();
+    if (!cleanName || !selectedProfile) return;
+    const clientIndex = source.startsWith('client-') ? Number(source.slice(7)) : -1;
+    const selectedPhotoIds = source === 'all'
+      ? photos.map((photo) => photo.id)
+      : clientIndex >= 0
+        ? clientAlbums[clientIndex]?.frames ?? []
+        : [];
     onCreate({
-      name: trimmed,
-      baseProfileId: profileId || undefined,
-      closedWidthMm: Math.round(widthCm * 10),
-      closedHeightMm: Math.round(heightCm * 10),
-      styleName,
-      background,
+      name: cleanName,
+      baseProfileId: selectedProfile.id,
+      closedWidthMm: selectedProfile.closedWidthMm,
+      closedHeightMm: selectedProfile.closedHeightMm,
+      styleName: 'Fine Art',
+      background: '#f8f6f1',
+      selectedPhotoIds,
+      openingDirection: 'rtl',
+      coverStyle: 'photo',
     });
-    setName('');
     setCreating(false);
   }
 
-  const selectedProfile = profiles.find((profile) => (
-    profile.closedWidthMm === Math.round(widthCm * 10)
-    && profile.closedHeightMm === Math.round(heightCm * 10)
-  ));
-  const dimensionsValid = widthCm >= 10 && widthCm <= 100 && heightCm >= 10 && heightCm <= 100;
+  function startRename(album: AlbumSummary) {
+    setOpenMenu(null);
+    setRenameId(album.id);
+    setRenameValue(album.name);
+  }
+
+  function finishRename() {
+    const clean = renameValue.trim();
+    if (renameId && clean) onRename(renameId, clean);
+    setRenameId(null);
+  }
 
   return (
-    <div className="album-library">
-      <header className="library-head">
-        {onBack && (
-          <button className="library-back" onClick={onBack} title="חזרה לפרויקט">
-            <IcChevron size={16} style={{ transform: 'rotate(180deg)' }} />
-            <span>הפרויקט</span>
-          </button>
-        )}
-        <div>
-          <strong>האלבומים שלי</strong>
-          <span>{albums.length ? `${albums.length} אלבומים` : 'עוד לא נוצרו אלבומים'}</span>
+    <div className="album-library album-library-new" dir="rtl">
+      <header className="album-library-header">
+        <div className="album-library-heading">
+          {onBack && (
+            <button className="album-quiet-button" onClick={onBack} title="חזרה לפרויקט">
+              <IcChevron size={15} style={{ transform: 'rotate(180deg)' }} /> הפרויקט
+            </button>
+          )}
+          <div>
+            <h1>אלבומים</h1>
+            <span>{albums.length ? `${albums.length} אלבומים` : 'אין עדיין אלבומים'}</span>
+          </div>
         </div>
-        <button className="library-new" onClick={() => setCreating(true)}>
-          <IcSparkle size={16} />אלבום חדש
+        <button className="album-primary-button" onClick={openCreate}>
+          <span aria-hidden="true">＋</span> אלבום חדש
         </button>
       </header>
 
-      {creating && (
-        <AlbumCreationWizard
-          profiles={profiles}
-          photos={photos}
-          clientAlbums={clientAlbums}
-          onCancel={() => setCreating(false)}
-          onComplete={(input) => {
-            onCreate(input);
-            setCreating(false);
-          }}
-        />
+      {albums.length ? (
+        <main className="album-library-list">
+          {albums.map((album) => {
+            const profile = profiles.find((item) => item.id === album.productProfileId);
+            const isLegacy = projectScoped && !album.projectId;
+            return (
+              <article className="album-library-row" key={album.id}>
+                <button className="album-library-row-main" onClick={() => onOpen(album.id)}>
+                  <span className="album-library-thumb" aria-hidden="true"><span><IcBook size={22} /></span></span>
+                  <span className="album-library-row-copy">
+                    <strong>{album.name}</strong>
+                    <span>{profile?.name ?? 'מוצר לא ידוע'} · {album.spreadCount} כפולות</span>
+                  </span>
+                  <span className="album-library-row-state">
+                    <b>{isLegacy ? 'אלבום ישן' : 'טיוטה'}</b>
+                    <time dateTime={album.updatedAt}>עודכן {whenLabel(album.updatedAt)}</time>
+                  </span>
+                </button>
+                <div className="album-library-row-actions">
+                  <button className="album-icon-button" aria-label={`פעולות נוספות עבור ${album.name}`} aria-expanded={openMenu === album.id} onClick={() => setOpenMenu((current) => current === album.id ? null : album.id)}>•••</button>
+                  {openMenu === album.id && (
+                    <div className="album-context-menu" role="menu">
+                      <button role="menuitem" onClick={() => startRename(album)}>שינוי שם</button>
+                      <button role="menuitem" onClick={() => { onDuplicate(album.id); setOpenMenu(null); }}>שכפול</button>
+                      <button role="menuitem" className="danger" onClick={() => { setDeleteId(album.id); setOpenMenu(null); }}>מחיקה</button>
+                    </div>
+                  )}
+                </div>
+              </article>
+            );
+          })}
+        </main>
+      ) : (
+        <main className="album-library-empty">
+          <IcBook size={30} />
+          <h2>עדיין אין אלבום לפרויקט הזה</h2>
+          <p>צור אלבום מהתמונות שכבר נמצאות בפרויקט.</p>
+          <button className="album-primary-button" onClick={openCreate}>צור אלבום</button>
+        </main>
       )}
 
-      {false && creating && (
-        <div className="library-create-backdrop">
-          <section
-            className="library-create"
-            role="dialog"
-            aria-modal="true"
-            aria-label="הגדרת אלבום חדש"
-          >
+      {creating && (
+        <div className="album-modal-backdrop" onMouseDown={(event) => event.target === event.currentTarget && setCreating(false)}>
+          <section className="album-create-dialog" role="dialog" aria-modal="true" aria-labelledby="album-create-title" onKeyDown={(event) => event.key === 'Escape' && setCreating(false)}>
             <header>
-              <div><strong>אלבום חדש</strong><span>הגדירי את מוצר הדפוס לפני בחירת התמונות</span></div>
-              <button onClick={() => setCreating(false)} aria-label="סגירה">×</button>
+              <div><h2 id="album-create-title">אלבום חדש</h2><p>האלבום ייבנה מיד וייפתח כספר.</p></div>
+              <button className="album-icon-button" onClick={() => setCreating(false)} aria-label="סגירה">×</button>
             </header>
-
-            <div className="library-create-body">
-              <label className="library-create-name">
-                <span>שם האלבום</span>
-                <input
-                  autoFocus
-                  value={name}
-                  placeholder="לדוגמה: מלי כץ — בת מצווה"
-                  onChange={(event) => setName(event.target.value)}
-                  onKeyDown={(event) => {
-                    if (event.key === 'Enter') submit();
-                    if (event.key === 'Escape') setCreating(false);
-                  }}
-                />
-              </label>
-
-              <div className="library-create-field">
-                <span>סוג אלבום</span>
-                <div className="library-create-readonly"><IcBook size={17} /><b>אלבום Layflat</b><small>פתיחה שטוחה</small></div>
-              </div>
-
-              <div className="library-create-field library-create-size-field">
-                <span>מידות האלבום הסגור</span>
-                <div className="library-create-dimensions">
-                  <label>
-                    <span>רוחב</span>
-                    <input
-                      type="number"
-                      min="10"
-                      max="100"
-                      step="0.5"
-                      value={widthCm}
-                      onChange={(event) => {
-                        const next = Number(event.target.value);
-                        setWidthCm(next);
-                        const match = profiles.find((profile) => (
-                          profile.closedWidthMm === Math.round(next * 10)
-                          && profile.closedHeightMm === Math.round(heightCm * 10)
-                        ));
-                        setProfileId(match?.id ?? '');
-                      }}
-                    />
-                    <small>ס״מ</small>
-                  </label>
-                  <span aria-hidden="true">×</span>
-                  <label>
-                    <span>גובה</span>
-                    <input
-                      type="number"
-                      min="10"
-                      max="100"
-                      step="0.5"
-                      value={heightCm}
-                      onChange={(event) => {
-                        const next = Number(event.target.value);
-                        setHeightCm(next);
-                        const match = profiles.find((profile) => (
-                          profile.closedWidthMm === Math.round(widthCm * 10)
-                          && profile.closedHeightMm === Math.round(next * 10)
-                        ));
-                        setProfileId(match?.id ?? '');
-                      }}
-                    />
-                    <small>ס״מ</small>
-                  </label>
-                </div>
-                <span className="library-create-shortcuts-label">מידות שמורות</span>
-                <div className="library-create-sizes">
-                  {profiles.map((profile) => (
-                    <button
-                      key={profile.id}
-                      className={
-                        profile.closedWidthMm === Math.round(widthCm * 10)
-                        && profile.closedHeightMm === Math.round(heightCm * 10) ? 'on' : ''
-                      }
-                      onClick={() => {
-                        setProfileId(profile.id);
-                        setWidthCm(profile.closedWidthMm / 10);
-                        setHeightCm(profile.closedHeightMm / 10);
-                      }}
-                    >
-                      <b>{profile.closedWidthMm / 10}×{profile.closedHeightMm / 10} ס״מ</b>
-                      <small>{profile.closedWidthMm === profile.closedHeightMm ? 'מרובע' : profile.closedWidthMm > profile.closedHeightMm ? 'רוחב' : 'אורך'}</small>
-                    </button>
-                  ))}
-                </div>
-              </div>
-
+            <div className="album-create-fields">
               <label>
-                <span>סגנון עיצוב</span>
-                <select value={styleName} onChange={(event) => setStyleName(event.target.value)}>
-                  <option>Fine Art</option>
-                  <option>נקי ומודרני</option>
-                  <option>קלאסי</option>
-                </select>
+                <span>שם האלבום</span>
+                <input autoFocus value={name} onChange={(event) => setName(event.target.value)} onKeyDown={(event) => event.key === 'Enter' && submit()} />
               </label>
-
-              <div className="library-create-field">
-                <span>רקע ברירת מחדל</span>
-                <div className="library-create-palette">
-                  {['#f8f6f1', '#f4efe7', '#e9e2d8', '#c9bfb2', '#222326'].map((color) => (
-                    <button
-                      key={color}
-                      className={background === color ? 'on' : ''}
-                      style={{ background: color }}
-                      onClick={() => setBackground(color)}
-                      aria-label={`רקע ${color}`}
-                    />
-                  ))}
-                </div>
-              </div>
-
-              <div className="library-create-summary">
-                <span>{selectedProfile ? 'פרופיל שמור' : 'מידה מותאמת חדשה'}</span>
-                <strong>{selectedProfile?.name ?? `אלבום ${widthCm}×${heightCm} ס״מ`}</strong>
-                <small>
-                  {selectedProfile
-                    ? `${selectedProfile?.targetPpi} PPI · ${selectedProfile?.outputFormat.toUpperCase()} · ${selectedProfile?.verified ? 'פרופיל מאומת' : 'נדרש אימות מול בית הדפוס'}`
-                    : 'ייווצר פרופיל הדפסה חדש ויישמר לשימוש עתידי'}
-                </small>
-              </div>
+              <label>
+                <span>מוצר</span>
+                {profiles.length > 1 ? (
+                  <select value={selectedProfile?.id ?? ''} onChange={(event) => setProfileId(event.target.value)}>
+                    {profiles.map((profile) => <option key={profile.id} value={profile.id}>{profile.name}</option>)}
+                  </select>
+                ) : <span className="album-create-readonly">{selectedProfile?.name ?? 'לא הוגדר מוצר'}</span>}
+              </label>
+              <fieldset>
+                <legend>מקור התמונות</legend>
+                {clientAlbums.map((album, index) => (
+                  <label key={`${album.name}-${index}`} className="album-radio-row">
+                    <input type="radio" name="album-source" checked={source === `client-${index}`} onChange={() => setSource(`client-${index}`)} />
+                    <span><strong>{album.name}</strong><small>בחירת הלקוח · {album.frames.length} תמונות</small></span>
+                  </label>
+                ))}
+                <label className="album-radio-row">
+                  <input type="radio" name="album-source" checked={source === 'all'} onChange={() => setSource('all')} />
+                  <span><strong>כל התמונות בפרויקט</strong><small>{photos.length} תמונות זמינות</small></span>
+                </label>
+                <label className="album-radio-row">
+                  <input type="radio" name="album-source" checked={source === 'manual'} onChange={() => setSource('manual')} />
+                  <span><strong>אבחר בעצמי</strong><small>הבחירה תיפתח מיד לאחר היצירה</small></span>
+                </label>
+              </fieldset>
             </div>
-
-            <footer className="library-create-actions">
-              <button className="ghost" onClick={() => setCreating(false)}>ביטול</button>
-              <button className="primary" onClick={submit} disabled={!name.trim() || !dimensionsValid}>
-                יצירת אלבום והוספת תמונות
-              </button>
+            <footer>
+              <button className="album-quiet-button" onClick={() => setCreating(false)}>ביטול</button>
+              <button className="album-primary-button" disabled={!name.trim() || !selectedProfile} onClick={submit}><IcSparkle size={15} /> צור אלבום</button>
             </footer>
           </section>
         </div>
       )}
 
-      {albums.length ? (
-        <div className="library-grid">
-          {albums.map((album) => {
-            const profile = profiles.find((item) => item.id === album.productProfileId);
-            const progress = album.photoCount
-              ? Math.min(100, Math.round((album.placedCount / album.photoCount) * 100))
-              : 0;
-            const isComplete = album.photoCount > 0 && album.placedCount >= album.photoCount;
-            return (
-              <article key={album.id} className="library-card">
-                <button className="library-open" onClick={() => onOpen(album.id)}>
-                  <span className="library-preview" aria-hidden="true">
-                    <span className="library-album-object">
-                      <i className="library-album-pages" />
-                      <i className="library-album-spine" />
-                      <span className="library-album-mark"><IcBook size={19} /></span>
-                      <small>{album.name}</small>
-                    </span>
-                  </span>
-
-                  <span className="library-card-body">
-                    <span className="library-card-meta">
-                      <span className={`library-state ${isComplete ? 'complete' : ''}`}>
-                        {isComplete ? 'מוכן להגהה' : 'בעבודה'}
-                      </span>
-                      <time dateTime={album.updatedAt}>עודכן {whenLabel(album.updatedAt)}</time>
-                    </span>
-                    <b>{album.name}</b>
-                    <span className="library-product">{profile?.name ?? 'מוצר לא ידוע'}</span>
-                    <span className="library-card-stats">
-                      <span>{album.spreadCount === 1 ? 'כפולה אחת' : `${album.spreadCount} כפולות`}</span>
-                      <i aria-hidden="true" />
-                      <span>{album.photoCount ? `${album.placedCount} מתוך ${album.photoCount} תמונות שובצו` : 'טרם נבחרו תמונות'}</span>
-                    </span>
-                    <span className="library-progress-head">
-                      <span>התקדמות האלבום</span>
-                      <span>{progress}%</span>
-                    </span>
-                    <span className="library-progress" aria-label={`${progress}% מהתמונות שובצו`}>
-                      <i style={{ width: `${progress}%` }} />
-                    </span>
-                    <span className="library-open-cta">
-                      פתיחת האלבום
-                      <IcChevron size={14} style={{ transform: 'rotate(180deg)' }} />
-                    </span>
-                  </span>
-                </button>
-                <footer className="library-actions">
-                  <button
-                    className="library-more"
-                    aria-label={`פעולות נוספות עבור ${album.name}`}
-                    aria-expanded={openMenu === album.id}
-                    onClick={() => {
-                      setConfirmDelete(null);
-                      setOpenMenu((current) => current === album.id ? null : album.id);
-                    }}
-                  ><i /><i /><i /></button>
-                  {openMenu === album.id && (
-                    <div className="library-menu" role="menu">
-                      <button role="menuitem" onClick={() => {
-                        const next = window.prompt('שם חדש לאלבום', album.name);
-                        if (next && next.trim()) onRename(album.id, next.trim());
-                        setOpenMenu(null);
-                      }}>שינוי שם</button>
-                      <button role="menuitem" onClick={() => { onDuplicate(album.id); setOpenMenu(null); }}>שכפול אלבום</button>
-                      {confirmDelete === album.id ? (
-                        <div className="library-delete-confirm">
-                          <span>למחוק את האלבום?</span>
-                          <button className="danger" onClick={() => {
-                            onDelete(album.id);
-                            setConfirmDelete(null);
-                            setOpenMenu(null);
-                          }}>מחיקה</button>
-                          <button onClick={() => setConfirmDelete(null)}>ביטול</button>
-                        </div>
-                      ) : (
-                        <button role="menuitem" className="danger" onClick={() => setConfirmDelete(album.id)}>מחיקה</button>
-                      )}
-                    </div>
-                  )}
-                </footer>
-              </article>
-            );
-          })}
+      {renameId && (
+        <div className="album-modal-backdrop">
+          <section className="album-small-dialog" role="dialog" aria-modal="true" aria-labelledby="album-rename-title">
+            <h2 id="album-rename-title">שינוי שם האלבום</h2>
+            <input autoFocus value={renameValue} onChange={(event) => setRenameValue(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') finishRename(); if (event.key === 'Escape') setRenameId(null); }} />
+            <footer><button className="album-quiet-button" onClick={() => setRenameId(null)}>ביטול</button><button className="album-primary-button" onClick={finishRename}>שמירה</button></footer>
+          </section>
         </div>
-      ) : !creating && (
-        <div className="library-blank">
-          <IcBook size={30} />
-          <strong>אין עדיין אלבומים</strong>
-          <span>כל אלבום נשמר אצלך במחשב ואפשר לחזור אליו בכל רגע</span>
-          <button className="library-new" onClick={() => setCreating(true)}>
-            <IcSparkle size={16} />יצירת האלבום הראשון
-          </button>
+      )}
+
+      {deleteId && (
+        <div className="album-modal-backdrop">
+          <section className="album-small-dialog" role="alertdialog" aria-modal="true" aria-labelledby="album-delete-title">
+            <h2 id="album-delete-title">למחוק את האלבום?</h2>
+            <p>האלבום והעיצוב שלו יימחקו. תמונות המקור בפרויקט לא ייפגעו.</p>
+            <footer><button className="album-quiet-button" onClick={() => setDeleteId(null)}>ביטול</button><button className="album-danger-button" onClick={() => { onDelete(deleteId); setDeleteId(null); }}>מחיקה</button></footer>
+          </section>
         </div>
       )}
     </div>

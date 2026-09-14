@@ -20,7 +20,11 @@ export const ALBUM_STYLES: AlbumStyleProfile[] = [
     id: 'Fine Art',
     label: 'Fine Art',
     description: 'מעט תמונות, הרבה אוויר ורגע מוביל ברור',
-    rhythm: [1, 2, 3, 1, 2, 3],
+    /* A complete story needs an establishing frame, then denser narrative
+     * beats, and a quiet close. This 32-photo cycle produces the same 11-spread
+     * pace as the validated family-session proof instead of stretching it to
+     * sixteen sparse spreads. */
+    rhythm: [1, 2, 3, 3, 4, 3, 3, 4, 3, 4, 2],
     margin: 0.115,
     gap: 0.045,
     backgrounds: ['#f8f3eb', '#f3eadf', '#fbf8f3'],
@@ -31,6 +35,12 @@ export const ALBUM_STYLES: AlbumStyleProfile[] = [
       balanced: 2,
       'wide-rhythm': 1,
       'portrait-rhythm': 1,
+      'story-opener': 22,
+      'story-duet': 20,
+      'story-focus': 18,
+      'story-hero-left': 22,
+      'story-hero-right': 22,
+      'story-grid': 18,
     },
     densityTarget: 2,
   },

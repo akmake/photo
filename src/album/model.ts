@@ -139,6 +139,9 @@ export interface AlbumCover {
 
 export interface AlbumProject {
   id: string;
+  /** The studio project that owns this album. `null` is reserved for legacy
+   *  standalone albums until the photographer explicitly links them. */
+  projectId: string | null;
   name: string;
   productProfileId: string;
   styleName: string;

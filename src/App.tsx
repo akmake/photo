@@ -29,11 +29,6 @@ const LabSection = lazy(() => import('./lab/LabSection'));
  * light. Its own lazy boundary: opening it must not also fetch the reader. */
 const PrimaryTools = lazy(() => import('./lab/PrimaryTools'));
 const AlbumStudio = lazy(() => import('./album/AlbumStudio'));
-/* שולחן האלבום — the third album tool, built from scratch. It shares no code
- * with ./album: there the machine proposes the book, here the photographer
- * lays it out and the machine only assists. Its own lazy boundary so neither
- * tool pays for the other. */
-const AlbumDesk = lazy(() => import('./albumdesk/AlbumDesk'));
 /* כלים בניסיון — the experimental-tools room. Its own workspace, deliberately
  * decoupled from the project tools, so nothing half-built can touch a real job.
  * First resident: the AI album. */
@@ -122,9 +117,9 @@ export default function App() {
   // The album, on THIS project's photos — a workspace of the project, not a
   // section of its own. It abandoned the project before (setSection('albums')),
   // which is why it had no way back and no access to the project's frames.
-  const [album, setAlbum] = useState(initial.sub === 'album');
-  // שולחן האלבום — the third tool, on the same project's frames and batches.
-  const [desk, setDesk] = useState(initial.sub === 'desk');
+  /* Old `desk` links now enter the single album workspace too. Keeping the
+   * redirect here means an old bookmark does not strand the photographer. */
+  const [album, setAlbum] = useState(initial.sub === 'album' || initial.sub === 'desk');
   // Which half of the lab is showing. Lives here, not inside LabSection, so the
   // hash carries it and a reload comes back to the same screen.
   const [labView, setLabView] = useState<LabView>(
@@ -152,8 +147,7 @@ export default function App() {
       setColorMatch(h.sub === 'color');
       setWorkbench(h.sub === 'edit');
       setBench(h.sub === 'bench');
-      setAlbum(h.sub === 'album');
-      setDesk(h.sub === 'desk');
+      setAlbum(h.sub === 'album' || h.sub === 'desk');
       if (h.section === 'lab') setLabView(h.sub === 'compare' ? 'compare' : 'tools');
     };
     window.addEventListener('hashchange', onHash);
@@ -278,9 +272,6 @@ export default function App() {
       />
     );
     title = `עריכה · ${openedProject.client}`;
-  } else if (openedProject && desk) {
-    body = <AlbumDesk project={openedProject} onBack={() => setDesk(false)} />;
-    title = `שולחן האלבום · ${openedProject.client}`;
   } else if (openedProject && album) {
     body = <AlbumStudio job={openedProject} onBack={() => setAlbum(false)} />;
     title = `אלבום · ${openedProject.client}`;
@@ -304,11 +295,6 @@ export default function App() {
           if (what === 'edit') {
             // The set's own workbench, kept and still reachable.
             setWorkbench(true);
-            return;
-          }
-          if (what === 'desk') {
-            // שולחן האלבום — same project, same frames, third tool.
-            setDesk(true);
             return;
           }
           // The album is a workspace OF this project — it stays inside the
