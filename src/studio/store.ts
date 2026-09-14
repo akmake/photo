@@ -27,8 +27,10 @@ import { useEffect, useMemo, useState, useSyncExternalStore } from 'react';
 import {
   initProject, projectFrames, projectState, workspaceRoot,
 } from '../api';
-import type { Frame, GalleryLink, ProjectMemory } from '../api';
+import type { Frame, GalleryLink, ProjectMemory, StoryMoment } from '../api';
 import { dbDelete, dbFind, dbImport, dbSaveMany } from '../db';
+import * as G from './groups';
+import type { GroupKind, GroupSlice } from './groups';
 import type { LearnedColorModel, ProjectRecipe, Batch, ToolInstance } from '../types';
 
 /** The stages a job moves through. Every project carries all of them — a shoot
@@ -472,6 +474,9 @@ const EMPTY_STATE: ProjectMemory = {
   statuses: {},
   recipe: { version: 1, base: [], perBatch: {}, perFrame: {} },
   gallery: null,
+  moments: [],
+  momentAssign: {},
+  rejectedBoundaries: [],
 };
 
 const states: Record<string, ProjectMemory> = {};
@@ -514,11 +519,41 @@ function save(projectId: string) {
   const project = getProject(projectId);
   if (!project?.home) return;
   clearTimeout(saveTimers[projectId]);
-  saveTimers[projectId] = setTimeout(() => {
-    projectState(project.home!, states[projectId]).catch(() => {
-      /* the mirror still serves this session; the next mutation retries */
-    });
-  }, 400);
+  saveTimers[projectId] = setTimeout(() => { void flush(projectId); }, 400);
+}
+
+/** Why the last write of project.json did not land, per project. It used to be
+ *  swallowed — "the next mutation retries" — which meant a screen full of
+ *  batches that existed nowhere but this tab, with nothing on it saying so. */
+const diskFaults: Record<string, string | null> = {};
+
+async function flush(projectId: string): Promise<void> {
+  const home = getProject(projectId)?.home;
+  if (!home || !states[projectId]) return;
+  try {
+    await projectState(home, states[projectId]);
+    if (diskFaults[projectId]) {
+      diskFaults[projectId] = null;
+      notify();
+    }
+  } catch (e) {
+    diskFaults[projectId] = (e as Error).message || 'הכתיבה לדיסק נכשלה';
+    notify();
+  }
+}
+
+/** Non-null while what is on screen has NOT reached project.json. */
+export function useDiskFault(projectId: string): string | null {
+  return useSyncExternalStore(
+    subscribe,
+    () => diskFaults[projectId] ?? null,
+    () => diskFaults[projectId] ?? null,
+  );
+}
+
+export function retrySave(projectId: string): void {
+  clearTimeout(saveTimers[projectId]);
+  void flush(projectId);
 }
 
 function write(projectId: string, next: ProjectMemory) {
@@ -540,7 +575,7 @@ export async function openProject(projectId: string): Promise<void> {
       home = (await initProject(folderNameOf(project))).home;
       updateProject(projectId, { home });
     }
-    states[projectId] = await projectState(home);
+    states[projectId] = G.normalize(await projectState(home));
     const { frames } = await projectFrames(home);
     framesByProject[projectId] = frames;
     notify();
@@ -779,6 +814,172 @@ export function unassignedFrames(projectId: string): Frame[] {
 export function framesInBatch(projectId: string, batchId: string): Frame[] {
   const { assign } = stateOf(projectId);
   return framesOf(projectId).filter((f) => assign[f.name] === batchId);
+}
+
+/* ============================================================ groups: one door
+ *
+ * Every change the group workspace makes — to edit groups or to story moments —
+ * goes through applyGroups, which is what makes each of them ONE undo entry and
+ * ONE write however many frames it touches. The rules themselves live in
+ * groups.ts as pure functions; this is only the history and the persistence.
+ */
+
+interface HistoryEntry {
+  label: string;
+  before: GroupSlice;
+  after: GroupSlice;
+}
+
+const HISTORY_LIMIT = 100;
+const histories: Record<string, { past: HistoryEntry[]; future: HistoryEntry[] }> = {};
+
+export interface GroupHistory {
+  /** label of what Undo would undo, or null */
+  undo: string | null;
+  redo: string | null;
+}
+
+const NO_HISTORY: GroupHistory = { undo: null, redo: null };
+const historySnaps: Record<string, GroupHistory> = {};
+
+function historyOf(projectId: string) {
+  return (histories[projectId] ??= { past: [], future: [] });
+}
+
+function publishHistory(projectId: string) {
+  const h = historyOf(projectId);
+  const undo = h.past[h.past.length - 1]?.label ?? null;
+  const redo = h.future[h.future.length - 1]?.label ?? null;
+  const prev = historySnaps[projectId];
+  if (!prev || prev.undo !== undo || prev.redo !== redo) historySnaps[projectId] = { undo, redo };
+}
+
+export function useGroupHistory(projectId: string): GroupHistory {
+  return useSyncExternalStore(
+    subscribe,
+    () => historySnaps[projectId] ?? NO_HISTORY,
+    () => historySnaps[projectId] ?? NO_HISTORY,
+  );
+}
+
+/** The project's memory with moments guaranteed present. */
+export function groupStateOf(projectId: string): ProjectMemory {
+  return G.normalize(stateOf(projectId));
+}
+
+export function useGroupState(projectId: string): ProjectMemory {
+  const state = useSyncExternalStore(subscribe, () => stateOf(projectId), () => stateOf(projectId));
+  return useMemo(() => G.normalize(state), [state]);
+}
+
+/** Apply one operation as one undoable step. Returns false when it changed
+ *  nothing, so the caller does not announce a move that did not happen. */
+export function applyGroups(
+  projectId: string,
+  label: string,
+  op: (state: ProjectMemory) => ProjectMemory,
+): boolean {
+  const current = groupStateOf(projectId);
+  const next = op(current);
+  if (next === current) return false;
+  const h = historyOf(projectId);
+  // Something outside this history (a client import, the old screen) changed
+  // the groups since the last step: undoing across that would be a lie.
+  const top = h.past[h.past.length - 1];
+  if (top && !G.sliceIsCurrent(current, top.after)) h.past = [];
+  h.past.push({ label, before: G.sliceOf(current), after: G.sliceOf(next) });
+  if (h.past.length > HISTORY_LIMIT) h.past.shift();
+  h.future = [];
+  publishHistory(projectId);
+  write(projectId, next);
+  return true;
+}
+
+function travel(projectId: string, direction: 'undo' | 'redo'): string | null {
+  const h = historyOf(projectId);
+  const stack = direction === 'undo' ? h.past : h.future;
+  const entry = stack[stack.length - 1];
+  if (!entry) return null;
+  const current = groupStateOf(projectId);
+  const from = direction === 'undo' ? entry.after : entry.before;
+  const to = direction === 'undo' ? entry.before : entry.after;
+  if (!G.sliceIsCurrent(current, from)) {
+    h.past = [];
+    h.future = [];
+    publishHistory(projectId);
+    notify();
+    return null;
+  }
+  stack.pop();
+  (direction === 'undo' ? h.future : h.past).push(entry);
+  publishHistory(projectId);
+  write(projectId, G.restoreSlice(current, from, to));
+  return entry.label;
+}
+
+export const undoGroups = (projectId: string) => travel(projectId, 'undo');
+export const redoGroups = (projectId: string) => travel(projectId, 'redo');
+
+let mint = 0;
+/** Ids are minted here, never inside an operation, so the pure rules stay pure. */
+export function newGroupId(kind: GroupKind): string {
+  mint += 1;
+  return `${kind === 'edit' ? 's' : 'm'}${Date.now().toString(36)}${mint.toString(36)}`;
+}
+
+/* ── story moments: the named API (the album reads these) ── */
+
+export function momentsOf(projectId: string): StoryMoment[] {
+  return G.groupsOf(groupStateOf(projectId), 'story') as StoryMoment[];
+}
+
+export function useMoments(projectId: string): StoryMoment[] {
+  const state = useGroupState(projectId);
+  return useMemo(() => G.groupsOf(state, 'story') as StoryMoment[], [state]);
+}
+
+export function framesInMoment(projectId: string, momentId: string): Frame[] {
+  return G.membersOf(framesOf(projectId), groupStateOf(projectId).momentAssign!, momentId);
+}
+
+export function unassignedMomentFrames(projectId: string): Frame[] {
+  return G.membersOf(framesOf(projectId), groupStateOf(projectId).momentAssign!, null);
+}
+
+export function addMoment(projectId: string, name: string, frames: string[] = []): string {
+  const id = newGroupId('story');
+  applyGroups(projectId, 'יצירת רצף', (s) => {
+    const at = G.insertIndex(G.groupsOf(s, 'story'), s.momentAssign!, framesOf(projectId), frames, null);
+    const created = new Date().toISOString();
+    return G.createGroup(s, 'story', { id, name: name.trim() || 'רצף ללא שם', createdAt: created }, frames, at);
+  });
+  return id;
+}
+
+export function assignFramesToMoment(projectId: string, frames: string[], momentId: string | null) {
+  applyGroups(projectId, momentId ? 'העברה לרצף' : 'הוצאה מהרצף',
+    (s) => G.moveFrames(s, 'story', frames.map(frameKey), momentId));
+}
+
+export function renameMoment(projectId: string, id: string, name: string) {
+  applyGroups(projectId, 'שינוי שם', (s) => G.renameGroup(s, 'story', id, name, 'רצף ללא שם'));
+}
+
+export function removeMoment(projectId: string, id: string) {
+  applyGroups(projectId, 'מחיקת רצף', (s) => G.deleteGroup(s, 'story', id));
+}
+
+export function reorderMoments(projectId: string, orderedIds: string[]) {
+  applyGroups(projectId, 'שינוי סדר', (s) => G.reorderGroups(s, 'story', orderedIds));
+}
+
+export function setMomentCover(projectId: string, id: string, frame: string) {
+  applyGroups(projectId, 'תמונת שער', (s) => G.setCover(s, 'story', id, frameKey(frame)));
+}
+
+/** Edit groups had an `order` and no way to change it (spec §222). */
+export function reorderBatches(projectId: string, orderedIds: string[]) {
+  applyGroups(projectId, 'שינוי סדר', (s) => G.reorderGroups(s, 'edit', orderedIds));
 }
 
 /* ---------------------------------------------------------------- statuses */
