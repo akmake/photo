@@ -156,6 +156,9 @@ export default function AlbumStudio({ job, onBack }: {
   const [isHydrated, setIsHydrated] = useState(false);
   const [selectedPhotoId, setSelectedPhotoId] = useState<string | null>(null);
   const [selectedSlotIndex, setSelectedSlotIndex] = useState<number | null>(null);
+  const [frameGuides, setFrameGuides] = useState<{ vertical: number[]; horizontal: number[] }>({
+    vertical: [], horizontal: [],
+  });
   /* Double-click a frame to reposition the PHOTO inside it (pan + zoom); until
    * then a drag anywhere on the frame moves the frame itself. One frame at a
    * time is in this mode. */
@@ -413,8 +416,19 @@ export default function AlbumStudio({ job, onBack }: {
       photos,
       profile.closedWidthMm / profile.closedHeightMm,
       project.styleName,
+      {
+        sessionStart: spread.sessionStart,
+        sessionEnd: Boolean(spread.sessionId)
+          && spread.sessionId !== project.spreads[spreadIndex + 1]?.sessionId,
+        spreadIndex,
+        spreadCount: project.spreads.length,
+        previousLayoutId: project.spreads[spreadIndex - 1]?.layoutId,
+      },
     ),
-    [photos, profile.closedHeightMm, profile.closedWidthMm, project.styleName, spread.photoIds],
+    [
+      photos, profile.closedHeightMm, profile.closedWidthMm, project.spreads,
+      project.styleName, spread.photoIds, spread.sessionId, spread.sessionStart, spreadIndex,
+    ],
   );
   const generatedLayout = layoutCandidates.find((candidate) => candidate.id === spread.layoutId)
     ?? layoutCandidates[0]
@@ -1039,6 +1053,90 @@ export default function AlbumStudio({ job, onBack }: {
     setNotice('המסגרת נערכה · הפריסה כעת אישית');
   }
 
+  type FrameArrangeAction = 'left' | 'center-x' | 'right' | 'top' | 'center-y' | 'bottom'
+    | 'width' | 'height' | 'size' | 'horizontal-gap' | 'vertical-gap';
+
+  /** PowerPoint-like whole-selection commands. Until marquee selection lands,
+   * the selected frame is the reference and the command applies to every frame
+   * on this spread — a visible, deterministic rule instead of hidden snapping. */
+  function arrangeFrames(action: FrameArrangeAction) {
+    if (selectedSlotIndex === null || layout.slots.length < 2) return;
+    const reference = layout.slots[selectedSlotIndex];
+    const next = layout.slots.map((slot) => ({ ...slot }));
+    const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
+
+    if (action === 'left') {
+      next.forEach((slot) => { slot.x = clamp(reference.x, 0, 1 - slot.width); });
+    } else if (action === 'center-x') {
+      const center = reference.x + reference.width / 2;
+      next.forEach((slot) => { slot.x = clamp(center - slot.width / 2, 0, 1 - slot.width); });
+    } else if (action === 'right') {
+      const right = reference.x + reference.width;
+      next.forEach((slot) => { slot.x = clamp(right - slot.width, 0, 1 - slot.width); });
+    } else if (action === 'top') {
+      next.forEach((slot) => { slot.y = clamp(reference.y, 0, 1 - slot.height); });
+    } else if (action === 'center-y') {
+      const center = reference.y + reference.height / 2;
+      next.forEach((slot) => { slot.y = clamp(center - slot.height / 2, 0, 1 - slot.height); });
+    } else if (action === 'bottom') {
+      const bottom = reference.y + reference.height;
+      next.forEach((slot) => { slot.y = clamp(bottom - slot.height, 0, 1 - slot.height); });
+    } else if (action === 'width') {
+      next.forEach((slot) => {
+        slot.width = Math.min(reference.width, 1);
+        slot.x = clamp(slot.x, 0, 1 - slot.width);
+      });
+    } else if (action === 'height') {
+      next.forEach((slot) => {
+        slot.height = Math.min(reference.height, 1);
+        slot.y = clamp(slot.y, 0, 1 - slot.height);
+      });
+    } else if (action === 'size') {
+      next.forEach((slot) => {
+        slot.width = Math.min(reference.width, 1);
+        slot.height = Math.min(reference.height, 1);
+        slot.x = clamp(slot.x, 0, 1 - slot.width);
+        slot.y = clamp(slot.y, 0, 1 - slot.height);
+      });
+    } else {
+      const horizontal = action === 'horizontal-gap';
+      const ordered = next.map((slot, index) => ({ slot, index })).sort((a, b) => (
+        horizontal ? a.slot.x - b.slot.x : a.slot.y - b.slot.y
+      ));
+      if (ordered.length < 3) return;
+      const first = ordered[0].slot;
+      const last = ordered[ordered.length - 1].slot;
+      const start = horizontal ? first.x : first.y;
+      const end = horizontal ? last.x + last.width : last.y + last.height;
+      const occupied = ordered.reduce(
+        (sum, item) => sum + (horizontal ? item.slot.width : item.slot.height), 0,
+      );
+      const gap = Math.max(0, (end - start - occupied) / (ordered.length - 1));
+      let cursor = start;
+      ordered.forEach(({ slot }) => {
+        if (horizontal) slot.x = clamp(cursor, 0, 1 - slot.width);
+        else slot.y = clamp(cursor, 0, 1 - slot.height);
+        cursor += (horizontal ? slot.width : slot.height) + gap;
+      });
+    }
+
+    updateSpread({ customSlots: next });
+    const labels: Record<FrameArrangeAction, string> = {
+      left: 'המסגרות יושרו לשמאל',
+      'center-x': 'מרכזי המסגרות יושרו אופקית',
+      right: 'המסגרות יושרו לימין',
+      top: 'המסגרות יושרו למעלה',
+      'center-y': 'מרכזי המסגרות יושרו אנכית',
+      bottom: 'המסגרות יושרו למטה',
+      width: 'רוחב המסגרות הושווה',
+      height: 'גובה המסגרות הושווה',
+      size: 'גודל המסגרות הושווה',
+      'horizontal-gap': 'המרווח האופקי הושווה',
+      'vertical-gap': 'המרווח האנכי הושווה',
+    };
+    setNotice(`${labels[action]} · הפריסה כעת אישית`);
+  }
+
   function savePersonalLayout() {
     if (!layout.slots.length) return;
     const next: PersonalLayout = {
@@ -1202,7 +1300,29 @@ export default function AlbumStudio({ job, onBack }: {
     if (g.mode === 'move') {
       x = clamp(g.slot.x + dx, 0, 1 - g.slot.width);
       y = clamp(g.slot.y + dy, 0, 1 - g.slot.height);
+      const others = g.baseSlots.filter((_, index) => index !== g.index);
+      const xTargets = [0, 0.5, 1, ...others.flatMap((slot) => [slot.x, slot.x + slot.width / 2, slot.x + slot.width])];
+      const yTargets = [0, 0.5, 1, ...others.flatMap((slot) => [slot.y, slot.y + slot.height / 2, slot.y + slot.height])];
+      const snap = (position: number, size: number, targets: number[]) => {
+        let best = { distance: 0.0081, value: position, guide: undefined as number | undefined };
+        for (const target of targets) {
+          for (const edge of [position, position + size / 2, position + size]) {
+            const distance = Math.abs(target - edge);
+            if (distance < best.distance) best = { distance, value: position + target - edge, guide: target };
+          }
+        }
+        return best;
+      };
+      const snapX = snap(x, g.slot.width, xTargets);
+      const snapY = snap(y, g.slot.height, yTargets);
+      x = clamp(snapX.value, 0, 1 - g.slot.width);
+      y = clamp(snapY.value, 0, 1 - g.slot.height);
+      setFrameGuides({
+        vertical: snapX.guide === undefined ? [] : [snapX.guide],
+        horizontal: snapY.guide === undefined ? [] : [snapY.guide],
+      });
     } else {
+      setFrameGuides({ vertical: [], horizontal: [] });
       const east = g.mode === 'ne' || g.mode === 'se';
       const south = g.mode === 'se' || g.mode === 'sw';
       if (east) {
@@ -1239,6 +1359,7 @@ export default function AlbumStudio({ job, onBack }: {
       setHistoryFuture([]);
       setNotice(g.mode === 'move' ? 'המסגרת הוזזה' : 'גודל המסגרת עודכן');
     }
+    setFrameGuides({ vertical: [], horizontal: [] });
     frameGesture.current = null;
   }
 
@@ -1260,12 +1381,20 @@ export default function AlbumStudio({ job, onBack }: {
     if (!target) return;
     const candidates = target.id === spread.id
       ? layoutCandidates
-      : buildAlbumLayoutCandidates(
-          target.photoIds,
-          photos,
-          profile.closedWidthMm / profile.closedHeightMm,
-          project.styleName,
-        );
+       : buildAlbumLayoutCandidates(
+           target.photoIds,
+           photos,
+           profile.closedWidthMm / profile.closedHeightMm,
+           project.styleName,
+           {
+             sessionStart: target.sessionStart,
+             sessionEnd: Boolean(target.sessionId)
+               && target.sessionId !== project.spreads[targetIndex + 1]?.sessionId,
+             spreadIndex: targetIndex,
+             spreadCount: project.spreads.length,
+             previousLayoutId: project.spreads[targetIndex - 1]?.layoutId,
+           },
+         );
     if (candidates.length < 2) return;
     const current = candidates.findIndex((item) => item.id === target.layoutId);
     const at = current === -1 ? 0 : current;
@@ -1901,6 +2030,12 @@ export default function AlbumStudio({ job, onBack }: {
               <div className="album-page album-page-right" />
               <div className="album-gutter" />
               {showGuides && <><div className="album-bleed-guide" /><div className="album-safe-guide" /></>}
+              {frameGuides.vertical.map((position) => (
+                <div key={`v-${position}`} className="album-smart-guide vertical" style={{ left: `${position * 100}%` }} />
+              ))}
+              {frameGuides.horizontal.map((position) => (
+                <div key={`h-${position}`} className="album-smart-guide horizontal" style={{ top: `${position * 100}%` }} />
+              ))}
 
               {layout.slots.map((slot, slotIndex) => {
                 const photoId = layout.photoIds[slotIndex];
@@ -2106,6 +2241,35 @@ export default function AlbumStudio({ job, onBack }: {
                 <button className={selectedFrameSettings.fit === 'smart' ? 'on' : ''} onClick={() => setFitMode('smart')}>חכם</button>
                 <button className={selectedFrameSettings.fit === 'cover' ? 'on' : ''} onClick={() => setFitMode('cover')}>מילוי</button>
                 <button className={selectedFrameSettings.fit === 'contain' ? 'on' : ''} onClick={() => setFitMode('contain')}>מלא</button>
+              </div>
+            </div>
+            <div className="album-inspector-section">
+              <span>מיקום וגודל <small>אחוזים מהכפולה</small></span>
+              <div className="album-frame-metrics">
+                <label><span>X</span><input type="number" min="0" max="100" step="0.1" value={(selectedSlot.x * 100).toFixed(1)} onChange={(event) => updateSelectedSlot({ x: Math.max(0, Math.min(1 - selectedSlot.width, Number(event.target.value) / 100)) })} /></label>
+                <label><span>Y</span><input type="number" min="0" max="100" step="0.1" value={(selectedSlot.y * 100).toFixed(1)} onChange={(event) => updateSelectedSlot({ y: Math.max(0, Math.min(1 - selectedSlot.height, Number(event.target.value) / 100)) })} /></label>
+                <label><span>רוחב</span><input type="number" min="6" max="100" step="0.1" value={(selectedSlot.width * 100).toFixed(1)} onChange={(event) => updateSelectedSlot({ width: Math.max(0.06, Math.min(1 - selectedSlot.x, Number(event.target.value) / 100)) })} /></label>
+                <label><span>גובה</span><input type="number" min="6" max="100" step="0.1" value={(selectedSlot.height * 100).toFixed(1)} onChange={(event) => updateSelectedSlot({ height: Math.max(0.06, Math.min(1 - selectedSlot.y, Number(event.target.value) / 100)) })} /></label>
+              </div>
+              <small className="album-size-status">
+                {layout.slots.filter((slot) => Math.abs(slot.width - selectedSlot.width) < 0.001).length} באותו רוחב · {' '}
+                {layout.slots.filter((slot) => Math.abs(slot.height - selectedSlot.height) < 0.001).length} באותו גובה
+              </small>
+            </div>
+            <div className="album-inspector-section">
+              <span>יישור וריווח <small>המסגרת המסומנת היא הייחוס</small></span>
+              <div className="album-arrange-options">
+                <button onClick={() => arrangeFrames('left')}>יישור שמאל</button>
+                <button onClick={() => arrangeFrames('center-x')}>מרכז אופקי</button>
+                <button onClick={() => arrangeFrames('right')}>יישור ימין</button>
+                <button onClick={() => arrangeFrames('top')}>יישור עליון</button>
+                <button onClick={() => arrangeFrames('center-y')}>מרכז אנכי</button>
+                <button onClick={() => arrangeFrames('bottom')}>יישור תחתון</button>
+                <button onClick={() => arrangeFrames('width')}>רוחב אחיד</button>
+                <button onClick={() => arrangeFrames('height')}>גובה אחיד</button>
+                <button className="wide" onClick={() => arrangeFrames('size')}>גודל זהה</button>
+                <button disabled={layout.slots.length < 3} onClick={() => arrangeFrames('horizontal-gap')}>רווח אופקי</button>
+                <button disabled={layout.slots.length < 3} onClick={() => arrangeFrames('vertical-gap')}>רווח אנכי</button>
               </div>
             </div>
             <label className="album-inspector-section album-zoom-control">

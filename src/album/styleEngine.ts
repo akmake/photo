@@ -4,7 +4,8 @@ export interface AlbumStyleProfile {
   id: AlbumStyleId;
   label: string;
   description: string;
-  /** Default number of photos per spread, repeated as an album rhythm. */
+  /** Legacy fallback when photographs are unavailable; contextual building does
+   * not repeat this sequence as a design rule. */
   rhythm: number[];
   /** Page-relative whitespace and frame spacing used by generated layouts. */
   margin: number;
@@ -19,7 +20,7 @@ export const ALBUM_STYLES: AlbumStyleProfile[] = [
   {
     id: 'Fine Art',
     label: 'Fine Art',
-    description: 'מעט תמונות, הרבה אוויר ורגע מוביל ברור',
+    description: 'שוליים נדיבים, היררכיה ברורה וגמישות לפי הרגע',
     /* A complete story needs an establishing frame, then denser narrative
      * beats, and a quiet close. This 32-photo cycle produces the same 11-spread
      * pace as the validated family-session proof instead of stretching it to
@@ -47,7 +48,7 @@ export const ALBUM_STYLES: AlbumStyleProfile[] = [
   {
     id: 'נקי ומודרני',
     label: 'נקי ומודרני',
-    description: 'רשת מדויקת, מרווחים צרים וקצב אחיד',
+    description: 'רשת מדויקת, קווים נקיים וקצב שמגיב לרצף',
     rhythm: [4, 4, 6, 4, 6],
     margin: 0.055,
     gap: 0.016,
@@ -65,7 +66,7 @@ export const ALBUM_STYLES: AlbumStyleProfile[] = [
   {
     id: 'קלאסי',
     label: 'קלאסי',
-    description: 'סימטריה, מסגרות נדיבות וקצב סיפור יציב',
+    description: 'סימטריה, מסגרות נדיבות והיררכיה מאופקת',
     rhythm: [2, 4, 4, 2, 4],
     margin: 0.078,
     gap: 0.027,

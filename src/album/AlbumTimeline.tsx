@@ -12,7 +12,7 @@
  */
 
 import { useEffect, useMemo, useState } from 'react';
-import { autoCuts, buildAlbumFromGroups, groupsFromCuts } from './albumFlow';
+import { buildAlbumFromGroups, contextualCuts, groupsFromCuts } from './albumFlow';
 import type { AlbumPhoto, AlbumSpread, PrintProductProfile } from './model';
 import SpreadThumb from './SpreadThumb';
 import { IcBook, IcGallery, IcSparkle, IcUpload } from '../design/Icons';
@@ -55,7 +55,7 @@ export default function AlbumTimeline({
     });
   }, [photos, strictInitialOrder]);
 
-  const [cuts, setCuts] = useState<number[]>(() => autoCuts(order.length, styleName));
+  const [cuts, setCuts] = useState<number[]>(() => contextualCuts(order, photos, styleName));
   const [dragId, setDragId] = useState<string | null>(null);
   const [overId, setOverId] = useState<string | null>(null);
 
@@ -73,7 +73,7 @@ export default function AlbumTimeline({
     setCuts((prev) => prev.filter((c) => c !== globalIndex));
   }
   function repace() {
-    setCuts(autoCuts(order.length, styleName));
+    setCuts(contextualCuts(order, photos, styleName));
   }
   function movePhoto(fromId: string, targetId: string | null) {
     if (fromId === targetId) return;
