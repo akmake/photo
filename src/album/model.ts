@@ -103,6 +103,18 @@ export interface AlbumSpread {
   background: string;
   locked: boolean;
   status: 'draft' | 'review' | 'approved';
+  /** The visual chapter this spread belongs to. A spread is never allowed to
+   *  contain photos from two sessions. */
+  sessionId?: string;
+  /** True on the first spread of a session, so the book can present a chapter
+   *  opening instead of an invisible change of scene. */
+  sessionStart?: boolean;
+}
+
+export interface AlbumSession {
+  id: string;
+  label: string;
+  photoIds: string[];
 }
 
 export interface ReviewComment {
@@ -148,6 +160,9 @@ export interface AlbumProject {
   openingDirection?: 'rtl' | 'ltr';
   coverStyle?: 'photo' | 'linen' | 'minimal';
   spreads: AlbumSpread[];
+  /** Undefined means session detection has not run yet. An empty array is a
+   *  deliberate album without placed photos. */
+  sessions?: AlbumSession[];
   activeSpreadId: string;
   reviewVersions?: ReviewVersion[];
   activeReviewVersionId?: string;

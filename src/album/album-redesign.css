@@ -352,6 +352,10 @@
 
 .album-book { min-height: 0; overflow: auto; scrollbar-color: #555 transparent; scroll-behavior: smooth; }
 .album-book-column { width: min(900px, calc(100% - 96px)); margin: 0 auto; padding: 34px 0 70px; }
+.album-session-divider { display: flex; align-items: baseline; gap: 10px; margin: 20px 0 13px; padding: 11px 2px 8px; border-bottom: 1px solid #4b4e50; }
+.album-session-divider:first-child { margin-top: 0; }
+.album-session-divider span { color: #f0d3c4; font: 650 15px var(--font-display); }
+.album-session-divider small { color: #8f9395; font-size: 10px; }
 .album-book-spread { position: relative; display: grid; gap: 8px; margin-bottom: 30px; opacity: .87; transition: opacity .16s ease, transform .16s ease; }
 .album-book-spread:hover,
 .album-book-spread.selected { opacity: 1; }
@@ -412,6 +416,9 @@
 .album-timeline-cut span { width: 2px; height: 24px; display: grid; place-items: center; border-radius: 2px; color: #ddd; background: #55595a; font: 12px/1 var(--font-data); transition: height .12s ease, background .12s ease; }
 .album-timeline-cut:hover span { height: 50px; background: var(--album-copper); }
 .album-timeline-cut.active span { height: 58px; background: var(--album-copper); }
+.album-timeline-cut.session-boundary { width: 42px; cursor: default; }
+.album-timeline-cut.session-boundary span { width: 34px; height: 58px; color: #f0d3c4; background: #51382f; font: 8px/1 var(--font-ui); writing-mode: vertical-rl; }
+.album-timeline-cut.session-boundary:hover span { height: 58px; background: #51382f; }
 .album-unplaced { flex: 0 0 auto; display: flex; align-items: center; gap: 5px; margin-inline-start: 22px; padding-inline-start: 16px; border-inline-start: 1px solid #46494b; }
 .album-unplaced > span { width: 60px; color: #929596; font-size: 9px; line-height: 1.25; }
 .album-unplaced button { width: 48px; height: 56px; padding: 0; overflow: hidden; border: 1px solid #4c5052; border-radius: 4px; opacity: .55; }

@@ -949,6 +949,22 @@ export interface ProjectMemory {
    *  choice creates and the note saying it was already created cannot part
    *  company — see workspace.py EMPTY_STATE. */
   gallery: GalleryLink | null;
+  /** רצפים — the story of the day. Independent of `batches`: a batch is a light
+   *  and carries a recipe, a moment is a chapter and carries only membership.
+   *  Optional on the wire because project.json files written before this
+   *  existed do not have them; the store normalises on load. */
+  moments?: StoryMoment[];
+  momentAssign?: Record<string, string>;
+  /** Suggested cuts turned down, keyed by the frame name the cut would follow. */
+  rejectedBoundaries?: string[];
+}
+
+export interface StoryMoment {
+  id: string;
+  name: string;
+  order: number;
+  cover?: string;
+  createdAt: string;
 }
 
 /** What the studio remembers about a published gallery. The gallery itself

@@ -227,8 +227,15 @@ def _shot_time(path):
 
         with Image.open(path) as im:
             exif = im.getexif()
-            for tag in (36867, 36868, 306):  # DateTimeOriginal, Digitized, DateTime
-                raw_value = exif.get(tag)
+            # DateTimeOriginal and Digitized live in the Exif sub-IFD, NOT in the
+            # top-level IFD that getexif() returns. Reading them from the top
+            # level always missed, fell through to 306 — the file's MODIFIED
+            # time — and an exported set shot over four hours sorted as the
+            # quarter-hour it took to export (מושקי, 14.09: 10:04–14:21 read as
+            # 17:38–17:53).
+            sub = exif.get_ifd(0x8769)
+            candidates = (sub.get(36867), sub.get(36868), exif.get(306))
+            for raw_value in candidates:
                 if not raw_value:
                     continue
                 try:
@@ -304,6 +311,14 @@ EMPTY_STATE = {
     # is imported twice, a note with no batch is never imported at all.
     # None until a gallery is made. See docs/CLIENT-GALLERY.md.
     "gallery": None,
+    # רצפים — the STORY of the day, a second grouping independent of batches.
+    # A batch is a light (it carries a colour recipe); a moment is a chapter
+    # (it carries nothing but membership). Same frame can be in one of each.
+    "moments": [],            # [{id, name, order, cover?, createdAt}]
+    "momentAssign": {},       # frame name -> moment id
+    # Suggested cuts the photographer turned down, by the frame the cut would
+    # follow — so the same analysis does not offer them again.
+    "rejectedBoundaries": [],
 }
 
 

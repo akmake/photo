@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import { IcGallery } from '../design/Icons';
 import { groupsFromCuts } from './albumFlow';
 import type { AlbumPhoto, AlbumProject, PrintProductProfile } from './model';
@@ -41,6 +41,16 @@ export default function AlbumOverview({
   const order = useMemo(() => project.spreads.flatMap((spread) => spread.photoIds), [project.spreads]);
   const known = useMemo(() => new Map(photos.map((photo) => [photo.id, photo])), [photos]);
   const used = useMemo(() => new Set(order), [order]);
+  const sessionById = useMemo(
+    () => new Map((project.sessions ?? []).map((session) => [session.id, session])),
+    [project.sessions],
+  );
+  const sessionByPhoto = useMemo(
+    () => new Map((project.sessions ?? []).flatMap((session) => (
+      session.photoIds.map((id) => [id, session.id] as const)
+    ))),
+    [project.sessions],
+  );
   const unplaced = useMemo(() => photos.filter((photo) => !used.has(photo.id)), [photos, used]);
   const cuts = useMemo(() => {
     const result = new Set<number>();
@@ -73,6 +83,9 @@ export default function AlbumOverview({
 
   function reorderPhoto(fromId: string, toId: string) {
     if (fromId === toId) return;
+    const fromSession = sessionByPhoto.get(fromId);
+    const toSession = sessionByPhoto.get(toId);
+    if (fromSession && toSession && fromSession !== toSession) return;
     const next = [...order];
     const from = next.indexOf(fromId);
     if (from < 0) return;
@@ -107,9 +120,16 @@ export default function AlbumOverview({
             const spreadIssues = issues.filter((issue) => issue.spreadId === spread.id);
             const blockers = spreadIssues.filter((issue) => issue.severity === 'blocker').length;
             const selected = spread.id === project.activeSpreadId;
+            const session = spread.sessionId ? sessionById.get(spread.sessionId) : undefined;
             return (
+              <Fragment key={spread.id}>
+              {spread.sessionStart && session && (
+                <div className="album-session-divider">
+                  <span>{session.label}</span>
+                  <small>{session.photoIds.length} תמונות · פרק עצמאי</small>
+                </div>
+              )}
               <article
-                key={spread.id}
                 ref={(node) => { if (node) spreadRefs.current.set(spread.id, node); else spreadRefs.current.delete(spread.id); }}
                 className={`album-book-spread${selected ? ' selected' : ''}${dragSpread === index ? ' dragging' : ''}${overSpread === index && dragSpread !== index ? ' drop-target' : ''}`}
                 onMouseEnter={() => setHoveredSpread(index)}
@@ -155,6 +175,7 @@ export default function AlbumOverview({
                   )}
                 </button>
               </article>
+              </Fragment>
             );
           })}
           <button className="album-add-spread-inline" onClick={onAddSpread}>＋ כפולה</button>
@@ -174,6 +195,9 @@ export default function AlbumOverview({
               const photo = known.get(id);
               const gap = index + 1;
               const isCut = cuts.has(gap);
+              const nextId = order[index + 1];
+              const isSessionBoundary = Boolean(nextId)
+                && sessionByPhoto.get(id) !== sessionByPhoto.get(nextId);
               const isHighlighted = hoveredSpread === spreadOfPhoto.get(id);
               return (
                 <div className="album-timeline-run" key={id}>
@@ -191,7 +215,13 @@ export default function AlbumOverview({
                     {photo ? <img src={photo.url} alt="" loading="lazy" draggable={false} /> : <span>?</span>}
                   </button>
                   {index < order.length - 1 && (
-                    <button className={`album-timeline-cut${isCut ? ' active' : ''}`} onClick={() => toggleCut(gap)} aria-label={isCut ? 'אחד את הכפולות' : 'פצל לכפולה חדשה'} title={isCut ? 'אחד את הכפולות' : 'פצל לכפולה חדשה'}><span>{isCut ? '' : '+'}</span></button>
+                    <button
+                      className={`album-timeline-cut${isCut ? ' active' : ''}${isSessionBoundary ? ' session-boundary' : ''}`}
+                      onClick={() => { if (!isSessionBoundary) toggleCut(gap); }}
+                      disabled={isSessionBoundary}
+                      aria-label={isSessionBoundary ? 'גבול בין סשנים' : isCut ? 'אחד את הכפולות' : 'פצל לכפולה חדשה'}
+                      title={isSessionBoundary ? 'גבול קבוע בין סשנים' : isCut ? 'אחד את הכפולות' : 'פצל לכפולה חדשה'}
+                    ><span>{isSessionBoundary ? 'סשן' : isCut ? '' : '+'}</span></button>
                   )}
                 </div>
               );

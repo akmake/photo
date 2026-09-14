@@ -14,7 +14,9 @@ import {
 import { assessCrop } from './cropEngine';
 import { analyzeAlbumPhoto } from '../api';
 import { exportAlbumForPrint, exportAlbumProof } from './exportEngine';
-import { buildAlbumFromGroups, buildAutomaticAlbum } from './albumFlow';
+import {
+  buildAlbumFromGroups, buildAutomaticAlbum, constrainGroupsToSessions,
+} from './albumFlow';
 import { ALBUM_STYLES } from './styleEngine';
 import AlbumPhotoPicker from './AlbumPhotoPicker';
 import {
@@ -32,6 +34,7 @@ import { useProjectFiles } from '../studio/store';
 import type { Project as StudioProject } from '../studio/store';
 import { framesToPool, enrichPool } from './projectPool';
 import { runAlbumPreflight, type PreflightIssue } from './preflightEngine';
+import { detectAlbumSessions, oneSession } from './sessionEngine';
 // 3,000 lines of album styling, loaded with the album and not before. This file
 // is the ONLY way into the album folder from outside it, so importing the sheet
 // here covers every album component. The sheet carries no global or element
@@ -218,6 +221,7 @@ export default function AlbumStudio({ job, onBack }: {
   // Frames whose analysis has already been dispatched this session, so opening
   // a second album in the same project does not re-analyse the same files.
   const enrichingRef = useRef<Set<string>>(new Set());
+  const detectingSessionsRef = useRef<Set<string>>(new Set());
   /* Liveness is per-COMPONENT, not per-effect. Analysis is dispatched from an
    * effect that re-runs whenever the frame list changes identity; tying the
    * "still mounted?" flag to that effect's cleanup meant the first dispatch's
@@ -466,6 +470,54 @@ export default function AlbumStudio({ job, onBack }: {
     total: preflightIssues.filter((issue) => issue.severity === 'blocker').length,
   }), [preflightIssues]);
 
+  /* Turn the selected story into visual chapters once per album. The detector
+   * preserves order and returns boundaries only; layout is then run INSIDE each
+   * chapter, which makes it structurally impossible for one spread to mix two
+   * sessions. The first spread of every chapter becomes its own opener. */
+  useEffect(() => {
+    if (!activeAlbumId || project.sessions !== undefined) return undefined;
+    const orderedIds = project.spreads.flatMap((candidate) => candidate.photoIds);
+    if (!orderedIds.length || detectingSessionsRef.current.has(project.id)) return undefined;
+    const byId = new Map(photos.map((photo) => [photo.id, photo]));
+    const selected = orderedIds.map((id) => byId.get(id)).filter((photo): photo is AlbumPhoto => Boolean(photo));
+    if (selected.length !== orderedIds.length) return undefined;
+
+    detectingSessionsRef.current.add(project.id);
+    const albumId = project.id;
+    let detectionFailed = false;
+    setNotice('מזהה סשנים ובונה לכל אחד פרק משלו…');
+    void detectAlbumSessions(selected)
+      .catch(() => {
+        detectionFailed = true;
+        return oneSession(orderedIds);
+      })
+      .then((sessions) => {
+        if (!mountedRef.current) return;
+        setProject((current) => {
+          if (current.id !== albumId || current.sessions !== undefined) return current;
+          const rebuilt = buildAutomaticAlbum(
+            orderedIds,
+            photos,
+            profile.closedWidthMm / profile.closedHeightMm,
+            current.styleName,
+            sessions,
+          );
+          return {
+            ...current,
+            sessions,
+            spreads: rebuilt,
+            activeSpreadId: rebuilt[0]?.id ?? current.activeSpreadId,
+          };
+        });
+        setNotice(detectionFailed
+          ? 'זיהוי הסשנים לא היה זמין · התמונות נשמרו כסשן אחד ולא עורבבו'
+          : sessions.length > 1
+            ? `${sessions.length} סשנים זוהו · כל סשן קיבל פרק נפרד`
+            : 'האלבום זוהה כסשן אחד רציף');
+      });
+    return undefined;
+  }, [activeAlbumId, photos, profile.closedHeightMm, profile.closedWidthMm, project.id, project.sessions, project.spreads]);
+
   function commitProject(next: AlbumProject | ((current: AlbumProject) => AlbumProject)) {
     const resolved = typeof next === 'function' ? next(project) : next;
     setHistoryPast((items) => [...items.slice(-49), project]);
@@ -652,6 +704,7 @@ export default function AlbumStudio({ job, onBack }: {
       openingDirection,
       coverStyle,
       spreads: initialSpreads,
+      sessions: chosenIds.length ? undefined : [],
       activeSpreadId: initialSpreads[0].id,
     };
     saveAlbum(fresh, initialPhotos);
@@ -710,12 +763,14 @@ export default function AlbumStudio({ job, onBack }: {
         photos,
         profile.closedWidthMm / profile.closedHeightMm,
         nextStyleName,
+        nonEmptySpreads.map((candidate) => candidate.sessionId),
       )
       : buildAutomaticAlbum(
         nonEmptySpreads.flatMap((candidate) => candidate.photoIds),
         photos,
         profile.closedWidthMm / profile.closedHeightMm,
         nextStyleName,
+        project.sessions,
       );
     let generatedIndex = 0;
     commitProject((current) => ({
@@ -757,13 +812,24 @@ export default function AlbumStudio({ job, onBack }: {
   /** Reorder by dropping one spread onto another's slot, from the organise grid. */
   function reorderSpread(from: number, to: number) {
     if (from === to || from < 0 || to < 0) return;
+    const sourceSession = project.spreads[from]?.sessionId;
+    const targetSession = project.spreads[to]?.sessionId;
+    if (sourceSession && targetSession && sourceSession !== targetSession) {
+      setNotice('כל סשן נשאר באזור שלו · אפשר לשנות סדר בתוך הסשן');
+      return;
+    }
     const reordered = [...project.spreads];
     const [moved] = reordered.splice(from, 1);
     reordered.splice(to, 0, moved);
     commitProject((current) => ({
       ...current,
       // page numbers are a function of position, never stored independently
-      spreads: reordered.map((item, index) => ({ ...item, pageStart: 2 + index * 2 })),
+      spreads: reordered.map((item, index) => ({
+        ...item,
+        pageStart: 2 + index * 2,
+        sessionStart: Boolean(item.sessionId)
+          && item.sessionId !== reordered[index - 1]?.sessionId,
+      })),
     }));
     setNotice('סדר הכפולות עודכן');
   }
@@ -774,19 +840,21 @@ export default function AlbumStudio({ job, onBack }: {
   function changeAlbumGroups(groups: string[][]) {
     const clean = groups.filter((group) => group.length > 0);
     if (!clean.length) return;
+    const constrained = constrainGroupsToSessions(clean, project.sessions);
     const generated = buildAlbumFromGroups(
-      clean,
+      constrained.groups,
       photos,
       profile.closedWidthMm / profile.closedHeightMm,
       project.styleName,
+      constrained.sessionIds,
     );
     const usedOld = new Set<string>();
     const samePhotos = (a: string[], b: string[]) => a.length === b.length && a.every((id, i) => id === b[i]);
     const next = generated.map((candidate, index) => {
-      const exact = project.spreads.find((old) => !usedOld.has(old.id) && samePhotos(old.photoIds, clean[index]));
+      const exact = project.spreads.find((old) => !usedOld.has(old.id) && samePhotos(old.photoIds, constrained.groups[index]));
       const positional = project.spreads[index];
       const old = exact ?? (
-        positional && !usedOld.has(positional.id) && positional.photoIds.length === clean[index].length
+        positional && !usedOld.has(positional.id) && positional.photoIds.length === constrained.groups[index].length
           ? positional
           : undefined
       );
@@ -794,7 +862,9 @@ export default function AlbumStudio({ job, onBack }: {
       usedOld.add(old.id);
       return {
         ...old,
-        photoIds: clean[index],
+        photoIds: constrained.groups[index],
+        sessionId: candidate.sessionId,
+        sessionStart: candidate.sessionStart,
         pageStart: 2 + index * 2,
       };
     });
@@ -811,11 +881,21 @@ export default function AlbumStudio({ job, onBack }: {
     const added = photoIds.filter((id, index, all) => !used.has(id) && all.indexOf(id) === index);
     setShowPhotoPicker(false);
     if (!added.length) return;
+    const existingPhotoIds = project.spreads.flatMap((candidate) => candidate.photoIds);
+    const existingSessions = project.sessions?.length
+      ? project.sessions
+      : oneSession(existingPhotoIds);
+    const newSession = {
+      id: `session-${Date.now()}`,
+      label: `סשן ${existingSessions.length + 1}`,
+      photoIds: added,
+    };
     const additions = buildAutomaticAlbum(
       added,
       photos,
       profile.closedWidthMm / profile.closedHeightMm,
       project.styleName,
+      [newSession],
     );
     const hasOnlyEmptySpread = project.spreads.length === 1 && project.spreads[0].photoIds.length === 0;
     const base = hasOnlyEmptySpread ? [] : project.spreads;
@@ -823,6 +903,7 @@ export default function AlbumStudio({ job, onBack }: {
     commitProject((current) => ({
       ...current,
       spreads: next,
+      sessions: [...existingSessions, newSession],
       activeSpreadId: additions[0]?.id ?? current.activeSpreadId,
     }));
     setNotice(`${added.length} תמונות נוספו`);

@@ -1,5 +1,5 @@
 import { buildAlbumLayoutCandidates } from './layoutEngine';
-import type { AlbumPhoto, AlbumSpread } from './model';
+import type { AlbumPhoto, AlbumSession, AlbumSpread } from './model';
 import { getAlbumStyle } from './styleEngine';
 
 /* The album is a timeline with cuts.
@@ -57,6 +57,7 @@ export function buildAlbumFromGroups(
   photos: AlbumPhoto[],
   pageAspect: number,
   styleName?: string,
+  groupSessionIds: Array<string | undefined> = [],
 ): AlbumSpread[] {
   const stamp = Date.now();
   const style = getAlbumStyle(styleName);
@@ -73,8 +74,45 @@ export function buildAlbumFromGroups(
       locked: false,
       status: 'draft',
       frameSettings: {},
+      sessionId: groupSessionIds[index],
+      sessionStart: Boolean(groupSessionIds[index])
+        && groupSessionIds[index] !== groupSessionIds[index - 1],
     };
   });
+}
+
+/** Split arbitrary edited groups at session boundaries. This is the invariant
+ * that prevents a timeline edit from accidentally putting the end of one shoot
+ * and the beginning of another on the same spread. */
+export function constrainGroupsToSessions(
+  groups: string[][],
+  sessions: AlbumSession[] | undefined,
+): { groups: string[][]; sessionIds: Array<string | undefined> } {
+  if (!sessions?.length) return { groups, sessionIds: groups.map(() => undefined) };
+  const sessionByPhoto = new Map(sessions.flatMap((session) => (
+    session.photoIds.map((id) => [id, session.id] as const)
+  )));
+  const constrained: string[][] = [];
+  const sessionIds: Array<string | undefined> = [];
+  for (const group of groups) {
+    let run: string[] = [];
+    let runSession: string | undefined;
+    for (const id of group) {
+      const nextSession = sessionByPhoto.get(id);
+      if (run.length && nextSession !== runSession) {
+        constrained.push(run);
+        sessionIds.push(runSession);
+        run = [];
+      }
+      run.push(id);
+      runSession = nextSession;
+    }
+    if (run.length) {
+      constrained.push(run);
+      sessionIds.push(runSession);
+    }
+  }
+  return { groups: constrained, sessionIds };
 }
 
 /** Build a whole album from a flat selection, using the default pacing. Kept as
@@ -85,8 +123,34 @@ export function buildAutomaticAlbum(
   photos: AlbumPhoto[],
   pageAspect: number,
   styleName?: string,
+  sessions?: AlbumSession[],
 ): AlbumSpread[] {
   const unique = selectedPhotoIds.filter((id, index, all) => all.indexOf(id) === index);
-  const groups = groupsFromCuts(unique, autoCuts(unique.length, styleName));
-  return buildAlbumFromGroups(groups, photos, pageAspect, styleName);
+  const uniqueSet = new Set(unique);
+  const chapters: Array<{ id: string | undefined; label: string; photoIds: string[] }> = sessions?.length
+    ? sessions
+      .map((session) => ({ ...session, photoIds: session.photoIds.filter((id) => uniqueSet.has(id)) }))
+      .filter((session) => session.photoIds.length)
+    : [{ id: undefined, label: '', photoIds: unique }];
+  const seen = new Set(chapters.flatMap((session) => session.photoIds));
+  const orphans = unique.filter((id) => !seen.has(id));
+  if (orphans.length) chapters.push({ id: undefined, label: '', photoIds: orphans });
+
+  const groups: string[][] = [];
+  const sessionIds: Array<string | undefined> = [];
+  chapters.forEach((session) => {
+    // Each sizeable session gets a quiet opener of its own. The remainder then
+    // follows the selected style's rhythm, independently of adjacent sessions.
+    const chapterGroups = session.photoIds.length >= 3
+      ? [session.photoIds.slice(0, 1), ...groupsFromCuts(
+        session.photoIds.slice(1),
+        autoCuts(session.photoIds.length - 1, styleName),
+      )]
+      : [session.photoIds];
+    chapterGroups.forEach((group) => {
+      groups.push(group);
+      sessionIds.push(session.id);
+    });
+  });
+  return buildAlbumFromGroups(groups, photos, pageAspect, styleName, sessionIds);
 }
