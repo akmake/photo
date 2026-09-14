@@ -36,9 +36,7 @@ export default function BatchesV2({
         </div>
       </section>
 
-      <div className="tz-stage-card">
-        <GroupWorkspace projectId={project.id} />
-      </div>
+      <GroupWorkspace projectId={project.id} />
     </div>
   );
 }

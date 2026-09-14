@@ -67,7 +67,8 @@
 }
 
 /* רצפים — the photographs are the work, so the chrome around them gives way:
- * full width, a one-line header, and a thin card edge instead of 28px. */
+ * full width, a one-line header, and NO card — the workspace sits on the
+ * screen itself, not inside a box inside the screen. */
 .tz-stage-groups {
   max-width: none;
   gap: 10px;
@@ -78,8 +79,6 @@
 .tz-stage-groups .tz-stage-header-copy { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
 .tz-stage-groups .tz-stage-tag { margin: 0; }
 .tz-stage-groups .tz-stage-header-copy h1 { margin: 0; font-size: 20px; }
-.tz-stage-groups .tz-stage-card { padding: 12px 16px; border-radius: 12px; }
-
 /* ==========================================================================
    BATCHES STYLING (TEZA AI POLISH)
    ========================================================================== */
