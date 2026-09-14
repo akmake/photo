@@ -28,10 +28,11 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  addBatch, assignFrames, framesInBatch, removeBatch, renameBatch,
+  addBatch, addBatches, assignFrames, framesInBatch, removeBatch, renameBatch,
   setBatchCover, unassignedFrames, useProjectFiles, useBatches,
 } from '../store';
 import type { Frame } from '../store';
+import { albumMoments, embedAlbum } from '../../api';
 import { useSetPreview } from '../preview';
 import { IcCheckCircle, IcSparkle } from '../../design/Icons';
 
@@ -41,6 +42,28 @@ function clock(shot: number): string {
     hour: '2-digit',
     minute: '2-digit',
   });
+}
+
+/* The automatic split works on the POOL only. Batches the photographer already
+ * named are decisions, and a button that re-cuts them would undo his work. What
+ * it proposes lands as ordinary batches — the same פרק / החזר לבריכה / rename
+ * that fix a hand-made batch fix a wrong automatic one. */
+const EMBED_CHUNK = 8;
+
+type AutoState =
+  | { phase: 'embed'; done: number; total: number }
+  | { phase: 'group' }
+  | null;
+
+/** What the last run ended as. A stop, a failure and a result are three
+ *  different sentences — a button that ends silently is the bug nobody finds. */
+type AutoNote = { tone: 'ok' | 'error'; text: string } | null;
+
+function span(frames: Frame[]): string {
+  const from = clock(frames[0].shot);
+  const to = clock(frames[frames.length - 1].shot);
+  if (!from) return '';
+  return from === to ? from : `${from}–${to}`;
 }
 
 export default function Batches({ projectId }: { projectId: string }) {
@@ -99,6 +122,80 @@ export default function Batches({ projectId }: { projectId: string }) {
     setName('');
     anchor.current = null;
   }, [name, picked, projectId]);
+
+  const [auto, setAuto] = useState<AutoState>(null);
+  const [autoNote, setAutoNote] = useState<AutoNote>(null);
+  const stopAuto = useRef(false);
+  useEffect(() => () => { stopAuto.current = true; }, []);
+
+  const autoSplit = useCallback(async () => {
+    const run = [...pool];
+    if (run.length < 2) return;
+    stopAuto.current = false;
+    setAutoNote(null);
+    setPicked(new Set());
+    anchor.current = null;
+    const stopped = () => {
+      setAutoNote({ tone: 'ok', text: 'נעצר. לא נוצרו מקבצים.' });
+      return true;
+    };
+
+    try {
+      /* 1 · fingerprints. Cached frames come back instantly; the first pass
+       *     pays the model once per frame, and the model's DLL once per session. */
+      const read = new Set<string>();
+      setAuto({ phase: 'embed', done: 0, total: run.length });
+      for (let start = 0; start < run.length; start += EMBED_CHUNK) {
+        if (stopAuto.current && stopped()) return;
+        const chunk = run.slice(start, start + EMBED_CHUNK);
+        const r = await embedAlbum(chunk.map((f) => f.path));
+        for (const x of r.results) if (x.ok) read.add(x.path);
+        setAuto({ phase: 'embed', done: start + chunk.length, total: run.length });
+      }
+      if (stopAuto.current && stopped()) return;
+
+      const usable = run.filter((f) => read.has(f.path));
+      if (!usable.length) {
+        setAutoNote({ tone: 'error', text: 'המנוע לא הצליח לקרוא אף תמונה. לא נוצרו מקבצים.' });
+        return;
+      }
+
+      /* 2 · contiguous runs, by look AND capture time. */
+      setAuto({ phase: 'group' });
+      const result = await albumMoments(usable.map((f) => f.path), usable.map((f) => f.shot));
+      if (stopAuto.current && stopped()) return;
+
+      /* A frame named by hand while this ran is his decision — it is not
+       * pulled into an automatic batch. */
+      const stillFree = new Set(unassignedFrames(projectId).map((f) => f.name));
+      const byPath = new Map(usable.map((f) => [f.path, f]));
+      const runs = result.moments
+        .map((m) => m.map((p) => byPath.get(p)).filter((f): f is Frame => !!f && stillFree.has(f.name)))
+        .filter((m) => m.length > 0)
+        .map((m) => ({ name: span(m), frames: m.map((f) => f.name) }));
+
+      addBatches(projectId, runs);
+
+      const placed = runs.reduce((n, r) => n + r.frames.length, 0);
+      const unread = run.length - usable.length;
+      let text = `נוצרו ${runs.length.toLocaleString('he-IL')} מקבצים לפי רצפי הצילום. `
+        + 'עבור על הגבולות: איפה שהאור לא אחיד, פרק או החזר לבריכה.';
+      if (unread) text += ` ${unread.toLocaleString('he-IL')} תמונות לא נקראו ונשארו לשיוך ידני.`;
+      else if (placed < usable.length) text += ` ${(usable.length - placed).toLocaleString('he-IL')} תמונות שויכו ביד בזמן הריצה ולא נגעתי בהן.`;
+      if (!result.usedTime) text += ' לא נמצאו שעות צילום — החלוקה לפי מראה בלבד.';
+      setAutoNote({ tone: 'ok', text });
+    } catch (e) {
+      const offline = e instanceof TypeError;
+      setAutoNote({
+        tone: 'error',
+        text: offline
+          ? 'המנוע לא עונה (127.0.0.1:8756). לא נוצרו מקבצים.'
+          : `החלוקה נכשלה: ${e instanceof Error ? e.message : String(e)}. לא נוצרו מקבצים.`,
+      });
+    } finally {
+      setAuto(null);
+    }
+  }, [pool, projectId]);
 
   if (!ready) return <p className="pf-note">קורא את התיקייה…</p>;
 
@@ -199,6 +296,12 @@ export default function Batches({ projectId }: { projectId: string }) {
         </ul>
       )}
 
+      {autoNote && (
+        <p className={`bat-auto-note ${autoNote.tone === 'error' ? 'is-error' : ''}`} role="status">
+          {autoNote.text}
+        </p>
+      )}
+
       {/* ---- the pool ---- */}
       {pool.length === 0 ? (
         <p className="bat-done">
@@ -239,6 +342,27 @@ export default function Batches({ projectId }: { projectId: string }) {
             >
               בחר את כל הנותרות
             </button>
+            {auto ? (
+              <span className="bat-auto">
+                <span className="mono">
+                  {auto.phase === 'group'
+                    ? 'מחלק לרצפים…'
+                    : auto.done === 0
+                      ? 'טוען את מודל הזיהוי…'
+                      : `קורא ${auto.done.toLocaleString('he-IL')} / ${auto.total.toLocaleString('he-IL')}`}
+                </span>
+                <button className="btn" onClick={() => { stopAuto.current = true; }}>עצור</button>
+              </span>
+            ) : (
+              <button
+                className="btn"
+                onClick={autoSplit}
+                disabled={pool.length < 2}
+                title="מחלק את התמונות שנותרו לרצפים לפי מראה ושעת צילום. מקבצים קיימים לא משתנים."
+              >
+                חלק אוטומטית
+              </button>
+            )}
             {picked.size > 0 && (
               <button className="btn" onClick={() => setPicked(new Set())}>נקה בחירה</button>
             )}

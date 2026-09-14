@@ -700,6 +700,22 @@
 
 .bat-cell figcaption { user-select: none; }
 
+/* The automatic split: progress sits in the marking bar where the button was,
+ * the outcome is one plain line above the pool. */
+.bat-auto {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s2);
+  color: var(--ink-3);
+}
+
+.bat-auto-note {
+  font-size: var(--t-sm);
+  color: var(--ink);
+}
+
+.bat-auto-note.is-error { color: var(--danger-ink); }
+
 .bat-done {
   display: flex;
   align-items: center;

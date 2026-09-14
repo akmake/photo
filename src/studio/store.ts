@@ -628,6 +628,28 @@ export function addBatch(projectId: string, name: string, frames: string[] = [])
   return batch;
 }
 
+/** Many batches in ONE write — the automatic split's landing.
+ *
+ *  Not a loop over addBatch: ids are minted from the clock, so a dozen batches
+ *  made in the same millisecond would share one id, and a dozen writes would
+ *  leave a half-split project on disk if the tab died between them. */
+export function addBatches(projectId: string, runs: { name: string; frames: string[] }[]): Batch[] {
+  const current = stateOf(projectId);
+  const stamp = Date.now().toString(36);
+  const assign = { ...current.assign };
+  const made = runs.map((run, i): Batch => {
+    const batch: Batch = {
+      id: `s${stamp}-${i}`,
+      name: run.name.trim() || 'ללא שם',
+      order: current.batches.length + i,
+    };
+    for (const f of run.frames) assign[frameKey(f)] = batch.id;
+    return batch;
+  });
+  write(projectId, { ...current, batches: [...current.batches, ...made], assign });
+  return made;
+}
+
 /* ── the client gallery's thread back into the project ─────────────────────
  *
  * The link is kept in project.json beside the batches on purpose: the batch a
