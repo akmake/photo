@@ -342,6 +342,83 @@ export function boundariesFromRuns<F extends GroupFrame>(
   return out;
 }
 
+/** Accept cuts over an ordered stretch of frames, as ONE state change.
+ *
+ *  The stretch is split at every accepted cut AND wherever membership already
+ *  changes, so each run is homogeneous. Then:
+ *    · an unassigned run becomes a new group, placed where it falls in the day
+ *    · the first run of an existing group stays in it
+ *    · every later run of that group is split off into a new group right after
+ *  So the same call is "accept all" on a fresh shoot and "split here" inside a
+ *  group. */
+export function applyCuts<F extends GroupFrame>(
+  state: ProjectMemory,
+  kind: GroupKind,
+  ordered: string[],
+  cutsAfter: Set<string>,
+  frames: F[],
+  make: (run: string[]) => { id: string; name: string; createdAt: string },
+): ProjectMemory {
+  const assign = assignOf(state, kind);
+  const runs: string[][] = [];
+  let run: string[] = [];
+  let owner: string | null | undefined;
+  for (const name of ordered) {
+    const m = assign[name] ?? null;
+    if (run.length && m !== owner) { runs.push(run); run = []; }
+    owner = m;
+    run.push(name);
+    if (cutsAfter.has(name)) { runs.push(run); run = []; owner = undefined; }
+  }
+  if (run.length) runs.push(run);
+
+  let s = state;
+  const lastPiece = new Map<string, string>();
+  for (const r of runs) {
+    const m = assign[r[0]] ?? null;
+    if (m === null) {
+      const meta = make(r);
+      const at = insertIndex(groupsOf(s, kind), assignOf(s, kind), frames, r, null);
+      s = createGroup(s, kind, meta, r, at);
+    } else if (!lastPiece.has(m)) {
+      lastPiece.set(m, m);
+    } else {
+      const meta = make(r);
+      const after = groupsOf(s, kind).findIndex((g) => g.id === lastPiece.get(m));
+      s = createGroup(s, kind, meta, r, after + 1);
+      lastPiece.set(m, meta.id);
+    }
+  }
+  return s;
+}
+
+/** Remember a suggested cut the photographer turned down (spec §88). */
+export function rejectBoundary(state: ProjectMemory, afterFrame: string): ProjectMemory {
+  const list = state.rejectedBoundaries ?? [];
+  if (list.includes(afterFrame)) return state;
+  return { ...state, rejectedBoundaries: [...list, afterFrame] };
+}
+
+/** Starting point on request only (spec §215): each edit group becomes a story
+ *  moment with the same name, order and members — for frames not already in a
+ *  moment. Never run automatically; the meanings differ. */
+export function copyEditGroupsAsMoments(
+  state: ProjectMemory,
+  make: (batch: Group) => { id: string; createdAt: string },
+): ProjectMemory {
+  let s = normalize(state);
+  const taken = s.momentAssign!;
+  for (const batch of groupsOf(s, 'edit')) {
+    const members = Object.entries(s.assign)
+      .filter(([name, gid]) => gid === batch.id && !taken[name])
+      .map(([name]) => name);
+    if (!members.length) continue;
+    const meta = make(batch);
+    s = createGroup(s, 'story', { ...meta, name: batch.name }, members, Infinity);
+  }
+  return s;
+}
+
 /** Cut an ordered list of frames at the accepted boundaries into runs. */
 export function runsFromBoundaries(ordered: string[], cutsAfter: Set<string>): string[][] {
   const runs: string[][] = [];

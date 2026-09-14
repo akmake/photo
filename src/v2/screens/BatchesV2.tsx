@@ -1,7 +1,6 @@
-﻿import React from 'react';
+import React from 'react';
 import type { Project } from '../../studio/store';
-import Batches from '../../studio/screens/Batches';
-import { TzIconLayers, TzIconSend } from '../TzIcons';
+import GroupWorkspace from '../../studio/screens/GroupWorkspace';
 import './stages-v2.css';
 
 export default function BatchesV2({
@@ -17,11 +16,10 @@ export default function BatchesV2({
     <div className="tz-stage-container">
       <section className="tz-stage-header">
         <div className="tz-stage-header-copy">
-          <div className="tz-stage-tag">שלב 2 · יצירת מקבצים</div>
-          <h1>חלוקת תמונות למקבצים</h1>
+          <div className="tz-stage-tag">שלב 2 · רצפים</div>
+          <h1>רצפים</h1>
           <p>
-            חלק את יום הצילום של <strong>{project.client}</strong> למקבצי תאורה ואווירה (כגון: צילומי חוץ, קבלת פנים, חופה, ריקודים).
-            לכל מקבץ נקבע פרופיל עריכה וסגנון צבע משלו.
+            חלק את יום הצילום של <strong>{project.client}</strong> לרגעים שאפשר לבחור, לערוך ולעצב מהם.
           </p>
         </div>
 
@@ -39,7 +37,7 @@ export default function BatchesV2({
       </section>
 
       <div className="tz-stage-card">
-        <Batches projectId={project.id} />
+        <GroupWorkspace projectId={project.id} />
       </div>
     </div>
   );

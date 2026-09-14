@@ -8,6 +8,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  applyCuts, copyEditGroupsAsMoments, rejectBoundary,
   boundariesFromRuns, coverOf, createGroup, deleteGroup, insertIndex, mergeGroups,
   membersOf, moveFrames, normalize, recipesDiffer, renameGroup, reorderGroups,
   restoreSlice, runsFromBoundaries, setCover, sliceIsCurrent, sliceOf, splitGroup,
@@ -192,6 +193,48 @@ test('boundaries: gap reason and strength come from the frames, rejected are ski
   const out = boundariesFromRuns(runs, fr, 720, []);
   assert.deepEqual(out.map((b) => [b.afterFrame, b.strength, b.gapMinutes]), [['b', 'medium', 0], ['c', 'strong', 48]]);
   assert.equal(boundariesFromRuns(runs, fr, 720, ['b']).length, 1);
+});
+
+test('applyCuts on a fresh shoot: every run becomes a moment, in day order', () => {
+  let n = 0;
+  const make = (run: string[]) => ({ id: `m${++n}`, name: run[0], createdAt: 'x' });
+  const s = applyCuts(base(), 'story', ['a', 'b', 'c', 'd', 'e'], new Set(['b', 'c']), frames, make);
+  assert.deepEqual(s.moments!.map((m) => m.name), ['a', 'c', 'd']);
+  assert.equal(s.momentAssign!.b, 'm1');
+  assert.equal(s.momentAssign!.c, 'm2');
+  assert.equal(s.momentAssign!.e, 'm3');
+});
+
+test('applyCuts inside a group splits it and keeps the first piece', () => {
+  let n = 0;
+  const make = (run: string[]) => ({ id: `n${++n}`, name: run[0], createdAt: 'x' });
+  const s = applyCuts(base(), 'edit', ['c', 'd'], new Set(['c']), frames, make);
+  assert.deepEqual(s.batches.map((b) => b.id), ['b1', 'b2', 'n1', 'b3']);
+  assert.equal(s.assign.c, 'b2');
+  assert.equal(s.assign.d, 'n1');
+});
+
+test('applyCuts across a membership change does not merge different groups', () => {
+  let n = 0;
+  const make = (run: string[]) => ({ id: `n${++n}`, name: run[0], createdAt: 'x' });
+  const before = base();
+  const s = applyCuts(before, 'edit', ['a', 'b', 'c', 'd'], new Set(), frames, make);
+  assert.deepEqual(s.assign, before.assign);
+});
+
+test('rejectBoundary is remembered once', () => {
+  const s = rejectBoundary(rejectBoundary(base(), 'b'), 'b');
+  assert.deepEqual(s.rejectedBoundaries, ['b']);
+});
+
+test('copy edit groups as moments: same names and members, skips frames already in a moment', () => {
+  let n = 0;
+  let s = createGroup(base(), 'story', meta, ['a'], 0);
+  s = copyEditGroupsAsMoments(s, () => ({ id: `c${++n}`, createdAt: 'x' }));
+  assert.deepEqual(s.moments!.map((m) => m.name), ['חדש', 'גן', 'אולם', 'רחבה']);
+  assert.equal(s.momentAssign!.a, 'n1');
+  assert.equal(s.momentAssign!.b, 'c1');
+  assert.equal(s.assign.a, 'b1'); // edit groups untouched
 });
 
 test('runsFromBoundaries cuts an ordered list', () => {

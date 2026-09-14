@@ -27,7 +27,7 @@ import type { Project as ProjectModel } from '../store';
 import { STAGES, STATE_LABEL, framesInBatch, stagesOf, useBatches } from '../store';
 import type { StageKey } from '../store';
 import ProjectFiles from './ProjectFiles';
-import Batches from './Batches';
+import GroupWorkspace from './GroupWorkspace';
 import SetRecipe from './SetRecipe';
 import ApplySet from './ApplySet';
 import DeliverSet from './DeliverSet';
@@ -273,10 +273,10 @@ export default function Project({
 
             {view === 'batches' && (
               <Stage
-                title="מקבצים"
-                sub="חלוקה לפי אור, לא לפי תיקייה. לכל מקבץ יהיה הצבע שלו בעריכה."
+                title="רצפים"
+                sub="חלק את יום הצילום לרגעים שאפשר לבחור, לערוך ולעצב מהם."
               >
-                <Batches projectId={project.id} />
+                <GroupWorkspace projectId={project.id} />
               </Stage>
             )}
 

@@ -60,7 +60,7 @@ export default function V2App({ onSwitchToV1, onOpenProjectV1 }: V2AppProps) {
   const PROJECT_STAGES = [
     { id: 'client-status', label: 'סטטוס לקוח', icon: TzIconUsers },
     { id: 'gallery-upload', label: 'ייבוא תמונות', icon: TzIconUpload },
-    { id: 'batches', label: 'יצירת מקבצים', icon: TzIconLayers },
+    { id: 'batches', label: 'רצפים', icon: TzIconLayers },
     { id: 'send-to-client', label: 'שלח ללקוח', icon: TzIconSend },
     { id: 'gallery-edit', label: 'עריכה', icon: TzIconSliders },
     { id: 'album-design', label: 'אלבום', icon: TzIconBook },
