@@ -33,7 +33,9 @@ MODEL_PATH = os.path.join(os.path.dirname(__file__), "models", "dinov2_vits14.on
 MODEL_ID = "dinov2_vits14"
 # Bump when anything about how a vector is produced changes — preprocessing, the
 # model, the crop. Old cached vectors under the old key are then simply ignored.
-EMBED_VERSION = 1
+# 2: frames are opened at half size (see _preprocess). The vectors differ from
+# version 1 in the fourth decimal, and a set must never mix the two.
+EMBED_VERSION = 2
 DIM = 384
 _INPUT = 224  # 16 x 14 — a whole number of DINOv2's 14px patches
 
@@ -96,10 +98,23 @@ def _cache_path(path):
 def _preprocess(path):
     """Resize the short side to 224 and centre-crop — DINOv2's own eval recipe.
     Keeping the aspect ratio matters: squashing a wide frame to a square before it
-    is understood is a distortion the embedding would then be measuring."""
-    import cv2
+    is understood is a distortion the embedding would then be measuring.
 
-    rgb = common.to_np(common.load_image(path))  # HxWx3 uint8, EXIF-upright
+    OPENED AT HALF SIZE. A 224px fingerprint has no use for 20MP of decoded
+    pixels, and decoding them was nearly all of the cost: libjpeg can halve
+    while it decodes. Measured 2026-09-15 on a 648-frame set (5472x3648), with
+    frames opened in parallel (embed_paths) and under the same machine load:
+    319s became 33s, and the chapters came out identical — 25 of 25, no break
+    moved. A quarter and an eighth were faster still, but an eighth moved 4
+    breaks; half is where speed stopped costing answers (docs/SLOW.md S-9).
+    Files that are not JPEG ignore the draft and open in full, as before."""
+    import cv2
+    from PIL import Image
+
+    im = Image.open(path)
+    w, h = im.size
+    im.draft("RGB", (max(_INPUT, w // 2), max(_INPUT, h // 2)))
+    rgb = common.to_np(common._upright(im).convert("RGB"))  # HxWx3 uint8, EXIF-upright
     h, w = rgb.shape[:2]
     scale = _INPUT / float(min(h, w))
     rh, rw = max(_INPUT, round(h * scale)), max(_INPUT, round(w * scale))
@@ -124,19 +139,116 @@ def embed_path(path, use_cache=True):
             pass  # no cache or a corrupt one — recompute
 
     sess = _session_instance()
-    tensor = _preprocess(path)
+    out = _infer(sess, _preprocess(path))
+    _store(path, out)
+    return out, False
+
+
+def _infer(sess, tensor):
     out = np.asarray(sess.run(None, {_input_name: tensor})[0]).reshape(-1).astype(np.float32)
     norm = float(np.linalg.norm(out))
-    if norm > 1e-8:
-        out = out / norm
+    return out / norm if norm > 1e-8 else out
 
+
+def _store(path, vector):
     try:
+        cache_at = _cache_path(path)
         os.makedirs(os.path.dirname(cache_at), exist_ok=True)
-        np.save(cache_at, out)
+        np.save(cache_at, vector)
     except OSError:
         pass  # a cache that cannot be written still returns the vector
 
-    return out, False
+
+def _free_memory_bytes():
+    """Physical memory free right now, or None when it cannot be asked."""
+    if os.name != "nt":
+        return None
+    import ctypes
+
+    class _Status(ctypes.Structure):
+        _fields_ = [
+            ("dwLength", ctypes.c_ulong), ("dwMemoryLoad", ctypes.c_ulong),
+            ("ullTotalPhys", ctypes.c_ulonglong), ("ullAvailPhys", ctypes.c_ulonglong),
+            ("ullTotalPageFile", ctypes.c_ulonglong), ("ullAvailPageFile", ctypes.c_ulonglong),
+            ("ullTotalVirtual", ctypes.c_ulonglong), ("ullAvailVirtual", ctypes.c_ulonglong),
+            ("ullAvailExtendedVirtual", ctypes.c_ulonglong),
+        ]
+
+    status = _Status()
+    status.dwLength = ctypes.sizeof(_Status)
+    try:
+        if ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(status)):
+            return int(status.ullAvailPhys)
+    except Exception:  # noqa: BLE001 — not knowing is an answer; fall back to cores
+        pass
+    return None
+
+
+# What one frame in flight holds while it is being opened. Measured at FULL size:
+# 24 at once peaked at 3.3GB, ~130MB each. Half size is a quarter of the pixels;
+# 60MB keeps a margin rather than trusting that arithmetic to the byte.
+_BYTES_PER_OPEN = 60 * 2**20
+
+
+def _threads_for(n):
+    """How many frames to open at once on THIS machine.
+
+    Opening is the cost (inference is ~0.04s a frame), and it scales with cores.
+    It is also held to a quarter of the memory free at this moment, so a laptop
+    with 8GB and a browser open gets fewer lanes instead of a swap storm. Asked
+    per call, not once at start: free memory is a fact about now.
+    """
+    cores = os.cpu_count() or 2
+    free = _free_memory_bytes()
+    by_memory = max(1, int(free * 0.25) // _BYTES_PER_OPEN) if free else cores
+    return max(1, min(n, cores, by_memory))
+
+
+def embed_paths(paths, use_cache=True):
+    """Many frames -> one result per path, in order:
+    {path, ok: True, cached} or {path, ok: False, error}.
+
+    The same vectors embed_path produces, with the frames opened in parallel.
+    Inference stays on the calling thread — the model answers in ~0.04s, and one
+    caller per session keeps its own thread pool from fighting the openers.
+
+    A missing model raises ModelMissing once, before anything is opened: a setup
+    fact about the whole run, not N identical per-frame failures.
+    """
+    from concurrent.futures import ThreadPoolExecutor
+
+    results = [None] * len(paths)
+    todo = []
+    for i, p in enumerate(paths):
+        if use_cache and load_cached(p) is not None:
+            results[i] = {"path": p, "ok": True, "cached": True}
+        else:
+            todo.append(i)
+    if not todo:
+        return results
+
+    sess = _session_instance()
+
+    def prepare(i):
+        try:
+            return _preprocess(paths[i]), None
+        except Exception as e:  # noqa: BLE001 — one frame that will not open, not the set
+            return None, e
+
+    with ThreadPoolExecutor(max_workers=_threads_for(len(todo))) as pool:
+        for i, (tensor, err) in zip(todo, pool.map(prepare, todo)):
+            p = paths[i]
+            if err is not None:
+                results[i] = {"path": p, "ok": False, "error": str(err)}
+                continue
+            try:
+                vector = _infer(sess, tensor)
+            except Exception as e:  # noqa: BLE001
+                results[i] = {"path": p, "ok": False, "error": str(e)}
+                continue
+            _store(p, vector)
+            results[i] = {"path": p, "ok": True, "cached": False}
+    return results
 
 
 def load_cached(path):

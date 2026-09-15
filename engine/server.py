@@ -1740,21 +1740,18 @@ if ($path) {
         try:
             body = self._body()
             paths = body.get("paths", [])
-            results = []
-            embedded = cached = 0
-            for p in paths:
-                try:
-                    _, was_cached = on_worker(embed.embed_path, p)
-                    results.append({"path": p, "ok": True, "cached": was_cached})
-                    if was_cached:
-                        cached += 1
-                    else:
-                        embedded += 1
-                except embed.ModelMissing as e:
-                    self._json(503, {"error": str(e)})
-                    return
-                except Exception as e:  # noqa: BLE001 — one bad frame, not the set
-                    results.append({"path": p, "ok": False, "error": str(e)})
+            # NOT on the image worker. The fingerprint touches no MediaPipe — the
+            # one reason that worker exists — and on it, 648 frames queued one at
+            # a time behind every render, and every render waited behind them.
+            # embed_paths opens the chunk's frames in parallel, sized to this
+            # machine's cores and free memory.
+            try:
+                results = embed.embed_paths(paths)
+            except embed.ModelMissing as e:
+                self._json(503, {"error": str(e)})
+                return
+            cached = sum(1 for r in results if r["ok"] and r["cached"])
+            embedded = sum(1 for r in results if r["ok"] and not r["cached"])
             self._json(
                 200,
                 {"results": results, "embedded": embedded, "cached": cached, "dim": embed.DIM},

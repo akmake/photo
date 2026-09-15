@@ -1,7 +1,8 @@
 import { albumMoments, embedAlbum } from '../api';
 import type { AlbumPhoto, AlbumSession } from './model';
 
-const EMBED_CHUNK = 8;
+// The engine opens a chunk's frames in parallel; 8 capped it at 8 lanes.
+const EMBED_CHUNK = 48;
 
 /** Detect the visual chapters of one selected story. Detection preserves the
  * photographer's order; it only places boundaries between consecutive frames.

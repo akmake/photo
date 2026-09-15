@@ -70,7 +70,9 @@ const GAP = 6;
 const SEP_H = 34;
 /** A silence this long is worth a notch on the timeline (spec §84). */
 const NOTCH_SECONDS = 20 * 60;
-const EMBED_CHUNK = 8;
+// The engine opens a chunk's frames in parallel, so a chunk of 8 capped it at 8
+// lanes. 48 lets it use the machine; the counter still moves every second or two.
+const EMBED_CHUNK = 48;
 
 const count = (n: number) => n.toLocaleString('he-IL');
 
