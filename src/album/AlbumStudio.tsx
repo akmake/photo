@@ -1307,13 +1307,8 @@ export default function AlbumStudio({ job, onBack }: {
     }
     updateSpread({ photoIds: nextIds });
     setSelectedPhotoId(null);
-    /* On a Vault page, move on to the next empty place so the spread fills
-     * photo after photo. */
-    const nextEmpty = activeTemplate ? nextIds.indexOf('') : -1;
-    setSelectedSlotIndex(activeTemplate ? (nextEmpty >= 0 ? nextEmpty : null) : slotIndex);
-    setNotice(activeTemplate && nextEmpty >= 0
-      ? 'התמונה שובצה · בחר תמונה למקום הבא'
-      : 'התמונה שובצה במסגרת');
+    setSelectedSlotIndex(activeTemplate ? null : slotIndex);
+    setNotice('התמונה שובצה במסגרת');
   }
 
   function assignPhoto(slotIndex: number) {
@@ -2216,7 +2211,12 @@ export default function AlbumStudio({ job, onBack }: {
         ) : (
           <>
         <main className="album-center">
-          <div className="album-canvas-area">
+          <div
+            className="album-canvas-area"
+            onClick={(event) => {
+              if (event.target === event.currentTarget) { setSelectedSlotIndex(null); setCropIndex(null); }
+            }}
+          >
             <div
               className={`album-spread ${showGuides ? 'show-guides' : ''} ${activeTemplate ? 'tpl-mode' : ''}`}
               style={{
@@ -2441,6 +2441,12 @@ export default function AlbumStudio({ job, onBack }: {
         {selectedSlot && selectedFrameSettings ? (
           <div className="album-inspector" role="group" aria-label="התאמת התמונה במסגרת">
             <div className="album-inspector-head">
+              <button
+                className="album-inspector-back"
+                onClick={() => { setSelectedSlotIndex(null); setCropIndex(null); setSelectedPhotoId(null); }}
+              >
+                ← חזרה לכפולה
+              </button>
               <span>תמונה</span>
               <strong title={selectedFramePhoto?.name}>{selectedFramePhoto?.name ?? 'מסגרת ריקה'}</strong>
             </div>

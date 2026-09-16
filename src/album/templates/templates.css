@@ -85,3 +85,6 @@
 .tpl-gallery .tpl-card b { font-size: 12px; }
 .tpl-open-gallery { min-height: 34px; border: 1px solid var(--accent); border-radius: 6px; color: var(--accent-ink, var(--ink)); background: transparent; font-weight: 600; }
 .tpl-open-gallery:hover { background: var(--accent); color: #fff; }
+/* the way back from a photo to its spread */
+.album-inspector-back { justify-self: start; margin-bottom: 8px; padding: 6px 10px; border: 1px solid var(--line-strong); border-radius: 6px; color: var(--ink); background: var(--card); font-weight: 600; cursor: pointer; }
+.album-inspector-back:hover { border-color: var(--accent); }
