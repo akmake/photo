@@ -1,5 +1,6 @@
-/* Layers of a template page (הכספת). Sizes are in container units of the
- * spread itself, so text and lines keep their printed proportion at any zoom. */
+/* Layers of a template page (הכספת). Each layer is its own element with an
+ * inline z-index from TEMPLATE_Z_BASE upward; sizes are container units of the
+ * spread, so text and lines keep their printed proportion at any zoom. */
 
 .tpl-decor {
   position: absolute;
@@ -7,8 +8,6 @@
   container-type: size;
   pointer-events: none;
 }
-.tpl-decor.tpl-below { z-index: 1; }
-.tpl-decor.tpl-above { z-index: 4; }
 
 .tpl-decor svg {
   position: absolute;
@@ -21,15 +20,14 @@
 .tpl-text {
   position: absolute;
   display: flex;
-  direction: rtl;
   white-space: pre;
 }
 
 .tpl-photo {
   position: absolute;
-  z-index: 3;
   overflow: hidden;
 }
+.tpl-photo.empty { background: rgb(255 255 255 / .12); }
 .tpl-photo img {
   width: 100%;
   height: 100%;
@@ -44,13 +42,21 @@
   background: transparent;
 }
 
+/* Template layers climb from z-index 10 upward; the fold, guides and page
+ * numbers must stay readable above the whole design. */
+.album-spread.tpl-mode .album-gutter,
+.album-spread.tpl-mode .album-page-number,
+.album-spread.tpl-mode .album-bleed-guide,
+.album-spread.tpl-mode .album-safe-guide,
+.album-spread.tpl-mode .album-smart-guide { z-index: 5000; }
+
 .tpl-panel { display: grid; gap: 10px; padding: 12px 14px; border-bottom: 1px solid var(--line); }
 .tpl-panel > strong { font-size: 12px; }
 .tpl-panel small { color: var(--ink-3); font-size: 11px; line-height: 1.5; }
-.tpl-cards { display: grid; gap: 8px; }
+.tpl-cards { display: grid; gap: 8px; max-height: 420px; overflow-y: auto; padding-inline-end: 2px; }
 .tpl-card { display: grid; gap: 5px; padding: 6px; border: 1px solid var(--line); border-radius: 6px; background: var(--card-2); color: var(--ink); text-align: start; cursor: pointer; }
 .tpl-card:hover, .tpl-card.on { border-color: var(--accent); }
-.tpl-card-sheet { position: relative; width: 100%; overflow: hidden; }
+.tpl-card-sheet { position: relative; width: 100%; overflow: hidden; isolation: isolate; }
 .tpl-card b { font-size: 11px; font-weight: 600; }
 .tpl-colors { display: grid; gap: 6px; }
 .tpl-colors label, .tpl-texts label { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 8px; font-size: 11px; color: var(--ink-2); }

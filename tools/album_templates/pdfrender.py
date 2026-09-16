@@ -58,12 +58,12 @@ def raw_image(num):
             return None
     return None
 
-def run(content, res, ctm, clip=None):
+def run(content, res, ctm, clip=None, alpha_in=1.0):
     res = pp.resolve(res) or {}
     xobjs = pp.resolve(res.get('/XObject', {})) or {}
     gstates = pp.resolve(res.get('/ExtGState', {})) or {}
     stack = []
-    fill, stroke, lw, alpha = [0.0], [0.0], 1.0, 1.0
+    fill, stroke, lw, alpha = [0.0], [0.0], 1.0, alpha_in
     subpaths, cur = [], None
     clip_pending = False
     operands = []
@@ -90,7 +90,7 @@ def run(content, res, ctm, clip=None):
         elif op == 'w' and n: lw = n[-1]
         elif op == 'gs' and operands:
             g = pp.resolve(gstates.get(operands[-1], {})) or {}
-            if '/ca' in g: alpha = pp.resolve(g['/ca'])
+            if '/ca' in g: alpha = alpha_in * pp.resolve(g['/ca'])
         elif op == 're' and len(n) >= 4:
             x, y, w, h = n[-4:]
             subpaths.append([pp.apply(ctm, x, y), pp.apply(ctm, x+w, y), pp.apply(ctm, x+w, y+h), pp.apply(ctm, x, y+h), pp.apply(ctm, x, y)])
@@ -162,7 +162,7 @@ def run(content, res, ctm, clip=None):
                 elif d.get('/Subtype') == '/Form':
                     fd, fc = pp.stream(ref.n)
                     fm = [pp.resolve(x) for x in pp.resolve(fd.get('/Matrix', [1, 0, 0, 1, 0, 0]))]
-                    run(fc, fd.get('/Resources', res), pp.mul(fm, ctm), clip)
+                    run(fc, fd.get('/Resources', res), pp.mul(fm, ctm), clip, alpha)
         operands = []
 
 contents = pp.resolve(pp.page['/Contents'])

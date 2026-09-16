@@ -2,121 +2,26 @@ import type { AlbumSpread, LayoutSlot } from '../model';
 import type {
   AlbumTemplate, PhotoLayer, SpreadTemplateInstance, TemplateLayer, TextLayer,
 } from './types';
-import { P004_SUBTITLE_OUTLINE, P004_TITLE_OUTLINE } from './vaultOutlines.ts';
+import { VAULT_TEMPLATES } from './vaultLibrary.ts';
 import { fittedTemplate } from './adapt.ts';
 
 export { fitTemplate, fittedTemplate } from './adapt.ts';
 
-/* The template library — designed pages rebuilt as layers, and the few pure
- * rules every screen uses to read them. No React here, so the rules are
- * testable without a browser (tests/albumTemplates.test.ts). */
+/* The template library — the Vault's pages rebuilt as layers (generated from
+ * the InDesign source into vaultLibrary.ts), and the few pure rules every
+ * screen uses to read them. No React here, so the rules are testable without a
+ * browser (tests/albumTemplates.test.ts). */
 
-/** The Vault's page size in PDF points: a 560×210 mm spread. */
-const VAULT_WIDTH_PT = 1587.4;
-const VAULT_HEIGHT_PT = 595.276;
-const VAULT_ASPECT = VAULT_WIDTH_PT / VAULT_HEIGHT_PT;
+/** The whole library. The Vault is every design the product offers. */
+export const TEMPLATE_LIBRARY: AlbumTemplate[] = VAULT_TEMPLATES;
 
-/** A point measured in the source PDF (origin bottom-left) → spread fractions. */
-const fromPdf = (x: number, y: number): [number, number] => [
-  x / VAULT_WIDTH_PT,
-  1 - y / VAULT_HEIGHT_PT,
-];
+const BY_ID = new Map(TEMPLATE_LIBRARY.map((template) => [template.id, template]));
 
-/* Page 4: one photo across the fold, a colour band with a two-line title and an
- * open frame. Geometry and colours measured from the PDF drawing commands. */
-export const VAULT_PAGE_4: AlbumTemplate = {
-  schemaVersion: 1,
-  id: 'vault-p004',
-  version: 1,
-  name: 'הכספת · עמוד 4',
-  source: 'vault-pdf',
-  sourcePage: 4,
-  nativeAspect: VAULT_ASPECT,
-  photoCount: 1,
-  backgroundToken: 'background',
-  colors: [
-    { id: 'background', label: 'רקע', value: '#251c11' },
-    { id: 'band', label: 'פס צבע', value: '#b28858' },
-    { id: 'ink', label: 'טקסט ומסגרת', value: '#ffffff' },
-  ],
-  layers: [
-    {
-      type: 'shape',
-      id: 'band',
-      name: 'פס צבע',
-      zIndex: 1,
-      shape: 'rect',
-      box: { x: 0.0717, y: 0, width: 0.1672, height: 1 },
-      fillToken: 'band',
-    },
-    {
-      type: 'photo',
-      id: 'hero',
-      name: 'תמונה',
-      zIndex: 2,
-      box: { x: 0.3131, y: 0, width: 0.5759, height: 1 },
-      role: 'hero',
-      preferred: ['landscape'],
-      allowCrossGutter: true,
-    },
-    {
-      type: 'text',
-      id: 'title',
-      name: 'כותרת',
-      zIndex: 3,
-      box: { x: 0.12, y: 0.419, width: 0.0978, height: 0.0475 },
-      defaultText: 'ליהנות',
-      fontFamily: "'Rubik', 'Segoe UI', sans-serif",
-      fontWeight: 700,
-      fontSize: 0.056,
-      lineHeight: 1,
-      align: 'start',
-      verticalAlign: 'middle',
-      colorToken: 'ink',
-      outline: { d: P004_TITLE_OUTLINE, fillRule: 'nonzero' },
-      sourceFont: 'גופן הכותרת של המעצב',
-    },
-    {
-      type: 'text',
-      id: 'subtitle',
-      name: 'שורה בכתב יד',
-      zIndex: 3,
-      box: { x: 0.08, y: 0.4721, width: 0.1154, height: 0.0985 },
-      defaultText: 'מכל רגע',
-      fontFamily: "'Amatic SC', 'Segoe Script', cursive",
-      fontWeight: 700,
-      fontSize: 0.1,
-      lineHeight: 1,
-      align: 'start',
-      verticalAlign: 'middle',
-      colorToken: 'ink',
-      outline: { d: P004_SUBTITLE_OUTLINE, fillRule: 'nonzero' },
-      sourceFont: 'גופן כתב היד של המעצב',
-    },
-    {
-      type: 'shape',
-      id: 'frame',
-      name: 'מסגרת פתוחה',
-      zIndex: 3,
-      shape: 'polyline',
-      box: { x: 0.093, y: 0.4571, width: 0.1139, height: 0.1214 },
-      points: [
-        fromPdf(225.5129, 323.1463),
-        fromPdf(147.6349, 323.1463),
-        fromPdf(147.6349, 250.8953),
-        fromPdf(328.4189, 250.8953),
-        fromPdf(328.4189, 287.0213),
-      ],
-      strokeToken: 'ink',
-      strokeWidth: 3 / VAULT_HEIGHT_PT,
-    },
-  ],
-};
-
-export const TEMPLATE_LIBRARY: AlbumTemplate[] = [VAULT_PAGE_4];
+/** Page 4 — the page the template system was first built and checked against. */
+export const VAULT_PAGE_4: AlbumTemplate = BY_ID.get('vault-p004')!;
 
 export function findTemplate(id: string): AlbumTemplate | undefined {
-  return TEMPLATE_LIBRARY.find((template) => template.id === id);
+  return BY_ID.get(id);
 }
 
 /** Designs a spread with this many photos can take. Every design fits every
@@ -144,19 +49,9 @@ export function templateSlots(template: AlbumTemplate): LayoutSlot[] {
   }));
 }
 
-/** Non-photo layers split around the photos, each side in paint order. */
-export function layerBands(template: AlbumTemplate): {
-  below: TemplateLayer[];
-  above: TemplateLayer[];
-} {
-  const photoZ = Math.min(...photoLayers(template).map((layer) => layer.zIndex), Infinity);
-  const others = template.layers
-    .filter((layer) => layer.type !== 'photo')
-    .sort((a, b) => a.zIndex - b.zIndex);
-  return {
-    below: others.filter((layer) => layer.zIndex < photoZ),
-    above: others.filter((layer) => layer.zIndex >= photoZ),
-  };
+/** Every layer in paint order, bottom first. */
+export function paintOrder(template: AlbumTemplate): TemplateLayer[] {
+  return [...template.layers].sort((a, b) => a.zIndex - b.zIndex);
 }
 
 export function newInstance(template: AlbumTemplate): SpreadTemplateInstance {

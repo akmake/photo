@@ -267,7 +267,10 @@ export function runAlbumPreflight(
           target: 'spread',
         });
       }
-      const outside = slot.x < 0 || slot.y < 0 || slot.x + slot.width > 1 || slot.y + slot.height > 1;
+      /* A Vault page's geometry is the designer's: a tilted collage photo may
+       * reach past the edge, and overlapping photos are the design. */
+      const outside = !template
+        && (slot.x < 0 || slot.y < 0 || slot.x + slot.width > 1 || slot.y + slot.height > 1);
       const crossesGutter = slot.x < 0.5 && slot.x + slot.width > 0.5 && !slot.allowCrossGutter;
       if (outside || crossesGutter) {
         issues.push({
@@ -283,7 +286,7 @@ export function runAlbumPreflight(
       }
     });
 
-    slots.forEach((slot, index) => {
+    (template ? [] : slots).forEach((slot, index) => {
       slots.slice(index + 1).forEach((other, otherIndex) => {
         const width = Math.min(slot.x + slot.width, other.x + other.width)
           - Math.max(slot.x, other.x);

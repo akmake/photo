@@ -1,15 +1,15 @@
 /* Rules of template pages (הכספת), without a browser.
  *
- *   node --test tests/
+ *   node --test "tests/*.test.ts"
  *
- * library.ts imports types only (plus generated outline strings), so Node runs
- * it directly with type stripping — no build step. */
+ * library.ts imports types and generated data only, so Node runs it directly
+ * with type stripping — no build step. */
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  VAULT_PAGE_4, TEMPLATE_LIBRARY, applyTemplate, colorOf, findTemplate, fitTemplate, layerBands,
-  newInstance, spreadTemplate, templateBackground, templateSlots,
+  VAULT_PAGE_4, TEMPLATE_LIBRARY, applyTemplate, colorOf, findTemplate, fitTemplate,
+  newInstance, paintOrder, photoLayers, spreadTemplate, templateBackground, templateSlots,
   templatesFor, textOf, usesSourceLettering,
 } from '../src/album/templates/library.ts';
 
@@ -24,13 +24,6 @@ const spread = (extra: Record<string, unknown> = {}) => ({
   ...extra,
 });
 
-const ASPECT_28x21 = 560 / 210;
-
-test('page 4 is offered to every one-photo spread, whatever the album shape', () => {
-  assert.deepEqual(templatesFor(1).map((t) => t.id), ['vault-p004']);
-  assert.equal(templatesFor(2).length, 0);
-});
-
 /* The three standard spreads, plus a narrow portrait book as the hard case. */
 const SHAPES = {
   '56×21': 560 / 210,
@@ -39,68 +32,22 @@ const SHAPES = {
   '40×30 portrait': 400 / 300,
 };
 
-const within = (value: number, lo: number, hi: number) => value >= lo - 1e-9 && value <= hi + 1e-9;
+const finite = (value: number) => Number.isFinite(value);
 
-test('at its own shape the page is exactly the design', () => {
-  assert.equal(fitTemplate(VAULT_PAGE_4, ASPECT_28x21), VAULT_PAGE_4);
+test('the whole Vault is in the library — 145 designed pages, 457 photo places', () => {
+  assert.equal(TEMPLATE_LIBRARY.length, 145);
+  assert.equal(TEMPLATE_LIBRARY.reduce((sum, t) => sum + t.photoCount, 0), 457);
+  assert.equal(new Set(TEMPLATE_LIBRARY.map((t) => t.id)).size, 145, 'duplicate template id');
+  assert.ok(templatesFor(2).length > 0 && templatesFor(1).length > 0);
+  assert.ok(templatesFor(1).every((t) => t.photoCount === 1));
 });
 
-for (const [label, aspect] of Object.entries(SHAPES)) {
-  test(`fitted to ${label}: nothing leaves the spread or changes page`, () => {
-    const fitted = fitTemplate(VAULT_PAGE_4, aspect);
-    assert.ok(Math.abs(fitted.nativeAspect / aspect - 1) < 1e-3, 'fitted to the album shape');
-    for (const layer of fitted.layers) {
-      assert.ok(within(layer.box.x, 0, 1) && within(layer.box.x + layer.box.width, 0, 1), `${label}/${layer.id} x`);
-      assert.ok(within(layer.box.y, 0, 1) && within(layer.box.y + layer.box.height, 0, 1), `${label}/${layer.id} y`);
-      assert.ok(layer.box.width > 0 && layer.box.height > 0, `${label}/${layer.id} size`);
-    }
-    // decoration designed on the left page stays on the left page
-    for (const id of ['band', 'title', 'subtitle', 'frame']) {
-      const layer = fitted.layers.find((item) => item.id === id)!;
-      assert.ok(layer.box.x + layer.box.width <= 0.5 + 1e-9, `${label}/${id} crossed the fold`);
-    }
-    // the photo still crosses the fold, as designed, and keeps a real share of the spread
-    const [slot] = templateSlots(fitted);
-    assert.ok(slot.x < 0.5 && slot.x + slot.width > 0.5, `${label}: photo left the fold`);
-    assert.ok(slot.width * aspect > 0.5, `${label}: photo shrank to ${slot.width * aspect} page-heights`);
-    // the photo never slides under the colour band
-    const band = fitted.layers.find((item) => item.id === 'band')!;
-    assert.ok(slot.x >= band.box.x + band.box.width - 1e-9, `${label}: photo under the band`);
-  });
-
-  test(`fitted to ${label}: lettering and frame keep their shape`, () => {
-    const fitted = fitTemplate(VAULT_PAGE_4, aspect);
-    for (const id of ['title', 'subtitle', 'frame']) {
-      const designed = VAULT_PAGE_4.layers.find((item) => item.id === id)!;
-      const layer = fitted.layers.find((item) => item.id === id)!;
-      const designedRatio = (designed.box.width * VAULT_PAGE_4.nativeAspect) / designed.box.height;
-      const ratio = (layer.box.width * aspect) / layer.box.height;
-      assert.ok(Math.abs(ratio / designedRatio - 1) < 1e-3, `${label}/${id} was distorted`);
-    }
-    // the title still sits on the frame's corner: same offset, scaled with it
-    const pick = (t: typeof fitted, id: string) => t.layers.find((item) => item.id === id)!.box;
-    const scale = pick(fitted, 'frame').height / pick(VAULT_PAGE_4, 'frame').height;
-    const offset = (t: typeof fitted, a: number) => (pick(t, 'title').x - pick(t, 'frame').x) * a;
-    assert.ok(Math.abs(offset(fitted, aspect) - offset(VAULT_PAGE_4, ASPECT_28x21) * scale) < 1e-3);
-  });
-}
-
-test('on every shape the photo keeps the share of the spread it has in the design', () => {
-  const [designed] = templateSlots(VAULT_PAGE_4);
-  for (const aspect of Object.values(SHAPES)) {
-    const [slot] = templateSlots(fitTemplate(VAULT_PAGE_4, aspect));
-    for (const key of ['x', 'y', 'width', 'height'] as const) {
-      assert.ok(Math.abs(slot[key] - designed[key]) < 1e-9, `${aspect}: photo ${key} changed`);
-    }
-  }
-});
-
-test('every layer id is unique and every colour it names exists', () => {
+test('every page is well formed: unique layers, known colours, sane geometry', () => {
   for (const template of TEMPLATE_LIBRARY) {
     const ids = template.layers.map((layer) => layer.id);
     assert.equal(new Set(ids).size, ids.length, `${template.id}: duplicate layer id`);
     const tokens = new Set(template.colors.map((color) => color.id));
-    assert.ok(tokens.has(template.backgroundToken));
+    assert.ok(tokens.has(template.backgroundToken), `${template.id}: no background colour`);
     for (const layer of template.layers) {
       const named = layer.type === 'text'
         ? [layer.colorToken]
@@ -108,62 +55,95 @@ test('every layer id is unique and every colour it names exists', () => {
       for (const token of named.filter(Boolean)) {
         assert.ok(tokens.has(token!), `${template.id}/${layer.id}: unknown colour ${token}`);
       }
+      const { x, y, width, height } = layer.box;
+      assert.ok([x, y, width, height].every(finite), `${template.id}/${layer.id}: bad box`);
+      assert.ok(width > 0 && height > 0, `${template.id}/${layer.id}: empty box`);
+    }
+    for (const photo of photoLayers(template)) {
+      if (photo.rotation) continue; // a tilted collage photo may reach past the edge by design
+      const { x, y, width, height } = photo.box;
+      assert.ok(x >= 0 && y >= 0 && x + width <= 1 + 1e-6 && y + height <= 1 + 1e-6,
+        `${template.id}/${photo.id}: photo outside the page`);
     }
     assert.equal(templateSlots(template).length, template.photoCount);
+    assert.equal(photoLayers(template).filter((p) => p.role === 'hero').length, template.photoCount ? 1 : 0);
   }
 });
 
-test('page 4 geometry stays inside the spread and matches the PDF', () => {
-  const [slot] = templateSlots(VAULT_PAGE_4);
-  assert.equal(slot.id, 'hero');
-  assert.equal(slot.allowCrossGutter, true, 'the design runs the photo across the fold');
-  assert.ok(slot.x < 0.5 && slot.x + slot.width > 0.5);
+test('page 4 matches the source: one photo across the fold on dark brown, a faint band, white artwork', () => {
+  const t = VAULT_PAGE_4;
+  assert.equal(t.photoCount, 1);
+  assert.equal(templateBackground(t, newInstance(t)), '#251c11');
+  const [photo] = photoLayers(t);
+  assert.ok(photo.box.x < 0.5 && photo.box.x + photo.box.width > 0.5);
+  assert.equal(photo.allowCrossGutter, true);
+  const band = t.layers.find((l) => l.type === 'shape' && l.shape === 'rect')!;
+  assert.equal(band.opacity, 0.34);
+  assert.ok(Math.abs(band.box.x - 0.0717) < 0.001 && Math.abs(band.box.width - 0.1672) < 0.001);
+  const artwork = t.layers.filter((l) => l.type === 'shape' && l.shape === 'path');
+  assert.ok(artwork.some((l) => l.type === 'shape' && l.fillToken && colorOf(t, newInstance(t), l.fillToken) === '#ffffff'));
+});
 
-  const frame = VAULT_PAGE_4.layers.find((layer) => layer.id === 'frame');
-  assert.ok(frame && frame.type === 'shape' && frame.points);
-  const xs = frame.points!.map(([x]) => x);
-  const ys = frame.points!.map(([, y]) => y);
-  assert.ok(Math.abs(Math.min(...xs) - 0.093) < 0.0005);
-  assert.ok(Math.abs(Math.max(...xs) - 0.2069) < 0.0005);
-  assert.ok(Math.abs(Math.min(...ys) - 0.4571) < 0.0005);
-  assert.ok(Math.abs(Math.max(...ys) - 0.5785) < 0.0005);
-
-  for (const layer of VAULT_PAGE_4.layers) {
-    assert.ok(layer.box.x >= 0 && layer.box.y >= 0, layer.id);
-    assert.ok(layer.box.x + layer.box.width <= 1 + 1e-9, layer.id);
-    assert.ok(layer.box.y + layer.box.height <= 1 + 1e-9, layer.id);
+test('layers paint in the designer order', () => {
+  for (const template of TEMPLATE_LIBRARY) {
+    const order = paintOrder(template).map((l) => l.zIndex);
+    assert.deepEqual(order, [...order].sort((a, b) => a - b));
   }
 });
 
-test('photos sit between the band and the title', () => {
-  const { below, above } = layerBands(VAULT_PAGE_4);
-  assert.deepEqual(below.map((layer) => layer.id), ['band']);
-  assert.deepEqual(above.map((layer) => layer.id).sort(), ['frame', 'subtitle', 'title']);
-  assert.ok([...below, ...above].every((layer) => layer.type !== 'photo'));
+test('at its own shape every page is exactly the design', () => {
+  for (const template of TEMPLATE_LIBRARY) {
+    assert.equal(fitTemplate(template, template.nativeAspect), template);
+  }
 });
+
+for (const [label, aspect] of Object.entries(SHAPES)) {
+  test(`fitted to ${label}: photos keep their share of the spread, artwork keeps its shape`, () => {
+    for (const template of TEMPLATE_LIBRARY) {
+      const fitted = fitTemplate(template, aspect);
+      assert.ok(Math.abs(fitted.nativeAspect / aspect - 1) < 1e-3);
+      photoLayers(template).forEach((designed, index) => {
+        const photo = photoLayers(fitted)[index];
+        for (const key of ['x', 'y', 'width', 'height'] as const) {
+          assert.ok(Math.abs(photo.box[key] - designed.box[key]) < 1e-9, `${template.id}: photo ${key} moved`);
+        }
+      });
+      template.layers.forEach((designed, index) => {
+        const layer = fitted.layers[index];
+        const uniform = designed.type === 'text' || (designed.type === 'shape' && designed.shape !== 'rect');
+        if (!uniform) return;
+        const before = (designed.box.width * template.nativeAspect) / designed.box.height;
+        const after = (layer.box.width * aspect) / layer.box.height;
+        assert.ok(Math.abs(after / before - 1) < 1e-3, `${template.id}/${layer.id}: distorted`);
+        const inside = (b: typeof layer.box) => b.x >= -0.02 && b.x + b.width <= 1.02;
+        if (inside(designed.box)) assert.ok(inside(layer.box), `${template.id}/${layer.id}: left the spread`);
+      });
+    }
+  });
+}
 
 test('colours belong to the spread and never change the design', () => {
-  const one = newInstance(VAULT_PAGE_4);
-  const two = newInstance(VAULT_PAGE_4);
-  one.colors.band = '#445566';
-  assert.equal(colorOf(VAULT_PAGE_4, one, 'band'), '#445566');
-  assert.equal(colorOf(VAULT_PAGE_4, two, 'band'), '#b28858');
-  assert.equal(VAULT_PAGE_4.colors.find((color) => color.id === 'band')!.value, '#b28858');
-  assert.equal(templateBackground(VAULT_PAGE_4, two), '#251c11');
-  assert.equal(colorOf(VAULT_PAGE_4, two, 'no-such-token'), '#ff00ff');
+  const t = VAULT_PAGE_4;
+  const token = t.colors[1].id;
+  const designed = t.colors[1].value;
+  const one = newInstance(t);
+  const two = newInstance(t);
+  one.colors[token] = '#445566';
+  assert.equal(colorOf(t, one, token), '#445566');
+  assert.equal(colorOf(t, two, token), designed);
+  assert.equal(t.colors[1].value, designed);
+  assert.equal(colorOf(t, two, 'no-such-token'), '#ff00ff');
 });
 
-test('the designer lettering shows until the words change', () => {
-  const instance = newInstance(VAULT_PAGE_4);
-  const title = VAULT_PAGE_4.layers.find((layer) => layer.id === 'title');
-  assert.ok(title && title.type === 'text');
-  assert.equal(textOf(instance, title), 'ליהנות');
-  assert.equal(usesSourceLettering(instance, title), true);
-  instance.texts.title = 'להתרגש';
-  assert.equal(textOf(instance, title), 'להתרגש');
-  assert.equal(usesSourceLettering(instance, title), false);
-  instance.texts.title = 'ליהנות';
-  assert.equal(usesSourceLettering(instance, title), true, 'typing the original back restores it');
+test('live text shows its words and follows edits', () => {
+  const withText = TEMPLATE_LIBRARY.find((t) => t.layers.some((l) => l.type === 'text'))!;
+  const layer = withText.layers.find((l) => l.type === 'text')!;
+  assert.ok(layer.type === 'text');
+  const instance = newInstance(withText);
+  assert.equal(textOf(instance, layer), layer.defaultText);
+  assert.equal(usesSourceLettering(instance, layer), false, 'live text has no drawn lettering');
+  instance.texts[layer.id] = 'שלום';
+  assert.equal(textOf(instance, layer), 'שלום');
 });
 
 test('placing a design keeps the photos in order and drops the old layout', () => {
@@ -175,7 +155,6 @@ test('placing a design keeps the photos in order and drops the old layout', () =
   assert.equal(patch.customSlots, undefined);
   assert.deepEqual(patch.frameSettings, {});
   assert.equal(patch.templateInstance!.templateId, 'vault-p004');
-  assert.equal(patch.templateInstance!.templateVersion, VAULT_PAGE_4.version);
 
   const empty = applyTemplate(spread({ photoIds: [] }) as never, VAULT_PAGE_4);
   assert.deepEqual(empty.photoIds, [''], 'an empty spread gets an empty photo place');

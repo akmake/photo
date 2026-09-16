@@ -1,4 +1,4 @@
-import type { AlbumTemplate, TemplateLayer } from './types';
+import type { AlbumTemplate, LayerOutline, TemplateLayer } from './types';
 
 /* One designed page, fitted to ANY album shape.
  *
@@ -7,11 +7,11 @@ import type { AlbumTemplate, TemplateLayer } from './types';
  * the design — the crop engine re-crops it around the faces, it is never
  * distorted — and everything around it keeps its own share too:
  *
- *   · photos and colour fields keep their position and size as fractions of
- *     the spread (they may change shape; a photo is re-cropped, a band is
- *     simply a band);
- *   · lettering, lines and ellipses must keep their shape, so they scale
- *     uniformly by how much the spread narrowed, anchored to where they sit.
+ *   · photos, colour fields and frames keep their position and size as
+ *     fractions of the spread (they may change shape; a photo is re-cropped,
+ *     a band is simply a band);
+ *   · lettering, artwork, lines and ellipses must keep their shape, so they
+ *     scale uniformly by how much the spread narrowed, anchored where they sit.
  *
  * Pure geometry, no React — tested in tests/albumTemplates.test.ts. */
 
@@ -26,9 +26,9 @@ export function fitTemplate(template: AlbumTemplate, targetAspect: number): Albu
   /* Heights are the unit, so only the width changed. A narrower spread shrinks
    * shapes that must not distort; a wider one leaves their size alone. */
   const scale = Math.min(1, targetAspect / designed);
-  /** Vertical positions move toward the page middle with the same scale, so a
-   *  title stays on the corner of its frame. */
-  const scaleY = (y: number) => 0.5 + (y - 0.5) * scale;
+  /** Each shape stays centred where the design put it. Pulling positions toward
+   *  the page middle moved a caption out of its band and onto the photo. */
+  const scaleY = (y: number) => y;
 
   const layers = template.layers.map((layer): TemplateLayer => {
     if (layer.type === 'photo' || (layer.type === 'shape' && layer.shape === 'rect')) {
@@ -46,27 +46,30 @@ export function fitTemplate(template: AlbumTemplate, targetAspect: number): Albu
       height,
     };
 
-    if (layer.type === 'text') {
-      /* Outline coordinates are designed-spread view units. Map the layer's
-       * centre to its new centre and scale around it. */
+    /* Outline coordinates are designed-spread view units. Map the layer's
+     * centre to its new centre and scale around it. */
+    const fitOutline = (outline: LayerOutline | undefined): LayerOutline | undefined => {
+      if (!outline) return undefined;
       const fromX = centreX * designed * VIEW_HEIGHT;
       const toX = centreX * targetAspect * VIEW_HEIGHT;
       const fromY = centreY * VIEW_HEIGHT;
       const toY = scaleY(centreY) * VIEW_HEIGHT;
+      return { ...outline, transform: [scale, scale, toX - fromX * scale, toY - fromY * scale] };
+    };
+
+    if (layer.type === 'text') {
       return {
         ...layer,
         box,
         fontSize: layer.fontSize * scale,
-        outline: layer.outline && {
-          ...layer.outline,
-          transform: [scale, scale, toX - fromX * scale, toY - fromY * scale],
-        },
+        outline: fitOutline(layer.outline),
       };
     }
 
     return {
       ...layer,
       box,
+      outline: fitOutline(layer.outline),
       strokeWidth: layer.strokeWidth === undefined ? undefined : layer.strokeWidth * scale,
       points: layer.points?.map(([px, py]) => [
         centreX + ((px - centreX) * designed * scale) / targetAspect,

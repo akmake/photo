@@ -5,7 +5,9 @@ import type { FrameRole, PhotoOrientation } from '../model';
  * The Vault (הכספת) must never be imported as background images: every photo,
  * line, colour and word on a page stays its own editable thing, so the same
  * design can carry any photographer's photos in any colours. A definition is
- * fixed library data; what a spread changes lives in SpreadTemplateInstance. */
+ * fixed library data; what a spread changes lives in SpreadTemplateInstance.
+ * The library itself is generated from the InDesign source by
+ * tools/album_templates/idml_to_templates.py. */
 
 /** Fractions of the whole spread — 0..1 on both axes, top-left origin. */
 export interface LayerBox {
@@ -15,6 +17,15 @@ export interface LayerBox {
   height: number;
 }
 
+/** Vector artwork in viewBox units: page height = 1000, width = 1000 × aspect. */
+export interface LayerOutline {
+  d: string;
+  fillRule: 'nonzero' | 'evenodd';
+  /** [scaleX, scaleY, translateX, translateY] in viewBox units — set when the
+   *  page is fitted to an album shape other than the designed one. */
+  transform?: [number, number, number, number];
+}
+
 interface BaseLayer {
   id: string;
   name: string;
@@ -22,8 +33,20 @@ interface BaseLayer {
   zIndex: number;
   box: LayerBox;
   opacity?: number;
+  /** CSS mix-blend-mode, e.g. 'soft-light'. */
+  blendMode?: string;
   /** Degrees, clockwise, around the box centre. */
   rotation?: number;
+}
+
+/** The photo fades out along a line, as InDesign's gradient feather. Points
+ *  and stops are fractions of the photo frame. */
+export interface PhotoFeather {
+  x1: number;
+  y1: number;
+  x2: number;
+  y2: number;
+  stops: { offset: number; opacity: number }[];
 }
 
 /** A place for a photo. Photo layers bind to `spread.photoIds` in the order
@@ -35,12 +58,14 @@ export interface PhotoLayer extends BaseLayer {
   preferred: PhotoOrientation[];
   /** The design deliberately runs this photo across the fold. */
   allowCrossGutter?: boolean;
+  feather?: PhotoFeather;
 }
 
 export interface TextLayer extends BaseLayer {
   type: 'text';
   defaultText: string;
-  /** Stand-in font used once the text is edited. */
+  direction?: 'rtl' | 'ltr';
+  /** Stand-in font until the designer's font file is added. */
   fontFamily: string;
   fontWeight: number;
   /** Fraction of the spread height. */
@@ -49,26 +74,20 @@ export interface TextLayer extends BaseLayer {
   align: 'start' | 'center' | 'end';
   verticalAlign: 'top' | 'middle' | 'bottom';
   colorToken: string;
-  /** The designer's own lettering, taken from the source as vector outlines in
-   *  the template's viewBox units. Drawn — in the layer's colour — for as long
-   *  as the text is unchanged, so the page matches the design exactly. */
-  outline?: {
-    d: string;
-    fillRule: 'nonzero' | 'evenodd';
-    /** [scaleX, scaleY, translateX, translateY] in viewBox units — set when the
-     *  page is fitted to an album shape other than the designed one. */
-    transform?: [number, number, number, number];
-  };
-  /** The designer's font this layer stands in for, until the source files
-   *  with the real font arrive. */
+  /** The designer's own lettering as vector outlines, drawn — in the layer's
+   *  colour — for as long as the text is unchanged. */
+  outline?: LayerOutline;
+  /** The designer's font this layer stands in for. */
   sourceFont?: string;
 }
 
 export interface ShapeLayer extends BaseLayer {
   type: 'shape';
-  shape: 'rect' | 'ellipse' | 'polyline';
+  shape: 'rect' | 'ellipse' | 'polyline' | 'path';
   /** polyline only — fractions of the spread, in drawing order. */
   points?: [number, number][];
+  /** path only. */
+  outline?: LayerOutline;
   fillToken?: string;
   strokeToken?: string;
   /** Fraction of the spread height. */
@@ -91,7 +110,7 @@ export interface AlbumTemplate {
    *  it was made against an older design. */
   version: number;
   name: string;
-  source: 'vault-pdf';
+  source: 'vault-pdf' | 'vault-idml';
   sourcePage: number;
   /** Spread width ÷ height the design was drawn for — or, on a fitted copy,
    *  the album shape it was fitted to. */

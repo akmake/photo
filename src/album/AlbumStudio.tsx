@@ -12,8 +12,10 @@ import {
   buildAlbumLayoutCandidates, EMPTY_GENERATED_LAYOUT, type GeneratedAlbumLayout,
 } from './layoutEngine';
 import { assessCrop } from './cropEngine';
-import { applyTemplate, spreadTemplate, templateBackground, templateSlots } from './templates/library';
-import { TemplateDecor } from './templates/TemplateLayers';
+import {
+  applyTemplate, photoLayers, spreadTemplate, templateBackground, templateSlots,
+} from './templates/library';
+import { TemplateDecor, photoFrameStyle, templateZ } from './templates/TemplateLayers';
 import TemplatePanel from './templates/TemplatePanel';
 import type { AlbumTemplate, SpreadTemplateInstance } from './templates/types';
 import { analyzeAlbumPhoto } from '../api';
@@ -442,6 +444,8 @@ export default function AlbumStudio({ job, onBack }: {
    * work exactly as on any other spread. */
   const activeTemplate = spreadTemplate(spread, profile.spreadWidthMm / profile.spreadHeightMm);
   const templatePlaces = activeTemplate ? templateSlots(activeTemplate) : [];
+  const templatePhotoLayers = activeTemplate ? photoLayers(activeTemplate) : [];
+  const templateZOrder = activeTemplate ? templateZ(activeTemplate) : new Map<string, number>();
   const layout = activeTemplate ? {
     ...generatedLayout,
     id: spread.layoutId,
@@ -2147,7 +2151,7 @@ export default function AlbumStudio({ job, onBack }: {
         <main className="album-center">
           <div className="album-canvas-area">
             <div
-              className={`album-spread ${showGuides ? 'show-guides' : ''}`}
+              className={`album-spread ${showGuides ? 'show-guides' : ''} ${activeTemplate ? 'tpl-mode' : ''}`}
               style={{
                 background: spreadPaper,
                 aspectRatio: `${profile.spreadWidthMm} / ${profile.spreadHeightMm}`,
@@ -2166,7 +2170,7 @@ export default function AlbumStudio({ job, onBack }: {
               ))}
 
               {activeTemplate && spread.templateInstance && (
-                <TemplateDecor template={activeTemplate} instance={spread.templateInstance} band="below" />
+                <TemplateDecor template={activeTemplate} instance={spread.templateInstance} />
               )}
               {layout.slots.map((slot, slotIndex) => {
                 const photoId = layout.photoIds[slotIndex];
@@ -2197,6 +2201,10 @@ export default function AlbumStudio({ job, onBack }: {
                        * has to read as the page it sits on — not as a white bar
                        * that looks like the frame failed to fill. */
                       ...(crop?.letterboxed ? { background: spreadPaper } : null),
+                      ...(activeTemplate ? {
+                        zIndex: templateZOrder.get(templatePhotoLayers[slotIndex].id),
+                        ...photoFrameStyle(templatePhotoLayers[slotIndex]),
+                      } : null),
                     }}
                     onClick={() => assignPhoto(slotIndex)}
                     onDoubleClick={() => {
@@ -2276,9 +2284,6 @@ export default function AlbumStudio({ job, onBack }: {
                   </button>
                 );
               })}
-              {activeTemplate && spread.templateInstance && (
-                <TemplateDecor template={activeTemplate} instance={spread.templateInstance} band="above" />
-              )}
 
               <div className="album-page-number left">{spread.pageStart}</div>
               <div className="album-page-number right">{spread.pageStart + 1}</div>
