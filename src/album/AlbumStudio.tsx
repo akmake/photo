@@ -1316,7 +1316,7 @@ export default function AlbumStudio({ job, onBack }: {
     if (!selectedPhotoId) {
       setSelectedSlotIndex(slotIndex);
       setCropIndex(null);
-      setNotice('גרור להזיז · פינות לשינוי גודל · לחיצה כפולה למקם את התמונה');
+      setNotice('גרור להזיז · פינות לשינוי גודל (Shift שומר פרופורציה) · לחיצה כפולה למקם את התמונה');
       return;
     }
     assignPhotoById(slotIndex, selectedPhotoId);
@@ -1477,8 +1477,36 @@ export default function AlbumStudio({ job, onBack }: {
         height = g.slot.y + g.slot.height - ny;
         y = ny;
       }
+      if (event.shiftKey) {
+        // Shift keeps the frame's proportions, as in Office
+        const scale = Math.max(width / g.slot.width, height / g.slot.height);
+        width = g.slot.width * scale;
+        height = g.slot.height * scale;
+        if (!east) x = g.slot.x + g.slot.width - width;
+        if (!south) y = g.slot.y + g.slot.height - height;
+      }
     }
     g.moved = true;
+    if (activeTemplate && spread.templateInstance) {
+      /* On a Vault page the move is kept as this spread's own change to one
+       * photo place; the design itself stays untouched. */
+      const placeId = g.baseSlots[g.index].id;
+      setProject((current) => ({
+        ...current,
+        spreads: current.spreads.map((item) => (
+          item.id === spread.id && item.templateInstance
+            ? {
+              ...item,
+              templateInstance: {
+                ...item.templateInstance,
+                places: { ...item.templateInstance.places, [placeId]: { x, y, width, height } },
+              },
+            }
+            : item
+        )),
+      }));
+      return;
+    }
     const nextSlots = g.baseSlots.map((s, i) => (i === g.index ? { ...s, x, y, width, height } : s));
     setProject((current) => ({
       ...current,
@@ -2294,7 +2322,7 @@ export default function AlbumStudio({ job, onBack }: {
                     }}
                     onPointerDown={(event) => {
                       if (cropIndex === slotIndex && photo) beginPan(event, slotIndex, frameSettings);
-                      else if (selectedSlotIndex === slotIndex && !activeTemplate) beginFrameGesture(event, slotIndex, 'move');
+                      else if (selectedSlotIndex === slotIndex) beginFrameGesture(event, slotIndex, 'move');
                     }}
                     onPointerMove={(event) => {
                       if (cropIndex === slotIndex) movePan(event, slot.id);
@@ -2318,8 +2346,9 @@ export default function AlbumStudio({ job, onBack }: {
                     ) : (
                       <span className="album-empty-frame"><IcGallery size={22} />בחר תמונה</span>
                     )}
-                    {selectedSlotIndex === slotIndex && cropIndex !== slotIndex && !activeTemplate && (
+                    {selectedSlotIndex === slotIndex && cropIndex !== slotIndex && (
                       <>
+                        {!activeTemplate && (
                         <span className="album-frame-bar" onPointerDown={(e) => e.stopPropagation()}>
                           <span
                             role="button"
@@ -2336,6 +2365,7 @@ export default function AlbumStudio({ job, onBack }: {
                             onClick={(e) => { e.stopPropagation(); reorderFrame('front'); }}
                           >לחזית</span>
                         </span>
+                        )}
                         {(['nw', 'ne', 'sw', 'se'] as const).map((h) => (
                           <span
                             key={h}

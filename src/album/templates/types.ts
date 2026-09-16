@@ -130,4 +130,7 @@ export interface SpreadTemplateInstance {
   colors: Record<string, string>;
   /** text layer id → text. */
   texts: Record<string, string>;
+  /** photo place id → where the photographer dragged or resized it, as
+   *  fractions of this spread. Absent = as designed. */
+  places?: Record<string, LayerBox>;
 }

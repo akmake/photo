@@ -1,6 +1,6 @@
 import type { AlbumSpread, LayoutSlot } from '../model';
 import type {
-  AlbumTemplate, PhotoLayer, SpreadTemplateInstance, TemplateLayer, TextLayer,
+  AlbumTemplate, LayerBox, PhotoLayer, SpreadTemplateInstance, TemplateLayer, TextLayer,
 } from './types';
 import { VAULT_TEMPLATES } from './vaultLibrary.ts';
 import { fittedTemplate } from './adapt.ts';
@@ -99,7 +99,41 @@ export function usesSourceLettering(instance: SpreadTemplateInstance, layer: Tex
 export function spreadTemplate(spread: AlbumSpread, spreadAspect: number): AlbumTemplate | null {
   if (!spread.templateInstance) return null;
   const template = findTemplate(spread.templateInstance.templateId);
-  return template ? fittedTemplate(template, spreadAspect) : null;
+  if (!template) return null;
+  return withPlaceEdits(fittedTemplate(template, spreadAspect), spread.templateInstance.places);
+}
+
+/** A photo place the photographer moved or resized, applied to the page. A
+ *  frame line drawn around that photo in the design goes with it. */
+export function withPlaceEdits(
+  template: AlbumTemplate,
+  places: Record<string, LayerBox> | undefined,
+): AlbumTemplate {
+  if (!places || !Object.keys(places).length) return template;
+  const moves = photoLayers(template)
+    .filter((layer) => places[layer.id])
+    .map((layer) => ({ from: layer.box, to: places[layer.id] }));
+  const near = (a: number, b: number) => Math.abs(a - b) < 0.012;
+  const hugs = (frame: LayerBox, photo: LayerBox) => near(frame.x, photo.x) && near(frame.y, photo.y)
+    && near(frame.x + frame.width, photo.x + photo.width) && near(frame.y + frame.height, photo.y + photo.height);
+  const layers = template.layers.map((layer) => {
+    if (layer.type === 'photo' && places[layer.id]) return { ...layer, box: places[layer.id] };
+    if (layer.type !== 'shape' || layer.shape !== 'rect' || layer.fillToken) return layer;
+    const move = moves.find(({ from }) => hugs(layer.box, from));
+    if (!move) return layer;
+    const sx = move.to.width / move.from.width;
+    const sy = move.to.height / move.from.height;
+    return {
+      ...layer,
+      box: {
+        x: move.to.x + (layer.box.x - move.from.x) * sx,
+        y: move.to.y + (layer.box.y - move.from.y) * sy,
+        width: layer.box.width * sx,
+        height: layer.box.height * sy,
+      },
+    };
+  });
+  return { ...template, layers };
 }
 
 /** What changes on a spread when a design is placed on it. The spread keeps its
