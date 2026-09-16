@@ -1,6 +1,7 @@
+import { useState } from 'react';
 import type { AlbumPhoto, AlbumSpread } from '../model';
 import {
-  TEMPLATE_LIBRARY, colorOf, fittedTemplate, newInstance, templateBackground,
+  TEMPLATE_LIBRARY, colorOf, fittedTemplate, newInstance, templateBackground, templatesFor,
   textOf, usesSourceLettering,
 } from './library';
 import { TemplatePage } from './TemplateLayers';
@@ -21,19 +22,47 @@ interface Props {
   onEditEnd(): void;
 }
 
+/** Photo counts the Vault has pages for. */
+const PHOTO_COUNTS = [...new Set(TEMPLATE_LIBRARY.map((item) => item.photoCount))]
+  .filter((value) => value > 0)
+  .sort((a, b) => a - b);
+
 /* The side-panel section for Vault pages: which designs fit this spread, and —
  * once one is placed — this spread's own colours and words. */
 export default function TemplatePanel({
   spread, photos, spreadAspect, template, onApply, onColor, onText, onEditEnd,
 }: Props) {
-  const photoCount = spread.photoIds.filter(Boolean).length;
-  /* Best fit for these photos first; an empty spread browses the whole Vault. */
-  const offered = photoCount === 0
-    ? TEMPLATE_LIBRARY.map((item) => ({ template: item, photoIds: undefined as string[] | undefined }))
-    : rankTemplates(spread.photoIds, photos, spreadAspect);
+  const placed = spread.photoIds.filter(Boolean);
+  /* The photographer decides how many photos the spread holds, then picks a
+   * page with that many places. With exactly the photos already on the spread,
+   * the pages are ordered by how well they fit them; otherwise in Vault order,
+   * with the photos already placed kept in the first places. */
+  const [count, setCount] = useState<number | null>(
+    () => spread.templateInstance ? spread.photoIds.length : placed.length || null,
+  );
+  const offered = count === null
+    ? []
+    : count === placed.length && count > 0
+      ? rankTemplates(placed, photos, spreadAspect)
+      : templatesFor(count).map((item) => ({
+        template: item,
+        photoIds: Array.from({ length: count }, (_, index) => placed[index] ?? ''),
+      }));
 
-  const cards = !offered.length ? (
-    <small>{`אין בכספת עמוד ל־${photoCount} תמונות בכפולה אחת.`}</small>
+  const countPicker = (
+    <div className="tpl-count" role="group" aria-label="כמה תמונות בכפולה">
+      {PHOTO_COUNTS.map((value) => (
+        <button key={value} className={value === count ? 'on' : ''} onClick={() => setCount(value)}>
+          {value}
+        </button>
+      ))}
+    </div>
+  );
+
+  const cards = count === null ? (
+    <small>בחר כמה תמונות יהיו בכפולה, ויוצגו עמודי הכספת עם מספר המקומות הזה.</small>
+  ) : !offered.length ? (
+    <small>{`אין בכספת עמוד ל־${count} תמונות.`}</small>
   ) : (
     <div className="tpl-cards">
       {offered.map(({ template: designed, photoIds }) => {
@@ -68,7 +97,8 @@ export default function TemplatePanel({
   if (!template || !spread.templateInstance) {
     return (
       <section className="tpl-panel" aria-label="עמודים מהכספת">
-        <strong>עמודים מהכספת</strong>
+        <strong>כמה תמונות בכפולה?</strong>
+        {countPicker}
         {cards}
       </section>
     );
@@ -117,7 +147,8 @@ export default function TemplatePanel({
         <small>הטקסט מוצג בגופן דומה. הגופן של המעצבת ייכנס כשיתקבל קובץ הגופן.</small>
       )}
       <details className="tpl-more">
-        <summary>{`החלפת עמוד · ${offered.length} מתאימים`}</summary>
+        <summary>החלפת עמוד או מספר תמונות</summary>
+        {countPicker}
         {cards}
       </details>
     </section>

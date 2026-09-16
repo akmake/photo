@@ -68,3 +68,7 @@
 .tpl-remove:hover { border-color: var(--accent); }
 .tpl-more summary { cursor: pointer; font-size: 11px; color: var(--ink-2); padding-block: 4px; }
 .tpl-more .tpl-cards { margin-top: 8px; }
+.tpl-count { display: flex; flex-wrap: wrap; gap: 5px; }
+.tpl-count button { min-width: 30px; height: 30px; border: 1px solid var(--line-strong); border-radius: 6px; color: var(--ink); background: var(--card); font: 600 12px var(--font-data); }
+.tpl-count button:hover { border-color: var(--accent); }
+.tpl-count button.on { border-color: var(--accent); background: var(--accent); color: #fff; }

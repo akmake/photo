@@ -169,6 +169,9 @@ export interface AlbumProject {
   /** Undefined means session detection has not run yet. An empty array is a
    *  deliberate album without placed photos. */
   sessions?: AlbumSession[];
+  /** The photos chosen for this album — the tray it is built from. Undefined on
+   *  albums made before it was kept: those draw from the whole project. */
+  photoSelection?: string[];
   activeSpreadId: string;
   reviewVersions?: ReviewVersion[];
   activeReviewVersionId?: string;

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   IcBook, IcCheck, IcChevron, IcDownload, IcEye, IcGallery,
-  IcUndo, IcUpload,
+  IcSparkle, IcUndo, IcUpload,
 } from '../design/Icons';
 import type {
   AlbumPhoto, AlbumPhotoAnalysis, AlbumProject, AlbumSpread, LayoutSlot,
@@ -170,7 +170,7 @@ export default function AlbumStudio({ job, onBack }: {
    * then a drag anywhere on the frame moves the frame itself. One frame at a
    * time is in this mode. */
   const [cropIndex, setCropIndex] = useState<number | null>(null);
-  const [photoFilter, setPhotoFilter] = useState<PhotoTrayFilter>('current');
+  const [photoFilter, setPhotoFilter] = useState<PhotoTrayFilter>('unused');
   const [showGuides, setShowGuides] = useState(false);
   const [notice, setNotice] = useState('הטיוטה נשמרה מקומית');
   const [photoLimit, setPhotoLimit] = useState(60);
@@ -196,6 +196,7 @@ export default function AlbumStudio({ job, onBack }: {
   const [settingsHeightCm, setSettingsHeightCm] = useState(30);
   const [showCover, setShowCover] = useState(false);
   const [showPreflight, setShowPreflight] = useState(false);
+  const [confirmAutoBuild, setConfirmAutoBuild] = useState(false);
 
   /* A reused workspace must never carry one project's library or open album
    * into another project. New mounts also pass through here, harmlessly. */
@@ -473,13 +474,20 @@ export default function AlbumStudio({ job, onBack }: {
   const spreadPaper = activeTemplate && spread.templateInstance
     ? templateBackground(activeTemplate, spread.templateInstance)
     : spread.background;
-  const usedIds = useMemo(() => new Set(project.spreads.flatMap((item) => item.photoIds)), [project.spreads]);
+  /* The photos chosen for THIS album. Undefined on albums made before the
+   * choice was kept — those draw from the whole pool, as they always did. */
+  const albumPhotos = useMemo(() => {
+    if (!project.photoSelection) return photos;
+    const chosen = new Set(project.photoSelection);
+    return photos.filter((photo) => chosen.has(photo.id));
+  }, [photos, project.photoSelection]);
+  const usedIds = useMemo(() => new Set(project.spreads.flatMap((item) => item.photoIds).filter(Boolean)), [project.spreads]);
   const currentSpreadIds = useMemo(() => new Set(spread.photoIds), [spread.photoIds]);
-  const filteredPhotos = useMemo(() => photos.filter((photo) => {
+  const filteredPhotos = useMemo(() => albumPhotos.filter((photo) => {
     if (photoFilter === 'current') return currentSpreadIds.has(photo.id);
     if (photoFilter === 'unused') return !usedIds.has(photo.id);
     return true;
-  }), [currentSpreadIds, photoFilter, photos, usedIds]);
+  }), [albumPhotos, currentSpreadIds, photoFilter, usedIds]);
   const visiblePhotos = filteredPhotos.slice(0, photoLimit);
   const selectedSlot = selectedSlotIndex === null ? null : layout.slots[selectedSlotIndex];
   const selectedFramePhoto = selectedSlotIndex === null
@@ -645,8 +653,8 @@ export default function AlbumStudio({ job, onBack }: {
       activeSpreadId: next.id,
     }));
     setSelectedSlotIndex(null);
-    setPhotoFilter('current');
-    setNotice('נוספה כפולה חדשה');
+    setPhotoFilter('unused');
+    setNotice('נוספה כפולה חדשה · בחר כמה תמונות יהיו בה');
   }
 
   function deleteSpreadAt(index: number) {
@@ -729,18 +737,12 @@ export default function AlbumStudio({ job, onBack }: {
     const initialPhotos = job ? framesToPool(jobFiles.frames) : photos;
     const knownIds = new Set(initialPhotos.map((photo) => photo.id));
     const chosenIds = selectedPhotoIds.filter((photoId) => knownIds.has(photoId));
-    const initialSpreads = chosenIds.length
-      ? buildAutomaticAlbum(
-        chosenIds,
-        initialPhotos,
-        selectedProfile.closedWidthMm / selectedProfile.closedHeightMm,
-        styleName,
-      )
-      : [{
-        id: 's1', pageStart: 2, layoutId: 'balanced', photoIds: [],
-        background, locked: false, status: 'draft' as const,
-      }];
-    const fresh: AlbumProject = {
+    /* The photographer builds the book spread by spread. The chosen photos wait
+     * in the tray; "בנייה אוטומטית" lays them out only when asked. */
+    const initialSpreads: AlbumSpread[] = [{
+      id: `spread-${Date.now()}`, pageStart: 2, layoutId: 'balanced', photoIds: [],
+      background, locked: false, status: 'draft', frameSettings: {},
+    }];    const fresh: AlbumProject = {
       id,
       projectId: job?.id ?? null,
       name,
@@ -749,7 +751,8 @@ export default function AlbumStudio({ job, onBack }: {
       openingDirection,
       coverStyle,
       spreads: initialSpreads,
-      sessions: chosenIds.length ? undefined : [],
+      sessions: [],
+      photoSelection: chosenIds.length ? chosenIds : undefined,
       activeSpreadId: initialSpreads[0].id,
     };
     saveAlbum(fresh, initialPhotos);
@@ -764,8 +767,8 @@ export default function AlbumStudio({ job, onBack }: {
     setActiveAlbumId(id);
     setShowPhotoPicker(chosenIds.length === 0);
     setNotice(chosenIds.length
-      ? `${chosenIds.length} תמונות שובצו · האלבום מוכן לעריכה`
-      : 'בחרו את התמונות שייכנסו לאלבום');
+      ? `${chosenIds.length} תמונות נבחרו לאלבום · בנה כפולה אחרי כפולה, או בנייה אוטומטית`
+      : 'בחר את התמונות שייכנסו לאלבום');
   }
 
   function openAlbumSettings() {
@@ -920,6 +923,43 @@ export default function AlbumStudio({ job, onBack }: {
       spreads: next,
       activeSpreadId: activeStillExists ? current.activeSpreadId : next[0].id,
     }));
+  }
+
+  /** Photos join the album's tray; placing them is the photographer's call. */
+  function addToAlbumPhotos(photoIds: string[]) {
+    const current = project.photoSelection ?? project.spreads.flatMap((item) => item.photoIds).filter(Boolean);
+    const next = [...new Set([...current, ...photoIds])];
+    const added = next.length - current.length;
+    commitProject((album) => ({ ...album, photoSelection: next }));
+    setPhotoFilter('unused');
+    setNotice(added ? `${added} תמונות נוספו לאלבום` : 'התמונות כבר באלבום');
+  }
+
+  /** Lay out every chosen photo on Vault pages. Replaces the spreads, so it asks
+   *  first when any photo is already placed. */
+  function autoBuildAlbum(confirmed = false) {
+    const pool = (project.photoSelection ?? photos.map((photo) => photo.id))
+      .filter((id) => photos.some((photo) => photo.id === id));
+    if (!pool.length) {
+      setNotice('אין תמונות באלבום — הוסף תמונות לפני בנייה אוטומטית');
+      return;
+    }
+    if (!confirmed && project.spreads.some((item) => item.photoIds.some(Boolean))) {
+      setConfirmAutoBuild(true);
+      return;
+    }
+    setConfirmAutoBuild(false);
+    const spreads = buildAutomaticAlbum(
+      pool, photos, profile.closedWidthMm / profile.closedHeightMm, project.styleName,
+    );
+    commitProject((album) => ({
+      ...album,
+      spreads,
+      sessions: undefined,
+      activeSpreadId: spreads[0]?.id ?? album.activeSpreadId,
+    }));
+    setSelectedSlotIndex(null);
+    setNotice(`האלבום נבנה אוטומטית · ${spreads.length} כפולות · אפשר לבטל ב-Ctrl+Z`);
   }
 
   function addPhotosToAlbum(photoIds: string[]) {
@@ -1267,8 +1307,13 @@ export default function AlbumStudio({ job, onBack }: {
     }
     updateSpread({ photoIds: nextIds });
     setSelectedPhotoId(null);
-    setSelectedSlotIndex(slotIndex);
-    setNotice('התמונה שובצה במסגרת');
+    /* On a Vault page, move on to the next empty place so the spread fills
+     * photo after photo. */
+    const nextEmpty = activeTemplate ? nextIds.indexOf('') : -1;
+    setSelectedSlotIndex(activeTemplate ? (nextEmpty >= 0 ? nextEmpty : null) : slotIndex);
+    setNotice(activeTemplate && nextEmpty >= 0
+      ? 'התמונה שובצה · בחר תמונה למקום הבא'
+      : 'התמונה שובצה במסגרת');
   }
 
   function assignPhoto(slotIndex: number) {
@@ -1884,6 +1929,7 @@ export default function AlbumStudio({ job, onBack }: {
           )}
           <button className="album-icon-button" aria-label="ביטול" title="ביטול · Ctrl+Z" onClick={undoProject} disabled={!historyPast.length}><IcUndo size={18} /></button>
           <button className="album-icon-button" aria-label="ביצוע חוזר" title="ביצוע חוזר · Ctrl+Shift+Z" onClick={redoProject} disabled={!historyFuture.length}><IcUndo size={18} style={{ transform: 'scaleX(-1)' }} /></button>
+          <button className="album-quiet-button" onClick={() => autoBuildAlbum()} title="פריסת כל תמונות האלבום על עמודי הכספת"><IcSparkle size={16} /> בנייה אוטומטית</button>
           <button className="album-quiet-button" onClick={() => setShowPreview(true)}><IcEye size={16} /> תצוגה</button>
           <div className="album-more-wrap">
             <button className="album-icon-button" aria-label="פעולות נוספות" aria-expanded={showMoreMenu} onClick={() => setShowMoreMenu((value) => !value)}>•••</button>
@@ -2270,7 +2316,7 @@ export default function AlbumStudio({ job, onBack }: {
                         }}
                       />
                     ) : (
-                      <span className="album-empty-frame"><IcGallery size={22} />בחרי תמונה</span>
+                      <span className="album-empty-frame"><IcGallery size={22} />בחר תמונה</span>
                     )}
                     {selectedSlotIndex === slotIndex && cropIndex !== slotIndex && !activeTemplate && (
                       <>
@@ -2315,7 +2361,7 @@ export default function AlbumStudio({ job, onBack }: {
             <div className="album-photo-tray-head">
               <div className="album-photo-summary">
                 <strong>תמונות</strong>
-                <span>{photos.length - usedIds.size} לא שובצו</span>
+                <span>{albumPhotos.filter((photo) => !usedIds.has(photo.id)).length} לא שובצו</span>
               </div>
               <div className="album-photo-filters" role="group" aria-label="סינון תמונות">
                 {([
@@ -2354,7 +2400,10 @@ export default function AlbumStudio({ job, onBack }: {
                 <button
                   key={photo.id}
                   className={`album-photo-thumb ${selectedPhotoId === photo.id ? 'selected' : ''}`}
-                  onClick={() => setSelectedPhotoId(selectedPhotoId === photo.id ? null : photo.id)}
+                  /* A place picked on the page, then a photo: it goes straight in. */
+                  onClick={() => (selectedSlotIndex !== null && cropIndex === null
+                    ? assignPhotoById(selectedSlotIndex, photo.id)
+                    : setSelectedPhotoId(selectedPhotoId === photo.id ? null : photo.id))}
                   aria-label={`בחר ${photo.name}`}
                   title={photo.name}
                   draggable
@@ -2460,6 +2509,7 @@ export default function AlbumStudio({ job, onBack }: {
             </div>
           </div>
           <TemplatePanel
+            key={spread.id}
             spread={spread}
             photos={photos}
             spreadAspect={profile.spreadWidthMm / profile.spreadHeightMm}
@@ -2487,10 +2537,10 @@ export default function AlbumStudio({ job, onBack }: {
         <AlbumPhotoPicker
           photos={photos}
           albumName={project.name}
-          existingPhotoIds={project.spreads.flatMap((item) => item.photoIds)}
+          existingPhotoIds={project.photoSelection ?? project.spreads.flatMap((item) => item.photoIds).filter(Boolean)}
           onCancel={() => setShowPhotoPicker(false)}
           onContinue={(ids) => {
-            addPhotosToAlbum(ids);
+            addToAlbumPhotos(ids);
             setShowPhotoPicker(false);
           }}
         />
@@ -2526,6 +2576,19 @@ export default function AlbumStudio({ job, onBack }: {
                 <IcDownload size={22} /><strong>חבילת דפוס</strong><span>{preflight.blockers ? 'זמין לאחר תיקון הבעיות' : 'קבצים לפי מפרט בית הדפוס'}</span>
               </button>
             </div>
+          </section>
+        </div>
+      )}
+
+      {confirmAutoBuild && (
+        <div className="album-modal-backdrop" onMouseDown={(event) => event.target === event.currentTarget && setConfirmAutoBuild(false)}>
+          <section className="album-small-dialog" role="dialog" aria-modal="true" aria-labelledby="album-autobuild-title">
+            <h2 id="album-autobuild-title">לבנות את האלבום מחדש?</h2>
+            <p>הבנייה האוטומטית תסדר את כל תמונות האלבום מחדש על עמודי הכספת, במקום הכפולות שבנית. אפשר לבטל אחר כך ב-Ctrl+Z.</p>
+            <footer>
+              <button className="album-quiet-button" onClick={() => setConfirmAutoBuild(false)}>ביטול</button>
+              <button className="album-primary-button" onClick={() => autoBuildAlbum(true)}>בנה מחדש</button>
+            </footer>
           </section>
         </div>
       )}
