@@ -258,9 +258,12 @@ export function TemplatePage({
               width: `${layer.box.width * 100}%`,
               height: `${layer.box.height * 100}%`,
               zIndex: z.get(layer.id),
-              ...photoFrameStyle(layer),
+              /* An empty place shows its outline plainly — no fade, which on an
+               * empty place reads as a smudge. */
+              ...(photo ? photoFrameStyle(layer) : { transform: layer.rotation ? `rotate(${layer.rotation}deg)` : undefined }),
             }}
           >
+            {!photo && <span className="tpl-place-number">{photoIndex + 1}</span>}
             {photo && crop && (
               <img
                 src={photo.url}

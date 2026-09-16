@@ -27,7 +27,8 @@
   position: absolute;
   overflow: hidden;
 }
-.tpl-photo.empty { background: rgb(255 255 255 / .12); }
+.tpl-photo.empty { display: grid; place-items: center; background: #d8d2c8; box-shadow: inset 0 0 0 1px rgb(0 0 0 / .18); container-type: size; }
+.tpl-place-number { color: #7a7268; font: 600 max(10px, 22cqmin) var(--font-data); }
 .tpl-photo img {
   width: 100%;
   height: 100%;
@@ -72,3 +73,15 @@
 .tpl-count button { min-width: 30px; height: 30px; border: 1px solid var(--line-strong); border-radius: 6px; color: var(--ink); background: var(--card); font: 600 12px var(--font-data); }
 .tpl-count button:hover { border-color: var(--accent); }
 .tpl-count button.on { border-color: var(--accent); background: var(--accent); color: #fff; }
+
+/* The page gallery: many pages side by side, large enough to judge. */
+.tpl-gallery-backdrop { z-index: 9000; }
+.tpl-gallery { width: min(1480px, 94vw); height: min(900px, 90vh); display: grid; grid-template-rows: auto minmax(0, 1fr); border-radius: 12px; background: var(--card); box-shadow: 0 24px 80px rgb(0 0 0 / .35); overflow: hidden; }
+.tpl-gallery > header { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 16px 22px; border-bottom: 1px solid var(--line); }
+.tpl-gallery h2 { margin: 0; font: 700 20px/1.2 var(--font-display); }
+.tpl-gallery header span { color: var(--ink-3); font-size: 12px; }
+.tpl-gallery .tpl-cards { max-height: none; overflow-y: auto; grid-template-columns: repeat(auto-fill, minmax(330px, 1fr)); gap: 14px; padding: 18px 22px; align-content: start; }
+.tpl-gallery .tpl-card { padding: 8px; }
+.tpl-gallery .tpl-card b { font-size: 12px; }
+.tpl-open-gallery { min-height: 34px; border: 1px solid var(--accent); border-radius: 6px; color: var(--accent-ink, var(--ink)); background: transparent; font-weight: 600; }
+.tpl-open-gallery:hover { background: var(--accent); color: #fff; }

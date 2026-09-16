@@ -40,6 +40,7 @@ export default function TemplatePanel({
   const [count, setCount] = useState<number | null>(
     () => spread.templateInstance ? spread.photoIds.length : placed.length || null,
   );
+  const [galleryOpen, setGalleryOpen] = useState(false);
   const offered = count === null
     ? []
     : count === placed.length && count > 0
@@ -52,7 +53,7 @@ export default function TemplatePanel({
   const countPicker = (
     <div className="tpl-count" role="group" aria-label="כמה תמונות בכפולה">
       {PHOTO_COUNTS.map((value) => (
-        <button key={value} className={value === count ? 'on' : ''} onClick={() => setCount(value)}>
+        <button key={value} className={value === count ? 'on' : ''} onClick={() => { setCount(value); setGalleryOpen(true); }}>
           {value}
         </button>
       ))}
@@ -73,7 +74,7 @@ export default function TemplatePanel({
           <button
             key={item.id}
             className={`tpl-card ${current ? 'on' : ''}`}
-            onClick={() => onApply(designed, photoIds)}
+            onClick={() => { onApply(designed, photoIds); setGalleryOpen(false); }}
           >
             <span
               className="tpl-card-sheet"
@@ -94,12 +95,37 @@ export default function TemplatePanel({
     </div>
   );
 
+  const gallery = galleryOpen && count !== null && (
+    <div
+      className="album-modal-backdrop tpl-gallery-backdrop"
+      onMouseDown={(event) => event.target === event.currentTarget && setGalleryOpen(false)}
+      onKeyDown={(event) => { if (event.key === 'Escape') setGalleryOpen(false); event.stopPropagation(); }}
+    >
+      <section className="tpl-gallery" role="dialog" aria-modal="true" aria-label="עמודים מהכספת">
+        <header>
+          <div>
+            <h2>{`עמודים ל־${count} תמונות`}</h2>
+            <span>{offered.length ? `${offered.length} עמודים · לחץ על עמוד כדי להציב אותו` : ''}</span>
+          </div>
+          <button className="album-icon-button" onClick={() => setGalleryOpen(false)} aria-label="סגירה">×</button>
+        </header>
+        {cards}
+      </section>
+    </div>
+  );
+
+  const openGallery = count !== null && (
+    <button className="tpl-open-gallery" onClick={() => setGalleryOpen(true)}>
+      {`הצג עמודים ל־${count} תמונות`}
+    </button>
+  );
   if (!template || !spread.templateInstance) {
     return (
       <section className="tpl-panel" aria-label="עמודים מהכספת">
         <strong>כמה תמונות בכפולה?</strong>
         {countPicker}
-        {cards}
+        {count === null ? cards : openGallery}
+        {gallery}
       </section>
     );
   }
@@ -149,7 +175,8 @@ export default function TemplatePanel({
       <details className="tpl-more">
         <summary>החלפת עמוד או מספר תמונות</summary>
         {countPicker}
-        {cards}
+        {openGallery}
+        {gallery}
       </details>
     </section>
   );
