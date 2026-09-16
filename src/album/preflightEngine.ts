@@ -141,7 +141,7 @@ export function runAlbumPreflight(
   }
 
   project.spreads.forEach((spread) => {
-    const template = spreadTemplate(spread);
+    const template = spreadTemplate(spread, profile.spreadWidthMm / profile.spreadHeightMm);
     if (spread.templateInstance && !template) {
       issues.push({
         id: `template-missing-${spread.id}`,

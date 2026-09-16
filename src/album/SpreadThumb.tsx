@@ -31,7 +31,7 @@ interface Props {
 export default function SpreadThumb({
   spread, photos, profile, styleName, showPageNumbers = true,
 }: Props) {
-  const template = spreadTemplate(spread);
+  const template = spreadTemplate(spread, profile.spreadWidthMm / profile.spreadHeightMm);
   if (template && spread.templateInstance) {
     return (
       <div

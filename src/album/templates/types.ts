@@ -52,7 +52,13 @@ export interface TextLayer extends BaseLayer {
   /** The designer's own lettering, taken from the source as vector outlines in
    *  the template's viewBox units. Drawn — in the layer's colour — for as long
    *  as the text is unchanged, so the page matches the design exactly. */
-  outline?: { d: string; fillRule: 'nonzero' | 'evenodd' };
+  outline?: {
+    d: string;
+    fillRule: 'nonzero' | 'evenodd';
+    /** [scaleX, scaleY, translateX, translateY] in viewBox units — set when the
+     *  page is fitted to an album shape other than the designed one. */
+    transform?: [number, number, number, number];
+  };
   /** The designer's font this layer stands in for, until the source files
    *  with the real font arrive. */
   sourceFont?: string;
@@ -87,7 +93,8 @@ export interface AlbumTemplate {
   name: string;
   source: 'vault-pdf';
   sourcePage: number;
-  /** Spread width ÷ height the design was drawn for. */
+  /** Spread width ÷ height the design was drawn for — or, on a fitted copy,
+   *  the album shape it was fitted to. */
   nativeAspect: number;
   photoCount: number;
   /** Token painted behind everything. */

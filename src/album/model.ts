@@ -237,6 +237,21 @@ export const PRINT_PROFILES: PrintProductProfile[] = [
     },
   },
   {
+    /* 50×25 spread — one of the three standard sizes, beside 56×21 and 60×30. */
+    ...FIRST_PRINT_PROFILE,
+    id: 'lab-proof-25-square',
+    name: 'אלבום מרובע 25×25',
+    closedWidthMm: 250,
+    closedHeightMm: 250,
+    spreadWidthMm: 500,
+    spreadHeightMm: 250,
+    coverSpec: {
+      ...FIRST_PRINT_PROFILE.coverSpec,
+      totalWidthMm: 520,
+      totalHeightMm: 250,
+    },
+  },
+  {
     ...FIRST_PRINT_PROFILE,
     id: 'lab-proof-30-portrait',
     name: 'אלבום אורך 20×30',

@@ -1,6 +1,6 @@
 import type { AlbumPhoto, AlbumSpread } from '../model';
 import {
-  TEMPLATE_LIBRARY, colorOf, fitsSpread, libraryFitsAspect, newInstance, templateBackground,
+  TEMPLATE_LIBRARY, colorOf, fittedTemplate, newInstance, templateBackground,
   templatesFor, textOf, usesSourceLettering,
 } from './library';
 import { TemplatePage } from './TemplateLayers';
@@ -72,26 +72,23 @@ export default function TemplatePanel({
   }
 
   const photoCount = spread.photoIds.filter(Boolean).length;
-  const offered = photoCount === 0
-    ? TEMPLATE_LIBRARY.filter((item) => fitsSpread(item, spreadAspect))
-    : templatesFor(photoCount, spreadAspect);
+  const offered = photoCount === 0 ? TEMPLATE_LIBRARY : templatesFor(photoCount);
 
   return (
     <section className="tpl-panel" aria-label="עמודים מהכספת">
       <strong>עמודים מהכספת</strong>
-      {!libraryFitsAspect(spreadAspect) ? (
-        <small>עמודי הכספת מעוצבים לאלבום רוחב 28×21 ס״מ. כדי להשתמש בהם יש לשנות את מידת האלבום.</small>
-      ) : !offered.length ? (
+      {!offered.length ? (
         <small>{`אין עדיין עמוד מהכספת ל־${photoCount} תמונות בכפולה.`}</small>
       ) : (
         <div className="tpl-cards">
-          {offered.map((item) => {
+          {offered.map((designed) => {
+            const item = fittedTemplate(designed, spreadAspect);
             const instance = newInstance(item);
             return (
-              <button key={item.id} className="tpl-card" onClick={() => onApply(item)}>
+              <button key={item.id} className="tpl-card" onClick={() => onApply(designed)}>
                 <span
                   className="tpl-card-sheet"
-                  style={{ display: 'block', aspectRatio: `${item.nativeAspect}`, background: templateBackground(item, instance) }}
+                  style={{ display: 'block', aspectRatio: `${spreadAspect}`, background: templateBackground(item, instance) }}
                 >
                   <TemplatePage
                     template={item}

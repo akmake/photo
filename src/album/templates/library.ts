@@ -3,6 +3,9 @@ import type {
   AlbumTemplate, PhotoLayer, SpreadTemplateInstance, TemplateLayer, TextLayer,
 } from './types';
 import { P004_SUBTITLE_OUTLINE, P004_TITLE_OUTLINE } from './vaultOutlines.ts';
+import { fittedTemplate } from './adapt.ts';
+
+export { fitTemplate, fittedTemplate } from './adapt.ts';
 
 /* The template library — designed pages rebuilt as layers, and the few pure
  * rules every screen uses to read them. No React here, so the rules are
@@ -18,10 +21,6 @@ const fromPdf = (x: number, y: number): [number, number] => [
   x / VAULT_WIDTH_PT,
   1 - y / VAULT_HEIGHT_PT,
 ];
-
-/** A spread may differ from the design by this much and still take it without
- *  visible distortion. Anything more is a different product. */
-const ASPECT_TOLERANCE = 0.005;
 
 /* Page 4: one photo across the fold, a colour band with a two-line title and an
  * open frame. Geometry and colours measured from the PDF drawing commands. */
@@ -120,21 +119,10 @@ export function findTemplate(id: string): AlbumTemplate | undefined {
   return TEMPLATE_LIBRARY.find((template) => template.id === id);
 }
 
-export function fitsSpread(template: AlbumTemplate, spreadAspect: number): boolean {
-  return Math.abs(spreadAspect / template.nativeAspect - 1) <= ASPECT_TOLERANCE;
-}
-
-/** Designs a spread of this shape and photo count can take. A design is never
- *  stretched onto a different album shape. */
-export function templatesFor(photoCount: number, spreadAspect: number): AlbumTemplate[] {
-  return TEMPLATE_LIBRARY.filter((template) => (
-    template.photoCount === photoCount && fitsSpread(template, spreadAspect)
-  ));
-}
-
-/** True when at least one design in the library is drawn for this album shape. */
-export function libraryFitsAspect(spreadAspect: number): boolean {
-  return TEMPLATE_LIBRARY.some((template) => fitsSpread(template, spreadAspect));
+/** Designs a spread with this many photos can take. Every design fits every
+ *  album shape — see adapt.ts. */
+export function templatesFor(photoCount: number): AlbumTemplate[] {
+  return TEMPLATE_LIBRARY.filter((template) => template.photoCount === photoCount);
 }
 
 export function photoLayers(template: AlbumTemplate): PhotoLayer[] {
@@ -210,11 +198,13 @@ export function usesSourceLettering(instance: SpreadTemplateInstance, layer: Tex
   return Boolean(layer.outline) && textOf(instance, layer) === layer.defaultText;
 }
 
-/** The template placed on this spread, or null when there is none — or when its
- *  design is no longer in the library (preflight reports that case). */
-export function spreadTemplate(spread: AlbumSpread): AlbumTemplate | null {
+/** The template placed on this spread, already fitted to the album's shape — or
+ *  null when there is none, or when its design is no longer in the library
+ *  (preflight reports that case). */
+export function spreadTemplate(spread: AlbumSpread, spreadAspect: number): AlbumTemplate | null {
   if (!spread.templateInstance) return null;
-  return findTemplate(spread.templateInstance.templateId) ?? null;
+  const template = findTemplate(spread.templateInstance.templateId);
+  return template ? fittedTemplate(template, spreadAspect) : null;
 }
 
 /** What changes on a spread when a design is placed on it. The spread keeps its

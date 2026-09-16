@@ -440,7 +440,7 @@ export default function AlbumStudio({ job, onBack }: {
   /* A Vault page decides where the photos sit. Its photo places are handed to
    * the editor as ordinary slots, so placing, swapping and cropping a photo
    * work exactly as on any other spread. */
-  const activeTemplate = spreadTemplate(spread);
+  const activeTemplate = spreadTemplate(spread, profile.spreadWidthMm / profile.spreadHeightMm);
   const templatePlaces = activeTemplate ? templateSlots(activeTemplate) : [];
   const layout = activeTemplate ? {
     ...generatedLayout,
@@ -777,8 +777,7 @@ export default function AlbumStudio({ job, onBack }: {
         layoutId: 'balanced',
         customSlots: undefined,
         frameSettings: {},
-        /* A design is drawn for one album shape; a new size must not stretch it. */
-        templateInstance: undefined,
+        /* A Vault page stays: it is fitted to the new shape, not dropped. */
       })),
     }));
     setSelectedSlotIndex(null);

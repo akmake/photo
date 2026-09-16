@@ -124,7 +124,11 @@ export function TemplateDecor({ template, instance, band }: {
                 fill={colorOf(template, instance, layer.colorToken)}
                 fillRule={layer.outline.fillRule}
                 opacity={layer.opacity}
-                transform={svgRotation(layer, viewWidth)}
+                transform={[
+                  svgRotation(layer, viewWidth),
+                  layer.outline.transform
+                    && `translate(${layer.outline.transform[2]} ${layer.outline.transform[3]}) scale(${layer.outline.transform[0]} ${layer.outline.transform[1]})`,
+                ].filter(Boolean).join(' ') || undefined}
               >
                 <title>{layer.defaultText}</title>
               </path>

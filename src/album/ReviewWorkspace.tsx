@@ -61,7 +61,9 @@ export default function ReviewWorkspace({
       photoIds: spread.photoIds,
     } : generated;
   }, [photos, profile.closedHeightMm, profile.closedWidthMm, project.styleName, spread]);
-  const reviewTemplate = spread ? spreadTemplate(spread) : null;
+  const reviewTemplate = spread
+    ? spreadTemplate(spread, profile.spreadWidthMm / profile.spreadHeightMm)
+    : null;
 
   if (!version || (!isCover && !spread)) return null;
 

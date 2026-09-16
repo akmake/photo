@@ -8,8 +8,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  VAULT_PAGE_4, TEMPLATE_LIBRARY, applyTemplate, colorOf, findTemplate, layerBands,
-  libraryFitsAspect, newInstance, spreadTemplate, templateBackground, templateSlots,
+  VAULT_PAGE_4, TEMPLATE_LIBRARY, applyTemplate, colorOf, findTemplate, fitTemplate, layerBands,
+  newInstance, spreadTemplate, templateBackground, templateSlots,
   templatesFor, textOf, usesSourceLettering,
 } from '../src/album/templates/library.ts';
 
@@ -26,13 +26,72 @@ const spread = (extra: Record<string, unknown> = {}) => ({
 
 const ASPECT_28x21 = 560 / 210;
 
-test('page 4 is offered only to a one-photo spread of the Vault shape', () => {
-  assert.deepEqual(templatesFor(1, ASPECT_28x21).map((t) => t.id), ['vault-p004']);
-  assert.equal(templatesFor(2, ASPECT_28x21).length, 0);
-  assert.equal(templatesFor(1, 600 / 200).length, 0, '30×20 is a different shape');
-  assert.equal(templatesFor(1, 600 / 300).length, 0, '30×30 is a different shape');
-  assert.equal(libraryFitsAspect(ASPECT_28x21), true);
-  assert.equal(libraryFitsAspect(2), false);
+test('page 4 is offered to every one-photo spread, whatever the album shape', () => {
+  assert.deepEqual(templatesFor(1).map((t) => t.id), ['vault-p004']);
+  assert.equal(templatesFor(2).length, 0);
+});
+
+/* The three standard spreads, plus a narrow portrait book as the hard case. */
+const SHAPES = {
+  '56×21': 560 / 210,
+  '50×25': 500 / 250,
+  '60×30': 600 / 300,
+  '40×30 portrait': 400 / 300,
+};
+
+const within = (value: number, lo: number, hi: number) => value >= lo - 1e-9 && value <= hi + 1e-9;
+
+test('at its own shape the page is exactly the design', () => {
+  assert.equal(fitTemplate(VAULT_PAGE_4, ASPECT_28x21), VAULT_PAGE_4);
+});
+
+for (const [label, aspect] of Object.entries(SHAPES)) {
+  test(`fitted to ${label}: nothing leaves the spread or changes page`, () => {
+    const fitted = fitTemplate(VAULT_PAGE_4, aspect);
+    assert.ok(Math.abs(fitted.nativeAspect / aspect - 1) < 1e-3, 'fitted to the album shape');
+    for (const layer of fitted.layers) {
+      assert.ok(within(layer.box.x, 0, 1) && within(layer.box.x + layer.box.width, 0, 1), `${label}/${layer.id} x`);
+      assert.ok(within(layer.box.y, 0, 1) && within(layer.box.y + layer.box.height, 0, 1), `${label}/${layer.id} y`);
+      assert.ok(layer.box.width > 0 && layer.box.height > 0, `${label}/${layer.id} size`);
+    }
+    // decoration designed on the left page stays on the left page
+    for (const id of ['band', 'title', 'subtitle', 'frame']) {
+      const layer = fitted.layers.find((item) => item.id === id)!;
+      assert.ok(layer.box.x + layer.box.width <= 0.5 + 1e-9, `${label}/${id} crossed the fold`);
+    }
+    // the photo still crosses the fold, as designed, and keeps a real share of the spread
+    const [slot] = templateSlots(fitted);
+    assert.ok(slot.x < 0.5 && slot.x + slot.width > 0.5, `${label}: photo left the fold`);
+    assert.ok(slot.width * aspect > 0.5, `${label}: photo shrank to ${slot.width * aspect} page-heights`);
+    // the photo never slides under the colour band
+    const band = fitted.layers.find((item) => item.id === 'band')!;
+    assert.ok(slot.x >= band.box.x + band.box.width - 1e-9, `${label}: photo under the band`);
+  });
+
+  test(`fitted to ${label}: lettering and frame keep their shape`, () => {
+    const fitted = fitTemplate(VAULT_PAGE_4, aspect);
+    for (const id of ['title', 'subtitle', 'frame']) {
+      const designed = VAULT_PAGE_4.layers.find((item) => item.id === id)!;
+      const layer = fitted.layers.find((item) => item.id === id)!;
+      const designedRatio = (designed.box.width * VAULT_PAGE_4.nativeAspect) / designed.box.height;
+      const ratio = (layer.box.width * aspect) / layer.box.height;
+      assert.ok(Math.abs(ratio / designedRatio - 1) < 1e-3, `${label}/${id} was distorted`);
+    }
+    // the title still sits on the frame's corner: same offset, scaled with it
+    const pick = (t: typeof fitted, id: string) => t.layers.find((item) => item.id === id)!.box;
+    const scale = pick(fitted, 'frame').height / pick(VAULT_PAGE_4, 'frame').height;
+    const offset = (t: typeof fitted, a: number) => (pick(t, 'title').x - pick(t, 'frame').x) * a;
+    assert.ok(Math.abs(offset(fitted, aspect) - offset(VAULT_PAGE_4, ASPECT_28x21) * scale) < 1e-3);
+  });
+}
+
+test('on the standard sizes the decoration keeps its designed size', () => {
+  for (const aspect of [SHAPES['50×25'], SHAPES['60×30']]) {
+    const fitted = fitTemplate(VAULT_PAGE_4, aspect);
+    const title = fitted.layers.find((item) => item.id === 'title')!;
+    const designed = VAULT_PAGE_4.layers.find((item) => item.id === 'title')!;
+    assert.ok(Math.abs(title.box.height - designed.box.height) < 1e-9);
+  }
 });
 
 test('every layer id is unique and every colour it names exists', () => {
@@ -122,10 +181,11 @@ test('placing a design keeps the photos in order and drops the old layout', () =
 });
 
 test('a spread knows its design, and an unknown design is not silently replaced', () => {
-  assert.equal(spreadTemplate(spread() as never), null);
+  assert.equal(spreadTemplate(spread() as never, 2), null);
   const placed = spread({ templateInstance: newInstance(VAULT_PAGE_4) });
-  assert.equal(spreadTemplate(placed as never)?.id, 'vault-p004');
+  assert.equal(spreadTemplate(placed as never, 2)?.id, 'vault-p004');
+  assert.equal(spreadTemplate(placed as never, 2)?.nativeAspect, 2, 'fitted to the album');
   const orphan = spread({ templateInstance: { ...newInstance(VAULT_PAGE_4), templateId: 'gone' } });
-  assert.equal(spreadTemplate(orphan as never), null);
+  assert.equal(spreadTemplate(orphan as never, 2), null);
   assert.equal(findTemplate('gone'), undefined);
 });
