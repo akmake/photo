@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import { IcBook, IcChevron, IcSparkle } from '../design/Icons';
 import type { AlbumSummary } from './albumStorage';
 import type { AlbumPhoto, PrintProductProfile } from './model';
+import { STANDARD_PRINT_PROFILES } from './model';
 
 interface Props {
   albums: AlbumSummary[];
@@ -47,7 +48,11 @@ export default function AlbumLibrary({
   albums, profiles, photos, projectName, projectScoped = false, clientAlbums = [], onBack,
   onOpen, onCreate, onRename, onDuplicate, onDelete,
 }: Props) {
-  const defaultProfile = profiles[0];
+  /* A new album is one of the standard sizes, or a size typed in. Older sizes
+   * stay in `profiles` only so existing albums keep theirs. */
+  const standardProfiles = STANDARD_PRINT_PROFILES
+    .map((standard) => profiles.find((profile) => profile.id === standard.id) ?? standard);
+  const defaultProfile = standardProfiles[0];
   const defaultSource = clientAlbums.length ? 'client-0' : 'all';
   const [creating, setCreating] = useState(false);
   const [name, setName] = useState('');
@@ -57,8 +62,12 @@ export default function AlbumLibrary({
   const [renameId, setRenameId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState('');
   const [deleteId, setDeleteId] = useState<string | null>(null);
+  const [customWidthCm, setCustomWidthCm] = useState(56);
+  const [customHeightCm, setCustomHeightCm] = useState(21);
+  const isCustom = profileId === 'custom';
+  const customValid = customWidthCm >= 20 && customWidthCm <= 200 && customHeightCm >= 10 && customHeightCm <= 100;
 
-  const selectedProfile = profiles.find((profile) => profile.id === profileId) ?? defaultProfile;
+  const selectedProfile = standardProfiles.find((profile) => profile.id === profileId) ?? defaultProfile;
   const defaultName = useMemo(
     () => `${projectName?.trim() || 'הפרויקט'} — אלבום`,
     [projectName],
@@ -73,7 +82,7 @@ export default function AlbumLibrary({
 
   function submit() {
     const cleanName = name.trim();
-    if (!cleanName || !selectedProfile) return;
+    if (!cleanName || !selectedProfile || (isCustom && !customValid)) return;
     const clientIndex = source.startsWith('client-') ? Number(source.slice(7)) : -1;
     const selectedPhotoIds = source === 'all'
       ? photos.map((photo) => photo.id)
@@ -83,8 +92,9 @@ export default function AlbumLibrary({
     onCreate({
       name: cleanName,
       baseProfileId: selectedProfile.id,
-      closedWidthMm: selectedProfile.closedWidthMm,
-      closedHeightMm: selectedProfile.closedHeightMm,
+      // a spread is two pages: the album's closed width is half the spread
+      closedWidthMm: isCustom ? Math.round((customWidthCm * 10) / 2) : selectedProfile.closedWidthMm,
+      closedHeightMm: isCustom ? Math.round(customHeightCm * 10) : selectedProfile.closedHeightMm,
       styleName: 'Fine Art',
       background: '#f8f6f1',
       selectedPhotoIds,
@@ -179,13 +189,30 @@ export default function AlbumLibrary({
                 <input autoFocus value={name} onChange={(event) => setName(event.target.value)} onKeyDown={(event) => event.key === 'Enter' && submit()} />
               </label>
               <label>
-                <span>מוצר</span>
-                {profiles.length > 1 ? (
-                  <select value={selectedProfile?.id ?? ''} onChange={(event) => setProfileId(event.target.value)}>
-                    {profiles.map((profile) => <option key={profile.id} value={profile.id}>{profile.name}</option>)}
-                  </select>
-                ) : <span className="album-create-readonly">{selectedProfile?.name ?? 'לא הוגדר מוצר'}</span>}
+                <span>גודל כפולה</span>
+                <select value={isCustom ? 'custom' : selectedProfile?.id ?? ''} onChange={(event) => setProfileId(event.target.value)}>
+                  {standardProfiles.map((profile) => (
+                    <option key={profile.id} value={profile.id}>
+                      {`${profile.spreadWidthMm / 10}×${profile.spreadHeightMm / 10} ס״מ`}
+                    </option>
+                  ))}
+                  <option value="custom">מידה אחרת…</option>
+                </select>
               </label>
+              {isCustom && (
+                <div className="album-create-size">
+                  <label>
+                    <span>רוחב כפולה</span>
+                    <input type="number" min="20" max="200" step="0.5" value={customWidthCm} onChange={(event) => setCustomWidthCm(Number(event.target.value))} />
+                  </label>
+                  <i aria-hidden="true">×</i>
+                  <label>
+                    <span>גובה</span>
+                    <input type="number" min="10" max="100" step="0.5" value={customHeightCm} onChange={(event) => setCustomHeightCm(Number(event.target.value))} />
+                  </label>
+                  <small>{customValid ? 'ס״מ' : 'רוחב 20–200 ס״מ, גובה 10–100 ס״מ'}</small>
+                </div>
+              )}
               <fieldset>
                 <legend>מקור התמונות</legend>
                 {clientAlbums.map((album, index) => (
@@ -206,7 +233,7 @@ export default function AlbumLibrary({
             </div>
             <footer>
               <button className="album-quiet-button" onClick={() => setCreating(false)}>ביטול</button>
-              <button className="album-primary-button" disabled={!name.trim() || !selectedProfile} onClick={submit}><IcSparkle size={15} /> צור אלבום</button>
+              <button className="album-primary-button" disabled={!name.trim() || !selectedProfile || (isCustom && !customValid)} onClick={submit}><IcSparkle size={15} /> צור אלבום</button>
             </footer>
           </section>
         </div>

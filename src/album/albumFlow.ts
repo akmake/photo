@@ -1,4 +1,5 @@
-import { buildAlbumLayoutCandidates } from './layoutEngine';
+import { newInstance } from './templates/library';
+import { rankTemplates, splitForLibrary } from './templates/choose';
 import type { AlbumPhoto, AlbumSession, AlbumSpread } from './model';
 import { getAlbumStyle } from './styleEngine';
 
@@ -141,9 +142,10 @@ export function groupsFromCuts(photoIds: string[], cuts: number[]): string[][] {
   return groups.filter((group) => group.length > 0);
 }
 
-/** Turn ready-made groups into spreads, one layout chosen per group. This is the
- *  single place a grouping becomes an album, so the timeline and the legacy
- *  auto-builder produce identical spreads. */
+/** Turn ready-made groups into spreads, each on the Vault page that fits its
+ *  photos best. This is the single place a grouping becomes an album, so the
+ *  timeline and the auto-builder produce identical spreads. A group larger than
+ *  any page is split. */
 export function buildAlbumFromGroups(
   groups: string[][],
   photos: AlbumPhoto[],
@@ -153,36 +155,33 @@ export function buildAlbumFromGroups(
 ): AlbumSpread[] {
   const stamp = Date.now();
   const style = getAlbumStyle(styleName);
+  const spreadAspect = pageAspect * 2;
+  const pieces: Array<{ photoIds: string[]; sessionId: string | undefined }> = [];
+  groups.forEach((group, index) => {
+    splitForLibrary(group).forEach((photoIds) => pieces.push({ photoIds, sessionId: groupSessionIds[index] }));
+  });
+
   const spreads: AlbumSpread[] = [];
-  groups.forEach((photoIds, index) => {
-    const sessionStart = Boolean(groupSessionIds[index])
-      && groupSessionIds[index] !== groupSessionIds[index - 1];
-    const candidates = buildAlbumLayoutCandidates(photoIds, photos, pageAspect, style.id, {
-      sessionStart,
-      sessionEnd: Boolean(groupSessionIds[index])
-        && groupSessionIds[index] !== groupSessionIds[index + 1],
-      spreadIndex: index,
-      spreadCount: groups.length,
-      previousLayoutId: spreads[index - 1]?.layoutId,
-    });
-    const recommended = candidates[0];
+  pieces.forEach(({ photoIds, sessionId }, index) => {
+    const sessionStart = Boolean(sessionId) && sessionId !== pieces[index - 1]?.sessionId;
+    const recent = spreads.slice(-4).map((spread) => spread.templateInstance?.templateId ?? '');
+    const choice = rankTemplates(photoIds, photos, spreadAspect, recent)[0];
     spreads.push({
       id: `spread-${stamp}-${index}`,
       pageStart: 2 + index * 2,
-      layoutId: recommended?.id ?? 'balanced',
-      photoIds: recommended?.photoIds ?? photoIds,
-      customSlots: recommended?.slots,
+      layoutId: choice?.template.id ?? 'balanced',
+      photoIds: choice?.photoIds ?? photoIds,
       background: style.backgrounds[index % style.backgrounds.length],
       locked: false,
       status: 'draft',
       frameSettings: {},
-      sessionId: groupSessionIds[index],
+      sessionId,
       sessionStart,
+      templateInstance: choice ? newInstance(choice.template) : undefined,
     });
   });
   return spreads;
 }
-
 /** Split arbitrary edited groups at session boundaries. This is the invariant
  * that prevents a timeline edit from accidentally putting the end of one shoot
  * and the beginning of another on the same spread. */

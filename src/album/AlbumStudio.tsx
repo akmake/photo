@@ -13,8 +13,9 @@ import {
 } from './layoutEngine';
 import { assessCrop } from './cropEngine';
 import {
-  applyTemplate, photoLayers, spreadTemplate, templateBackground, templateSlots,
+  applyTemplate, newInstance, photoLayers, spreadTemplate, templateBackground, templateSlots,
 } from './templates/library';
+import { rankTemplates } from './templates/choose';
 import { TemplateDecor, photoFrameStyle, templateZ } from './templates/TemplateLayers';
 import TemplatePanel from './templates/TemplatePanel';
 import type { AlbumTemplate, SpreadTemplateInstance } from './templates/types';
@@ -206,9 +207,16 @@ export default function AlbumStudio({ job, onBack }: {
     try {
       const saved = JSON.parse(localStorage.getItem('album-print-profiles') ?? '[]');
       if (!Array.isArray(saved) || !saved.length) return PRINT_PROFILES;
+      /* Saved edits (lab details, verification) survive; the product's own
+       * name and size do not — they belong to the built-in definition. */
       const builtIn = PRINT_PROFILES.map((base) => ({
         ...base,
         ...(saved.find((item) => item.id === base.id) ?? {}),
+        name: base.name,
+        closedWidthMm: base.closedWidthMm,
+        closedHeightMm: base.closedHeightMm,
+        spreadWidthMm: base.spreadWidthMm,
+        spreadHeightMm: base.spreadHeightMm,
       }));
       const custom = saved.filter((item) => !PRINT_PROFILES.some((base) => base.id === item.id));
       return [...builtIn, ...custom];
@@ -688,11 +696,10 @@ export default function AlbumStudio({ job, onBack }: {
     const base = printProfiles.find((item) => item.id === baseProfileId)
       ?? printProfiles[0]
       ?? FIRST_PRINT_PROFILE;
-    const orientation = width === height ? 'מרובע' : width > height ? 'רוחב' : 'אורך';
     const custom: PrintProductProfile = {
       ...base,
       id: `custom-layflat-${width}x${height}`,
-      name: `אלבום ${orientation} ${width / 10}×${height / 10}`,
+      name: `אלבום ${(width * 2) / 10}×${height / 10}`,
       labName: 'מידה מותאמת — דורש אימות מול בית הדפוס',
       closedWidthMm: width,
       closedHeightMm: height,
@@ -1082,8 +1089,12 @@ export default function AlbumStudio({ job, onBack }: {
     return true;
   }
 
-  function placeTemplate(template: AlbumTemplate) {
-    updateSpread(applyTemplate(spread, template));
+  function placeTemplate(template: AlbumTemplate, photoIds?: string[]) {
+    updateSpread({
+      ...applyTemplate(spread, template),
+      layoutId: template.id,
+      ...(photoIds ? { photoIds } : null),
+    });
     setSelectedSlotIndex(null);
     setCropIndex(null);
     setNotice(`הוצב ${template.name}`);
@@ -1463,49 +1474,41 @@ export default function AlbumStudio({ job, onBack }: {
   }
 
   /** Move to another candidate layout for this spread. Wraps at both ends. */
+  /** ↑↓ — the next Vault page for this spread's photos, best fits first. */
   function cycleLayout(direction: 1 | -1, targetIndex = spreadIndex) {
     const target = project.spreads[targetIndex];
     if (!target) return;
-    const candidates = target.id === spread.id
-      ? layoutCandidates
-       : buildAlbumLayoutCandidates(
-           target.photoIds,
-           photos,
-           profile.closedWidthMm / profile.closedHeightMm,
-           project.styleName,
-           {
-             sessionStart: target.sessionStart,
-             sessionEnd: Boolean(target.sessionId)
-               && target.sessionId !== project.spreads[targetIndex + 1]?.sessionId,
-             spreadIndex: targetIndex,
-             spreadCount: project.spreads.length,
-             previousLayoutId: project.spreads[targetIndex - 1]?.layoutId,
-           },
-         );
-    if (candidates.length < 2) return;
-    const current = candidates.findIndex((item) => item.id === target.layoutId);
-    const at = current === -1 ? 0 : current;
-    const next = candidates[(at + direction + candidates.length) % candidates.length];
-    /* Clearing customSlots is deliberate: leaving them set makes the spread
-     * resolve as "פריסה אישית", so every candidate you cycled to would claim
-     * to be a hand-made layout. `updateSpread` records the undo step itself. */
+    const neighbours = project.spreads
+      .filter((_, index) => index !== targetIndex && Math.abs(index - targetIndex) <= 3)
+      .map((item) => item.templateInstance?.templateId ?? '');
+    const candidates = rankTemplates(
+      target.photoIds, photos, profile.spreadWidthMm / profile.spreadHeightMm, neighbours,
+    );
+    if (!candidates.length) {
+      setNotice('אין תמונות בכפולה — הוסיפו תמונות כדי לבחור עמוד מהכספת');
+      return;
+    }
+    const current = candidates.findIndex((item) => item.template.id === target.templateInstance?.templateId);
+    const next = current === -1
+      ? candidates[0]
+      : candidates[(current + direction + candidates.length) % candidates.length];
     commitProject((currentProject) => ({
       ...currentProject,
       activeSpreadId: target.id,
       spreads: currentProject.spreads.map((candidate) => candidate.id === target.id
         ? {
           ...candidate,
-          layoutId: next.id,
+          layoutId: next.template.id,
+          photoIds: next.photoIds,
           customSlots: undefined,
           frameSettings: {},
-          templateInstance: undefined,
+          templateInstance: newInstance(next.template),
         }
         : candidate),
     }));
     setSelectedSlotIndex(null);
-    setNotice(next.name);
+    setNotice(`${next.template.name} · ${candidates.indexOf(next) + 1} מתוך ${candidates.length}`);
   }
-
   function toggleSelectedPhotoInSpread() {
     if (!selectedPhotoId) return;
 
@@ -1515,23 +1518,41 @@ export default function AlbumStudio({ job, onBack }: {
     }
 
     const currentIds = [...layout.photoIds];
-    /* A Vault page keeps its design: a photo leaves an empty place behind, and
-     * a new one fills an empty place — the page never reorganises itself. */
-    if (activeTemplate) {
-      const at = currentIds.indexOf(selectedPhotoId);
-      if (at >= 0) {
-        currentIds[at] = '';
-        updateSpread({ photoIds: currentIds });
-        setNotice('התמונה הוצאה מהעמוד');
-      } else {
-        const empty = currentIds.indexOf('');
-        if (empty < 0) {
-          setNotice('כל המקומות בעמוד תפוסים — בחרו מסגרת כדי להחליף את התמונה שבה');
-          return;
-        }
+    /* A photo taken out leaves its place empty — the page keeps its design. A
+     * photo added fills an empty place, or, when the page is full, the spread
+     * moves to the Vault page that fits the larger group best. */
+    if (currentIds.includes(selectedPhotoId) && activeTemplate) {
+      currentIds[currentIds.indexOf(selectedPhotoId)] = '';
+      updateSpread({ photoIds: currentIds });
+      setNotice('התמונה הוצאה מהעמוד');
+      setSelectedPhotoId(null);
+      setSelectedSlotIndex(null);
+      return;
+    }
+    if (!currentIds.includes(selectedPhotoId)) {
+      const empty = activeTemplate ? currentIds.indexOf('') : -1;
+      if (empty >= 0) {
         currentIds[empty] = selectedPhotoId;
         updateSpread({ photoIds: currentIds });
         setNotice('התמונה שובצה בעמוד');
+      } else {
+        const choice = rankTemplates(
+          [...currentIds.filter(Boolean), selectedPhotoId],
+          photos,
+          profile.spreadWidthMm / profile.spreadHeightMm,
+        )[0];
+        if (!choice) {
+          setNotice('אין בכספת עמוד לכל כך הרבה תמונות בכפולה אחת');
+          return;
+        }
+        updateSpread({
+          layoutId: choice.template.id,
+          photoIds: choice.photoIds,
+          customSlots: undefined,
+          frameSettings: {},
+          templateInstance: newInstance(choice.template),
+        });
+        setNotice(`התמונה נוספה · ${choice.template.name}`);
       }
       setSelectedPhotoId(null);
       setSelectedSlotIndex(null);
@@ -2430,12 +2451,12 @@ export default function AlbumStudio({ job, onBack }: {
         ) : (
           <>
           <div className="album-layout-focus">
-            <span>פריסה</span>
-            <strong>{layout.name}</strong>
-            <small>{layout.photoCount} תמונות</small>
+            <span>עמוד מהכספת</span>
+            <strong>{activeTemplate ? activeTemplate.name : 'לא נבחר עמוד'}</strong>
+            <small>{layout.photoIds.filter(Boolean).length} תמונות</small>
             <div className="album-layout-cycle">
-              <button onClick={() => cycleLayout(-1)} aria-label="פריסה קודמת">↑</button>
-              <button onClick={() => cycleLayout(1)} aria-label="פריסה הבאה">↓</button>
+              <button onClick={() => cycleLayout(-1)} aria-label="עמוד קודם">↑</button>
+              <button onClick={() => cycleLayout(1)} aria-label="עמוד הבא">↓</button>
             </div>
           </div>
           <TemplatePanel
@@ -2444,7 +2465,6 @@ export default function AlbumStudio({ job, onBack }: {
             spreadAspect={profile.spreadWidthMm / profile.spreadHeightMm}
             template={activeTemplate}
             onApply={placeTemplate}
-            onRemove={removeTemplate}
             onColor={(token, value) => editTemplateInstance((instance) => ({
               ...instance, colors: { ...instance.colors, [token]: value },
             }))}
@@ -2453,31 +2473,8 @@ export default function AlbumStudio({ job, onBack }: {
             }))}
             onEditEnd={endTemplateEdit}
           />
-          <details className="album-all-layouts">
-            <summary>כל הפריסות</summary>
-            <div className="album-layout-list secondary">
-              {layoutCandidates.map((item) => (
-                <button key={item.id} className={`album-layout-card ${item.id === layout.id ? 'on' : ''}`} onClick={() => chooseLayout(item)} title={item.explanation}>
-                  <span className="album-layout-preview">
-                    {item.slots.map((slot) => <i key={slot.id} style={{ left: `${slot.x * 100}%`, top: `${slot.y * 100}%`, width: `${slot.width * 100}%`, height: `${slot.height * 100}%` }} />)}
-                    <em />
-                  </span>
-                  <span className="album-layout-meta"><b>{item.name}</b><small>{item.photoCount} תמונות</small></span>
-                </button>
-              ))}
-              {personalLayouts.map((item) => (
-                <button key={item.id} className={`album-layout-card ${item.id === spread.layoutId ? 'on' : ''}`} onClick={() => applyPersonalLayout(item)}>
-                  <span className="album-layout-meta"><b>{item.name}</b><small>פריסה שלי</small></span>
-                </button>
-              ))}
-            </div>
-          </details>
-          <details className="album-inspector-details">
-            <summary>כלים מתקדמים</summary>
-            <div><button onClick={addFrame}>＋ מסגרת</button><button onClick={savePersonalLayout}>שמירת הפריסה</button></div>
-          </details>
           <div className="album-tip">
-            <span>↑↓ פריסה · ←→ כפולה · Enter לעריכה</span>
+            <span>↑↓ עמוד אחר מהכספת · ←→ כפולה · Enter לעריכה</span>
           </div>
           </>
         )}

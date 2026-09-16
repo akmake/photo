@@ -66,3 +66,5 @@
 .tpl-texts input { height: 28px; padding: 0 8px; border: 1px solid var(--line-strong); border-radius: 4px; color: var(--ink); background: var(--card); font: inherit; }
 .tpl-remove { min-height: 30px; border: 1px solid var(--line-strong); border-radius: 6px; color: var(--ink-2); background: transparent; }
 .tpl-remove:hover { border-color: var(--accent); }
+.tpl-more summary { cursor: pointer; font-size: 11px; color: var(--ink-2); padding-block: 4px; }
+.tpl-more .tpl-cards { margin-top: 8px; }

@@ -596,3 +596,9 @@
   .album-studio *,
   .album-library-new * { scroll-behavior: auto !important; transition-duration: .01ms !important; }
 }
+
+/* custom spread size in the new-album dialog */
+.album-create-size { display: flex; align-items: end; gap: 8px; }
+.album-create-size label { flex: 1; }
+.album-create-size i { padding-bottom: 8px; color: var(--ink-3); font-style: normal; }
+.album-create-size small { padding-bottom: 9px; color: var(--ink-3); font-size: 11px; white-space: nowrap; }

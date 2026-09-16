@@ -169,3 +169,47 @@ test('a spread knows its design, and an unknown design is not silently replaced'
   assert.equal(spreadTemplate(orphan as never, 2), null);
   assert.equal(findTemplate('gone'), undefined);
 });
+
+
+/* ---- choosing a page for a group of photos (choose.ts) ---- */
+import { rankTemplates, splitForLibrary, MAX_PLACES } from '../src/album/templates/choose.ts';
+
+const pic = (id: string, w: number, h: number) => ({
+  id, name: id, url: '', orientation: w > h ? 'landscape' : 'portrait', widthPx: w, heightPx: h,
+}) as never;
+
+test('a group gets only pages with exactly its number of places, best fit first', () => {
+  const photos = [pic('a', 3000, 2000), pic('b', 2000, 3000)];
+  const ranked = rankTemplates(['a', 'b'], photos, 560 / 210);
+  assert.ok(ranked.length > 1);
+  assert.ok(ranked.every((choice) => choice.template.photoCount === 2));
+  for (let i = 1; i < ranked.length; i += 1) assert.ok(ranked[i - 1].score >= ranked[i].score);
+  assert.deepEqual([...ranked[0].photoIds].sort(), ['a', 'b'], 'every photo placed once');
+});
+
+test('a portrait photo goes to the tallest place on the chosen page', () => {
+  const photos = [pic('wide', 3000, 2000), pic('tall', 2000, 3000)];
+  const [best] = rankTemplates(['wide', 'tall'], photos, 2);
+  const places = photoLayers(fitTemplate(best.template, 2));
+  const ratio = (i: number) => (places[i].box.width * 2) / places[i].box.height;
+  const tallIndex = best.photoIds.indexOf('tall');
+  const wideIndex = best.photoIds.indexOf('wide');
+  assert.ok(ratio(tallIndex) <= ratio(wideIndex), 'portrait landed in the wider place');
+});
+
+test('a page used on the last spreads drops down the list', () => {
+  const photos = [pic('a', 3000, 2000)];
+  const [first] = rankTemplates(['a'], photos, 2);
+  const again = rankTemplates(['a'], photos, 2, [first.template.id]);
+  assert.notEqual(again[0].template.id, first.template.id);
+});
+
+test('a run longer than any page is split into near-equal spreads', () => {
+  const ids = Array.from({ length: 23 }, (_, i) => `p${i}`);
+  const parts = splitForLibrary(ids);
+  assert.ok(parts.every((part) => part.length <= MAX_PLACES));
+  assert.deepEqual(parts.flat(), ids);
+  assert.equal(parts.length, 3);
+  assert.deepEqual(splitForLibrary(['x']), [['x']]);
+  assert.equal(rankTemplates([], [], 2).length, 0);
+});

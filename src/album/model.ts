@@ -175,15 +175,17 @@ export interface AlbumProject {
   cover?: AlbumCover;
 }
 
+/* Profile names follow how studios speak about albums: the open SPREAD,
+ * width × height in cm. */
 export const FIRST_PRINT_PROFILE: PrintProductProfile = {
-  id: 'lab-proof-30-square',
-  name: 'אלבום בת מצווה 30×30',
+  id: 'lab-proof-28-landscape',
+  name: 'אלבום 56×21',
   labName: 'פרופיל בדיקה — דורש אימות מול בית הדפוס',
   productType: 'layflat',
-  closedWidthMm: 300,
-  closedHeightMm: 300,
-  spreadWidthMm: 600,
-  spreadHeightMm: 300,
+  closedWidthMm: 280,
+  closedHeightMm: 210,
+  spreadWidthMm: 560,
+  spreadHeightMm: 210,
   bleedMm: 3,
   safeMarginMm: 8,
   gutterRiskMm: 4,
@@ -196,8 +198,8 @@ export const FIRST_PRINT_PROFILE: PrintProductProfile = {
   namingPattern: '{index}-spread.jpg',
   exportMode: 'spreads',
   coverSpec: {
-    totalWidthMm: 620,
-    totalHeightMm: 300,
+    totalWidthMm: 580,
+    totalHeightMm: 210,
     spineWidthMm: 20,
     bleedMm: 3,
     safeMarginMm: 10,
@@ -205,64 +207,49 @@ export const FIRST_PRINT_PROFILE: PrintProductProfile = {
   },
 };
 
-export const PRINT_PROFILES: PrintProductProfile[] = [
+const square = (id: string, sideMm: number): PrintProductProfile => ({
+  ...FIRST_PRINT_PROFILE,
+  id,
+  name: `אלבום ${(sideMm * 2) / 10}×${sideMm / 10}`,
+  closedWidthMm: sideMm,
+  closedHeightMm: sideMm,
+  spreadWidthMm: sideMm * 2,
+  spreadHeightMm: sideMm,
+  coverSpec: { ...FIRST_PRINT_PROFILE.coverSpec, totalWidthMm: sideMm * 2 + 20, totalHeightMm: sideMm },
+});
+
+/** The standard albums, offered when an album is created. Any other size is
+ *  typed in as a custom size. */
+export const STANDARD_PRINT_PROFILES: PrintProductProfile[] = [
   FIRST_PRINT_PROFILE,
+  square('lab-proof-25-square', 250),
+  square('lab-proof-30-square', 300),
+];
+
+/** Sizes offered before the standard three. Never offered for a new album, but
+ *  kept so an album already made in one of them keeps its size. */
+export const LEGACY_PRINT_PROFILE_IDS = new Set(['lab-proof-30-landscape', 'lab-proof-30-portrait']);
+
+export const PRINT_PROFILES: PrintProductProfile[] = [
+  ...STANDARD_PRINT_PROFILES,
   {
     ...FIRST_PRINT_PROFILE,
     id: 'lab-proof-30-landscape',
-    name: 'אלבום רוחב 30×20',
+    name: 'אלבום 60×20',
     closedWidthMm: 300,
     closedHeightMm: 200,
     spreadWidthMm: 600,
     spreadHeightMm: 200,
-    coverSpec: {
-      ...FIRST_PRINT_PROFILE.coverSpec,
-      totalWidthMm: 620,
-      totalHeightMm: 200,
-    },
-  },
-  {
-    /* The format the Vault (הכספת) is designed for: 560×210 mm spreads. */
-    ...FIRST_PRINT_PROFILE,
-    id: 'lab-proof-28-landscape',
-    name: 'אלבום רוחב 28×21',
-    closedWidthMm: 280,
-    closedHeightMm: 210,
-    spreadWidthMm: 560,
-    spreadHeightMm: 210,
-    coverSpec: {
-      ...FIRST_PRINT_PROFILE.coverSpec,
-      totalWidthMm: 580,
-      totalHeightMm: 210,
-    },
-  },
-  {
-    /* 50×25 spread — one of the three standard sizes, beside 56×21 and 60×30. */
-    ...FIRST_PRINT_PROFILE,
-    id: 'lab-proof-25-square',
-    name: 'אלבום מרובע 25×25',
-    closedWidthMm: 250,
-    closedHeightMm: 250,
-    spreadWidthMm: 500,
-    spreadHeightMm: 250,
-    coverSpec: {
-      ...FIRST_PRINT_PROFILE.coverSpec,
-      totalWidthMm: 520,
-      totalHeightMm: 250,
-    },
+    coverSpec: { ...FIRST_PRINT_PROFILE.coverSpec, totalWidthMm: 620, totalHeightMm: 200 },
   },
   {
     ...FIRST_PRINT_PROFILE,
     id: 'lab-proof-30-portrait',
-    name: 'אלבום אורך 20×30',
+    name: 'אלבום 40×30',
     closedWidthMm: 200,
     closedHeightMm: 300,
     spreadWidthMm: 400,
     spreadHeightMm: 300,
-    coverSpec: {
-      ...FIRST_PRINT_PROFILE.coverSpec,
-      totalWidthMm: 420,
-      totalHeightMm: 300,
-    },
+    coverSpec: { ...FIRST_PRINT_PROFILE.coverSpec, totalWidthMm: 420, totalHeightMm: 300 },
   },
 ];
