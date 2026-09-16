@@ -2458,6 +2458,8 @@ export default function AlbumStudio({ job, onBack }: {
                 <button className={selectedFrameSettings.fit === 'contain' ? 'on' : ''} onClick={() => setFitMode('contain')}>מלא</button>
               </div>
             </div>
+            {/* A Vault page keeps the designer's geometry: no coordinates or alignment to fiddle with. */}
+            {!activeTemplate && (<>
             <div className="album-inspector-section">
               <span>מיקום וגודל <small>אחוזים מהכפולה</small></span>
               <div className="album-frame-metrics">
@@ -2487,12 +2489,14 @@ export default function AlbumStudio({ job, onBack }: {
                 <button disabled={layout.slots.length < 3} onClick={() => arrangeFrames('vertical-gap')}>רווח אנכי</button>
               </div>
             </div>
+            </>)}
             <label className="album-inspector-section album-zoom-control">
               <span>זום <output>{selectedFrameSettings.zoom ?? 100}%</output></span>
               <input type="range" min="100" max="250" value={selectedFrameSettings.zoom ?? 100} disabled={selectedFrameSettings.fit === 'contain'} onChange={(event) => updateFrameSettings({ zoom: Number(event.target.value) })} />
             </label>
             {selectedCrop?.warnings[0] && <span className="album-crop-state warning">{selectedCrop.warnings[0]}</span>}
             <p className="album-control-hint">לחץ פעמיים על התמונה למיקום · גלגלת לזום · Esc לסיום</p>
+            {!activeTemplate && (<>
             <details className="album-inspector-details">
               <summary>סדר שכבות</summary>
               <div><button onClick={() => reorderFrame('front')}>הבא לחזית</button><button onClick={() => reorderFrame('back')}>שלח לאחור</button></div>
@@ -2501,6 +2505,7 @@ export default function AlbumStudio({ job, onBack }: {
               <summary>פעולות מתקדמות</summary>
               <button className="danger" disabled={layout.slots.length <= 1} onClick={() => selectedSlotIndex !== null && removeFrame(selectedSlotIndex)}>מחיקת המסגרת</button>
             </details>
+            </>)}
             <button className="album-control-remove" onClick={removeSelectedFramePhoto}>הסרת התמונה</button>
           </div>
         ) : (
