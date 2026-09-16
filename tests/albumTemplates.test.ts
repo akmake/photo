@@ -85,12 +85,13 @@ for (const [label, aspect] of Object.entries(SHAPES)) {
   });
 }
 
-test('on the standard sizes the decoration keeps its designed size', () => {
-  for (const aspect of [SHAPES['50×25'], SHAPES['60×30']]) {
-    const fitted = fitTemplate(VAULT_PAGE_4, aspect);
-    const title = fitted.layers.find((item) => item.id === 'title')!;
-    const designed = VAULT_PAGE_4.layers.find((item) => item.id === 'title')!;
-    assert.ok(Math.abs(title.box.height - designed.box.height) < 1e-9);
+test('on every shape the photo keeps the share of the spread it has in the design', () => {
+  const [designed] = templateSlots(VAULT_PAGE_4);
+  for (const aspect of Object.values(SHAPES)) {
+    const [slot] = templateSlots(fitTemplate(VAULT_PAGE_4, aspect));
+    for (const key of ['x', 'y', 'width', 'height'] as const) {
+      assert.ok(Math.abs(slot[key] - designed[key]) < 1e-9, `${aspect}: photo ${key} changed`);
+    }
   }
 });
 
