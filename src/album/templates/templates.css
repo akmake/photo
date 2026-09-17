@@ -134,3 +134,9 @@
 .album-frame-selection .album-frame-rotate { position: absolute; top: -34px; left: calc(50% - 8px); width: 16px; height: 16px; border: 2px solid var(--accent); border-radius: 50%; background: #fff; pointer-events: auto; cursor: grab; box-shadow: 0 1px 3px rgb(0 0 0 / .3); }
 .album-frame-selection .album-frame-rotate::after { content: ''; position: absolute; top: 14px; left: 5px; width: 2px; height: 18px; background: var(--accent); }
 .album-frame-selection .album-frame-rotate:active { cursor: grabbing; }
+
+/* photo position inside its place */
+.tpl-pan { display: grid; gap: 8px; }
+.tpl-pan-toggle { min-height: 32px; border: 1px solid var(--accent); border-radius: 6px; color: var(--ink); background: transparent; font-weight: 600; }
+.tpl-pan-toggle.on, .tpl-pan-toggle:hover:not(:disabled) { background: var(--accent); color: #fff; }
+.tpl-pan-toggle:disabled { opacity: .45; cursor: not-allowed; }

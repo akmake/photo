@@ -2764,7 +2764,45 @@ export default function AlbumStudio({ job, onBack }: {
               <input type="range" min="100" max="250" value={selectedFrameSettings.zoom ?? 100} disabled={selectedFrameSettings.fit === 'contain'} onChange={(event) => updateFrameSettings({ zoom: Number(event.target.value) })} />
             </label>
             {selectedCrop?.warnings[0] && <span className="album-crop-state warning">{selectedCrop.warnings[0]}</span>}
-            <p className="album-control-hint">לחץ פעמיים על התמונה למיקום · גלגלת לזום · Esc לסיום</p>
+            {/* Where the photo sits inside its place: sliders that always work, and
+              * a drag mode that says it is on. */}
+            <div className="album-inspector-section tpl-pan">
+              <span>מיקום התמונה בתוך המקום</span>
+              <label className="tpl-fade-slider">
+                <span>שמאל ← → ימין <output>{Math.round(selectedCrop?.positionX ?? selectedFrameSettings.positionX)}%</output></span>
+                <input
+                  type="range" min="0" max="100" step="0.5"
+                  value={selectedCrop?.positionX ?? selectedFrameSettings.positionX}
+                  disabled={selectedFrameSettings.fit === 'contain'}
+                  onChange={(event) => setFramePosition({ positionX: Number(event.target.value) })}
+                />
+              </label>
+              <label className="tpl-fade-slider">
+                <span>למעלה ↕ למטה <output>{Math.round(selectedCrop?.positionY ?? selectedFrameSettings.positionY)}%</output></span>
+                <input
+                  type="range" min="0" max="100" step="0.5"
+                  value={selectedCrop?.positionY ?? selectedFrameSettings.positionY}
+                  disabled={selectedFrameSettings.fit === 'contain'}
+                  onChange={(event) => setFramePosition({ positionY: Number(event.target.value) })}
+                />
+              </label>
+              <button
+                className={`tpl-pan-toggle ${cropIndex === selectedSlotIndex ? 'on' : ''}`}
+                disabled={!selectedFramePhoto || selectedFrameSettings.fit === 'contain'}
+                onClick={() => {
+                  if (cropIndex === selectedSlotIndex) { setCropIndex(null); return; }
+                  setCropIndex(selectedSlotIndex);
+                  setNotice('גרור את התמונה בתוך המקום · גלגלת לזום · Esc לסיום');
+                }}
+              >
+                {cropIndex === selectedSlotIndex ? '✓ סיום גרירת התמונה' : '✥ גרירת התמונה בתוך המקום'}
+              </button>
+              <small className="album-control-hint">
+                {selectedFrameSettings.fit === 'contain'
+                  ? 'במצב "מלא" רואים את כל התמונה, ואין מה להזיז — בחר "חכם" או "מילוי"'
+                  : 'אם התמונה לא זזה לכיוון מסוים, היא כבר ממלאת אותו — הגדל זום כדי לפנות מקום'}
+              </small>
+            </div>
             {!activeTemplate && (<>
             <details className="album-inspector-details">
               <summary>סדר שכבות</summary>
