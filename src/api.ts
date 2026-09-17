@@ -844,6 +844,11 @@ export class Superseded extends Error {
   }
 }
 
+/** The edit screen's render width. One constant, because the background
+ *  preparer computes masks for exactly this working frame — a render at any
+ *  other width would miss every one of them. */
+export const EDIT_WIDTH = 1400;
+
 /** Ask the engine to get frames ready BEFORE they are opened.
  *
  *  `paths` go to the background preparer (a low-priority process): thumbnails

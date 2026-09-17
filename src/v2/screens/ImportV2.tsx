@@ -1,6 +1,7 @@
 ﻿import React, { useCallback, useEffect, useState } from 'react';
 import {
-  importCloudFrame, importFrame, initProject, listImages, pickFolder,
+  EDIT_WIDTH, importCloudFrame, importFrame, initProject, listImages, pickFolder,
+  prepareFrames,
 } from '../../api';
 import type { CloudEntry, CloudProvider } from '../../api';
 import {
@@ -42,6 +43,19 @@ export default function ImportV2({
   useEffect(() => {
     if (frames.length) preview.warm(frames.map((f) => f.path));
   }, [frames.length, preview.graded]);
+
+  /* THE MINUTES AFTER AN IMPORT ARE NOT WASTED. The moment the set is in, the
+   * background preparer starts on it at low priority: thumbnails for the
+   * grids, and the one expensive question every retouch tool asks of a frame —
+   * where the subject, the skin and the face features are (~15s a frame the
+   * first time). By the time the photographer reaches editing, the frames
+   * they open are answered already instead of being analysed while they wait.
+   * Waits for the import to finish, so it prepares the set and not a
+   * half-copied folder. */
+  useEffect(() => {
+    if (busy || !frames.length) return;
+    prepareFrames({ paths: frames.map((f) => f.path), w: EDIT_WIDTH, thumbs: [320] });
+  }, [frames.length, busy]);
 
   const chooseRoot = useCallback(async () => {
     setError(null);

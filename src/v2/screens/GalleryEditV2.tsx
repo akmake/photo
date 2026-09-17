@@ -14,7 +14,7 @@ import {
   useProjectFiles,
   useRecipe,
 } from '../../studio/store';
-import { learnColorModel, prepareFrames, renderRecipeAtPath, Superseded, thumbUrl } from '../../api';
+import { EDIT_WIDTH, learnColorModel, prepareFrames, renderRecipeAtPath, Superseded, thumbUrl } from '../../api';
 import type { LearnColorResponse } from '../../api';
 import type { LearnedColorModel, ToolInstance } from '../../types';
 import { defaultParams, getTool } from '../../toolRegistry';
@@ -31,11 +31,6 @@ import {
 } from '../TzIcons';
 import './stages-v2.css';
 import './gallery-edit-v2.css';
-
-/** The panel's render width. One constant, because the background preparer
- *  computes masks for exactly this working frame — a render at any other
- *  width would miss every one of them. */
-const EDIT_WIDTH = 1400;
 
 function baseName(p: string) {
   return p.split(/[\\/]/).pop() ?? p;
