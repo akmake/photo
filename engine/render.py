@@ -8,8 +8,12 @@ which matters for two reasons:
     exports is what the pipeline actually produces.
 """
 
+import hashlib
+import json
 import os
+import threading
 import time
+from collections import OrderedDict
 
 import cv2
 import numpy as np
@@ -301,7 +305,120 @@ def _region_mask(rgb, spec):
     return np.clip(m * strength, 0.0, 1.0)
 
 
-def render(img, recipe_tools, source_scale: float = 1.0, source_img=None, key=None):
+# ------------------------------------------------------------ the stage cache
+#
+# Moving ONE slider used to re-run the WHOLE stack. On the edit screen's own
+# recipe (retouch, cleanup, eyes, glow, contour, tone, 3D, sharpen) at 1536px,
+# nudging exposure paid for the retouch, the cleanup and the eyes again although
+# none of them had changed: ~2.9s a move, most of it work already done a second
+# earlier.
+#
+# This is darktable's pixelpipe cache, and Lightroom's: the output of every step
+# is kept, named by the frame and by the recipe UP TO AND INCLUDING that step.
+# A change to tool N finds the longest prefix it still shares with what was
+# rendered, and starts from there. Everything before N is served from memory.
+#
+# Exact by construction, not approximately: a step's output is a function of
+# the pixels it receives, its own entry, and the frame-level context that every
+# tool reads (the photograph's masks, the source scale, whether the file is in
+# hand for face rescue). All of those are in the name. A tool reading anything
+# else would already break the "same recipe, same picture" promise the export
+# makes. test_stage_cache.py holds the bit-for-bit comparison.
+#
+# Only for NAMED photographs (`key`): a frame that arrived as pixels has no
+# stable identity, and hashing 20MP on every call would cost what it saves.
+
+def _stage_budget():
+    """Bytes the cache may hold. A tenth of the machine's memory, within
+    [256MB, 1.5GB] — the edit screen's 1536px frame is ~7MB a stage, so even the
+    floor holds several recipes' worth; a full-resolution frame is ~60MB a
+    stage and simply evicts sooner."""
+    env = os.environ.get("TEZA_STAGE_CACHE_MB")
+    if env:
+        return int(float(env) * 1024 * 1024)
+    total = 0
+    try:
+        import ctypes
+
+        class _Mem(ctypes.Structure):
+            _fields_ = [("dwLength", ctypes.c_ulong), ("dwMemoryLoad", ctypes.c_ulong),
+                        ("ullTotalPhys", ctypes.c_ulonglong), ("ullAvailPhys", ctypes.c_ulonglong),
+                        ("ullTotalPageFile", ctypes.c_ulonglong), ("ullAvailPageFile", ctypes.c_ulonglong),
+                        ("ullTotalVirtual", ctypes.c_ulonglong), ("ullAvailVirtual", ctypes.c_ulonglong),
+                        ("ullAvailExtendedVirtual", ctypes.c_ulonglong)]
+
+        m = _Mem()
+        m.dwLength = ctypes.sizeof(_Mem)
+        if ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(m)):
+            total = int(m.ullTotalPhys)
+    except Exception:  # noqa: BLE001 — not Windows, or no answer: use the floor
+        total = 0
+    return int(min(1536, max(256, total / 10 / 1024 / 1024)) * 1024 * 1024)
+
+
+_STAGES = OrderedDict()      # name -> (rgb uint8, meta)
+_STAGES_BYTES = 0
+_STAGES_LOCK = threading.Lock()
+_STAGES_BUDGET = _stage_budget()
+
+
+def _stage_get(name):
+    with _STAGES_LOCK:
+        hit = _STAGES.get(name)
+        if hit is not None:
+            _STAGES.move_to_end(name)
+        return hit
+
+
+def _stage_put(name, rgb, meta):
+    global _STAGES_BYTES
+    if rgb.nbytes > _STAGES_BUDGET // 4:
+        return  # one entry must never be most of the budget
+    # A COPY: the next tool receives this array, and a tool that edits its input
+    # in place would otherwise rewrite history inside the cache.
+    stored = np.array(rgb, copy=True)
+    stored.setflags(write=False)
+    with _STAGES_LOCK:
+        old = _STAGES.pop(name, None)
+        if old is not None:
+            _STAGES_BYTES -= old[0].nbytes
+        _STAGES[name] = (stored, meta)
+        _STAGES_BYTES += stored.nbytes
+        while _STAGES_BYTES > _STAGES_BUDGET and _STAGES:
+            _, (arr, _) = _STAGES.popitem(last=False)
+            _STAGES_BYTES -= arr.nbytes
+
+
+def clear_stage_cache():
+    global _STAGES_BYTES
+    with _STAGES_LOCK:
+        _STAGES.clear()
+        _STAGES_BYTES = 0
+
+
+def _stage_names(key, rgb, source_scale, has_source, active):
+    """One name per step: the frame context, then every entry up to that step."""
+    ctx = json.dumps(
+        [str(key), list(rgb.shape), round(float(source_scale), 6), bool(has_source),
+         getattr(masks, "_MASK_CODE_VERSION", None)],
+        separators=(",", ":"),
+    )
+    h = hashlib.blake2b(ctx.encode("utf-8"), digest_size=20)
+    names = []
+    for t in active:
+        entry = {k: t.get(k) for k in ("toolId", "params", "mask", "selection", "model")}
+        h.update(json.dumps(entry, sort_keys=True, separators=(",", ":")).encode("utf-8"))
+        names.append(h.copy().hexdigest())
+    return names
+
+
+class Superseded(Exception):
+    """A newer request for the same screen arrived; this render stopped between
+    steps. Nothing is lost — every finished step is already in the stage cache."""
+
+
+def render(img, recipe_tools, source_scale: float = 1.0, source_img=None, key=None,
+           should_stop=None):
     """img: PIL image. recipe_tools: [{toolId, params, enabled, mask?, model?}].
 
     A tool carrying `mask` is applied through it instead of over the whole
@@ -322,6 +439,11 @@ def render(img, recipe_tools, source_scale: float = 1.0, source_img=None, key=No
     down (`_run_on_source_faces`); without it, the tool says so and stops. Pass
     it for the frame being EDITED and not for a wall of thumbnails — that
     distinction is the whole reason the proxy cache exists.
+
+    `should_stop`, when given, is asked between steps; answering True raises
+    `Superseded`. A slider dragged across ten values must not finish ten
+    renders nobody will see — and because finished steps are cached, the render
+    that replaces this one starts where this one got to.
     """
     active = [
         t
@@ -331,15 +453,46 @@ def render(img, recipe_tools, source_scale: float = 1.0, source_img=None, key=No
     active.sort(key=lambda t: TOOLS[t["toolId"]][1])
 
     rgb = common.to_np(img)
+
+    names = (_stage_names(key, rgb, source_scale, source_img is not None, active)
+             if key else [None] * len(active))
+    # The longest prefix already rendered. Walked from the end: the common case
+    # is "the last tool moved", and that finds its answer on the first probe.
+    start, resumed = 0, None
+    for i in range(len(active) - 1, -1, -1):
+        if names[i] is None:
+            break
+        hit = _stage_get(names[i])
+        if hit is not None:
+            start, resumed = i + 1, hit
+            break
+
+    steps = []
+    if resumed is not None:
+        for i in range(start):
+            cached = _stage_get(names[i])
+            meta = cached[1] if cached is not None else {}
+            steps.append({"tool": active[i]["toolId"], "ms": 0, "meta": meta,
+                          "cached": True})
+        if start == len(active):
+            return common.to_pil(np.array(resumed[0])), {"steps": steps}
+
+    source_rgb = rgb
+    work_rgb = np.array(resumed[0]) if resumed is not None else rgb
+
     # `key` names the photograph so its masks outlive this particular width.
-    masks.set_source(rgb, key)  # every tool sees the same, pristine masks
+    # The masks come from the PRISTINE frame even when resuming mid-stack.
+    masks.set_source(source_rgb, key)  # every tool sees the same, pristine masks
     # ...and the same idea of "big enough", plus the file itself when we have it
     common.set_source_scale(
         source_scale, common.to_np(source_img) if source_img is not None else None
     )
+    rgb = work_rgb
     try:
-        steps = []
-        for t in active:
+        for idx in range(start, len(active)):
+            if should_stop is not None and should_stop():
+                raise Superseded()
+            t = active[idx]
             fn = TOOLS[t["toolId"]][0]
             t0 = time.time()
             spec = t.get("mask")
@@ -389,6 +542,8 @@ def render(img, recipe_tools, source_scale: float = 1.0, source_img=None, key=No
                 meta = {**meta, "mask": spec.get("region", "subject"),
                         "maskCoverage": round(float(m.mean()), 4)}
             rgb = out
+            if names[idx] is not None:
+                _stage_put(names[idx], rgb, meta)
             steps.append(
                 {"tool": t["toolId"], "ms": int((time.time() - t0) * 1000), "meta": meta}
             )

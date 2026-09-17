@@ -14,6 +14,7 @@ import subprocess
 import threading
 import time
 import urllib.parse
+from collections import OrderedDict
 from concurrent.futures import ThreadPoolExecutor
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
@@ -93,6 +94,65 @@ def on_worker(fn, *args, **kwargs):
     return _WORKER.submit(fn, *args, **kwargs).result()
 
 
+# ------------------------------------------------------------------- lanes
+#
+# A slider dragged across ten values sends ten renders. With one worker they
+# used to run all ten, in order, each ~3s — so the picture arrived half a
+# minute after the hand stopped, and every move felt slower than the last.
+#
+# A request may name a LANE (the edit screen uses one). Arriving in a lane
+# makes every older request in it stale: one still waiting for the worker is
+# answered 409 without being started, and one already running stops at the
+# next step boundary (render.Superseded). Finished steps stay in the stage
+# cache, so the newest request starts from wherever the stale one got to.
+_LANES = {}
+_LANES_LOCK = threading.Lock()
+
+
+def _enter_lane(lane):
+    """-> should_stop() for a request in `lane`, or None when it has no lane."""
+    if not lane:
+        return None
+    with _LANES_LOCK:
+        gen = _LANES.get(lane, 0) + 1
+        _LANES[lane] = gen
+
+    def should_stop():
+        with _LANES_LOCK:
+            return _LANES.get(lane) != gen
+
+    return should_stop
+
+
+# --------------------------------------------------------- the working frame
+#
+# Every render of the frame being edited used to open the 20MP file again,
+# EXIF-rotate it and resize it to the panel — ~0.4s of a slider move spent
+# producing the same pixels as the move before. The frame in hand is kept,
+# keyed by the file's identity and the width, so a move pays for the tools
+# and nothing else. A few frames, because the photographer steps back and
+# forth between neighbours.
+_FRAMES = OrderedDict()
+_FRAMES_LOCK = threading.Lock()
+_FRAMES_MAX = 3
+
+
+def _working_frame(path, capreq):
+    """-> (source PIL, working PIL, extra scale) for `path` at `capreq`."""
+    ident = (_photo_key(path), int(capreq or 0))
+    with _FRAMES_LOCK:
+        hit = _FRAMES.get(ident)
+        if hit is not None:
+            _FRAMES.move_to_end(ident)
+            return hit
+    entry = previews.working_frame(path, capreq)
+    with _FRAMES_LOCK:
+        _FRAMES[ident] = entry
+        while len(_FRAMES) > _FRAMES_MAX:
+            _FRAMES.popitem(last=False)
+    return entry
+
+
 # ------------------------------------------------------------- the warm queue
 #
 # The first graded view of a frame costs ~15s, nearly all of it segmentation
@@ -163,8 +223,17 @@ def _warm_loop():
             target = _proxy_path(key or "raw", path, width)
             if os.path.exists(target):
                 continue
-            data = on_worker(_render_proxy, path, width, recipe)
+            # Yields to a person between steps, not only between frames: a warm
+            # render already running used to hold the worker for its whole
+            # ~12s while the photographer's slider waited behind it.
+            data = on_worker(_render_proxy, path, width, recipe,
+                             lambda: _INTERACTIVE.value > 0)
             _store_proxy(target, data)
+        except render.Superseded:
+            # Put back on top: it was the most recent thing asked for before the
+            # person stepped in, and its finished steps are already cached.
+            with _WARM_LOCK:
+                _WARM_STACK.append(job)
         except Exception:  # noqa: BLE001 — warming must never take the engine down
             pass
 
@@ -195,6 +264,116 @@ def warm(key, paths, width=None):
             )
             _WARM_THREAD.start()
         return len(_WARM_STACK)
+
+
+# ------------------------------------------------------- the background preparer
+#
+# Masks and thumbnails for frames the photographer is ABOUT to open, computed
+# in a separate process at below-normal priority. See prep.py for why a process
+# and not a thread. Started on first use; it exits by itself when this engine
+# does, because its stdin closes.
+_PREP = None
+_PREP_LOCK = threading.Lock()
+
+
+def _prep_process():
+    global _PREP
+    if _PREP is not None and _PREP.poll() is None:
+        return _PREP
+    flags = 0
+    if os.name == "nt":
+        flags = subprocess.BELOW_NORMAL_PRIORITY_CLASS | subprocess.CREATE_NO_WINDOW
+    log_dir = _cache_root()
+    os.makedirs(log_dir, exist_ok=True)
+    log = open(os.path.join(log_dir, "prep.log"), "ab")
+    _PREP = subprocess.Popen(
+        [sys.executable, os.path.join(os.path.dirname(os.path.abspath(__file__)), "prep.py")],
+        stdin=subprocess.PIPE, stdout=log, stderr=log, creationflags=flags,
+        cwd=os.path.dirname(os.path.abspath(__file__)),
+    )
+    return _PREP
+
+
+def prepare(paths, width=0, thumbs=(), recipe=None):
+    """Queue frames for background preparation. Never raises: preparing is an
+    optimisation, and a screen must not fail because it could not happen."""
+    global _PREP
+    if not paths:
+        return False
+    line = json.dumps(
+        {"paths": list(paths), "w": int(width or 0), "thumbs": [int(t) for t in thumbs],
+         "recipe": recipe or []},
+        ensure_ascii=False,
+    )
+    with _PREP_LOCK:
+        for _ in range(2):  # one restart if the process died since last time
+            try:
+                proc = _prep_process()
+                # Explicit UTF-8 across the process boundary: Hebrew folder
+                # names are the norm here, and the console code page is not.
+                proc.stdin.write((line + "\n").encode("utf-8"))
+                proc.stdin.flush()
+                return True
+            except (OSError, ValueError):
+                _PREP = None
+    return False
+
+
+# ------------------------------------------------------------- rendering ahead
+#
+# The frames on either side of the one being edited, rendered with their
+# recipes while the photographer is looking at this one — so stepping to the
+# next frame shows a finished picture instead of starting the retouch. The
+# result lands in render's stage cache, which is what the real request then
+# finds: identical by construction, because it IS the same render.
+#
+# Always behind a person: the loop only runs when no interactive request is in
+# flight, and a render in progress stops at the next step boundary the moment
+# one arrives (its finished steps stay cached). Each call REPLACES the list —
+# only the current neighbourhood is worth anything.
+_AHEAD = []               # [(path, width, recipe)], served from the end
+_AHEAD_LOCK = threading.Lock()
+_AHEAD_THREAD = None
+
+
+def _ahead_loop():
+    while True:
+        if _INTERACTIVE.value:
+            time.sleep(0.15)
+            continue
+        with _AHEAD_LOCK:
+            job = _AHEAD.pop() if _AHEAD else None
+        if job is None:
+            time.sleep(0.3)
+            continue
+        path, width, recipe = job
+
+        def work():
+            source, img, scale = _working_frame(path, width)
+            render.render(
+                img, recipe, scale, source if img is not source else None,
+                key=_photo_key(path), should_stop=lambda: _INTERACTIVE.value > 0,
+            )
+
+        try:
+            if os.path.isfile(path):
+                on_worker(work)
+        except render.Superseded:
+            with _AHEAD_LOCK:
+                if job not in _AHEAD:
+                    _AHEAD.append(job)
+        except Exception:  # noqa: BLE001 — looking ahead must never take the engine down
+            pass
+
+
+def render_ahead(jobs):
+    """jobs: [(path, width, recipe)], most important FIRST."""
+    global _AHEAD_THREAD
+    with _AHEAD_LOCK:
+        _AHEAD[:] = list(reversed(jobs))
+        if _AHEAD_THREAD is None:
+            _AHEAD_THREAD = threading.Thread(target=_ahead_loop, name="engine-ahead", daemon=True)
+            _AHEAD_THREAD.start()
 
 
 # --------------------------------------------------------------- the proxy cache
@@ -334,74 +513,15 @@ def _shrink(data, width):
     return buf.getvalue()
 
 
-# Panel widths come from the WINDOW, so they are whatever the photographer
-# dragged the edge to. Masks are cached per picture-as-rendered, so a free-
-# running width meant every resize re-segmented the whole set: measured, the
-# same photograph cost 2.4s at a width it had seen and 8.5s one pixel off.
-#
-# Rendering is therefore quantised to a ladder and the panel scales the result
-# the last few pixels — it is already scaling it to fit. Rounding UP keeps the
-# frame at least as large as asked, so nothing is ever upscaled to fill the
-# panel.
-_WIDTH_STEP = 256
+# Sizing, decoding and the file's identity live in previews.py, shared with the
+# background preparer so the two can never disagree about a pixel.
+from previews import (  # noqa: E402
+    _WIDTH_STEP, _decode_small, _fit_size, _photo_key, _quantise_width,
+)
+import previews  # noqa: E402
 
 
-def _quantise_width(cap, size):
-    if cap <= 0:
-        return cap
-    stepped = -(-int(cap) // _WIDTH_STEP) * _WIDTH_STEP
-    return min(stepped, max(size))
-
-
-def _fit_size(size, width):
-    """The box a frame lands in at `width`, long edge.
-
-    ONE rule, used by /thumb and /preview alike. They used to size themselves
-    independently — thumbnail() twice for the preview, once for the thumb — and
-    the two roundings disagreed by a pixel (213 vs 214 on the same file). In a
-    grid that is a row of frames that do not line up, and between the raw frame
-    and the graded one it makes an A/B comparison impossible.
-    """
-    w, h = size
-    longest = max(w, h)
-    if longest <= width:
-        return (w, h)
-    scale = width / float(longest)
-    return (max(1, round(w * scale)), max(1, round(h * scale)))
-
-
-def _decode_small(path, width):
-    """Decode small. Reading a 20MP frame to show it at 320px costs about twenty
-    times more, and libjpeg can downscale while it decodes.
-
-    Returns the frame and THE FILE'S OWN long edge, read before the draft throws
-    it away. Everything downstream that asks "is this face big enough" needs it:
-    without it the tools answer about the proxy, and a strip drawn at 320px
-    would report every face in the set as too small to touch. Rotation does not
-    change a long edge, so this survives `exif_transpose`.
-    """
-    im = Image.open(path)
-    source_long = max(im.size)
-    im.draft("RGB", (width * 2, width * 2))
-    return ImageOps.exif_transpose(im).convert("RGB"), source_long
-
-
-def _photo_key(path):
-    """A stable name for the FILE, so its masks are computed once ever.
-
-    Path plus mtime plus size: editing or replacing the file changes the name,
-    so a stale mask cannot survive it, while opening the same photograph at a
-    different panel width keeps it. Returns None when we were handed pixels
-    instead of a file — then the caches fall back to hashing those pixels.
-    """
-    try:
-        st = os.stat(path)
-    except OSError:
-        return None
-    return f"{os.path.realpath(path)}|{st.st_mtime_ns}|{st.st_size}"
-
-
-def _render_proxy(path, width, recipe):
+def _render_proxy(path, width, recipe, should_stop=None):
     im, source_long = _decode_small(path, width)
     # Decided BEFORE rendering, from the frame as decoded — so the answer does
     # not depend on how many times the image was resized on the way here.
@@ -415,7 +535,8 @@ def _render_proxy(path, width, recipe):
         if work != im.size:
             im = im.resize(work, Image.LANCZOS)
         im, _ = render.render(
-            im, recipe, source_long / float(max(im.size)), key=_photo_key(path)
+            im, recipe, source_long / float(max(im.size)), key=_photo_key(path),
+            should_stop=should_stop,
         )
 
     if im.size != out_size:
@@ -613,15 +734,8 @@ class Handler(BaseHTTPRequestHandler):
                 self._json(404, {"error": "not found"})
                 return
 
-            im, _ = _decode_small(path, width)  # a thumb runs no tools
-            # the same rule /preview uses, so a raw frame and a graded one are
-            # never a pixel apart
-            size = _fit_size(im.size, width)
-            if im.size != size:
-                im = im.resize(size, Image.LANCZOS)
-            buf = io.BytesIO()
-            im.save(buf, "JPEG", quality=82)
-            data = buf.getvalue()
+            # Drawn once per file and width, then served from disk.
+            data = previews.cached_thumb(path, width)
 
             self.send_response(200)
             self.send_header("Content-Type", "image/jpeg")
@@ -764,6 +878,31 @@ class Handler(BaseHTTPRequestHandler):
         except Exception as e:  # noqa: BLE001
             self._json(500, {"error": str(e)})
 
+    def _prep(self):
+        """POST /prep {paths, w?, thumbs?, recipe?} -> queue background preparation.
+
+        `w` is the edit screen's panel width (masks are computed for that exact
+        working frame); `thumbs` the grid widths to draw ahead of time. The most
+        recent call is served first, so a screen can re-send its neighbourhood
+        every time the photographer moves and have it jump the queue.
+
+        `ahead: [{path, recipe}]` — frames to fully RENDER in this engine while
+        it is idle, most important first (see render_ahead). Replaces the
+        previous list.
+        """
+        try:
+            body = self._body()
+            ok = prepare(body.get("paths") or [], body.get("w") or 0,
+                         body.get("thumbs") or [], body.get("recipe") or [])
+            if body.get("ahead") is not None:
+                render_ahead([
+                    (a["path"], int(body.get("w") or 0), a.get("recipe") or [])
+                    for a in body["ahead"] if a.get("path")
+                ])
+            self._json(200, {"queued": bool(ok)})
+        except Exception as e:  # noqa: BLE001
+            self._json(500, {"error": str(e)})
+
     def _preview_warm(self):
         """Render these frames ahead of being asked for them."""
         try:
@@ -807,6 +946,9 @@ class Handler(BaseHTTPRequestHandler):
             return
         if self.path == "/preview/ready":
             self._preview_ready()
+            return
+        if self.path == "/prep":
+            self._prep()
             return
         if self.path == "/preview/warm":
             self._preview_warm()
@@ -1084,28 +1226,43 @@ class Handler(BaseHTTPRequestHandler):
             # drop the connection, and the panel showed nothing at all.
             # Nothing is gained by preparing four frames a single worker can
             # only take one of.
+            should_stop = _enter_lane(body.get("lane"))
+
             def work():
-                img = common.load_image(path) if path else common.b64_to_image(inline)
-                scale = asked
-                cap = _quantise_width(capreq, img.size)
+                # Stale before it even started: do not open the file for it.
+                if should_stop is not None and should_stop():
+                    raise render.Superseded()
                 # THE frame being edited, and the one place worth keeping the
                 # file in hand for: a face the proxy is too small to serve is
                 # worked from these pixels instead of refused. Thumbnails go
                 # through /preview and deliberately do not get this.
-                source = img
-                if cap > 0:
-                    size = _fit_size(img.size, cap)
-                    if size != img.size:
-                        scale *= max(img.size) / float(max(size))
-                        img = img.resize(size, Image.LANCZOS)
+                if path:
+                    source, img, extra = _working_frame(path, capreq)
+                    scale = asked * extra
+                else:
+                    img = common.b64_to_image(inline)
+                    scale = asked
+                    source = img
+                    cap = _quantise_width(capreq, img.size)
+                    if cap > 0:
+                        size = _fit_size(img.size, cap)
+                        if size != img.size:
+                            scale *= max(img.size) / float(max(size))
+                            img = img.resize(size, Image.LANCZOS)
                 return render.render(
                     img, recipe, scale,
                     source if img is not source else None,
                     key=_photo_key(path) if path else None,
+                    should_stop=should_stop,
                 )
 
-            with _INTERACTIVE:
-                out, meta = on_worker(work)
+            try:
+                with _INTERACTIVE:
+                    out, meta = on_worker(work)
+            except render.Superseded:
+                # Not an error: a newer request in the same lane replaced it.
+                self._json(409, {"error": "superseded", "superseded": True})
+                return
             # A preview and a file the photographer keeps are not the same
             # picture. Previews stay small; `deliver` asks for the same settings
             # render.export writes to disk — q97, no chroma subsampling.
