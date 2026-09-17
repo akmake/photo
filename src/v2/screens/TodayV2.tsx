@@ -13,6 +13,29 @@ function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
 }
 
+/** A project's own photograph, small. A shoot with nothing imported yet gets
+ *  the client's initial rather than a borrowed picture — see
+ *  v2/projectCovers.ts for what this replaced. */
+function CoverThumb({ project, size }: { project: Project; size?: number }) {
+  const url = getProjectCover(project, 160);
+  const box = size ? { width: size, height: size } : undefined;
+  if (!url) {
+    return (
+      <span className="tz-cell-thumb tz-cell-thumb-empty" style={box} aria-hidden>
+        {project.client.trim().charAt(0)}
+      </span>
+    );
+  }
+  return (
+    <img
+      src={url}
+      alt=""
+      className="tz-cell-thumb"
+      style={{ ...box, objectPosition: project.pos || 'center 30%' }}
+    />
+  );
+}
+
 function progressOf(project: Project) {
   return Math.round((clamp(project.at, 0, STAGES.length - 1) / (STAGES.length - 1)) * 100);
 }
@@ -239,12 +262,7 @@ export default function TodayV2({
                       <tr key={project.id} onClick={() => handleOpenProject(project)}>
                         <td>
                           <div className="tz-cell-project">
-                            <img
-                              src={getProjectCover(project, idx)}
-                              alt=""
-                              className="tz-cell-thumb"
-                              style={{ objectPosition: project.pos || 'center 30%' }}
-                            />
+                            <CoverThumb project={project} />
                             <div className="tz-cell-titles">
                               <strong>{project.event || project.client}</strong>
                               <small>{project.location || 'פרויקט צילום'}</small>
@@ -343,12 +361,7 @@ export default function TodayV2({
                     className="tz-act-item"
                     onClick={() => handleOpenProject(project)}
                   >
-                    <img
-                      src={getProjectCover(project, idx)}
-                      alt=""
-                      className="tz-cell-thumb"
-                      style={{ width: 34, height: 34, objectPosition: project.pos || 'center 30%' }}
-                    />
+                    <CoverThumb project={project} size={34} />
                     <div className="tz-act-copy">
                       <strong>{project.client} · {statusOf(project).label}</strong>
                       <small>{relativeDate(project.createdAt)}</small>

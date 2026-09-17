@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import type { Project } from '../../studio/store';
+import { getProjectCover } from '../projectCovers';
 import './project-status.css';
 
 interface ProjectClientStatusV2Props {
@@ -136,11 +137,15 @@ export default function ProjectClientStatusV2({
           <div>
             <div className="v2-panel-card-title">פרטי הלקוחה</div>
             <div className="v2-client-info-top" style={{ marginTop: '16px' }}>
-              <img
-                src={project?.thumb || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=200&q=80'}
-                alt=""
-                className="v2-client-avatar"
-              />
+              {/* The project's own frame, or the client's initial. Never a
+                  stock photograph of a stranger — see v2/projectCovers.ts. */}
+              {getProjectCover(project, 200) ? (
+                <img src={getProjectCover(project, 200)!} alt="" className="v2-client-avatar" />
+              ) : (
+                <span className="v2-client-avatar v2-client-avatar-empty">
+                  {clientName.trim().charAt(0)}
+                </span>
+              )}
               <div className="v2-client-name-block">
                 <strong>{clientName}</strong>
                 <span>mali.katz@email.com</span>

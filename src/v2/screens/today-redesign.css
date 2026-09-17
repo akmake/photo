@@ -249,11 +249,15 @@
   border: 1px solid var(--tz-border);
 }
 
+/* A shoot with nothing imported yet: the client's initial, not a picture. */
 .tz-cell-thumb-empty {
   display: flex;
   align-items: center;
   justify-content: center;
   color: #a1a1aa;
+  font-weight: 700;
+  font-size: 15px;
+  flex: 0 0 auto;
 }
 
 .tz-cell-titles strong {

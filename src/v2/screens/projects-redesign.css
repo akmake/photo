@@ -328,6 +328,30 @@
   transform: scale(1.05);
 }
 
+/* Nothing imported yet. It says that, rather than borrowing a photograph:
+   an empty tile is true and a stranger's portrait is not. */
+.tz-pcard-img-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  background: linear-gradient(160deg, #fafafa, #ececee);
+  color: #a1a1aa;
+}
+
+.tz-pcard-img-empty span {
+  font-size: 34px;
+  font-weight: 800;
+  line-height: 1;
+  color: #d4d4d8;
+}
+
+.tz-pcard-img-empty small {
+  font-size: 11.5px;
+  letter-spacing: 0.01em;
+}
+
 .tz-pcard-img-overlay {
   position: absolute;
   inset: 0;

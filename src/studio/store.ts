@@ -68,7 +68,20 @@ export interface Project {
   price?: number;
   paid?: number;
   thumb: string;
-  /** Crop of the demo frame, so a wall of tiles is not one repeated picture. */
+  /** THE COVER: the path of one of this project's own frames.
+   *
+   *  It is written the first time the folder is read (`rememberCover`) and it
+   *  is a path on disk, not a URL — the engine's address is where thumbnails
+   *  come from and that is not a fact worth freezing into a saved record.
+   *
+   *  Absent means the shoot has not been imported yet, and the card says so
+   *  with an empty tile. It used to mean something else entirely: the card
+   *  reached for a stock photograph of strangers from the internet, on every
+   *  launch, for every project — because `thumb` is written empty at creation
+   *  and nothing has ever filled it, so the "does it have its own picture"
+   *  test was never once true. */
+  cover?: string;
+  /** Crop of the cover, so a wall of tiles is not one repeated composition. */
   pos: string;
   /** Index into the project's own stage list. */
   at: number;
@@ -578,6 +591,7 @@ export async function openProject(projectId: string): Promise<void> {
     states[projectId] = G.normalize(await projectState(home));
     const { frames } = await projectFrames(home);
     framesByProject[projectId] = frames;
+    rememberCover(projectId, frames);
     notify();
   } finally {
     loading.delete(projectId);
@@ -593,7 +607,50 @@ export async function reloadFrames(projectId: string): Promise<void> {
   const { frames } = await projectFrames(home);
   framesByProject[projectId] = frames;
   updateProject(projectId, { imported: frames.length });
+  rememberCover(projectId, frames);
   notify();
+}
+
+/** Give a cover to projects that were imported before covers existed.
+ *
+ *  A card reads `cover` off the saved project record, and until now nothing
+ *  ever wrote one — so every project already on this machine has a folder full
+ *  of photographs and no cover naming any of them. This walks those projects
+ *  once, in the background, and asks the disk.
+ *
+ *  Only projects with a `home`: a project that has never been opened has no
+ *  folder yet, and CREATING one to decorate a card would be a real change to
+ *  the disk made for a picture. One at a time, because the engine has a single
+ *  worker and a list screen is not worth queueing ahead of the photograph
+ *  someone is actually waiting for. */
+export async function fillMissingCovers(): Promise<void> {
+  // A snapshot: every cover written replaces the live array, and a loop over
+  // an array being rebuilt under it is how a project gets skipped.
+  for (const p of [...projects]) {
+    if (p.cover || !p.home) continue;
+    try {
+      const { frames } = await projectFrames(p.home);
+      if (frames.length) rememberCover(p.id, frames);
+    } catch {
+      // A folder that cannot be read is not an error worth a dialogue here:
+      // the card shows its empty tile, which is the truth about what we know.
+    }
+  }
+}
+
+/** Keep the project's cover pointing at a frame that still exists.
+ *
+ *  Called wherever the folder is read, because the disk is the authority on
+ *  what a project HAS — a cover chosen once and never checked would go on
+ *  naming a file the photographer deleted. It only ever writes when the answer
+ *  changed, so a re-read of an unchanged folder costs nothing and never
+ *  reshuffles a cover he has grown used to. */
+function rememberCover(projectId: string, frames: Frame[]) {
+  const project = getProject(projectId);
+  if (!project) return;
+  const has = (p?: string) => Boolean(p) && frames.some((f) => f.path === p);
+  const cover = has(project.cover) ? project.cover : frames[0]?.path;
+  if (cover !== project.cover) updateProject(projectId, { cover });
 }
 
 const NO_FRAMES: Frame[] = [];

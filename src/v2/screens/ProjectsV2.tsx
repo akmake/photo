@@ -1,5 +1,5 @@
-import React, { useMemo, useState } from 'react';
-import { useStudio, stagesOf, removeProject } from '../../studio/store';
+import React, { useEffect, useMemo, useState } from 'react';
+import { useStudio, stagesOf, removeProject, fillMissingCovers } from '../../studio/store';
 import type { Project, ProjectState } from '../../studio/store';
 import NewProject from '../../studio/screens/NewProject';
 import { TzIconSearch, TzIconUpload } from '../TzIcons';
@@ -57,6 +57,13 @@ export default function ProjectsV2({
   onOpenProject: (id: string, stage?: string) => void;
 }) {
   const { projects } = useStudio();
+  /* Covers for shoots imported before a project had one. Runs once the list is
+   * in hand, in the background, and writes nothing for a project it cannot
+   * read — see studio/store.ts::fillMissingCovers. */
+  const missingCovers = projects.some((p) => !p.cover && p.home);
+  useEffect(() => {
+    if (missingCovers) void fillMissingCovers();
+  }, [missingCovers]);
   const [filter, setFilter] = useState<Filter>('all');
   const [search, setSearch] = useState('');
   const [creating, setCreating] = useState(false);
@@ -203,7 +210,7 @@ export default function ProjectsV2({
             const prog = progressOf(project);
             const bal = openBalance(project);
             const st = STATE_COPY[project.state];
-            const coverUrl = getProjectCover(project, idx);
+            const coverUrl = getProjectCover(project);
 
             return (
               <div
@@ -219,13 +226,23 @@ export default function ProjectsV2({
                 }}
               >
                 <div className="tz-pcard-img-wrap">
-                  <img
-                    src={coverUrl}
-                    alt={project.client}
-                    className="tz-pcard-img"
-                    style={{ objectPosition: project.pos || 'center 30%' }}
-                    loading="lazy"
-                  />
+                  {/* A shoot that has not been imported has no cover, and says
+                      so. It used to borrow a stranger's photograph for the
+                      slot — see v2/projectCovers.ts. */}
+                  {coverUrl ? (
+                    <img
+                      src={coverUrl}
+                      alt={project.client}
+                      className="tz-pcard-img"
+                      style={{ objectPosition: project.pos || 'center 30%' }}
+                      loading="lazy"
+                    />
+                  ) : (
+                    <div className="tz-pcard-img tz-pcard-img-empty">
+                      <span>{project.client.trim().charAt(0)}</span>
+                      <small>טרם יובאו תמונות</small>
+                    </div>
+                  )}
                   <div className="tz-pcard-img-overlay" />
 
                   {/* מחיקה. יושבת על התמונה ולא בתוך גוף הכרטיס, כי כל

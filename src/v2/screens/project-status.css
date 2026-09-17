@@ -226,6 +226,17 @@
   object-fit: cover;
 }
 
+.v2-client-avatar-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #f4f4f5;
+  color: #a1a1aa;
+  font-weight: 700;
+  font-size: 20px;
+  flex: 0 0 auto;
+}
+
 .v2-client-name-block strong {
   font-size: 17px;
   font-weight: 700;
