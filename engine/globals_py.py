@@ -10,6 +10,8 @@ Professional-correctness rules mirrored from the JS side:
   * oil paint is a real Kuwahara, not a blur
 """
 
+import threading
+
 import cv2
 import numpy as np
 
@@ -89,9 +91,22 @@ def _wrap(fn, report=None):
 
     def inner(rgb, params: dict):
         # fn works on its own float copy, so `rgb` is still the untouched input
-        # when the report reads it.
-        out = fn(rgb.astype(np.float32), params)
-        u8 = np.clip(out, 0, 255).astype(np.uint8)
+        # when the report reads it. Both conversions are per pixel, so they run
+        # in parallel bands (common.per_pixel) — same bits.
+        h, w = rgb.shape[:2]
+        f = np.empty(rgb.shape, dtype=np.float32)
+
+        def to_float(y0, y1):
+            f[y0:y1] = rgb[y0:y1]
+
+        common.per_pixel(to_float, h, w)
+        out = fn(f, params)
+        u8 = np.empty(out.shape, dtype=np.uint8)
+
+        def to_u8(y0, y1):
+            u8[y0:y1] = np.clip(out[y0:y1], 0, 255).astype(np.uint8)
+
+        common.per_pixel(to_u8, h, w)
         return u8, (report(rgb, u8, params) if report is not None else {})
 
     return inner
@@ -149,23 +164,41 @@ def _tone_color_report(before, after, params):
     it, and the frame that says so is this one — not the export. They count
     pixels THIS tool clipped, so a frame that arrived with a blown window does
     not read as damage the slider did."""
-    lb = _LSTAR[np.clip(_luma(before.astype(np.float32)), 0, 255).astype(np.uint8)]
-    la = _LSTAR[np.clip(_luma(after.astype(np.float32)), 0, 255).astype(np.uint8)]
-    d = np.abs(la - lb)
-    moved = int((d > 0.05).sum())
+    # Counted in parallel bands (common.per_pixel). The counts are integers and
+    # come out exact; the mean is summed per band, which can move the last
+    # float bits of a number shown to two decimals.
+    h, w = before.shape[:2]
+    bands = []
+    lock = threading.Lock()
+
+    def count(y0, y1):
+        b, a = before[y0:y1], after[y0:y1]
+        lb = _LSTAR[np.clip(_luma(b.astype(np.float32)), 0, 255).astype(np.uint8)]
+        la = _LSTAR[np.clip(_luma(a.astype(np.float32)), 0, 255).astype(np.uint8)]
+        d = np.abs(la - lb)
+        # any channel at an end is a channel with nothing left in it — per
+        # channel, not per pixel, because that is where the detail is lost
+        was_hi = (b >= 255).any(axis=2)
+        was_lo = (b <= 0).any(axis=2)
+        row = (
+            int((d > 0.05).sum()),
+            float(d.sum(dtype=np.float64)),
+            int((((a >= 255).any(axis=2)) & ~was_hi).sum()),
+            int((((a <= 0).any(axis=2)) & ~was_lo).sum()),
+        )
+        with lock:
+            bands.append(row)
+
+    common.per_pixel(count, h, w)
+    moved = sum(r[0] for r in bands)
     if not moved:
         return {"applied": 0}
-
-    # any channel at an end is a channel with nothing left in it — per channel,
-    # not per pixel, because that is where the detail is actually lost
-    was_hi = (before >= 255).any(axis=2)
-    was_lo = (before <= 0).any(axis=2)
     return {
         "applied": 1,
-        "meanAbsL": round(float(d.mean()), 2),
+        "meanAbsL": round(sum(r[1] for r in bands) / float(h * w), 2),
         "movedPx": moved,
-        "clippedWhitePx": int((((after >= 255).any(axis=2)) & ~was_hi).sum()),
-        "clippedBlackPx": int((((after <= 0).any(axis=2)) & ~was_lo).sum()),
+        "clippedWhitePx": sum(r[2] for r in bands),
+        "clippedBlackPx": sum(r[3] for r in bands),
         "zonesFromArea": 1 if _tc_from_area(params) else 0,
     }
 
@@ -195,8 +228,7 @@ def _tone_color(rgb, params):
         base_gain * (1 - temp * 0.28 + tint * 0.05),
     )
 
-    u8 = rgb.astype(np.uint8)
-    x = np.empty(rgb.shape, dtype=np.float32)
+    luts = []
     for c in range(3):
         if exposure or temp or tint:
             lut = _linear_to_srgb(_shoulder(_S2L * gains[c]))
@@ -208,16 +240,34 @@ def _tone_color(rgb, params):
                 lut = lut + (s - lut) * contrast
             else:
                 lut = lut + (0.5 - lut) * (-contrast) * 0.5
-        x[..., c] = lut.astype(np.float32)[u8[..., c]]
+        luts.append(lut.astype(np.float32))
+
+    # EVERY STAGE BELOW IS PER PIXEL except the neighbourhood blur, so the
+    # frame is worked in parallel bands (common.per_pixel): the same
+    # expressions in the same order, so the same bits, on every core instead
+    # of one. The blur runs whole, between the two band passes.
+    height, width = rgb.shape[:2]
+    x = np.empty(rgb.shape, dtype=np.float32)
+    zones = bool(highlights or shadows or whites or blacks)
+    lum = np.empty((height, width), dtype=np.float32) if zones else None
+
+    def lookup(y0, y1):
+        u8 = rgb[y0:y1].astype(np.uint8)
+        xb = x[y0:y1]
+        for c in range(3):
+            xb[..., c] = luts[c][u8[..., c]]
+        if zones:
+            lum[y0:y1] = _luma(xb)
+
+    common.per_pixel(lookup, height, width)
 
     # ---- stage 2: tonal zones, a scalar function of luminance ----
-    if highlights or shadows or whites or blacks:
-        n = 1024
+    n = 1024
+    zone_add = point_add = off_add = local = None
+    from_area = zones and _tc_from_area(params)
+    if zones:
         lv = np.linspace(0.0, 1.0, n, dtype=np.float32)
-        lum = _luma(x)
-        li = np.clip(lum * (n - 1), 0, n - 1).astype(np.int32)
-
-        if _tc_from_area(params):
+        if from_area:
             # Adaptive recovery: the zone is chosen by how bright the AREA is,
             # not the pixel. A catchlight inside a dark braid then rides up with
             # the shadow it lives in instead of being read as a highlight and
@@ -225,86 +275,100 @@ def _tone_color(rgb, params):
             # a shadow and flattening the picture. Whites and blacks stay on the
             # pixel: they set the endpoints of the range, which is a global
             # decision by definition.
-            lref = lum + (_local_luma(lum) - lum) * recovery
-            ri = np.clip(lref * (n - 1), 0, n - 1).astype(np.int32)
-            zone = np.zeros(n, dtype=np.float32)
+            local = _local_luma(lum)
+            zone_add = np.zeros(n, dtype=np.float32)
             if highlights:
-                zone += _smoothstep(0.4, 0.95, lv) * highlights * 0.35
+                zone_add += _smoothstep(0.4, 0.95, lv) * highlights * 0.35
             if shadows:
-                zone += (1 - _smoothstep(0.05, 0.6, lv)) * shadows * 0.35
-            point = np.zeros(n, dtype=np.float32)
+                zone_add += (1 - _smoothstep(0.05, 0.6, lv)) * shadows * 0.35
+            point_add = np.zeros(n, dtype=np.float32)
             if whites:
-                point += _smoothstep(0.7, 1.0, lv) * whites * 0.3
+                point_add += _smoothstep(0.7, 1.0, lv) * whites * 0.3
             if blacks:
-                point += (1 - _smoothstep(0.0, 0.3, lv)) * blacks * 0.3
-            x += (zone[ri] + point[li])[..., None]
+                point_add += (1 - _smoothstep(0.0, 0.3, lv)) * blacks * 0.3
         else:
             # accumulated in this exact order since the first version — keep it,
             # so that recovery at 0 is bit-for-bit the old tool
-            off = np.zeros(n, dtype=np.float32)
+            off_add = np.zeros(n, dtype=np.float32)
             if highlights:
-                off += _smoothstep(0.4, 0.95, lv) * highlights * 0.35
+                off_add += _smoothstep(0.4, 0.95, lv) * highlights * 0.35
             if shadows:
-                off += (1 - _smoothstep(0.05, 0.6, lv)) * shadows * 0.35
+                off_add += (1 - _smoothstep(0.05, 0.6, lv)) * shadows * 0.35
             if whites:
-                off += _smoothstep(0.7, 1.0, lv) * whites * 0.3
+                off_add += _smoothstep(0.7, 1.0, lv) * whites * 0.3
             if blacks:
-                off += (1 - _smoothstep(0.0, 0.3, lv)) * blacks * 0.3
-            x += off[li][..., None]
+                off_add += (1 - _smoothstep(0.0, 0.3, lv)) * blacks * 0.3
 
-    if sat or vib:
-        L2 = _luma(x)[..., None]
-        mx = x.max(axis=2)
-        mn = x.min(axis=2)
-        c = mx - mn
-        vib_px = vib
-        if vib:
-            # Vibrance protects skin, as Adobe's does: a boost that is strongest
-            # on muted pixels lands hardest on faces — the one thing a portrait
-            # must not over-saturate. Skin is identified by two general
-            # properties, not one: hue in the skin band (plateau 14..42 deg —
-            # warm grades pull skin down toward 13, so the ramp starts at 8)
-            # AND moderate chroma — skin never saturates past ~0.35, so the
-            # protection fades back out above it and a red/orange flower keeps
-            # its full boost. A low chroma gate keeps the noise-hue of greys
-            # from speckling. Mirrored byte-for-byte in imageEngine.ts.
-            r, g, b = x[..., 0], x[..., 1], x[..., 2]
-            safe_c = np.maximum(c, 1e-6)
-            h = np.where(
-                mx == r,
-                np.mod((g - b) / safe_c, 6.0),
-                np.where(mx == g, (b - r) / safe_c + 2.0, (r - g) / safe_c + 4.0),
-            ) * 60.0
-            # the low gate hugs true neutrals (c<0.015): muted skin at c~0.06
-            # is exactly what vibrance boosts hardest, so it must be protected
-            # warm-graded skin genuinely reaches c~0.35-0.4, so the band's
-            # ceiling sits above it; hue<10 excludes red flowers regardless
-            w_band = _smoothstep(8.0, 14.0, h) * (1.0 - _smoothstep(42.0, 50.0, h))
-            w_band = w_band * (1.0 - _smoothstep(0.38, 0.55, c))
-            # blush, ruddy cheeks and lips are MUTED reds; red flowers and
-            # fabric are saturated ones — chroma is what separates them
-            hd = np.minimum(h, 360.0 - h)
-            w_red = (1.0 - _smoothstep(6.0, 14.0, hd)) * (
-                1.0 - _smoothstep(0.18, 0.30, c)
-            )
-            w = np.maximum(w_band, w_red)
-            w = w * np.clip((c - 0.015) / 0.035, 0.0, 1.0)
-            vib_px = vib * (1.0 - 0.8 * w)
-        k = 1 + sat + vib_px * (1 - np.clip(c, 0, 1))
-        # In place: L2 + (x - L2) * k[..., None]. A 20MP frame is 240MB per
-        # float32 copy and the readable form allocates three of them; doing it
-        # in place keeps the exact same per-element arithmetic (subtract,
-        # multiply, add) with none of the temporaries. Float addition is
-        # commutative in IEEE-754, so the result is bit-identical — proven, not
-        # assumed (scratchpad tc_parity: maxAbsDiff 0 over 22 real cases).
-        x -= L2
-        x *= k[..., None]
-        x += L2
+    def finish(y0, y1):
+        xb = x[y0:y1]
+        if zones:
+            lb = lum[y0:y1]
+            li = np.clip(lb * (n - 1), 0, n - 1).astype(np.int32)
+            if from_area:
+                lref = lb + (local[y0:y1] - lb) * recovery
+                ri = np.clip(lref * (n - 1), 0, n - 1).astype(np.int32)
+                xb += (zone_add[ri] + point_add[li])[..., None]
+            else:
+                xb += off_add[li][..., None]
 
-    # In place as well: clip writes back into x, then scale by 255. Same values,
-    # two 240MB copies saved.
-    np.clip(x, 0.0, 1.0, out=x)
-    x *= 255.0
+        if sat or vib:
+            L2 = _luma(xb)[..., None]
+            mx = xb.max(axis=2)
+            mn = xb.min(axis=2)
+            c = mx - mn
+            vib_px = vib
+            if vib:
+                # Vibrance protects skin, as Adobe's does: a boost that is
+                # strongest on muted pixels lands hardest on faces — the one
+                # thing a portrait must not over-saturate. Skin is identified by
+                # two general properties, not one: hue in the skin band (plateau
+                # 14..42 deg — warm grades pull skin down toward 13, so the ramp
+                # starts at 8) AND moderate chroma — skin never saturates past
+                # ~0.35, so the protection fades back out above it and a
+                # red/orange flower keeps its full boost. A low chroma gate keeps
+                # the noise-hue of greys from speckling. Mirrored byte-for-byte
+                # in imageEngine.ts.
+                r, g, b = xb[..., 0], xb[..., 1], xb[..., 2]
+                safe_c = np.maximum(c, 1e-6)
+                h = np.where(
+                    mx == r,
+                    np.mod((g - b) / safe_c, 6.0),
+                    np.where(mx == g, (b - r) / safe_c + 2.0, (r - g) / safe_c + 4.0),
+                ) * 60.0
+                # the low gate hugs true neutrals (c<0.015): muted skin at
+                # c~0.06 is exactly what vibrance boosts hardest, so it must be
+                # protected; warm-graded skin genuinely reaches c~0.35-0.4, so
+                # the band's ceiling sits above it; hue<10 excludes red flowers
+                # regardless
+                w_band = _smoothstep(8.0, 14.0, h) * (1.0 - _smoothstep(42.0, 50.0, h))
+                w_band = w_band * (1.0 - _smoothstep(0.38, 0.55, c))
+                # blush, ruddy cheeks and lips are MUTED reds; red flowers and
+                # fabric are saturated ones — chroma is what separates them
+                hd = np.minimum(h, 360.0 - h)
+                w_red = (1.0 - _smoothstep(6.0, 14.0, hd)) * (
+                    1.0 - _smoothstep(0.18, 0.30, c)
+                )
+                w = np.maximum(w_band, w_red)
+                w = w * np.clip((c - 0.015) / 0.035, 0.0, 1.0)
+                vib_px = vib * (1.0 - 0.8 * w)
+            k = 1 + sat + vib_px * (1 - np.clip(c, 0, 1))
+            # In place: L2 + (x - L2) * k[..., None]. A 20MP frame is 240MB per
+            # float32 copy and the readable form allocates three of them; doing
+            # it in place keeps the exact same per-element arithmetic
+            # (subtract, multiply, add) with none of the temporaries. Float
+            # addition is commutative in IEEE-754, so the result is
+            # bit-identical — proven, not assumed (scratchpad tc_parity:
+            # maxAbsDiff 0 over 22 real cases).
+            xb -= L2
+            xb *= k[..., None]
+            xb += L2
+
+        # In place as well: clip writes back into x, then scale by 255. Same
+        # values, two 240MB copies saved.
+        np.clip(xb, 0.0, 1.0, out=xb)
+        xb *= 255.0
+
+    common.per_pixel(finish, height, width)
     return x
 
 
@@ -450,11 +514,27 @@ def _glow(rgb, params):
     if not amount:
         return rgb
     r = _radius_px(rgb, 4 + _p(params, "radius", 40) * 50, 2) | 1
-    L = (_luma(rgb) / 255.0)[..., None]
-    bright = rgb * _smoothstep(0.55, 1.0, L)
+    # Per-pixel maths in parallel bands, the blur whole — identical bits, see
+    # common.per_pixel.
+    h, w = rgb.shape[:2]
+    bright = np.empty_like(rgb)
+
+    def lit(y0, y1):
+        px = rgb[y0:y1]
+        L = (_luma(px) / 255.0)[..., None]
+        bright[y0:y1] = px * _smoothstep(0.55, 1.0, L)
+
+    common.per_pixel(lit, h, w)
     blur = cv2.GaussianBlur(bright, (r, r), 0)
-    screen = 255 - (255 - rgb) * (255 - blur) / 255.0
-    return np.clip(rgb + (screen - rgb) * amount, 0, 255)
+    out = np.empty_like(rgb)
+
+    def blend(y0, y1):
+        px = rgb[y0:y1]
+        screen = 255 - (255 - px) * (255 - blur[y0:y1]) / 255.0
+        out[y0:y1] = np.clip(px + (screen - px) * amount, 0, 255)
+
+    common.per_pixel(blend, h, w)
+    return out
 
 
 # --- oil paint: a real Kuwahara -----------------------------------------

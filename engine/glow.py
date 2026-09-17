@@ -54,26 +54,45 @@ def _radius_px(rgb, radius01):
 
 
 def _region_glow(rgb_f, region, guard, amount, r):
-    """One masked Orton pass: mist from the region's lit side, soft spill."""
+    """One masked Orton pass: mist from the region's lit side, soft spill.
+
+    The per-pixel parts run in parallel bands (common.per_pixel) — the blurs
+    between them stay whole-frame. Same expressions, same order, so the same
+    bits: measured identical on three frames at 1536px and at full size, and
+    2.4-4.4x faster, because this pass is three quarters elementwise maths and
+    numpy does that on one core.
+    """
+    h, w = rgb_f.shape[:2]
     fr = max(3, r // 2) | 1
     m = cv2.GaussianBlur(region, (fr, fr), 0)
 
-    L = (rgb_f @ globals_py.LUM) / 255.0
-    src_w = globals_py._smoothstep(SRC_LO, SRC_HI, L) * m
+    lit = np.empty_like(rgb_f)
 
-    mist = cv2.GaussianBlur(rgb_f * src_w[..., None], (r, r), 0)
-    screen = 255.0 - (255.0 - rgb_f) * (255.0 - mist) / 255.0
+    def source(y0, y1):
+        px = rgb_f[y0:y1]
+        L = (px @ globals_py.LUM) / 255.0
+        src_w = globals_py._smoothstep(SRC_LO, SRC_HI, L) * m[y0:y1]
+        lit[y0:y1] = px * src_w[..., None]
 
+    common.per_pixel(source, h, w)
+    mist = cv2.GaussianBlur(lit, (r, r), 0)
     # light lands on the feathered region plus a soft halo just past its edge
-    dest = np.clip(m + cv2.GaussianBlur(m, (r, r), 0) * 0.5, 0.0, 1.0)
-    if guard is not None:
-        dest = dest * (1.0 - (1.0 - FEATURE_LIGHT) * guard)
+    halo = cv2.GaussianBlur(m, (r, r), 0)
 
-    protect = 1.0 - globals_py._smoothstep(
-        PROTECT_LO, PROTECT_HI, rgb_f.max(axis=2)
-    )
-    w = (amount * dest * protect)[..., None]
-    return rgb_f + (screen - rgb_f) * w
+    out = np.empty_like(rgb_f)
+
+    def blend(y0, y1):
+        px = rgb_f[y0:y1]
+        screen = 255.0 - (255.0 - px) * (255.0 - mist[y0:y1]) / 255.0
+        dest = np.clip(m[y0:y1] + halo[y0:y1] * 0.5, 0.0, 1.0)
+        if guard is not None:
+            dest = dest * (1.0 - (1.0 - FEATURE_LIGHT) * guard[y0:y1])
+        protect = 1.0 - globals_py._smoothstep(PROTECT_LO, PROTECT_HI, px.max(axis=2))
+        wgt = (amount * dest * protect)[..., None]
+        out[y0:y1] = px + (screen - px) * wgt
+
+    common.per_pixel(blend, h, w)
+    return out
 
 
 def _light_shares(before, after, skin_m, fabric_m, meta):

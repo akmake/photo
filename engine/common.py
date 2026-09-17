@@ -223,3 +223,53 @@ def clamp01(v, default=0.0) -> float:
         return max(0.0, min(1.0, float(v) / 100.0))
     except (TypeError, ValueError):
         return default
+
+
+# ------------------------------------------------------------- per-pixel maths
+#
+# numpy runs an elementwise expression on ONE core. At the edit screen's 1536px
+# that is ~5M floats a line, and glow's region pass spent most of its ~200ms on
+# exactly that — screen blends, smoothsteps and weights — while the rest of the
+# cores sat idle.
+#
+# A per-pixel expression over horizontal bands gives the SAME bits as over the
+# whole frame: every output element depends only on the input elements at the
+# same position, and + - * / clip min max are exact per element whatever the
+# batch. numpy releases the GIL inside those loops, so plain threads scale.
+# Only for maths that is truly per pixel: a blur, a matrix product or a
+# reduction (sum, mean) does NOT belong in here.
+
+_ROWS_POOL = None
+_ROWS_LOCK = threading.Lock()
+# Below this many pixels the thread hand-off costs more than it saves.
+_ROWS_MIN_PX = 250_000
+
+
+def _rows_pool():
+    global _ROWS_POOL
+    with _ROWS_LOCK:
+        if _ROWS_POOL is None:
+            import os
+            from concurrent.futures import ThreadPoolExecutor
+
+            workers = max(1, min(8, (os.cpu_count() or 2) - 1))
+            _ROWS_POOL = ThreadPoolExecutor(max_workers=workers, thread_name_prefix="rows")
+        return _ROWS_POOL
+
+
+def per_pixel(fn, height, width):
+    """Run fn(y0, y1) over horizontal bands of a frame, in parallel.
+
+    `fn` must write its result for rows y0..y1 into preallocated outputs and
+    touch nothing outside those rows. Returns when every band is done;
+    re-raises the first error.
+    """
+    pool = _rows_pool()
+    bands = pool._max_workers
+    if height * width < _ROWS_MIN_PX or bands <= 1 or height < bands * 4:
+        fn(0, height)
+        return
+    step = -(-height // bands)
+    futures = [pool.submit(fn, y, min(height, y + step)) for y in range(0, height, step)]
+    for f in futures:
+        f.result()
