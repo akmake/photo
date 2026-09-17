@@ -55,6 +55,8 @@ MODELS = {
 DERIVED = {
     "abpn_unet.onnx": ("pytorch_model.pt", "abpn"),
     "dinov2_vits14.onnx": (None, "dinov2"),
+    # graph surgery, not an export: needs `onnx`, not torch (birefnet_fast.py)
+    "birefnet_lite_fast.onnx": ("birefnet_lite.onnx", "birefnet-fast"),
 }
 
 
@@ -66,9 +68,15 @@ def _derive(name, source, model_id):
     dict nobody reads — i.e. the tool silently does nothing. Setup is the last
     place that can still say so out loud.
     """
+    print(f"exporting {name} from {source or 'torch.hub'} ...")
+    if model_id == "birefnet-fast":
+        import birefnet_fast
+
+        birefnet_fast.derive(os.path.join(MODELS_DIR, source), os.path.join(MODELS_DIR, name))
+        return
+
     import export_onnx
 
-    print(f"exporting {name} from {source or 'torch.hub'} ...")
     try:
         if model_id == "abpn":
             export_onnx.export_abpn(17)
@@ -101,6 +109,11 @@ if __name__ == "__main__":
             print(f"skip {name} (already present)")
             continue
         if source is not None and not os.path.exists(os.path.join(MODELS_DIR, source)):
+            if model_id == "birefnet-fast":
+                # BiRefNet itself is optional (matting falls back to MediaPipe),
+                # so its faster form is too.
+                print(f"skip {name} ({source} is not installed)")
+                continue
             raise SystemExit(f"cannot export {name}: {source} was not downloaded")
         _derive(name, source, model_id)
         print(f"  {os.path.getsize(dest) / 1e6:.1f} MB")
