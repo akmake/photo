@@ -107,6 +107,7 @@ FACE_RIGHT = 454
 # the nasolabial fold, so a generous protection band here would make the marks
 # we most need to remove permanently unreachable.
 NOSE_ALA = (129, 358)  # outer edge of each nostril wing
+SUBNASALE = 2  # where the nose base meets the upper lip
 NASION = 168  # bridge top, midway between the eyes
 NOSE_TIP = 1
 MOUTH_CORNERS = (61, 291)
@@ -441,6 +442,7 @@ def anatomy_parts(rgb: np.ndarray, lm) -> "OrderedDict[str, np.ndarray]":
     cv2.fillConvexPoly(m, cv2.convexHull(np.array([pt(i) for i in NOSE], np.int32)), 255)
     parts["nose"] = cv2.dilate(m, _kern(fw * 0.010))
 
+
     # Nose dorsum and flanks. The shading band along the side of the bridge is
     # illumination geometry, and every statistical gate that tried to except
     # it eventually let a "repair" flatten the nose. The bridge's position is
@@ -486,6 +488,72 @@ def anatomy_parts(rgb: np.ndarray, lm) -> "OrderedDict[str, np.ndarray]":
     oval = np.array([pt(i) for i in FACE_OVAL], np.int32)
     cv2.polylines(m, [oval], True, 255, max(2, int(fw * 0.030)))
     parts["contour"] = m
+
+    return parts
+
+
+def shadow_zone_parts(rgb: np.ndarray, lm) -> "OrderedDict[str, np.ndarray]":
+    """Where a face's own light makes shadows that look like marks — for
+    VETOING a finished repair, never for shaping detection.
+
+    Audit 2026-09-17: every candidate spot cleanup chose on 33 frames across
+    five sets was looked at, and about thirty were light and geometry, not
+    marks — the groove beside each nostril wing, the shadow under the nostrils,
+    the corners of the mouth, the smile fold continuing past them — plus a
+    child's brow edge six times in one photograph. They sat just OUTSIDE the
+    thin `face-anatomy` bands, which is why those never caught them.
+
+    Why a separate kind and not wider `face-anatomy`: that was tried first and
+    measured. Anatomy is subtracted from the region the skin model LEARNS from,
+    so widening it moved the detector — it removed 25 of those errors and
+    produced 22 new wrong heals elsewhere (hairlines, crow's feet, cheek folds,
+    blank baby skin). The same finding the crease veto records. So these zones
+    only refuse a repair component after detection is done
+    (`cleanup._candidates`), and change nothing upstream.
+
+    Deliberately NOT the philtrum: the skin between nose and lip is where a
+    child's real dirt and dried mucus live. Only the band under the nostrils.
+    """
+    h, w = rgb.shape[:2]
+    fw = max(1.0, abs(lm[FACE_RIGHT].x - lm[FACE_LEFT].x) * w)
+
+    def pt(i):
+        return (int(round(lm[i].x * w)), int(round(lm[i].y * h)))
+
+    parts: "OrderedDict[str, np.ndarray]" = OrderedDict()
+
+    m = np.zeros((h, w), np.uint8)
+    for ala in NOSE_ALA:
+        cv2.circle(m, pt(ala), max(2, int(fw * 0.07)), 255, -1)
+    parts["alar-groove"] = m
+
+    m = np.zeros((h, w), np.uint8)
+    alae = [pt(i) for i in NOSE_ALA]
+    sub = pt(SUBNASALE)
+    cv2.ellipse(m, (sub[0], int(sub[1] + fw * 0.015)),
+                (max(2, int(abs(alae[1][0] - alae[0][0]) / 2)), max(2, int(fw * 0.04))),
+                0, 0, 360, 255, -1)
+    parts["subnasal"] = m
+
+    m = np.zeros((h, w), np.uint8)
+    for corner in MOUTH_CORNERS:
+        cv2.circle(m, pt(corner), max(2, int(fw * 0.06)), 255, -1)
+    parts["mouth-corners"] = m
+
+    # The smile fold, nose wing to mouth corner and on past the corner.
+    m = np.zeros((h, w), np.uint8)
+    for ala, corner in zip(NOSE_ALA, MOUTH_CORNERS):
+        a, c = np.array(pt(ala), np.float32), np.array(pt(corner), np.float32)
+        beyond = c + (c - a) / max(1.0, float(np.linalg.norm(c - a))) * fw * 0.10
+        cv2.line(m, pt(ala), (int(beyond[0]), int(beyond[1])), 255, max(2, int(fw * 0.05)))
+    parts["smile-fold"] = m
+
+    # The brow including its fine edge hairs — the landmark hull runs through
+    # the brow's middle.
+    for side, brow in (("l", LEFT_EYEBROW), ("r", RIGHT_EYEBROW)):
+        m = np.zeros((h, w), np.uint8)
+        cv2.fillConvexPoly(m, cv2.convexHull(np.array([pt(i) for i in brow], np.int32)), 255)
+        parts[f"brow-edge-{side}"] = cv2.dilate(m, _kern(fw * 0.035))
 
     return parts
 
@@ -827,6 +895,17 @@ def _compute_mask(rgb: np.ndarray, kind: str) -> np.ndarray:
                 m = np.maximum(m, part)
         k = max(3, int(min(h, w) * 0.003)) | 1
         return cv2.GaussianBlur(m, (k, k), 0).astype(np.float32) / 255.0
+
+    if kind == "face-shadow-zones":
+        # see shadow_zone_parts — a veto mask, not a detection mask
+        faces = _face_landmarks(rgb)
+        if not faces:
+            return np.zeros((h, w), dtype=np.float32)
+        m = np.zeros((h, w), dtype=np.uint8)
+        for lm in faces:
+            for part in shadow_zone_parts(rgb, lm).values():
+                m = np.maximum(m, part)
+        return m.astype(np.float32) / 255.0
 
     if kind == "face-anatomy":
         # Superset of `face-features`: adds the face's own creases and contour.

@@ -48,6 +48,7 @@ function verdictLabel(item: SpotCandidate): string {
   if (item.verdict === 'line') return 'דומה לקו או שיער';
   if (item.verdict === 'shading') return 'דומה להצללה טבעית';
   if (item.verdict === 'hair') return 'נוגע בזקן או בשפם';
+  if (item.verdict === 'anatomy') return 'צל קבוע של הפנים';
   return 'גדול מדי לניקוי אוטומטי';
 }
 

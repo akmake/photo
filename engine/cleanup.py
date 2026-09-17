@@ -88,7 +88,22 @@ MIN_WORK_PX = 90  # = MIN_FACE_PX / UPSCALE_MAX; the assert lives by UPSCALE_MAX
 #    for being in pieces. This is the SAME failure `hysteresis_core` was written
 #    to fix for lesions ("a lesion is a REGION, the decision was per-pixel"),
 #    found again in a second place. Fixed the same way.
-FLUID_TRAILS_ENABLED = True
+#
+# 3. OFF BY DEFAULT, 2026-09-17 — a product decision, after an audit. Every
+#    candidate cleanup chose on 33 frames across five sets was looked at: 28 came
+#    from the fluid paths (this pass and the wet-trail rescue in
+#    `_structure_gate`), and essentially all 28 were not drool — lip corners,
+#    nostril shadows, the philtrum, the edge of a blanket against a chin, healed
+#    as combed vertical stripes. Automatic drool detection has no proven method
+#    (see the 2026-09-14 notes); drool is removed by MARKING it, which does not
+#    go through either path. `params["fluids"] = True` still turns both on.
+FLUID_TRAILS_ENABLED = False
+
+# A repair component with at least this fraction of its pixels inside the
+# face's shadow zones (masks.shadow_zone_parts) is refused. Half: the audited
+# errors sat squarely in the zones, and a real mark that merely borders a mouth
+# corner or a nostril wing keeps most of itself outside.
+SHADOW_ZONE_OVERLAP_DROP = 0.5
 
 # Mean width a strand may reach, as a fraction of face_d. A hanging fluid ENDS
 # IN A DROPLET and the droplet inflates area/length, which is why 0.02 rejected
@@ -557,6 +572,7 @@ def _structure_gate(
     orifice: np.ndarray | None = None,
     down_field: np.ndarray | None = None,
     report: list | None = None,
+    fluids: bool = True,
 ) -> tuple[np.ndarray, int, int, int]:
     """A blemish is ISOLATED. Drop components that are pieces of something.
 
@@ -840,7 +856,8 @@ def _structure_gate(
                 continue
             outside = int(totals[rid] - inside[rid])
             if outside > max(outside_floor, int(0.6 * inside[rid])):
-                rescue = wet_trail(rid, component)
+                # `fluids` off: a line is a line — no strand is re-read as drool
+                rescue = wet_trail(rid, component) if fluids else None
                 if rescue is not None:
                     # a fluid trail, not a hair: heal the whole strand
                     out = np.maximum(out, rescue)
@@ -1341,6 +1358,7 @@ def _candidates(crop, crop_pre, det: Detection, orifice, anchor_src, down_field,
         orifice=orifice,
         down_field=down_field,
         report=report,
+        fluids=fluids,
     )
     repair = decide(conf, face_c, gated)
 
@@ -1412,6 +1430,33 @@ def _candidates(crop, crop_pre, det: Detection, orifice, anchor_src, down_field,
                 if length / max(1.0, half) >= CREASE_REPAIR_ELONGATION:
                     repair[sel] = 0
                     crease_vetoed += 1
+
+    # --- a "mark" that is mostly one of the face's own shadows ---------------
+    #
+    # Audit 2026-09-17 (every candidate on 33 frames looked at): about thirty
+    # accepted heals were the groove beside a nostril wing, the shadow under the
+    # nostrils, a mouth corner, the smile fold past it, or a brow's edge hairs.
+    # `masks.shadow_zone_parts` says where those are. Refused here, whole
+    # components, after detection — widening the region the skin model learns
+    # from instead was measured to move the detector and invent new errors.
+    #
+    # Mostly inside, not merely touching: a real mark beside a mouth corner is
+    # the most common kind a child has, and it must stay reachable.
+    anatomy_vetoed = 0
+    if repair.any():
+        zones = masks.get_mask(crop_pre, "face-shadow-zones") > 0.5
+        if zones.any():
+            n_r, l_r = cv2.connectedComponents(repair, connectivity=8)
+            for i in range(1, n_r):
+                sel = l_r == i
+                inside = float(zones[sel].mean())
+                if inside < SHADOW_ZONE_OVERLAP_DROP:
+                    continue
+                repair[sel] = 0
+                anatomy_vetoed += 1
+                report.append({"verdict": "anatomy", "wet": False,
+                               "facts": {"zoneOverlap": round(inside, 3)},
+                               "mask": sel.astype(np.uint8)})
 
     fluid = np.zeros(repair.shape, np.uint8)
     fluid_found = 0
@@ -1556,6 +1601,7 @@ def _candidates(crop, crop_pre, det: Detection, orifice, anchor_src, down_field,
         "shadingVetoed": shading_vetoed,
         "creaseVetoed": crease_vetoed,
         "hairVetoed": hair_vetoed,
+        "anatomyVetoed": anatomy_vetoed,
         "wetTrails": wet_trails,
         "fluidTrails": fluid_found,
     }
@@ -1992,7 +2038,7 @@ def apply(rgb, params: dict):
         # the five faces are 137-154px against MIN_FACE_PX 180, so the tool did
         # nothing to them and said nothing about it.
         totals = {"spotsRemoved": 0, "correctedPx": 0, "lineVetoed": 0, "creaseVetoed": 0,
-                  "hairVetoed": 0,
+                  "hairVetoed": 0, "anatomyVetoed": 0,
                   "shadingVetoed": 0, "wetTrails": 0, "fluidTrails": 0,
                   "pigmentPx": 0, "protectedSpotPx": 0, "selected": 0,
                   "faceTooSmall": 0, "spotsOff": 0, "previewTooSmall": 0}

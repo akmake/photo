@@ -290,6 +290,11 @@ export function markReason(verdict: string, facts: Record<string, number>): stri
         'נדחה: נוגע בזקן או בשפם. שחזור כאן מושך את כהות השיער אל העור ' +
         'ומשאיר מריחה — אם בכל זאת לנקות, לבדוק את הגבול אחרי'
       );
+    case 'anatomy':
+      return (
+        'נדחה: יושב ברובו על צל קבוע של הפנים — ליד כנף האף, מתחת לנחיר, ' +
+        `בזווית הפה, בקפל החיוך או בקצה הגבה (${Math.round((facts.zoneOverlap ?? 0) * 100)}% בתוך האזור)`
+      );
     case 'size':
       return (
         `נדחה: רחב מדי לכתם — ${area}, עובי ${Math.round(facts.thicknessPx ?? 0)}px ` +
