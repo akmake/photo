@@ -19,8 +19,9 @@ export function withStructure(
   page: AlbumTemplate,
   added: PhotoLayer[] | undefined,
   removed: string[] | undefined,
+  elements?: TemplateLayer[],
 ): AlbumTemplate {
-  if (!added?.length && !removed?.length) return page;
+  if (!added?.length && !removed?.length && !elements?.length) return page;
   const gone = new Set(removed ?? []);
   const goneBoxes = page.layers.filter((layer) => gone.has(layer.id)).map((layer) => layer.box);
   const layers: TemplateLayer[] = page.layers.filter((layer) => {
@@ -30,7 +31,7 @@ export function withStructure(
     }
     return true;
   });
-  return { ...page, layers: [...layers, ...(added ?? [])] };
+  return { ...page, layers: [...layers, ...(added ?? []), ...(elements ?? [])] };
 }
 
 /** Rotation, flip, corners, border, shadow and order, applied to the page. */

@@ -83,6 +83,8 @@ export interface TextLayer extends BaseLayer {
   outline?: LayerOutline;
   /** The designer's font this layer stands in for. */
   sourceFont?: string;
+  /** A literal colour, for text the photographer added. */
+  color?: string;
 }
 
 export interface ShapeLayer extends BaseLayer {
@@ -100,13 +102,24 @@ export interface ShapeLayer extends BaseLayer {
   feather?: PhotoFeather;
   /** rect only — corner radius, in spread heights. */
   radius?: number;
-  /** A literal colour, for lines the photographer added (not a page colour). */
+  /** Literal colours, for shapes the photographer added (not page colours). */
   strokeColor?: string;
+  fillColor?: string;
+  /** path only, on added elements — the artwork's own bounds in its source
+   *  viewBox units; the artwork is scaled to fill ox without distortion. */
+  outlineBox?: { x: number; y: number; width: number; height: number };
   /** rect only — a soft drop shadow, 0–100. */
   shadow?: number;
 }
 
-export type TemplateLayer = PhotoLayer | TextLayer | ShapeLayer;
+/** A picture element the photographer imported (a transparent PNG, SVG…). */
+export interface ImageLayer extends BaseLayer {
+  type: 'image';
+  /** Id in the element library (elementStore.ts). */
+  assetId: string;
+}
+
+export type TemplateLayer = PhotoLayer | TextLayer | ShapeLayer | ImageLayer;
 
 export interface TemplateColor {
   id: string;
@@ -153,6 +166,8 @@ export interface SpreadTemplateInstance {
   addedPlaces?: PhotoLayer[];
   /** Designed photo places the photographer removed from this spread. */
   removedPlaces?: string[];
+  /** Elements the photographer added: text, shapes, Vault artwork, imports. */
+  addedLayers?: Array<ShapeLayer | TextLayer | ImageLayer>;
 }
 
 /** The photographer's styling of one photo place — see placeStyles.ts. */

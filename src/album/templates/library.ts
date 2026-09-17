@@ -103,7 +103,7 @@ export function spreadTemplate(spread: AlbumSpread, spreadAspect: number): Album
   const template = findTemplate(spread.templateInstance.templateId);
   if (!template) return null;
   const instance = spread.templateInstance;
-  const structured = withStructure(fittedTemplate(template, spreadAspect), instance.addedPlaces, instance.removedPlaces);
+  const structured = withStructure(fittedTemplate(template, spreadAspect), instance.addedPlaces, instance.removedPlaces, instance.addedLayers);
   const placed = withPlaceEdits(structured, instance.places);
   const faded = withFades(placed, template, instance.fades);
   return withPlaceStyles(faded, instance.styles);

@@ -31,7 +31,8 @@ export function fitTemplate(template: AlbumTemplate, targetAspect: number): Albu
   const scaleY = (y: number) => y;
 
   const layers = template.layers.map((layer): TemplateLayer => {
-    if (layer.type === 'photo' || (layer.type === 'shape' && layer.shape === 'rect')) {
+    // images (imported elements) only exist on spreads, never in a designed page
+    if (layer.type === 'photo' || layer.type === 'image' || (layer.type === 'shape' && layer.shape === 'rect')) {
       return layer;
     }
 

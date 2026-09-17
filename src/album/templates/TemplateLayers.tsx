@@ -3,9 +3,10 @@ import { assessCrop } from '../cropEngine';
 import type { AlbumPhoto, AlbumSpread, PhotoFrameSettings } from '../model';
 import { colorOf, paintOrder, textOf, usesSourceLettering } from './library';
 import type {
-  AlbumTemplate, LayerOutline, PhotoLayer, ShapeLayer, SpreadTemplateInstance, TemplateLayer,
+  AlbumTemplate, ImageLayer, LayerOutline, PhotoLayer, ShapeLayer, SpreadTemplateInstance, TemplateLayer,
   TextLayer,
 } from './types';
+import { elementUrl } from './elementStore';
 import './templates.css';
 
 /* One renderer for template pages, used by the editor, the thumbnails and the
@@ -107,7 +108,7 @@ function Shape({ layer, template, instance, viewWidth }: {
   viewWidth: number;
 }) {
   const common = {
-    fill: layer.fillToken ? colorOf(template, instance, layer.fillToken) : 'none',
+    fill: layer.fillColor ?? (layer.fillToken ? colorOf(template, instance, layer.fillToken) : 'none'),
     stroke: layer.strokeColor ?? (layer.strokeToken ? colorOf(template, instance, layer.strokeToken) : undefined),
     strokeWidth: layer.strokeWidth ? layer.strokeWidth * VIEW_HEIGHT : undefined,
   };
@@ -164,12 +165,26 @@ function Shape({ layer, template, instance, viewWidth }: {
     );
   }
   if (layer.outline) {
+    let transform = outlineTransform(layer.outline);
+    let strokeWidth = common.strokeWidth;
+    if (layer.outlineBox) {
+      // added artwork: scale its own bounds into the box, centred, undistorted
+      const ob = layer.outlineBox;
+      const bw = width * viewWidth;
+      const bh = height * VIEW_HEIGHT;
+      const s = Math.min(bw / ob.width, bh / ob.height);
+      const tx = x * viewWidth + (bw - ob.width * s) / 2 - ob.x * s;
+      const ty = y * VIEW_HEIGHT + (bh - ob.height * s) / 2 - ob.y * s;
+      transform = [rotation, `translate(${tx} ${ty}) scale(${s})`].filter(Boolean).join(' ');
+      if (strokeWidth) strokeWidth /= s;
+    }
     return (
       <path
         d={layer.outline.d}
         fillRule={layer.outline.fillRule}
-        transform={outlineTransform(layer.outline)}
+        transform={transform}
         {...common}
+        strokeWidth={strokeWidth}
       />
     );
   }
@@ -189,9 +204,27 @@ function Shape({ layer, template, instance, viewWidth }: {
 export function TemplateLayerView({ template, instance, layer, zIndex }: {
   template: AlbumTemplate;
   instance: SpreadTemplateInstance;
-  layer: ShapeLayer | TextLayer;
+  layer: ShapeLayer | TextLayer | ImageLayer;
   zIndex: number;
 }) {
+  if (layer.type === 'image') {
+    const url = elementUrl(layer.assetId);
+    const place: CSSProperties = {
+      position: 'absolute',
+      left: `${layer.box.x * 100}%`,
+      top: `${layer.box.y * 100}%`,
+      width: `${layer.box.width * 100}%`,
+      height: `${layer.box.height * 100}%`,
+      transform: layer.rotation ? `rotate(${layer.rotation}deg)` : undefined,
+    };
+    return (
+      <div className="tpl-decor" style={{ zIndex, opacity: layer.opacity, mixBlendMode: layer.blendMode as CSSProperties['mixBlendMode'] }}>
+        {url
+          ? <img className="tpl-element-image" src={url} alt="" draggable={false} style={place} />
+          : <span className="tpl-element-missing" style={place}>האלמנט לא נמצא במחשב</span>}
+      </div>
+    );
+  }
   const viewWidth = template.nativeAspect * VIEW_HEIGHT;
   const wrapper: CSSProperties = {
     zIndex,
@@ -219,7 +252,7 @@ export function TemplateLayerView({ template, instance, layer, zIndex }: {
             width: `${layer.box.width * 100}%`,
             height: `${layer.box.height * 100}%`,
             direction: layer.direction ?? 'rtl',
-            color: colorOf(template, instance, layer.colorToken),
+            color: layer.color ?? colorOf(template, instance, layer.colorToken),
             fontFamily: layer.fontFamily,
             fontWeight: layer.fontWeight,
             fontSize: `${layer.fontSize * 100}cqh`,

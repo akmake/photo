@@ -18,11 +18,16 @@ import {
 import { rankTemplates } from './templates/choose';
 import { designFade } from './templates/fades';
 import { duplicatePlace, reorderZ } from './templates/placeStyles';
+import ElementsPanel from './templates/ElementsPanel';
+import { elementToLayer, type ElementDef } from './templates/elements';
+import { importElements, loadMyElements, removeMyElement } from './templates/elementStore';
 import { smartGuides, type GuideResult } from './templates/smartGuides';
 import SmartGuideOverlay from './templates/SmartGuideOverlay';
 import { TemplateDecor, photoFrameStyle, templateZ } from './templates/TemplateLayers';
 import TemplatePanel from './templates/TemplatePanel';
-import type { AlbumTemplate, PhotoFade, PlaceStyle, SpreadTemplateInstance } from './templates/types';
+import type {
+  AlbumTemplate, ImageLayer, LayerBox, PhotoFade, PlaceStyle, ShapeLayer, SpreadTemplateInstance, TextLayer,
+} from './templates/types';
 import { analyzeAlbumPhoto } from '../api';
 import { exportAlbumForPrint, exportAlbumProof } from './exportEngine';
 import {
@@ -200,6 +205,20 @@ export default function AlbumStudio({ job, onBack }: {
   const [showCover, setShowCover] = useState(false);
   const [showPreflight, setShowPreflight] = useState(false);
   const [confirmAutoBuild, setConfirmAutoBuild] = useState(false);
+  /** An element the photographer added to the spread (text, shape, artwork, import). */
+  const [selectedElementId, setSelectedElementId] = useState<string | null>(null);
+  const [myElements, setMyElements] = useState<ElementDef[]>([]);
+  useEffect(() => {
+    let alive = true;
+    loadMyElements()
+      .then(({ elements, missing }) => {
+        if (!alive) return;
+        setMyElements(elements);
+        if (missing.length) setNotice(`לא ניתן לקרוא ${missing.length} אלמנטים מהספרייה: ${missing.slice(0, 3).join(', ')}`);
+      })
+      .catch(() => { if (alive) setNotice('לא ניתן לקרוא את ספריית האלמנטים'); });
+    return () => { alive = false; };
+  }, []);
 
   /* A reused workspace must never carry one project's library or open album
    * into another project. New mounts also pass through here, harmlessly. */
@@ -410,11 +429,15 @@ export default function AlbumStudio({ job, onBack }: {
         case 'ArrowRight':event.preventDefault(); setActiveSpread(spreadIndex - 1); break;
         case 'Enter':     if (mode === 'organize') { event.preventDefault(); setMode('design'); } break;
         case 'Delete':
-        case 'Backspace': if (mode === 'design' && selectedSlotIndex !== null) { event.preventDefault(); removeSelectedFramePhoto(); } break;
+        case 'Backspace':
+          if (mode === 'design' && selectedElementId) { event.preventDefault(); deleteSelectedElement(); }
+          else if (mode === 'design' && selectedSlotIndex !== null) { event.preventDefault(); removeSelectedFramePhoto(); }
+          break;
         case 'g':
         case 'G':         if (mode === 'design') { event.preventDefault(); setShowGuides((value) => !value); } break;
         case 'Escape':
           if (cropIndex !== null) setCropIndex(null);
+          else if (selectedElementId) setSelectedElementId(null);
           else if (selectedSlotIndex !== null || selectedPhotoId) { setSelectedSlotIndex(null); setSelectedPhotoId(null); }
           else if (mode === 'design') setMode('organize');
           break;
@@ -1246,6 +1269,184 @@ export default function AlbumStudio({ job, onBack }: {
     setNotice('המקום נמחק מהכפולה · Ctrl+Z לביטול');
   }
 
+  /* ---- added elements: text, shapes, Vault artwork, imports ---- */
+  const addedElements = spread.templateInstance?.addedLayers ?? [];
+  const selectedElement = activeTemplate && selectedElementId
+    ? activeTemplate.layers.find((layer) => layer.id === selectedElementId && addedElements.some((item) => item.id === layer.id)) as
+      ShapeLayer | TextLayer | ImageLayer | undefined
+    : undefined;
+
+  function addElement(element: ElementDef) {
+    if (!activeTemplate || !spread.templateInstance) {
+      setNotice('בחר קודם עמוד מהכספת לכפולה');
+      return;
+    }
+    const topZ = Math.max(...activeTemplate.layers.map((layer) => layer.zIndex), 0);
+    const layer = elementToLayer(element, profile.spreadWidthMm / profile.spreadHeightMm, topZ, Date.now());
+    updateSpread({
+      templateInstance: { ...spread.templateInstance, addedLayers: [...addedElements, layer] },
+    });
+    setSelectedSlotIndex(null);
+    setSelectedElementId(layer.id);
+    setNotice(`נוסף ${element.name} · גרור להזיז, פינות לשינוי גודל`);
+  }
+
+  function updateElement(id: string, change: (layer: ShapeLayer | TextLayer | ImageLayer) => ShapeLayer | TextLayer | ImageLayer, done = true) {
+    editTemplateInstance((instance) => ({
+      ...instance,
+      addedLayers: (instance.addedLayers ?? []).map((layer) => (layer.id === id ? change(layer) : layer)),
+    }));
+    if (done) endTemplateEdit();
+  }
+
+  /** Move or resize an element; a line's points follow its box. */
+  function withBox(layer: ShapeLayer | TextLayer | ImageLayer, box: LayerBox) {
+    if (layer.type === 'shape' && layer.points) {
+      const from = layer.box;
+      const sx = from.width > 1e-6 ? box.width / from.width : 1;
+      const sy = from.height > 1e-6 ? box.height / from.height : 1;
+      const points = layer.points.map(([px, py]) => [
+        box.x + (px - from.x) * sx,
+        box.y + (py - from.y) * sy,
+      ] as [number, number]);
+      return { ...layer, box, points };
+    }
+    return { ...layer, box };
+  }
+
+  function deleteSelectedElement() {
+    if (!selectedElementId || !spread.templateInstance) return;
+    updateSpread({
+      templateInstance: {
+        ...spread.templateInstance,
+        addedLayers: addedElements.filter((layer) => layer.id !== selectedElementId),
+      },
+    });
+    setSelectedElementId(null);
+    setNotice('האלמנט נמחק · Ctrl+Z לביטול');
+  }
+
+  function duplicateSelectedElement() {
+    if (!selectedElement || !spread.templateInstance || !activeTemplate) return;
+    const topZ = Math.max(...activeTemplate.layers.map((layer) => layer.zIndex));
+    const source = addedElements.find((layer) => layer.id === selectedElement.id)!;
+    const copy = withBox(
+      { ...source, id: `el-${Date.now()}`, zIndex: topZ + 1 },
+      { ...source.box, x: Math.min(1 - source.box.width, source.box.x + 0.015), y: Math.min(1 - source.box.height, source.box.y + 0.03) },
+    );
+    updateSpread({ templateInstance: { ...spread.templateInstance, addedLayers: [...addedElements, copy] } });
+    setSelectedElementId(copy.id);
+    setNotice('האלמנט שוכפל');
+  }
+
+  async function importMyElements(files: FileList) {
+    const result = await importElements(files);
+    const { elements } = await loadMyElements();
+    setMyElements(elements);
+    const parts = [
+      result.added.length ? `יובאו ${result.added.length} אלמנטים` : '',
+      result.opaque.length ? `ללא שקיפות (יסתירו את מה שמתחתם): ${result.opaque.join(', ')}` : '',
+      ...result.refused.map((item) => `${item.name}: ${item.reason}`),
+    ].filter(Boolean);
+    setNotice(parts.join(' · ') || 'לא יובא דבר');
+  }
+
+  async function removeFromMyElements(element: ElementDef) {
+    await removeMyElement(element);
+    setMyElements((items) => items.filter((item) => item.id !== element.id));
+    setNotice(`${element.name} הוסר מהספרייה · כפולות שהוא כבר נמצא בהן יציגו שהוא חסר`);
+  }
+
+  /* dragging and resizing an element, with the same smart guides as photos */
+  const elementGesture = useRef<{
+    id: string; mode: FrameGestureMode; startX: number; startY: number; box: LayerBox; rect: DOMRect;
+    uniform: boolean;
+  } | null>(null);
+
+  function beginElementGesture(event: React.PointerEvent<Element>, layer: ShapeLayer | TextLayer | ImageLayer, mode: FrameGestureMode) {
+    event.preventDefault();
+    event.stopPropagation();
+    const sheet = event.currentTarget.closest('.album-spread') as HTMLElement | null;
+    if (!sheet) return;
+    try { event.currentTarget.setPointerCapture(event.pointerId); } catch { /* released */ }
+    setSelectedSlotIndex(null);
+    setSelectedElementId(layer.id);
+    elementGesture.current = {
+      id: layer.id, mode, startX: event.clientX, startY: event.clientY, box: { ...layer.box },
+      rect: sheet.getBoundingClientRect(),
+      // artwork and pictures keep their shape; boxes and lines may stretch
+      uniform: layer.type === 'image' || (layer.type === 'shape' && layer.shape === 'path'),
+    };
+  }
+
+  function moveElementGesture(event: React.PointerEvent<Element>) {
+    const g = elementGesture.current;
+    if (!g || !activeTemplate) return;
+    const dx = (event.clientX - g.startX) / g.rect.width;
+    const dy = (event.clientY - g.startY) / g.rect.height;
+    const MIN = 0.01;
+    let { x, y, width, height } = g.box;
+    const corner = g.mode.length === 2;
+    if (g.mode === 'move') {
+      x += dx; y += dy;
+    } else {
+      if (g.mode.endsWith('e')) width = Math.max(MIN, g.box.width + dx);
+      if (g.mode.endsWith('w')) { width = Math.max(MIN, g.box.width - dx); x = g.box.x + g.box.width - width; }
+      if (g.mode.startsWith('s')) height = Math.max(MIN, g.box.height + dy);
+      if (g.mode.startsWith('n')) { height = Math.max(MIN, g.box.height - dy); y = g.box.y + g.box.height - height; }
+      // a corner keeps proportions for artwork and pictures, and for anything with Shift
+      if (corner && (g.uniform || event.shiftKey)) {
+        const scale = Math.max(width / g.box.width, height / g.box.height);
+        width = g.box.width * scale; height = g.box.height * scale;
+        if (g.mode.endsWith('w')) x = g.box.x + g.box.width - width;
+        if (g.mode.startsWith('n')) y = g.box.y + g.box.height - height;
+      }
+    }
+    const guided = smartGuides(g.box, { x, y, width, height }, g.mode, {
+      aspect: profile.spreadWidthMm / profile.spreadHeightMm,
+      heightMm: profile.spreadHeightMm,
+      safeMarginMm: profile.safeMarginMm,
+      tolerancePx: 7,
+      screenHeightPx: g.rect.height,
+      others: activeTemplate.layers.filter((layer) => layer.id !== g.id).map((layer) => layer.box),
+      sizeReferences: [],
+    }, { snap: !event.altKey, keepRatio: g.uniform && corner });
+    setFrameGuides(guided);
+    updateElement(g.id, (layer) => withBox(layer, guided.box), false);
+  }
+
+  function endElementGesture() {
+    if (!elementGesture.current) return;
+    elementGesture.current = null;
+    setFrameGuides(null);
+    endTemplateEdit();
+  }
+
+  function beginElementRotate(event: React.PointerEvent<HTMLSpanElement>) {
+    if (!selectedElement) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const box = (event.currentTarget.parentElement as HTMLElement).getBoundingClientRect();
+    const cx = box.left + box.width / 2;
+    const cy = box.top + box.height / 2;
+    try { event.currentTarget.setPointerCapture(event.pointerId); } catch { /* released */ }
+    rotateSession.current = {
+      cx, cy, startAngle: Math.atan2(event.clientY - cy, event.clientX - cx), startRotation: selectedElement.rotation ?? 0,
+    };
+  }
+
+  function moveElementRotate(event: React.PointerEvent<HTMLSpanElement>) {
+    const session = rotateSession.current;
+    if (!session || !selectedElementId) return;
+    const angle = Math.atan2(event.clientY - session.cy, event.clientX - session.cx);
+    let degrees = session.startRotation + ((angle - session.startAngle) * 180) / Math.PI;
+    degrees = ((degrees + 540) % 360) - 180;
+    if (event.shiftKey) degrees = Math.round(degrees / 15) * 15;
+    else if (!event.altKey && Math.abs(Math.round(degrees / 45) * 45 - degrees) < 4) degrees = Math.round(degrees / 45) * 45;
+    updateElement(selectedElementId, (layer) => ({ ...layer, rotation: Math.round(degrees * 10) / 10 }), false);
+    setNotice(`סיבוב ${Math.round(degrees)}°`);
+  }
+
   /* rotation handle: angle from the block's centre; snaps to every 45° within
    * 4°, Shift turns in 15° steps, Alt turns freely */
   const rotateSession = useRef<{ cx: number; cy: number; startAngle: number; startRotation: number } | null>(null);
@@ -1423,6 +1624,7 @@ export default function AlbumStudio({ job, onBack }: {
   function assignPhoto(slotIndex: number) {
     if (suppressFrameClick.current) return;
     if (!selectedPhotoId) {
+      setSelectedElementId(null);
       setSelectedSlotIndex(slotIndex);
       setCropIndex(null);
       setNotice('גרור להזיז · פינות לשינוי גודל (Shift שומר פרופורציה) · לחיצה כפולה למקם את התמונה');
@@ -2354,7 +2556,7 @@ export default function AlbumStudio({ job, onBack }: {
           <div
             className="album-canvas-area"
             onClick={(event) => {
-              if (event.target === event.currentTarget) { setSelectedSlotIndex(null); setCropIndex(null); }
+              if (event.target === event.currentTarget) { setSelectedSlotIndex(null); setCropIndex(null); setSelectedElementId(null); }
             }}
           >
             <div
@@ -2480,6 +2682,64 @@ export default function AlbumStudio({ job, onBack }: {
                 );
               })}
 
+              {activeTemplate && addedElements.map((item) => {
+                const layer = activeTemplate.layers.find((candidate) => candidate.id === item.id) as ShapeLayer | TextLayer | ImageLayer | undefined;
+                if (!layer) return null;
+                const thin = 0.012;
+                return (
+                  <div
+                    key={`hit-${layer.id}`}
+                    className="tpl-hit"
+                    title={layer.name}
+                    style={{
+                      left: `${layer.box.x * 100}%`,
+                      top: `${(layer.box.height < thin ? layer.box.y - thin / 2 : layer.box.y) * 100}%`,
+                      width: `${layer.box.width * 100}%`,
+                      height: `${Math.max(layer.box.height, thin) * 100}%`,
+                      zIndex: templateZOrder.get(layer.id),
+                      transform: layer.rotation ? `rotate(${layer.rotation}deg)` : undefined,
+                    }}
+                    onPointerDown={(event) => beginElementGesture(event, layer, 'move')}
+                    onPointerMove={moveElementGesture}
+                    onPointerUp={endElementGesture}
+                    onPointerCancel={endElementGesture}
+                  />
+                );
+              })}
+              {selectedElement && (
+                <div
+                  className="album-frame-selection element"
+                  style={{
+                    left: `${selectedElement.box.x * 100}%`,
+                    top: `${selectedElement.box.y * 100}%`,
+                    width: `${selectedElement.box.width * 100}%`,
+                    height: `${selectedElement.box.height * 100}%`,
+                    transform: selectedElement.rotation ? `rotate(${selectedElement.rotation}deg)` : undefined,
+                  }}
+                >
+                  <span
+                    className="album-frame-rotate"
+                    title="סיבוב · Shift בקפיצות של 15°"
+                    onPointerDown={beginElementRotate}
+                    onPointerMove={moveElementRotate}
+                    onPointerUp={endRotate}
+                    onPointerCancel={endRotate}
+                  />
+                  {((selectedElement.type === 'image' || (selectedElement.type === 'shape' && selectedElement.shape === 'path'))
+                    ? (['nw', 'ne', 'se', 'sw'] as const)
+                    : (['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w'] as const)
+                  ).map((h) => (
+                    <span
+                      key={h}
+                      className={`album-frame-handle ${h}`}
+                      onPointerDown={(e) => beginElementGesture(e, selectedElement, h)}
+                      onPointerMove={moveElementGesture}
+                      onPointerUp={endElementGesture}
+                      onPointerCancel={endElementGesture}
+                    />
+                  ))}
+                </div>
+              )}
               {/* Selection box with resize handles, drawn above the whole page so no
                 * frame line, fade or neighbouring layer can hide or clip them. */}
               {selectedSlotIndex !== null && cropIndex !== selectedSlotIndex && layout.slots[selectedSlotIndex] && (
@@ -2815,6 +3075,118 @@ export default function AlbumStudio({ job, onBack }: {
             </>)}
             <button className="album-control-remove" onClick={removeSelectedFramePhoto}>הסרת התמונה</button>
           </div>
+        ) : selectedElement ? (
+          <div className="album-inspector" role="group" aria-label="עריכת אלמנט">
+            <div className="album-inspector-head">
+              <button className="album-inspector-back" onClick={() => setSelectedElementId(null)}>← חזרה לכפולה</button>
+              <span>אלמנט</span>
+              <strong>{selectedElement.name}</strong>
+            </div>
+            <div className="album-inspector-section tpl-tools">
+              {selectedElement.type === 'text' && (
+                <>
+                  <label className="tpl-texts">
+                    <span>טקסט</span>
+                    <textarea
+                      dir="auto"
+                      rows={2}
+                      value={selectedElement.defaultText}
+                      onChange={(event) => updateElement(selectedElement.id, (layer) => ({ ...layer, defaultText: event.target.value }), false)}
+                      onBlur={endTemplateEdit}
+                      onKeyDown={(event) => event.stopPropagation()}
+                    />
+                  </label>
+                  <label className="tpl-fade-slider">
+                    <span>גודל <output>{Math.round(selectedElement.fontSize * profile.spreadHeightMm * 2.835)} pt</output></span>
+                    <input
+                      type="range" min="0.01" max="0.25" step="0.002" value={selectedElement.fontSize}
+                      onChange={(event) => updateElement(selectedElement.id, (layer) => ({ ...layer, fontSize: Number(event.target.value) }), false)}
+                      onPointerUp={endTemplateEdit} onKeyUp={endTemplateEdit}
+                    />
+                  </label>
+                  <div className="tpl-tool-row">
+                    {([['start', 'ימין'], ['center', 'מרכז'], ['end', 'שמאל']] as const).map(([align, label]) => (
+                      <button key={align} className={selectedElement.align === align ? 'on' : ''} onClick={() => updateElement(selectedElement.id, (layer) => ({ ...layer, align }))}>{label}</button>
+                    ))}
+                    <button className={selectedElement.fontWeight >= 700 ? 'on' : ''} onClick={() => updateElement(selectedElement.id, (layer) => (layer.type === 'text' ? { ...layer, fontWeight: layer.fontWeight >= 700 ? 400 : 700 } : layer))}>מודגש</button>
+                  </div>
+                </>
+              )}
+              {selectedElement.type !== 'image' && (
+                <label className="tpl-tool-color">
+                  <span>צבע</span>
+                  <input
+                    type="color"
+                    value={selectedElement.type === 'text'
+                      ? selectedElement.color ?? '#ffffff'
+                      : selectedElement.fillColor ?? selectedElement.strokeColor ?? '#ffffff'}
+                    onChange={(event) => updateElement(selectedElement.id, (layer) => {
+                      const color = event.target.value;
+                      if (layer.type === 'text') return { ...layer, color };
+                      if (layer.type === 'shape') {
+                        return { ...layer, fillColor: layer.fillColor ? color : undefined, strokeColor: layer.fillColor ? layer.strokeColor : color };
+                      }
+                      return layer;
+                    }, false)}
+                    onBlur={endTemplateEdit}
+                  />
+                </label>
+              )}
+              {selectedElement.type === 'shape' && selectedElement.shape !== 'path' && (
+                <>
+                  <label className="tpl-fade-slider">
+                    <span>עובי קו <output>{Math.round((selectedElement.strokeWidth ?? 0) * profile.spreadHeightMm * 10) / 10} מ״מ</output></span>
+                    <input
+                      type="range" min="0" max="0.04" step="0.0005" value={selectedElement.strokeWidth ?? 0}
+                      onChange={(event) => updateElement(selectedElement.id, (layer) => ({ ...layer, strokeWidth: Number(event.target.value) }), false)}
+                      onPointerUp={endTemplateEdit} onKeyUp={endTemplateEdit}
+                    />
+                  </label>
+                  {selectedElement.shape !== 'polyline' && (
+                    <label className="tpl-tool-color">
+                      <span>מילוי</span>
+                      <span className="tpl-tool-row">
+                        <input
+                          type="color"
+                          value={selectedElement.fillColor ?? '#ffffff'}
+                          onChange={(event) => updateElement(selectedElement.id, (layer) => ({ ...layer, fillColor: event.target.value }), false)}
+                          onBlur={endTemplateEdit}
+                        />
+                        <button onClick={() => updateElement(selectedElement.id, (layer) => (layer.type === 'shape' ? { ...layer, fillColor: undefined } : layer))}>ללא</button>
+                      </span>
+                    </label>
+                  )}
+                </>
+              )}
+              <label className="tpl-fade-slider">
+                <span>שקיפות <output>{Math.round((1 - (selectedElement.opacity ?? 1)) * 100)}%</output></span>
+                <input
+                  type="range" min="0" max="90" value={Math.round((1 - (selectedElement.opacity ?? 1)) * 100)}
+                  onChange={(event) => updateElement(selectedElement.id, (layer) => ({ ...layer, opacity: 1 - Number(event.target.value) / 100 }), false)}
+                  onPointerUp={endTemplateEdit} onKeyUp={endTemplateEdit}
+                />
+              </label>
+              <label className="tpl-fade-slider">
+                <span>סיבוב <output>{Math.round(selectedElement.rotation ?? 0)}°</output></span>
+                <input
+                  type="range" min="-180" max="180" value={Math.round(selectedElement.rotation ?? 0)}
+                  onChange={(event) => updateElement(selectedElement.id, (layer) => ({ ...layer, rotation: Number(event.target.value) }), false)}
+                  onPointerUp={endTemplateEdit} onKeyUp={endTemplateEdit}
+                />
+              </label>
+              <span className="tpl-tool-label">סדר</span>
+              <div className="tpl-tool-row">
+                {([['front', 'לחזית'], ['forward', 'קדימה'], ['backward', 'אחורה'], ['back', 'לרקע']] as const).map(([to, label]) => (
+                  <button key={to} onClick={() => activeTemplate && updateElement(selectedElement.id, (layer) => ({ ...layer, zIndex: reorderZ(activeTemplate.layers, layer.id, to) }))}>{label}</button>
+                ))}
+              </div>
+              <div className="tpl-tool-row">
+                <button onClick={duplicateSelectedElement}>⧉ שכפול</button>
+                <button className="danger" onClick={deleteSelectedElement}>מחיקה</button>
+              </div>
+              <small className="album-control-hint">גרירה מזיזה · פינות משנות גודל · Shift שומר פרופורציה · Alt בלי הצמדה · Delete מוחק</small>
+            </div>
+          </div>
         ) : (
           <>
           <div className="album-layout-focus">
@@ -2840,6 +3212,13 @@ export default function AlbumStudio({ job, onBack }: {
               ...instance, texts: { ...instance.texts, [layerId]: value },
             }))}
             onEditEnd={endTemplateEdit}
+          />
+          <ElementsPanel
+            myElements={myElements}
+            enabled={Boolean(activeTemplate)}
+            onAdd={addElement}
+            onImport={(files) => { void importMyElements(files); }}
+            onRemoveMine={(element) => { void removeFromMyElements(element); }}
           />
           <div className="album-tip">
             <span>↑↓ עמוד אחר מהכספת · ←→ כפולה · Enter לעריכה</span>

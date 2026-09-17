@@ -140,3 +140,23 @@
 .tpl-pan-toggle { min-height: 32px; border: 1px solid var(--accent); border-radius: 6px; color: var(--ink); background: transparent; font-weight: 600; }
 .tpl-pan-toggle.on, .tpl-pan-toggle:hover:not(:disabled) { background: var(--accent); color: #fff; }
 .tpl-pan-toggle:disabled { opacity: .45; cursor: not-allowed; }
+.tpl-element-image { object-fit: contain; user-select: none; }
+.tpl-element-missing { display: grid; place-items: center; border: 1px dashed rgb(255 80 80 / .8); color: #ff8080; font-size: 10px; background: rgb(0 0 0 / .25); }
+
+/* Element library */
+.tpl-tabs { display: flex; gap: 4px; }
+.tpl-tabs button { flex: 1; min-height: 28px; border: 1px solid var(--line-strong); border-radius: 5px; color: var(--ink-2); background: var(--card); font-size: 11px; white-space: nowrap; }
+.tpl-tabs button.on { border-color: var(--accent); background: var(--accent); color: #fff; }
+.tpl-element-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; max-height: 300px; overflow-y: auto; }
+.tpl-element-cell { position: relative; }
+.tpl-element { width: 100%; aspect-ratio: 1; display: grid; place-items: center; padding: 8px; border: 1px solid var(--line); border-radius: 6px; color: var(--ink); background:
+  repeating-conic-gradient(rgb(0 0 0 / .05) 0% 25%, transparent 0% 50%) 50% / 12px 12px, var(--card-2); cursor: pointer; overflow: hidden; }
+.tpl-element:hover:not(:disabled) { border-color: var(--accent); }
+.tpl-element:disabled { opacity: .45; cursor: not-allowed; }
+.tpl-element svg, .tpl-element img { width: 100%; height: 100%; object-fit: contain; }
+.tpl-element-text { font-size: 12px; line-height: 1.1; text-align: center; overflow: hidden; }
+.tpl-element-remove { position: absolute; top: 2px; inset-inline-end: 2px; width: 18px; height: 18px; border: 0; border-radius: 50%; color: #fff; background: rgb(0 0 0 / .55); font-size: 12px; line-height: 18px; cursor: pointer; }
+
+/* invisible hit area over an added element, in its paint order */
+.tpl-hit { position: absolute; cursor: move; background: transparent; }
+.album-frame-selection.element { outline-style: dashed; }

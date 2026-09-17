@@ -339,3 +339,30 @@ test('tools: order moves a layer one step or all the way', () => {
   const backward = reorderZ(layers, 'c', 'backward');
   assert.ok(backward > 1 && backward < 2);
 });
+
+
+/* ---- element library (elements.ts) ---- */
+import { vaultElements, elementToLayer, BASIC_ELEMENTS, pathBounds } from '../src/album/templates/elements.ts';
+
+test('elements: the Vault artwork and texts are offered once each, with no background', () => {
+  const all = vaultElements();
+  assert.ok(all.filter((e) => e.kind === 'path').length >= 10, 'Vault ornaments and lettering');
+  assert.ok(all.some((e) => e.kind === 'text' && e.text === 'You are so sweet'));
+  assert.equal(new Set(all.map((e) => e.id)).size, all.length);
+  assert.ok(all.every((e) => e.kind !== 'path' || (e.bounds && e.bounds.width > 0 && e.bounds.height > 0)));
+});
+
+test('elements: a dropped element lands on the right page, above everything, undistorted', () => {
+  const ornament = vaultElements().find((e) => e.kind === 'path')!;
+  const layer = elementToLayer(ornament, 2, 40, 1);
+  assert.ok(layer.zIndex > 40);
+  assert.ok(layer.box.x > 0.5 && layer.box.x + layer.box.width <= 1);
+  assert.ok(layer.type === 'shape' && layer.outlineBox, 'artwork keeps its own bounds');
+  const ratio = (layer.box.width * 2) / layer.box.height;
+  assert.ok(Math.abs(ratio - ornament.bounds!.width / ornament.bounds!.height) < 1e-6);
+  for (const basic of BASIC_ELEMENTS) {
+    const l = elementToLayer(basic, 2.667, 0, 2);
+    assert.ok(l.box.width > 0 && l.box.height > 0, basic.id);
+  }
+  assert.deepEqual(pathBounds('M10 20L30 60Z'), { x: 10, y: 20, width: 20, height: 40 });
+});
