@@ -117,12 +117,31 @@ export interface LearnedColorModel {
   skinProtection?: number;
 }
 
+/** One pass of the manual cleaning brush.
+ *
+ *  Points and radius are FRACTIONS of the frame, never pixels: the photographer
+ *  paints on a 1400px preview and the file delivered is 5000px wide, and the
+ *  same stroke has to mean the same place in both. It is rasterised once, by
+ *  the engine, against whatever frame it is given (engine/manual_clean.py). */
+export interface ManualStroke {
+  id: string;
+  /** Along the stroke, in 0..1 of width and height. One point = a single dab. */
+  points: [number, number][];
+  /** Brush radius as a fraction of the frame WIDTH. */
+  r: number;
+}
+
 export interface ToolInstance {
   toolId: string;
   params: ParamValues;
   enabled: boolean;
   mask?: ToolMask;
   selection?: SpotSelection;
+  /** What the photographer painted over on THIS photograph — `manual-clean`
+   *  only. Like `mask.paint` and `selection`, it is geometry belonging to one
+   *  picture and is stripped at the door into any shared layer
+   *  (studio/store.ts::shareable). The engine dispatches on this field. */
+  strokes?: ManualStroke[];
   /** A fitted model this step applies instead of sliders — `pixel-color` only.
    *  Kept out of `params` because params are numbers by contract, and the
    *  engine dispatches on this field (engine/render.py::render). */

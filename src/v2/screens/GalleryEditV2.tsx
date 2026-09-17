@@ -16,8 +16,9 @@ import {
 } from '../../studio/store';
 import { EDIT_WIDTH, learnColorModel, prepareFrames, renderRecipeAtPath, Superseded, thumbUrl } from '../../api';
 import type { LearnColorResponse } from '../../api';
-import type { LearnedColorModel, ToolInstance } from '../../types';
+import type { LearnedColorModel, ManualStroke, ToolInstance } from '../../types';
 import { defaultParams, getTool } from '../../toolRegistry';
+import ManualBrush, { DEFAULT_R, MAX_R, MIN_R } from './ManualBrush';
 import { useSetPreview } from '../../studio/preview';
 import BeforeAfter from '../../studio/screens/BeforeAfter';
 import {
@@ -145,6 +146,17 @@ export default function GalleryEditV2({
   const [renderedSrc, setRenderedSrc] = useState<string | null>(null);
   const [rawSrc, setRawSrc] = useState<string | null>(null);
   const [busyRender, setBusyRender] = useState(false);
+
+  /* THE MANUAL BRUSH. The picture element is the brush's coordinate system, so
+   * the overlay needs a handle on it (see ManualBrush.tsx). `pendingStrokes`
+   * are the ones painted but not yet answered for by the engine: they are shown
+   * in red so a stroke never looks lost during the second it takes to rebuild,
+   * and they are dropped the moment a render finishes. */
+  const canvasImgRef = useRef<HTMLImageElement | null>(null);
+  const [brushOn, setBrushOn] = useState(false);
+  const [brushErase, setBrushErase] = useState(false);
+  const [brushR, setBrushR] = useState(DEFAULT_R);
+  const [pendingStrokes, setPendingStrokes] = useState<ManualStroke[]>([]);
 
   // ColorMatch state
   const [cmEdited, setCmEdited] = useState<{ name: string; data: string } | null>(null);
@@ -303,10 +315,72 @@ export default function GalleryEditV2({
     [currentFrame, frameEffectiveTools, project.id],
   );
 
+  /* WHAT HE PAINTED ON THIS PHOTOGRAPH. Strokes live on the frame's own step —
+   * never on a batch or the set (studio/store.ts::shareable drops them at that
+   * door), because a stroke is a place on ONE face in ONE picture. */
+  const manualStrokes = useMemo<ManualStroke[]>(
+    () => frameEffectiveTools.find((t) => t.toolId === 'manual-clean')?.strokes ?? [],
+    [frameEffectiveTools],
+  );
+
+  const writeStrokes = useCallback(
+    (next: ManualStroke[]) => {
+      if (!currentFrame) return;
+      if (next.length === 0) {
+        // No strokes is not "a manual step that does nothing" — it is no step.
+        // Leaving an empty one behind would mark the frame as differing from
+        // its batch for the rest of its life.
+        removeFrameStep(project.id, currentFrame.name, 'manual-clean');
+        return;
+      }
+      setFrameStep(project.id, currentFrame.name, {
+        toolId: 'manual-clean', enabled: true, params: {}, strokes: next,
+      });
+    },
+    [currentFrame, project.id],
+  );
+
+  const handleStroke = useCallback(
+    (s: ManualStroke) => {
+      setPendingStrokes((p) => [...p, s]);
+      writeStrokes([...manualStrokes, s]);
+    },
+    [manualStrokes, writeStrokes],
+  );
+
+  /* Erasing removes the STROKE under the cursor, not pixels from a mask: what
+   * he painted is the record, so taking one back has to leave the others
+   * exactly as they were. Topmost first — the last thing painted is the thing
+   * he means. */
+  const handleErase = useCallback(
+    (x: number, y: number) => {
+      const img = canvasImgRef.current;
+      const aspect = img && img.clientWidth ? img.clientHeight / img.clientWidth : 1;
+      const hit = (s: ManualStroke) =>
+        s.points.some(([px, py]) => Math.hypot(px - x, (py - y) * aspect) <= s.r * 1.1);
+      for (let i = manualStrokes.length - 1; i >= 0; i--) {
+        if (hit(manualStrokes[i])) {
+          writeStrokes(manualStrokes.filter((_, j) => j !== i));
+          setPendingStrokes((p) => p.filter((s) => s.id !== manualStrokes[i].id));
+          return;
+        }
+      }
+    },
+    [manualStrokes, writeStrokes],
+  );
+
+  const undoStroke = useCallback(() => {
+    if (!manualStrokes.length) return;
+    writeStrokes(manualStrokes.slice(0, -1));
+    setPendingStrokes((p) => p.slice(0, -1));
+  }, [manualStrokes, writeStrokes]);
+
   /* THE ORIGINAL, once per frame. It used to be rendered again beside every
    * slider move — the same pixels, on the same single engine worker, doubling
    * the wait for the picture that had actually changed. */
   const currentPath = currentFrame?.path ?? null;
+  // A stroke waiting to be rebuilt belongs to the frame it was painted on.
+  useEffect(() => setPendingStrokes([]), [currentPath]);
   useEffect(() => {
     if (!currentPath) {
       setRawSrc(null);
@@ -354,7 +428,12 @@ export default function GalleryEditV2({
       try {
         const tools = effectiveRecipe(project.id, currentName).filter((t) => t.enabled);
         const res = await renderRecipeAtPath(currentPath, tools, EDIT_WIDTH, false, 'edit-v2');
-        if (mine === renderSeq.current) setRenderedSrc(res.image);
+        if (mine === renderSeq.current) {
+          setRenderedSrc(res.image);
+          // The picture now HAS the strokes in it. Keeping the red overlay up
+          // would draw them twice — once rebuilt, once as a promise.
+          setPendingStrokes([]);
+        }
       } catch (e) {
         // Replaced by a newer render: that one will answer.
         if (e instanceof Superseded || mine !== renderSeq.current) return;
@@ -414,6 +493,18 @@ export default function GalleryEditV2({
         e.preventDefault();
         setShowOriginal(true);
       }
+      // The brush's own keys. Undo is bound whether or not the brush is open:
+      // a stroke he regrets after switching tools is still a stroke he painted.
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
+        e.preventDefault();
+        undoStroke();
+        return;
+      }
+      if (!brushOn) return;
+      if (e.key === 'Escape') setBrushOn(false);
+      if (e.key === '[') setBrushR((r) => Math.max(MIN_R, r / 1.15));
+      if (e.key === ']') setBrushR((r) => Math.min(MAX_R, r * 1.15));
+      if (e.key.toLowerCase() === 'e') setBrushErase((v) => !v);
       if (e.key === 'ArrowDown' || e.key === 'ArrowLeft') {
         e.preventDefault();
         setActiveSlideIndex((idx) => Math.min(slideFrames.length - 1, idx + 1));
@@ -436,7 +527,7 @@ export default function GalleryEditV2({
       window.removeEventListener('keydown', onKeyDown);
       window.removeEventListener('keyup', onKeyUp);
     };
-  }, [slideFrames.length]);
+  }, [slideFrames.length, brushOn, undoStroke]);
 
   // Sync current photo's edits to the entire batch
   const handleSyncToBatch = useCallback(() => {
@@ -647,6 +738,61 @@ export default function GalleryEditV2({
             </div>
 
             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              {/* THE BRUSH. Off by default: it takes the mouse over the
+                  picture, and a screen where clicking the photograph edits it
+                  without being asked is a screen that surprises people. */}
+              <button
+                type="button"
+                className={`tz-ge-brush-btn ${brushOn ? 'active' : ''}`}
+                onClick={() => setBrushOn((v) => !v)}
+                title="צייר על מה שצריך להיעלם — לכלוך, ריר, כתם (Esc ליציאה)"
+              >
+                <TzIconSparkle size={14} />
+                <span>ניקוי ידני</span>
+                {manualStrokes.length > 0 && (
+                  <span className="tz-ge-brush-count">{manualStrokes.length}</span>
+                )}
+              </button>
+              {brushOn && (
+                <div className="tz-ge-brush-bar">
+                  <span className="tz-ge-brush-hint">גודל</span>
+                  <input
+                    type="range"
+                    min={MIN_R * 1000}
+                    max={MAX_R * 1000}
+                    step={0.5}
+                    value={brushR * 1000}
+                    onChange={(e) => setBrushR(Number(e.target.value) / 1000)}
+                    title="גם גלגלת העכבר על התמונה"
+                  />
+                  <button
+                    type="button"
+                    className={`tz-ge-brush-mini ${brushErase ? 'active' : ''}`}
+                    onClick={() => setBrushErase((v) => !v)}
+                    title="מחיקת סימון שצוייר (E)"
+                  >
+                    מחק סימון
+                  </button>
+                  <button
+                    type="button"
+                    className="tz-ge-brush-mini"
+                    onClick={undoStroke}
+                    disabled={manualStrokes.length === 0}
+                    title="בטל את המשיכה האחרונה (Ctrl+Z)"
+                  >
+                    בטל
+                  </button>
+                  <button
+                    type="button"
+                    className="tz-ge-brush-mini"
+                    onClick={() => { writeStrokes([]); setPendingStrokes([]); }}
+                    disabled={manualStrokes.length === 0}
+                    title="הסר את כל הניקוי הידני בתמונה הזו"
+                  >
+                    נקה הכל
+                  </button>
+                </div>
+              )}
               <button
                 type="button"
                 className={`tz-ge-canvas-compare-btn ${showOriginal ? 'active' : ''}`}
@@ -667,10 +813,26 @@ export default function GalleryEditV2({
               <>
                 <img
                   key={currentFrame.path}
+                  ref={canvasImgRef}
                   className="tz-ge-canvas-img"
                   src={displayImage}
                   alt={currentFrame.name}
                 />
+                {/* Painting is disabled while the original is being held up for
+                    comparison: the marks would land on the frame he is NOT
+                    looking at, which is the same picture in the same place but
+                    a different question. */}
+                {brushOn && !showOriginal && (
+                  <ManualBrush
+                    imgRef={canvasImgRef}
+                    pending={pendingStrokes}
+                    radius={brushR}
+                    onRadius={setBrushR}
+                    erasing={brushErase}
+                    onStroke={handleStroke}
+                    onErase={handleErase}
+                  />
+                )}
                 {showOriginal && (
                   <div className="tz-ge-canvas-badge-original">
                     תמונת מקור (לפני עריכה)

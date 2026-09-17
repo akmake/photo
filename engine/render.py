@@ -28,6 +28,7 @@ import cleanup
 import eyes
 import glow
 import hairtone
+import manual_clean
 import skin
 import globals_py
 import hsl
@@ -53,6 +54,11 @@ TOOLS = {
     # model always had — first, on neutral data. `skin` (20) is retired too.
     "skin-retouch": (skin_retouch.apply, 8),
     "skin-cleanup": (cleanup.apply, 10),
+    # What a person painted over, rebuilt. Right after the automatic cleanup —
+    # same neighbourhood, same reason (before smoothing, before any grade) — and
+    # crucially AFTER it, so the brush is the last word on a mark the detector
+    # missed or got wrong.
+    "manual-clean": (manual_clean.apply, 11),
     "skin": (skin.apply, 20),
     # sculpting comes AFTER smoothing — smoothing an added highlight would
     # flatten it straight back out — and before any colour work
@@ -406,7 +412,11 @@ def _stage_names(key, rgb, source_scale, has_source, active):
     h = hashlib.blake2b(ctx.encode("utf-8"), digest_size=20)
     names = []
     for t in active:
-        entry = {k: t.get(k) for k in ("toolId", "params", "mask", "selection", "model")}
+        # `strokes` belongs here with the rest: it changes pixels, so a frame
+        # cached before a stroke was painted is not this frame. Leaving it out
+        # would hand the screen back the picture from before the brush.
+        entry = {k: t.get(k)
+                 for k in ("toolId", "params", "mask", "selection", "model", "strokes")}
         h.update(json.dumps(entry, sort_keys=True, separators=(",", ":")).encode("utf-8"))
         names.append(h.copy().hexdigest())
     return names
@@ -514,6 +524,11 @@ def render(img, recipe_tools, source_scale: float = 1.0, source_img=None, key=No
             # preview would be a control that lies about what gets delivered.
             if t.get("selection") is not None:
                 params = {**params, "selection": t["selection"]}
+            # WHAT A PERSON PAINTED. Same contract as `selection` and for the
+            # same reasons: geometry, not numbers, and it has to reach the
+            # export or the brush would be a control that lies about delivery.
+            if t.get("strokes") is not None:
+                params = {**params, "strokes": t["strokes"]}
             # A FITTED MODEL, not sliders. `pixel-color` is calibrated from a
             # before/after pair and arrives as anchors, deltas and confidences —
             # it cannot travel in `params`, which is numbers by contract

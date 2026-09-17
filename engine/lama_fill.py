@@ -55,13 +55,14 @@ def _model():
     return _net
 
 
-def _windows(repair: np.ndarray):
+def _windows(repair: np.ndarray, context: float = None):
     h, w = repair.shape
+    ctx = CONTEXT if context is None else context
     n, _, stats, _ = cv2.connectedComponentsWithStats(repair, connectivity=8)
     boxes = []
     for i in range(1, n):
         x, y, bw, bh = stats[i, :4]
-        side = int(max(MIN_WINDOW, max(bw, bh) * (1 + 2 * CONTEXT)))
+        side = int(max(MIN_WINDOW, max(bw, bh) * (1 + 2 * ctx)))
         cx, cy = x + bw / 2.0, y + bh / 2.0
         boxes.append([int(max(0, cx - side / 2)), int(max(0, cy - side / 2)),
                       int(min(w, cx + side / 2)), int(min(h, cy + side / 2))])
@@ -82,8 +83,14 @@ def _windows(repair: np.ndarray):
     return boxes
 
 
-def fill(rgb: np.ndarray, repair: np.ndarray) -> np.ndarray:
-    """rgb uint8 HxWx3, repair HxW (>0 = rebuild). -> uint8 HxWx3."""
+def fill(rgb: np.ndarray, repair: np.ndarray, context: float = None) -> np.ndarray:
+    """rgb uint8 HxWx3, repair HxW (>0 = rebuild). -> uint8 HxWx3.
+
+    `context` overrides how much of the surroundings each window carries. It is
+    a speed/knowledge trade and it is the caller's to make: cost grows with the
+    window, and a hand-painted stroke is far larger than a detected speck (see
+    manual_clean.py for the measurements). None keeps CONTEXT.
+    """
     import torch
 
     mask = (repair > 0).astype(np.uint8)
@@ -91,7 +98,7 @@ def fill(rgb: np.ndarray, repair: np.ndarray) -> np.ndarray:
     if not mask.any():
         return out
     net = _model()
-    for x0, y0, x1, y1 in _windows(mask):
+    for x0, y0, x1, y1 in _windows(mask, context):
         win = rgb[y0:y1, x0:x1]
         m = mask[y0:y1, x0:x1].astype(np.float32)
         hh, ww = m.shape

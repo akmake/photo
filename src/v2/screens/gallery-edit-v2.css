@@ -280,6 +280,96 @@
   border-color: var(--tz-brand);
 }
 
+/* ---- manual cleaning brush ---- */
+
+.tz-ge-brush-btn {
+  background: #27272a;
+  border: 1px solid #3f3f46;
+  color: #ffffff;
+  border-radius: 8px;
+  padding: 5px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  user-select: none;
+  transition: all 0.15s ease;
+}
+
+.tz-ge-brush-btn:hover {
+  border-color: #52525b;
+}
+
+.tz-ge-brush-btn.active {
+  background: #ef4444;
+  border-color: #ef4444;
+}
+
+.tz-ge-brush-count {
+  background: rgba(0, 0, 0, 0.35);
+  border-radius: 999px;
+  padding: 0 6px;
+  font-size: 11px;
+  line-height: 16px;
+}
+
+.tz-ge-brush-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: #1c1c1f;
+  border: 1px solid #3f3f46;
+  border-radius: 8px;
+  padding: 4px 10px;
+}
+
+.tz-ge-brush-hint {
+  color: #a1a1aa;
+  font-size: 11px;
+}
+
+.tz-ge-brush-bar input[type='range'] {
+  width: 110px;
+  accent-color: #ef4444;
+}
+
+.tz-ge-brush-mini {
+  background: #27272a;
+  border: 1px solid #3f3f46;
+  color: #e4e4e7;
+  border-radius: 6px;
+  padding: 3px 9px;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.tz-ge-brush-mini:hover:not(:disabled) {
+  border-color: #52525b;
+}
+
+.tz-ge-brush-mini.active {
+  background: #3f3f46;
+  border-color: #71717a;
+  color: #ffffff;
+}
+
+.tz-ge-brush-mini:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+/* The layer he paints on. The cursor is drawn INSIDE the canvas — a ring the
+   exact size of the brush — so the system arrow is hidden: two cursors, one of
+   them lying about the size of the stroke, is worse than none. */
+.tz-ge-brush-layer {
+  position: absolute;
+  cursor: none;
+  touch-action: none;
+  border-radius: 6px;
+}
+
 .tz-ge-canvas-viewport {
   flex: 1;
   display: flex;

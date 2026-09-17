@@ -1024,7 +1024,7 @@ export function useRecipe(projectId: string): ProjectRecipe {
  *  frame's geometry to every other frame. The rule is stated in types.ts — this
  *  is where it is enforced, at the one door into the shared layers. */
 function shareable(step: ToolInstance): ToolInstance {
-  const { selection: _drop, mask, ...rest } = step;
+  const { selection: _drop, strokes: _painted_by_hand, mask, ...rest } = step;
   if (!mask) return rest;
   const { paint: _painted, ...maskRest } = mask;
   return { ...rest, mask: maskRest };

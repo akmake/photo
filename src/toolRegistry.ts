@@ -137,6 +137,27 @@ export const TOOLS: ToolDef[] = [
     ],
   },
   {
+    // THE BRUSH. Engine-side `manual_clean.py`, right after the automatic
+    // cleanup and before everything else.
+    //
+    // It has no params on purpose. What it does is decided entirely by where
+    // the photographer painted, and that rides `strokes` on the recipe entry
+    // rather than here, because params are numbers by contract (types.ts). The
+    // brush's own size is a property of the cursor, not of the photograph: it
+    // is already recorded in each stroke's radius, so the frame carries what it
+    // needs and nothing turns a delivered file into a different one.
+    id: 'manual-clean',
+    label: 'ניקוי ידני',
+    kind: 'ai',
+    category: 'local-ai',
+    order: 11,
+    // A stroke cannot mean anything on another photograph. The policy is moot
+    // here — `shareable()` strips the strokes at the door into any shared layer
+    // — and it is declared for the tool that is left: nothing.
+    batchPolicy: 'absolute',
+    params: [],
+  },
+  {
     // RETIRED — replaced by skin-retouch, which does this job and blemishes in
     // the retoucher's order. Kept so work saved with it renders as it was saved.
     id: 'skin',
@@ -683,12 +704,17 @@ export function updateToolSelection(
  *
  *  A spot selection is the same kind of thing, only more so: it names marks on
  *  one face in one frame, by their outlines. Nothing about it can mean anything
- *  in another photograph. */
+ *  in another photograph.
+ *
+ *  A manual cleaning stroke is the plainest case of all: it says "rebuild the
+ *  skin HERE". Applied to the next frame it would rebuild whatever happens to
+ *  be at those coordinates — an eye, a mouth, a hand. */
 export function stripPerPhotoState(recipe: Recipe): Recipe {
   return {
     tools: recipe.tools.map((t) => {
-      const { selection: _sel, ...kept } = t;
-      if (kept.mask?.region !== 'painted') return t.selection ? kept : t;
+      const { selection: _sel, strokes: _painted, ...kept } = t;
+      const perPhoto = t.selection !== undefined || t.strokes !== undefined;
+      if (kept.mask?.region !== 'painted') return perPhoto ? kept : t;
       const { mask: _drop, ...rest } = kept;
       return rest;
     }),
