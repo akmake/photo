@@ -273,3 +273,36 @@ def per_pixel(fn, height, width):
     futures = [pool.submit(fn, y, min(height, y + step)) for y in range(0, height, step)]
     for f in futures:
         f.result()
+
+
+def median_blur(img, k):
+    """cv2.medianBlur in parallel bands — the SAME result, not an approximation.
+
+    A median at a pixel reads only the k x k window around it. Each band is
+    filtered with k//2 extra rows of real neighbours above and below and then
+    cropped back, so every kept row saw exactly the window the whole-frame call
+    would have given it; the image's own top and bottom edges are inside the
+    first and last band, where the border rule is the same one. Worth it here
+    and not in `per_pixel` terms: a large-kernel median costs far more per pixel
+    than arithmetic does, so even a face crop is worth splitting.
+    """
+    import cv2
+
+    h, w = img.shape[:2]
+    pool = _rows_pool()
+    bands = pool._max_workers
+    r = k // 2
+    if bands <= 1 or h * w < 40_000 or h < bands * max(8, r):
+        return cv2.medianBlur(img, k)
+    out = np.empty_like(img)
+    step = -(-h // bands)
+
+    def band(y0, y1):
+        a, b = max(0, y0 - r), min(h, y1 + r)
+        res = cv2.medianBlur(np.ascontiguousarray(img[a:b]), k)
+        out[y0:y1] = res[y0 - a:y1 - a]
+
+    futures = [pool.submit(band, y, min(h, y + step)) for y in range(0, h, step)]
+    for f in futures:
+        f.result()
+    return out

@@ -26,6 +26,8 @@ is mathematically incapable of seeing it.
 import cv2
 import numpy as np
 
+import common
+
 
 def normalized_smooth(img: np.ndarray, mask: np.ndarray, radius: int) -> np.ndarray:
     """Gaussian smoothing that only ever averages MASKED pixels.
@@ -95,7 +97,8 @@ def normalized_median(img: np.ndarray, mask: np.ndarray, radius: int) -> np.ndar
         m = m[..., None]
     filled = np.where(m > 0.5, img, guess)
     filled = np.clip(filled, 0, 255).astype(np.uint8)
-    return cv2.medianBlur(filled, k).astype(np.float32)
+    # parallel bands, bit-identical to cv2.medianBlur (see common.median_blur)
+    return common.median_blur(filled, k).astype(np.float32)
 
 
 class SkinModel:
