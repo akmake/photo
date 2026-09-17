@@ -88,3 +88,11 @@
 /* the way back from a photo to its spread */
 .album-inspector-back { justify-self: start; margin-bottom: 8px; padding: 6px 10px; border: 1px solid var(--line-strong); border-radius: 6px; color: var(--ink); background: var(--card); font-weight: 600; cursor: pointer; }
 .album-inspector-back:hover { border-color: var(--accent); }
+
+/* Selection box for a photo place: above every layer, never clipped by it. */
+.album-frame-selection { position: absolute; z-index: 6000; pointer-events: none; outline: 2px solid var(--accent); }
+.album-frame-selection .album-frame-handle { pointer-events: auto; }
+.album-frame-selection .album-frame-handle.n { top: -7px; left: calc(50% - 6.5px); cursor: ns-resize; }
+.album-frame-selection .album-frame-handle.s { bottom: -7px; left: calc(50% - 6.5px); cursor: ns-resize; }
+.album-frame-selection .album-frame-handle.e { right: -7px; top: calc(50% - 6.5px); cursor: ew-resize; }
+.album-frame-selection .album-frame-handle.w { left: -7px; top: calc(50% - 6.5px); cursor: ew-resize; }

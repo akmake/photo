@@ -263,8 +263,9 @@ export default function AlbumStudio({ job, onBack }: {
   /* Direct-manipulation of the FRAME itself — move and resize on the canvas,
    * the way Canva and InDesign do it, so a layout is built by dragging boxes
    * instead of typing four numbers into sliders. */
+  type FrameGestureMode = 'move' | 'nw' | 'n' | 'ne' | 'e' | 'se' | 's' | 'sw' | 'w';
   const frameGesture = useRef<{
-    mode: 'move' | 'nw' | 'ne' | 'sw' | 'se';
+    mode: FrameGestureMode;
     index: number;
     startX: number;
     startY: number;
@@ -1407,7 +1408,7 @@ export default function AlbumStudio({ job, onBack }: {
   function beginFrameGesture(
     event: React.PointerEvent<Element>,
     slotIndex: number,
-    mode: 'move' | 'nw' | 'ne' | 'sw' | 'se',
+    mode: FrameGestureMode,
   ) {
     event.preventDefault();
     event.stopPropagation();
@@ -1461,23 +1462,26 @@ export default function AlbumStudio({ job, onBack }: {
       });
     } else {
       setFrameGuides({ vertical: [], horizontal: [] });
-      const east = g.mode === 'ne' || g.mode === 'se';
-      const south = g.mode === 'se' || g.mode === 'sw';
+      // corner handles move two edges, side handles one
+      const east = g.mode.endsWith('e');
+      const west = g.mode.endsWith('w');
+      const south = g.mode.startsWith('s');
+      const north = g.mode.startsWith('n');
       if (east) {
         width = clamp(g.slot.width + dx, MIN, 1 - g.slot.x);
-      } else {
+      } else if (west) {
         const nx = clamp(g.slot.x + dx, 0, g.slot.x + g.slot.width - MIN);
         width = g.slot.x + g.slot.width - nx;
         x = nx;
       }
       if (south) {
         height = clamp(g.slot.height + dy, MIN, 1 - g.slot.y);
-      } else {
+      } else if (north) {
         const ny = clamp(g.slot.y + dy, 0, g.slot.y + g.slot.height - MIN);
         height = g.slot.y + g.slot.height - ny;
         y = ny;
       }
-      if (event.shiftKey) {
+      if (event.shiftKey && (east || west) && (north || south)) {
         // Shift keeps the frame's proportions, as in Office
         const scale = Math.max(width / g.slot.width, height / g.slot.height);
         width = g.slot.width * scale;
@@ -2366,21 +2370,40 @@ export default function AlbumStudio({ job, onBack }: {
                           >לחזית</span>
                         </span>
                         )}
-                        {(['nw', 'ne', 'sw', 'se'] as const).map((h) => (
-                          <span
-                            key={h}
-                            className={`album-frame-handle ${h}`}
-                            onPointerDown={(e) => beginFrameGesture(e, slotIndex, h)}
-                            onPointerMove={moveFrameGesture}
-                            onPointerUp={endFrameGesture}
-                            onPointerCancel={endFrameGesture}
-                          />
-                        ))}
+
                       </>
                     )}
                   </button>
                 );
               })}
+
+              {/* Selection box with resize handles, drawn above the whole page so no
+                * frame line, fade or neighbouring layer can hide or clip them. */}
+              {selectedSlotIndex !== null && cropIndex !== selectedSlotIndex && layout.slots[selectedSlotIndex] && (
+                <div
+                  className="album-frame-selection"
+                  style={{
+                    left: `${layout.slots[selectedSlotIndex].x * 100}%`,
+                    top: `${layout.slots[selectedSlotIndex].y * 100}%`,
+                    width: `${layout.slots[selectedSlotIndex].width * 100}%`,
+                    height: `${layout.slots[selectedSlotIndex].height * 100}%`,
+                    transform: activeTemplate && templatePhotoLayers[selectedSlotIndex]?.rotation
+                      ? `rotate(${templatePhotoLayers[selectedSlotIndex].rotation}deg)`
+                      : undefined,
+                  }}
+                >
+                  {(['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w'] as const).map((h) => (
+                    <span
+                      key={h}
+                      className={`album-frame-handle ${h}`}
+                      onPointerDown={(e) => beginFrameGesture(e, selectedSlotIndex, h)}
+                      onPointerMove={moveFrameGesture}
+                      onPointerUp={endFrameGesture}
+                      onPointerCancel={endFrameGesture}
+                    />
+                  ))}
+                </div>
+              )}
 
               <div className="album-page-number left">{spread.pageStart}</div>
               <div className="album-page-number right">{spread.pageStart + 1}</div>
