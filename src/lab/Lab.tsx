@@ -22,7 +22,7 @@ import {
   updateToolParams, updateToolSelection, visibleInstances,
 } from '../toolRegistry';
 import {
-  renderRecipe, renderRecipeAtPath, checkEngine, detectSpots, detectSpotsAtPath,
+  renderRecipe, renderRecipeAtPath, Superseded, checkEngine, detectSpots, detectSpotsAtPath,
 } from '../api';
 import type { RenderStep, SpotCandidate, SpotDetection } from '../api';
 import {
@@ -227,7 +227,9 @@ export default function Lab(
   const runRender = useCallback(
     (tools: ToolInstance[], deliver = false) =>
       (img?.path
-        ? renderRecipeAtPath(img.path, tools, undefined, deliver)
+        // In the bench's lane: a newer slider value stops the older render at
+        // the next tool instead of queueing behind it (engine/server.py lanes).
+        ? renderRecipeAtPath(img.path, tools, undefined, deliver, deliver ? undefined : 'lab')
         : renderRecipe(img!.full, tools, deliver)),
     [img],
   );
@@ -465,7 +467,7 @@ export default function Lab(
         setTotalMs(Math.round(performance.now() - started));
         setError(null);
       } catch (e) {
-        if (mine !== seq.current) return;
+        if (mine !== seq.current || e instanceof Superseded) return;
         setError((e as Error).message);
         setReports([]);
         setOut(null);

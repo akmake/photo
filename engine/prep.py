@@ -55,6 +55,7 @@ import render  # noqa: E402
 MASK_KINDS = ("subject", "face-features", "face-skin")
 
 _stack = []            # [(kind, path, arg)], served from the end
+_recipes = {}          # (path, width) -> the latest recipe sent for it, as text
 _lock = threading.Lock()
 _eof = threading.Event()
 
@@ -63,8 +64,11 @@ def _push(request):
     paths = [p for p in (request.get("paths") or []) if isinstance(p, str)]
     width = int(request.get("w") or 0)
     thumbs = [int(t) for t in (request.get("thumbs") or []) if int(t) > 0]
-    # Carried as text so a job stays hashable (dedupe, the done set).
-    recipe = json.dumps(request.get("recipe") or [], sort_keys=True)
+    recipe = request.get("recipe") or []
+    # A job is named by the TOOLS, not the slider positions (see _do), so the
+    # same frame sent again after a nudge is the same job — moved up, not added.
+    tools = ",".join(sorted({str(t.get("toolId")) for t in recipe if t.get("enabled", True)}))
+    recipe_text = json.dumps(recipe, sort_keys=True)
     jobs = []
     # Thumbnails first — milliseconds each, and they are what a grid shows —
     # then the masks, in the order the paths were given.
@@ -73,8 +77,10 @@ def _push(request):
             jobs.append(("thumb", p, t))
     if width > 0:
         for p in paths:
-            jobs.append(("masks", p, (width, recipe)))
+            jobs.append(("masks", p, (width, tools)))
     with _lock:
+        for p in paths:
+            _recipes[(p, width)] = recipe_text
         # A repeated job moves to the front rather than running twice.
         again = set(jobs)
         _stack[:] = [j for j in _stack if j not in again]
@@ -98,8 +104,14 @@ def _do(job):
     if kind == "thumb":
         previews.cached_thumb(path, arg)
         return
-    width, recipe = arg[0], json.loads(arg[1])
-    marker = previews.prep_marker(path, width, arg[1])
+    width, tools = arg
+    with _lock:
+        recipe = json.loads(_recipes.get((path, width), "[]"))
+    # Ready means "these TOOLS have their caches for this frame", not "this
+    # exact slider position": a screen re-sends its batch on every move, and a
+    # nudged exposure must not re-prepare four hundred frames. The masks a
+    # tool reads do not depend on where its sliders sit.
+    marker = previews.prep_marker(path, width, tools)
     if marker and os.path.exists(marker):
         return
     source, img, scale = previews.working_frame(path, width)

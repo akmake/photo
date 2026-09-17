@@ -819,15 +819,54 @@ export async function renderRecipeAtPath(
    *  difference between a control that answers and one that does not. */
   width?: number,
   deliver = false,
+  /** A screen's lane. A newer render in the same lane makes this one stale:
+   *  the engine refuses it unstarted or stops it between tools, and this
+   *  rejects with `Superseded` — which a caller ignores, because the render
+   *  that replaced it is already on its way. */
+  lane?: string,
 ): Promise<RenderResult> {
   const r = await fetch(`${ENGINE}/render`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ path, recipe: tools, deliver, w: width }),
+    body: JSON.stringify({ path, recipe: tools, deliver, w: width, lane }),
   });
   const j = await r.json().catch(() => ({}));
+  if (r.status === 409 && j?.superseded) throw new Superseded();
   if (!r.ok) throw new Error(j?.error ?? `engine ${r.status}`);
   return j;
+}
+
+/** A render replaced by a newer one in its lane. Not a failure. */
+export class Superseded extends Error {
+  constructor() {
+    super('superseded');
+    this.name = 'Superseded';
+  }
+}
+
+/** Ask the engine to get frames ready BEFORE they are opened.
+ *
+ *  `paths` go to the background preparer (a low-priority process): thumbnails
+ *  at `thumbs` widths, and every mask `recipe` reads at the panel width `w`.
+ *  `ahead` are rendered in full by the engine itself whenever nobody is
+ *  waiting on it, so stepping to one of them shows a finished frame. Most
+ *  important first in both lists. Fire and forget. */
+export async function prepareFrames(req: {
+  paths: string[];
+  w: number;
+  thumbs?: number[];
+  recipe?: ToolInstance[];
+  ahead?: { path: string; recipe: ToolInstance[] }[];
+}): Promise<void> {
+  try {
+    await fetch(`${ENGINE}/prep`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(req),
+    });
+  } catch {
+    /* preparing is an optimisation, never a requirement */
+  }
 }
 
 /** Write files: the one moment a recipe becomes pixels on disk.

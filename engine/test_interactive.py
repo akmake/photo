@@ -112,7 +112,7 @@ def main(folder):
 
     t = time.perf_counter()
     post(base, "/prep", {"paths": [prepared], "w": W, "thumbs": [320], "recipe": RECIPE})
-    marker = previews.prep_marker(prepared, W, json.dumps(RECIPE, sort_keys=True))
+    marker = previews.prep_marker(prepared, W, ",".join(sorted({t["toolId"] for t in RECIPE})))
     while not os.path.exists(marker):
         if time.perf_counter() - t > 600:
             break

@@ -14,7 +14,7 @@ import {
   useProjectFiles,
   useRecipe,
 } from '../../studio/store';
-import { learnColorModel, renderRecipeAtPath, thumbUrl } from '../../api';
+import { learnColorModel, prepareFrames, renderRecipeAtPath, Superseded, thumbUrl } from '../../api';
 import type { LearnColorResponse } from '../../api';
 import type { LearnedColorModel, ToolInstance } from '../../types';
 import { defaultParams, getTool } from '../../toolRegistry';
@@ -31,6 +31,11 @@ import {
 } from '../TzIcons';
 import './stages-v2.css';
 import './gallery-edit-v2.css';
+
+/** The panel's render width. One constant, because the background preparer
+ *  computes masks for exactly this working frame — a render at any other
+ *  width would miss every one of them. */
+const EDIT_WIDTH = 1400;
 
 function baseName(p: string) {
   return p.split(/[\\/]/).pop() ?? p;
@@ -300,43 +305,106 @@ export default function GalleryEditV2({
     [currentFrame, frameEffectiveTools, project.id],
   );
 
-  // Render the active frame when frame or recipe changes (debounced)
-  const renderTimeout = useRef<number | null>(null);
+  /* THE ORIGINAL, once per frame. It used to be rendered again beside every
+   * slider move — the same pixels, on the same single engine worker, doubling
+   * the wait for the picture that had actually changed. */
+  const currentPath = currentFrame?.path ?? null;
   useEffect(() => {
-    if (!currentFrame) {
-      setRenderedSrc(null);
+    if (!currentPath) {
       setRawSrc(null);
+      return;
+    }
+    let alive = true;
+    setRawSrc(null);
+    renderRecipeAtPath(currentPath, [], EDIT_WIDTH)
+      .then((r) => alive && setRawSrc(r.image))
+      .catch(() => alive && setRawSrc(thumbUrl(currentPath, 1200)));
+    return () => {
+      alive = false;
+    };
+  }, [currentPath]);
+
+  /* THE EDIT, in the screen's lane. Every render request supersedes the one
+   * before it: the engine refuses a stale request it has not started and
+   * stops one it has at the next tool, so a dragged slider costs one render —
+   * the last value — instead of queueing one per value. Only the newest answer
+   * is ever shown.
+   *
+   * The dependencies are the frame and the recipe, and nothing else. This used
+   * to depend on the whole preview object, which is a new object on every
+   * render of this screen — so an unrelated re-render (the readiness poll
+   * ticks every 1.5s) sent the engine another full render of an unchanged
+   * frame. */
+  const renderTimeout = useRef<number | null>(null);
+  const renderSeq = useRef(0);
+  const warm = preview.warm;
+  const currentName = currentFrame?.name ?? null;
+  useEffect(() => {
+    if (!currentPath || !currentName) {
+      setRenderedSrc(null);
       return;
     }
 
     // Warm preview in background
-    preview.warm([currentFrame.path]);
+    warm([currentPath]);
 
     setBusyRender(true);
     if (renderTimeout.current) clearTimeout(renderTimeout.current);
+    const mine = ++renderSeq.current;
 
     renderTimeout.current = window.setTimeout(async () => {
       try {
-        const tools = effectiveRecipe(project.id, currentFrame.name).filter((t) => t.enabled);
-        const [resGraded, resRaw] = await Promise.all([
-          renderRecipeAtPath(currentFrame.path, tools, 1400),
-          renderRecipeAtPath(currentFrame.path, [], 1400),
-        ]);
-        setRenderedSrc(resGraded.image);
-        setRawSrc(resRaw.image);
-      } catch {
-        // Fallback to thumb if full render error
-        setRenderedSrc(thumbUrl(currentFrame.path, 1200));
-        setRawSrc(thumbUrl(currentFrame.path, 1200));
+        const tools = effectiveRecipe(project.id, currentName).filter((t) => t.enabled);
+        const res = await renderRecipeAtPath(currentPath, tools, EDIT_WIDTH, false, 'edit-v2');
+        if (mine === renderSeq.current) setRenderedSrc(res.image);
+      } catch (e) {
+        // Replaced by a newer render: that one will answer.
+        if (e instanceof Superseded || mine !== renderSeq.current) return;
+        setRenderedSrc(thumbUrl(currentPath, 1200));
       } finally {
-        setBusyRender(false);
+        if (mine === renderSeq.current) setBusyRender(false);
       }
     }, 80);
 
     return () => {
       if (renderTimeout.current) clearTimeout(renderTimeout.current);
     };
-  }, [currentFrame, recipe, project.id, preview]);
+  }, [currentPath, currentName, recipe, project.id, warm]);
+
+  /* GET THE NEIGHBOURHOOD READY. Every time the photographer lands on a frame:
+   *   - the next two and the previous one are RENDERED by the engine while it
+   *     is idle, so stepping to them shows a finished frame, not a retouch in
+   *     progress;
+   *   - the whole batch, nearest first, goes to the background preparer, which
+   *     draws its thumbnails and computes the masks the tools read — the ~15s
+   *     "where is the subject" question a frame used to ask when it opened.
+   * Debounced: arrowing through ten frames sends one request, for where it
+   * stopped. */
+  useEffect(() => {
+    if (!currentPath || !slideFrames.length) return;
+    const at = Math.max(0, slideFrames.findIndex((f) => f.path === currentPath));
+    const timer = window.setTimeout(() => {
+      const order: typeof slideFrames = [];
+      for (let d = 0; order.length < slideFrames.length; d++) {
+        if (at + d < slideFrames.length) order.push(slideFrames[at + d]);
+        if (d > 0 && at - d >= 0) order.push(slideFrames[at - d]);
+        if (at + d >= slideFrames.length && at - d < 0) break;
+      }
+      const recipeOf = (name: string) =>
+        effectiveRecipe(project.id, name).filter((t) => t.enabled);
+      const ahead = [slideFrames[at + 1], slideFrames[at - 1], slideFrames[at + 2]]
+        .filter((f): f is (typeof slideFrames)[number] => Boolean(f))
+        .map((f) => ({ path: f.path, recipe: recipeOf(f.name) }));
+      prepareFrames({
+        paths: order.map((f) => f.path),
+        w: EDIT_WIDTH,
+        thumbs: [320],
+        recipe: recipeOf(slideFrames[at].name),
+        ahead,
+      });
+    }, 250);
+    return () => clearTimeout(timer);
+  }, [currentPath, slideFrames, recipe, project.id]);
 
   // Keyboard navigation for slides (ArrowUp / ArrowDown) and compare (Space)
   useEffect(() => {
