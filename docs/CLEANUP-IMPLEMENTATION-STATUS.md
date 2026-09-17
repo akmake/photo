@@ -440,3 +440,28 @@ integration pricing before choosing it. Vendor quality claims have not been
 validated on our photographs. Primary sources:
 https://perfectlyclear.ai/perfectly-clear-sdks/
 https://perfectlyclear.ai/perfectly-clear-technology-updates/
+
+## LaMa becomes the production filler (2026-09-17)
+
+User report: cleanup's repairs "look like pasting, uneven". Same detection and
+repair masks, three fillers, five frames at full resolution (chayamushka-103,
+321A5078, 321A5254, 321A4934, 321A5173): the old diffusion + texture graft +
+colour harmoniser left flat, off-tone, often square patches (smile crease,
+forehead, inside a spectacle lens, a small child's cheek, a dark smudge at a
+mouth corner); LaMa on a context window per repair component left none visible.
+LaMa + the old harmoniser was no better than LaMa alone and sometimes brought a
+pale patch back, so LaMa's output is used directly (`engine/lama_fill.py`,
+wired in `cleanup._apply_one`; old fill kept as fallback without the weights).
+
+Measured after the switch:
+- `test_cleanup_recall.py` 321A4934 / 5254 / 5173: 3/5, 4/5, 5/5 — the same
+  counts as before; individual residuals moved both ways (5254 dirt-smudge
+  4.2 -> 6.6 partial, bright-crumb 7.9 partial -> 5.4 healed). The residual
+  compares against the exact clean pixels, which a plausible generated texture
+  never equals.
+- `test_blush.py` on the same three: PASS.
+- `test_beard_guard.py`: PASS. `test_cleanup_marking.py` 321A5254: PASS.
+- `test_stage_cache.py`: PASS (the fill is deterministic).
+- Whole cleanup on chayamushka-103 at full size: 53s -> 23s.
+
+Detection (what gets chosen) is unchanged by this and still wrong at times.

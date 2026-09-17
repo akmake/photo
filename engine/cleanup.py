@@ -34,6 +34,7 @@ import numpy as np
 import color_harmonization
 import common
 import healing
+import lama_fill
 import masks
 import pigment
 import shape
@@ -2242,6 +2243,22 @@ def _apply_one(rgb, params: dict, sel_mask=None, frame_eye=None, _rescaled=False
             counts = scan.counts
         if repair is None or not repair.any():
             return _composited({"spotsRemoved": 0, "correctedPx": 0, **counts})
+        n, _, _stats, _ = cv2.connectedComponentsWithStats(repair, connectivity=8)
+        out = rgb.copy()
+        if lama_fill.available():
+            # LaMa rebuilds from the whole surrounding context. It replaced the
+            # diffusion + texture graft + colour harmoniser below, which left
+            # flat, off-tone, often square patches — see lama_fill.py for the
+            # side-by-side on five frames. Only repair pixels are written.
+            out[y0:y1, x0:x1] = lama_fill.fill(crop, repair)
+            return out, {
+                "spotsRemoved": max(0, n - 1),
+                "correctedPx": int((repair > 0).sum()),
+                **counts,
+                "filler": "lama",
+                **scan.stage_meta,
+            }
+        # Fallback when the LaMa weights are not installed: the old fill.
         healed = healing.inpaint_texture(
             crop, repair, (region > 0.35).astype(np.uint8)
         )
@@ -2260,9 +2277,7 @@ def _apply_one(rgb, params: dict, sel_mask=None, frame_eye=None, _rescaled=False
             face_c,
             color_harmonization.HarmonizationConfig.from_params(params),
         )
-        out = rgb.copy()
         out[y0:y1, x0:x1] = harmonized.image
-        n, _, _stats, _ = cv2.connectedComponentsWithStats(repair, connectivity=8)
         return out, {
             "spotsRemoved": max(0, n - 1),
             "correctedPx": int((repair > 0).sum()),

@@ -42,6 +42,12 @@ MODELS = {
     # class-agnostic region segmentation for pixel_color's material anchors
     # (ChaoningZhang/MobileSAM, Apache 2.0 -- verified against the repo's own
     # LICENSE file, not assumed from memory, per the project's own rule).
+    # LaMa inpainting (big-lama, Apache-2.0; TorchScript release of
+    # simple-lama-inpainting) — the filler behind spot cleanup (lama_fill.py).
+    # Without it cleanup falls back to the old diffusion fill.
+    "big-lama.pt": (
+        "https://github.com/enesmsahin/simple-lama-inpainting/releases/download/v0.1.0/big-lama.pt"
+    ),
     # face parser with a BEARD class (GHOST 2.0, ai-forever, Apache-2.0) —
     # facehair.py, docs/BUGS.md BUG-006. Optional: without it no tool knows
     # where facial hair is, which is how cleanup used to smear beards.
