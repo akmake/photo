@@ -194,3 +194,30 @@
 .tpl-cycle button:hover { border-color: var(--accent); }
 .tpl-cycle small { grid-column: 1 / -1; color: var(--ink-3); font-size: 11px; line-height: 1.5; }
 .tpl-element-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); max-height: none; }
+
+/* ---------- Context toolbar over the spread (ContextToolbar) ---------- */
+.album-center .album-canvas-area { position: relative; }
+.ctx-toolbar { position: absolute; top: 10px; left: 50%; z-index: 7000; transform: translateX(-50%); display: grid; justify-items: center; max-width: calc(100% - 24px); direction: rtl; }
+.ctx-bar { display: flex; align-items: center; gap: 2px; padding: 4px; border: 1px solid var(--line); border-radius: 10px; background: var(--card); box-shadow: 0 6px 24px rgb(0 0 0 / .18); overflow-x: auto; }
+.ctx-name { padding: 0 10px 0 6px; color: var(--ink-3); font-size: 11px; font-weight: 700; white-space: nowrap; }
+.ctx-bar > button { display: flex; align-items: center; gap: 6px; height: 34px; padding: 0 10px; border: 0; border-radius: 7px; color: var(--ink); background: transparent; font-size: 12.5px; font-weight: 600; white-space: nowrap; cursor: pointer; }
+.ctx-bar > button svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+.ctx-bar > button:hover { background: var(--card-2); }
+.ctx-bar > button.on { color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); }
+.ctx-bar > button.ctx-icon { width: 34px; padding: 0; justify-content: center; }
+.ctx-bar > button.ctx-icon.danger:hover { color: var(--danger-ink); background: var(--danger-soft); }
+.ctx-bar > button.ctx-done { color: #fff; background: var(--accent); padding: 0 14px; }
+.ctx-divider { width: 1px; height: 22px; margin: 0 4px; background: var(--line); }
+.ctx-popover { position: absolute; top: calc(100% + 8px); left: clamp(0px, calc(var(--ctx-anchor) - 160px), calc(100% - 320px)); width: 320px; border: 1px solid var(--line); border-radius: 10px; background: var(--card); box-shadow: 0 12px 36px rgb(0 0 0 / .22); }
+.ctx-popover > header { display: flex; align-items: center; justify-content: space-between; padding: 10px 12px 6px; }
+.ctx-popover > header strong { font-size: 13px; }
+.ctx-popover > header button { width: 26px; height: 26px; border: 0; border-radius: 6px; color: var(--ink-3); background: transparent; font-size: 18px; cursor: pointer; }
+.ctx-popover > header button:hover { background: var(--card-2); }
+.ctx-popover-body { max-height: min(60vh, 520px); overflow-y: auto; padding: 4px 12px 12px; }
+.ctx-stack { display: grid; gap: 10px; }
+.ctx-stack > .album-inspector-section, .ctx-stack .tpl-pan { padding: 0; border: 0; }
+.ctx-label { font-size: 11px; color: var(--ink-3); }
+
+/* rotation handle sits under the selection, as in Canva */
+.album-frame-selection .album-frame-rotate { top: auto; bottom: -38px; }
+.album-frame-selection .album-frame-rotate::after { top: auto; bottom: 14px; }
