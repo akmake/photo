@@ -28,6 +28,11 @@ export interface ToolDef {
   /** Reachable in the lab, kept out of the gallery editor. A tool being here
    *  means it runs but is not trusted on a client's set yet. */
   experimental?: boolean;
+  /** Spent on the RAW DECODER rather than on pixels, so it can only do
+   *  anything to a frame that still is sensor data. Offered on a raw file and
+   *  hidden on a JPEG — a control that is present and cannot move the picture
+   *  is worse than one that is absent. */
+  rawOnly?: boolean;
   /** Superseded by another tool. It is never added to a new recipe and never
    *  offered in the UI, but recipes saved before it was retired still carry it
    *  and must keep rendering exactly as they did — so it stays dispatchable,

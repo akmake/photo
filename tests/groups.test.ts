@@ -8,7 +8,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  applyCuts, copyEditGroupsAsMoments, rejectBoundary,
+  applyCuts, copyEditGroupsAsMoments, copyStoryMomentsAsEditGroups, rejectBoundary,
   boundariesFromRuns, coverOf, createGroup, deleteGroup, insertIndex, mergeGroups,
   membersOf, moveFrames, normalize, recipesDiffer, renameGroup, reorderGroups,
   restoreSlice, runsFromBoundaries, setCover, sliceIsCurrent, sliceOf, splitGroup,
@@ -235,6 +235,26 @@ test('copy edit groups as moments: same names and members, skips frames already 
   assert.equal(s.momentAssign!.a, 'n1');
   assert.equal(s.momentAssign!.b, 'c1');
   assert.equal(s.assign.a, 'b1'); // edit groups untouched
+});
+
+test('copy legacy story moments as edit groups without deleting the legacy data', () => {
+  let n = 0;
+  const original = base();
+  const legacy = {
+    ...original,
+    batches: [],
+    assign: {},
+    moments: [
+      { id: 'm1', name: 'קבלת פנים', order: 0 },
+      { id: 'm2', name: 'ריקודים', order: 1 },
+    ],
+    momentAssign: { a: 'm1', b: 'm1', c: 'm2' },
+  };
+  const s = copyStoryMomentsAsEditGroups(legacy, () => ({ id: `b${++n}`, createdAt: 'x' }));
+  assert.deepEqual(s.batches.map((g) => g.name), ['קבלת פנים', 'ריקודים']);
+  assert.deepEqual(s.assign, { a: 'b1', b: 'b1', c: 'b2' });
+  assert.equal(s.moments, legacy.moments);
+  assert.equal(s.momentAssign, legacy.momentAssign);
 });
 
 test('runsFromBoundaries cuts an ordered list', () => {

@@ -15,6 +15,7 @@ import os
 from PIL import Image, ImageOps
 
 import common
+import raw
 
 
 # Panel widths come from the WINDOW, so they are whatever the photographer
@@ -53,7 +54,7 @@ def _fit_size(size, width):
     return (max(1, round(w * scale)), max(1, round(h * scale)))
 
 
-def _decode_small(path, width):
+def _decode_small(path, width, develop=None, fast=False):
     """Decode small. Reading a 20MP frame to show it at 320px costs about twenty
     times more, and libjpeg can downscale while it decodes.
 
@@ -62,7 +63,29 @@ def _decode_small(path, width):
     without it the tools answer about the proxy, and a strip drawn at 320px
     would report every face in the set as too small to touch. Rotation does not
     change a long edge, so this survives `exif_transpose`.
+
+    `fast` is the raw shortcut and means nothing on a JPEG: take the preview
+    the camera buried in the file instead of rebuilding the picture from sensor
+    data. Seconds become milliseconds, at the cost of showing the CAMERA's
+    interpretation rather than the one the recipe would produce. Right for a
+    wall of thumbnails, wrong for anything being judged — so it is off unless
+    a caller asks, and a file with no usable preview falls through to the real
+    decode rather than to an error.
     """
+    if raw.is_raw(path):
+        if fast:
+            got = raw.embedded(path, width)
+            if got is not None:
+                return got
+        im = raw.decode_path(path, develop=develop)
+        source_long = max(im.size)
+        im = ImageOps.exif_transpose(im).convert("RGB")
+        # The draft the JPEG path gets for free, done by hand: downstream still
+        # resizes to the exact box, and carrying 24MP there costs a second.
+        if width and max(im.size) > width * 2:
+            im = im.resize(_fit_size(im.size, width * 2), Image.LANCZOS)
+        return im, source_long
+
     im = Image.open(path)
     source_long = max(im.size)
     im.draft("RGB", (width * 2, width * 2))
@@ -89,13 +112,17 @@ def cache_root():
     return os.path.join(base, "TEZA", "cache")
 
 
-def working_frame(path, capreq):
+def working_frame(path, capreq, develop=None):
     """-> (source PIL, working PIL, scale) — the frame the edit screen renders.
 
     The file, EXIF-upright, resized to the quantised panel width. `scale` is how
     much it was shrunk, which the face tools need to judge size honestly.
+
+    Never the camera's quick preview: this is the frame being WORKED ON, and
+    every tool that runs on it has to see the same pixels the delivered file
+    will be made from.
     """
-    img = common.load_image(path)
+    img = common.load_image(path, develop=develop)
     source, scale = img, 1.0
     cap = _quantise_width(capreq, img.size)
     if cap > 0:
@@ -126,8 +153,12 @@ def thumb_cache_path(path, width):
 
 
 def thumb_bytes(path, width):
-    """The JPEG /thumb serves. Computed exactly as it always was."""
-    im, _ = _decode_small(path, width)  # a thumb runs no tools
+    """The JPEG /thumb serves. Computed exactly as it always was.
+
+    `fast`: a thumbnail is for finding a photograph, not for judging one, and a
+    folder of 600 raw frames must not cost half an hour to look at.
+    """
+    im, _ = _decode_small(path, width, fast=True)  # a thumb runs no tools
     # the same rule /preview uses, so a raw frame and a graded one are
     # never a pixel apart
     size = _fit_size(im.size, width)

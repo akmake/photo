@@ -57,10 +57,13 @@ type Props = {
   onOpenBrush: () => void;
   brushOn: boolean;
   brushStrokes: number;
+  /** Whether the frame on screen is still sensor data. Decides whether the
+   *  develop step is offered at all — see `rawOnly`. */
+  isRaw?: boolean;
 };
 
 export default function ToolsPanelV2({
-  tools, onParam, onToggle, onReset, onOpenBrush, brushOn, brushStrokes,
+  tools, onParam, onToggle, onReset, onOpenBrush, brushOn, brushStrokes, isRaw = false,
 }: Props) {
   const [open, setOpen] = useState<Record<string, boolean>>({});
   /* A value being dragged on a heavy tool. It is what the slider shows until
@@ -78,12 +81,20 @@ export default function ToolsPanelV2({
   const visible = useMemo(() => {
     const shown = TOOLS.filter((def) => {
       if (def.id === 'pixel-color') return false;      // a fitted look, not sliders
+      // The develop step reaches the decoder, and a JPEG has already been
+      // through one. Shown anyway if THIS frame carries it with a value: a
+      // recipe made on the raw set and applied to a JPEG must not go silently
+      // invisible while it is still in the recipe.
+      if (def.rawOnly && !isRaw) {
+        const inst = instOf(def.id);
+        if (!inst || !inst.enabled || isToolAtDefault(inst)) return false;
+      }
       if (!def.legacy) return true;
       const inst = instOf(def.id);
       return Boolean(inst && inst.enabled && !isToolAtDefault(inst));
     });
     return shown.sort((a, b) => a.order - b.order);
-  }, [instOf]);
+  }, [instOf, isRaw]);
 
   const sections = SECTIONS
     .map((s) => ({ ...s, defs: visible.filter((d) => s.cats.includes(d.category)) }))

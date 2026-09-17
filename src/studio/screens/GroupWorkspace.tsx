@@ -1,19 +1,18 @@
-/* רצפים וקבוצות עריכה — one working surface for dividing a shoot.
+/* מקבצים — one working surface for dividing a shoot.
  *
  * Built to docs/new/mik.md. The old מקבצים screen was a pool that shrank: mark,
  * name, and the frames LEFT — which made the first pass fast and every
  * correction after it a rebuild (פרק, then mark again). Here the division is
  * live data that is always open to change:
  *
- *   strip        every group as a tile, plus כל התמונות and ללא שיוך. Always
- *                there; clicking one makes it active. No open/close.
- *   timeline     the day, with each group as a segment sized by DURATION and a
- *                notch at every real pause in shooting.
+ *   filters      כל התמונות and ללא מקבץ are compact views, not fake groups.
+ *   strip        only real groups are shown as large, legible cards.
  *   sheet        the active group's photographs, dense, virtualised.
  *   selection    checkbox first; Shift/Ctrl are shortcuts, never the interface.
  *
- * Two groupings, one UI (spec §2). `kind` picks which record the same gestures
- * write to — story moments or edit groups — and the words on screen follow it.
+ * The visible product has one grouping concept: edit groups, called מקבצים.
+ * Legacy story moments remain readable in project data for compatibility but
+ * are not exposed as a second, competing mode here.
  * The rules live in ../groups.ts and are tested there; every change goes
  * through applyGroups, so each is one undo step and one write.
  *
@@ -25,6 +24,7 @@
 import {
   memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState,
 } from 'react';
+import { createPortal } from 'react-dom';
 import type { Frame } from '../../api';
 import { albumMoments, embedAlbum } from '../../api';
 import * as G from '../groups';
@@ -40,23 +40,16 @@ import './GroupWorkspace.css';
 /* ------------------------------------------------------------------ words */
 
 const WORDS = {
-  story: {
-    title: 'רצפים', one: 'רצף', many: 'רצפים', none: 'ללא שיוך',
-    moveTo: 'העברה לרצף', remove: 'הוצא מהרצף', removed: 'הוצאו מהרצף',
-    create: 'רצף חדש', createVerb: 'יצירת רצף', createCta: 'צור והעבר',
-    split: 'פצל רצף', merge: 'מזג עם…', del: 'מחק רצף', unnamed: 'רצף ללא שם',
-    plus: '+ רצף', empty: 'הרצף ריק', suggest: 'הצע רצפים', nameField: 'שם הרצף',
-  },
   edit: {
-    title: 'קבוצות עריכה', one: 'קבוצה', many: 'קבוצות', none: 'ללא קבוצה',
-    moveTo: 'העברה לקבוצה', remove: 'הוצא מהקבוצה', removed: 'הוצאו מהקבוצה',
-    create: 'קבוצה חדשה', createVerb: 'יצירת קבוצת עריכה', createCta: 'צור והעבר',
-    split: 'פצל קבוצה', merge: 'מזג עם…', del: 'מחק קבוצה', unnamed: 'קבוצה ללא שם',
-    plus: '+ קבוצה', empty: 'הקבוצה ריקה', suggest: 'הצע קבוצות', nameField: 'שם הקבוצה',
+    title: 'מקבצים', one: 'מקבץ', many: 'מקבצים', none: 'ללא מקבץ',
+    moveTo: 'העברה למקבץ', remove: 'הוצא מהמקבץ', removed: 'הוצאו מהמקבץ',
+    create: 'מקבץ חדש', createVerb: 'יצירת מקבץ', createCta: 'צור והעבר',
+    split: 'פצל מקבץ', merge: 'מזג עם…', del: 'מחק מקבץ', unnamed: 'מקבץ ללא שם',
+    plus: '+ מקבץ', empty: 'המקבץ ריק', suggest: 'הצע מקבצים', nameField: 'שם המקבץ',
   },
 } as const;
 
-type Words = (typeof WORDS)[GroupKind];
+type Words = (typeof WORDS)['edit'];
 
 /* ------------------------------------------------------------------ units */
 
@@ -68,8 +61,6 @@ type Size = 's' | 'm' | 'l';
 const TARGET: Record<Size, number> = { s: 128, m: 196, l: 288 };
 const GAP = 6;
 const SEP_H = 34;
-/** A silence this long is worth a notch on the timeline (spec §84). */
-const NOTCH_SECONDS = 20 * 60;
 // The engine opens a chunk's frames in parallel, so a chunk of 8 capped it at 8
 // lanes. 48 lets it use the machine; the counter still moves every second or two.
 const EMBED_CHUNK = 48;
@@ -199,7 +190,9 @@ export default function GroupWorkspace({ projectId }: { projectId: string }) {
   const diskFault = useDiskFault(projectId);
   const preview = useSetPreview(projectId);
 
-  const [kind, setKind] = useState<GroupKind>(() => readPref('teza.groups.kind', ['story', 'edit'] as const, 'story'));
+  // One visible grouping model. Keeping the GroupKind type here makes the
+  // storage boundary explicit while legacy story data remains compatible.
+  const kind: GroupKind = 'edit';
   const [size, setSize] = useState<Size>(() => readPref('teza.groups.size', ['s', 'm', 'l'] as const, 'm'));
   const [view, setView] = useState<View>('all');
   const [query, setQuery] = useState('');
@@ -219,9 +212,16 @@ export default function GroupWorkspace({ projectId }: { projectId: string }) {
   const [dropBefore, setDropBefore] = useState<number | null>(null);
   const [rect, setRect] = useState<{ x0: number; y0: number; x1: number; y1: number } | null>(null);
   const [hinted, setHinted] = useState(() => readPref('teza.groups.hinted', ['1', '0'] as const, '0') === '1');
-  const [pendingJump, setPendingJump] = useState<string | null>(null);
 
   const W: Words = WORDS[kind];
+
+  // Preserve projects organised in the retired “story” mode. The migration is
+  // additive: old moment data remains intact and existing edit assignments win.
+  useEffect(() => {
+    if (!ready || state.batches.length || !(state.moments?.length)) return;
+    applyGroups(projectId, 'איחוד רצפים ישנים למקבצים', (s) =>
+      G.copyStoryMomentsAsEditGroups(s, () => ({ id: newGroupId('edit'), createdAt: new Date().toISOString() })));
+  }, [projectId, ready, state.batches.length, state.moments?.length]);
 
   /* ---- data ---- */
 
@@ -276,23 +276,8 @@ export default function GroupWorkspace({ projectId }: { projectId: string }) {
   const stripRef = useRef<HTMLElement>(null);
   const ghostRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef<DragPayload | null>(null);
-  const [height, setHeight] = useState(680);
   const [box, setBox] = useState({ w: 0, h: 0 });
   const [scrollTop, setScrollTop] = useState(0);
-
-  // The workspace owns the viewport below where it starts: the strip scrolls
-  // sideways, the sheet scrolls down, the page does not scroll (spec §181).
-  useLayoutEffect(() => {
-    const fit = () => {
-      const el = rootRef.current;
-      if (!el) return;
-      const top = Math.max(el.getBoundingClientRect().top, 0);
-      setHeight(Math.max(560, Math.round(window.innerHeight - top - 12)));
-    };
-    fit();
-    window.addEventListener('resize', fit);
-    return () => window.removeEventListener('resize', fit);
-  }, []);
 
   const hasSheet = ready && frames.length > 0;
   useEffect(() => {
@@ -364,14 +349,6 @@ export default function GroupWorkspace({ projectId }: { projectId: string }) {
     if (row.top - headroom < el.scrollTop) el.scrollTop = Math.max(0, row.top - headroom);
     else if (row.top + row.h > el.scrollTop + el.clientHeight) el.scrollTop = row.top + row.h - el.clientHeight;
   };
-
-  useEffect(() => {
-    if (!pendingJump || !layout.where.has(pendingJump)) return;
-    scrollToName(pendingJump);
-    setFocus(pendingJump);
-    setPendingJump(null);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pendingJump, layout]);
 
   /* ---- feedback ---- */
 
@@ -488,15 +465,6 @@ export default function GroupWorkspace({ projectId }: { projectId: string }) {
   function redo() {
     const label = redoGroups(projectId);
     if (label) say(`בוצע שוב: ${label}`, false);
-  }
-
-  function copyEditGroups() {
-    const before = G.groupsOf(groupStateOf(projectId), 'story').length;
-    applyGroups(projectId, 'העתקת קבוצות עריכה', (s) =>
-      G.copyEditGroupsAsMoments(s, () => ({ id: newGroupId('story'), createdAt: now() })));
-    const made = G.groupsOf(groupStateOf(projectId), 'story').length - before;
-    closeFloats();
-    say(made ? `נוצרו ${count(made)} רצפים מקבוצות העריכה` : 'כל התמונות של קבוצות העריכה כבר ברצפים', made > 0);
   }
 
   /* ---- suggestions ---- */
@@ -656,16 +624,14 @@ export default function GroupWorkspace({ projectId }: { projectId: string }) {
         return;
       case 'dragstart': {
         const de = e as React.DragEvent;
-        let names: string[];
-        if (selected.has(name)) {
-          names = selectionNames();
-        } else {
-          // Dragging an unselected frame drags only it, and it becomes the
-          // selection — no guessing what a mixed drag meant (spec §61).
-          names = [name];
-          setSelected(new Set([name]));
-          setAnchor(name);
+        // Only an intentional drag from an already-selected frame may move
+        // photographs. A tiny accidental drag must never replace the current
+        // selection with the frame under the pointer.
+        if (!selected.has(name)) {
+          de.preventDefault();
+          return;
         }
+        const names = selectionNames();
         dragRef.current = { type: 'frames', names };
         de.dataTransfer.effectAllowed = 'move';
         de.dataTransfer.setData('text/plain', names.join('\n'));
@@ -814,7 +780,6 @@ export default function GroupWorkspace({ projectId }: { projectId: string }) {
       moved: false,
       raf: 0,
     };
-    if (!additive) clearSelection();
     setMenu(null);
 
     const update = () => {
@@ -822,8 +787,8 @@ export default function GroupWorkspace({ projectId }: { projectId: string }) {
       const el = sheetRef.current;
       if (!st || !el) return;
       const box2 = el.getBoundingClientRect();
-      if (st.cy < box2.top + 36) el.scrollTop -= 16;
-      else if (st.cy > box2.bottom - 36) el.scrollTop += 16;
+      if (st.moved && st.cy < box2.top + 36) el.scrollTop -= 16;
+      else if (st.moved && st.cy > box2.bottom - 36) el.scrollTop += 16;
       const x1 = box2.right - st.cx;
       const y1 = st.cy - box2.top + el.scrollTop;
       if (st.moved) {
@@ -840,7 +805,7 @@ export default function GroupWorkspace({ projectId }: { projectId: string }) {
       if (!st) return;
       st.cx = ev.clientX;
       st.cy = ev.clientY;
-      if (!st.moved && Math.hypot(ev.clientX - e.clientX, ev.clientY - e.clientY) > 4) st.moved = true;
+      if (!st.moved && Math.hypot(ev.clientX - e.clientX, ev.clientY - e.clientY) > 10) st.moved = true;
     };
     const onUp = () => {
       if (rubber.current) cancelAnimationFrame(rubber.current.raf);
@@ -861,16 +826,15 @@ export default function GroupWorkspace({ projectId }: { projectId: string }) {
     const strip = stripRef.current;
     if (!d || !strip) return;
     const r = strip.getBoundingClientRect();
-    if (e.clientX < r.left + 56) strip.scrollLeft -= 18;
-    else if (e.clientX > r.right - 56) strip.scrollLeft += 18;
+    if (e.clientY < r.top + 56) strip.scrollTop -= 18;
+    else if (e.clientY > r.bottom - 56) strip.scrollTop += 18;
     if (d.type !== 'group') return;
     e.preventDefault();
     const tiles = [...strip.querySelectorAll<HTMLElement>('[data-group-tile]')];
     let idx = tiles.length;
     for (let i = 0; i < tiles.length; i += 1) {
       const tr = tiles[i].getBoundingClientRect();
-      // RTL: earlier tiles sit to the right; right of a tile's middle = before it.
-      if (e.clientX > tr.left + tr.width / 2) { idx = i; break; }
+      if (e.clientY < tr.top + tr.height / 2) { idx = i; break; }
     }
     setDropBefore(idx);
   }
@@ -950,41 +914,38 @@ export default function GroupWorkspace({ projectId }: { projectId: string }) {
       className={`gw ${selected.size ? 'gw-selecting' : ''}`}
       dir="rtl"
       ref={rootRef}
-      style={{ height }}
     >
+      <div className="gw-workarea">
+      <aside className="gw-overview" aria-label={`ניווט ${W.many}`}>
       {/* ---- header ---- */}
       <header className="gw-head">
-        <div className="gw-modes" role="radiogroup" aria-label="סוג החלוקה">
-          {(['story', 'edit'] as const).map((k) => (
-            <button
-              key={k}
-              type="button"
-              role="radio"
-              aria-checked={kind === k}
-              className={kind === k ? 'on' : ''}
-              onClick={() => {
-                if (k === kind) return;
-                stopAnalysis.current = true;
-                setKind(k);
-                writePref('teza.groups.kind', k);
-                setSuggest(null);
-                setAnalysis(null);
-                setView('all');
-                clearSelection();
-                setFocus(null);
-              }}
-            >
-              {WORDS[k].title}
-            </button>
-          ))}
+        <div className="gw-heading">
+          <strong>{W.title}</strong>
+          <p className="gw-stats">
+            <span className="mono">{count(groups.length)}</span> {W.many}
+            <i aria-hidden>·</i>
+            <span className="mono">{count(frames.length)}</span> תמונות
+          </p>
         </div>
-        <p className="gw-stats">
-          <span className="mono">{count(frames.length)}</span> תמונות
-          <i aria-hidden>·</i>
-          <span className="mono">{count(groups.length)}</span> {W.many}
-          <i aria-hidden>·</i>
-          <span className="mono">{count(unassigned.length)}</span> {W.none}
-        </p>
+        <div className="gw-view-switch" role="group" aria-label="תצוגת תמונות">
+          <button
+            type="button"
+            className={view === 'all' ? 'on' : ''}
+            onClick={() => switchView('all')}
+            aria-pressed={view === 'all'}
+          >
+            כל התמונות <span className="mono">{count(frames.length)}</span>
+          </button>
+          <button
+            type="button"
+            className={`${view === 'none' ? 'on' : ''} ${dropTarget === 'none' ? 'drop' : ''}`}
+            onClick={() => switchView('none')}
+            aria-pressed={view === 'none'}
+            {...frameDropProps('none', (names) => move(names, null))}
+          >
+            {W.none} <span className="mono">{count(unassigned.length)}</span>
+          </button>
+        </div>
         <div className="gw-head-actions">
           <input
             type="search"
@@ -1032,51 +993,18 @@ export default function GroupWorkspace({ projectId }: { projectId: string }) {
         </div>
       )}
 
-      {/* ---- the strip ---- */}
-      <nav
-        className="gw-strip"
-        ref={stripRef}
-        aria-label={W.many}
-        onDragOver={onStripDragOver}
-        onDrop={onStripDrop}
-        onDragLeave={(e) => { if (e.currentTarget === e.target) setDropBefore(null); }}
-      >
-        <button
-          type="button"
-          className={`gw-tile gw-tile-view ${view === 'all' ? 'on' : ''}`}
-          onClick={() => switchView('all')}
-          aria-pressed={view === 'all'}
+      {/* ---- real groups only: filters live in the header ---- */}
+      {groups.length > 0 ? (
+      <div className="gw-strip-shell">
+        <nav
+          className="gw-strip"
+          ref={stripRef}
+          dir="rtl"
+          aria-label={W.many}
+          onDragOver={onStripDragOver}
+          onDrop={onStripDrop}
+          onDragLeave={(e) => { if (e.currentTarget === e.target) setDropBefore(null); }}
         >
-          <span className="gw-tile-mosaic gw-tile-all" aria-hidden>
-            {frames.filter((_, i) => i % Math.max(1, Math.floor(frames.length / 4)) === 0).slice(0, 4).map((f) => (
-              <img key={f.name} src={preview.url(f.path, 160)} alt="" loading="lazy" draggable={false} />
-            ))}
-          </span>
-          <span className="gw-tile-foot">
-            <span className="gw-tile-name">כל התמונות</span>
-            <span className="gw-tile-count mono">{count(frames.length)}</span>
-            <bdi dir="ltr" className="gw-tile-span mono">{spanOf(frames)}</bdi>
-          </span>
-        </button>
-
-        <button
-          type="button"
-          className={`gw-tile gw-tile-view ${view === 'none' ? 'on' : ''} ${unassigned.length ? '' : 'dim'} ${dropTarget === 'none' ? 'drop' : ''}`}
-          onClick={() => switchView('none')}
-          aria-pressed={view === 'none'}
-          {...frameDropProps('none', (names) => move(names, null))}
-        >
-          <span className="gw-tile-mosaic" aria-hidden>
-            {unassigned.slice(0, 4).map((f) => (
-              <img key={f.name} src={preview.url(f.path, 160)} alt="" loading="lazy" draggable={false} />
-            ))}
-          </span>
-          <span className="gw-tile-foot">
-            <span className="gw-tile-name">{W.none}</span>
-            <span className="gw-tile-count mono">{count(unassigned.length)}</span>
-          </span>
-        </button>
-
         {groups.map((g, i) => (
           <GroupTile
             key={g.id}
@@ -1087,7 +1015,7 @@ export default function GroupWorkspace({ projectId }: { projectId: string }) {
             dropBefore={dropBefore === i}
             dropAfter={dropBefore === groups.length && i === groups.length - 1}
             renaming={renaming === g.id}
-            graded={kind === 'edit' && (state.recipe.perBatch[g.id] ?? []).some((t) => t.enabled)}
+            graded={(state.recipe.perBatch[g.id] ?? []).some((t) => t.enabled)}
             words={W}
             coverUrl={(p) => preview.url(p, 360)}
             onSelect={() => { if (view !== g.id) switchView(g.id); }}
@@ -1117,24 +1045,34 @@ export default function GroupWorkspace({ projectId }: { projectId: string }) {
         >
           {W.plus}
         </button>
-      </nav>
+        </nav>
+      </div>
+      ) : (
+        <div className="gw-empty-groups">
+          <div>
+            <span className="gw-empty-kicker">התחלה מהירה</span>
+            <strong>חלק את הצילום למקבצים ברורים</strong>
+            <p>מקבץ מרכז תמונות שתרצה לבחור ולערוך יחד. אפשר לקבל הצעה אוטומטית או להתחיל ידנית.</p>
+          </div>
+          <div className="gw-empty-actions">
+            <button type="button" className="btn btn-primary" onClick={suggestNow} disabled={busy}>{W.suggest}</button>
+            <button
+              type="button"
+              className="btn"
+              onClick={() => {
+                sheetRef.current?.focus();
+                const first = visible[0];
+                if (first) { setFocus(first.name); setAnchor(first.name); setSelected(new Set([first.name])); }
+              }}
+            >
+              בחר ידנית
+            </button>
+          </div>
+        </div>
+      )}
 
-      <Timeline
-        frames={frames}
-        ownerOf={ownerOf}
-        groups={groups}
-        active={view}
-        onJump={(name) => {
-          const f = byName.get(name);
-          if (!f) return;
-          if (!indexOf.has(name)) {
-            setQuery('');
-            switchView(view === 'none' || view === 'all' ? 'all' : ownerOf(f) ?? 'none');
-          }
-          setPendingJump(name);
-        }}
-        nameOf={nameOf}
-      />
+      </aside>
+      <section className="gw-gallery-pane" aria-label="תמונות במקבץ">
 
       {/* ---- toolbar ---- */}
       <div className="gw-toolbar">
@@ -1202,33 +1140,6 @@ export default function GroupWorkspace({ projectId }: { projectId: string }) {
           ))}
         </div>
       </div>
-
-      {firstRun && (
-        <section className="gw-first">
-          <div>
-            <h3>{kind === 'story' ? 'התחל לחלק את יום הצילום' : 'חלק את הצילום לפי אור'}</h3>
-            <p>
-              {kind === 'story'
-                ? 'בחר תמונות וצור מהן רצף, או בקש הצעה אוטומטית.'
-                : 'בחר תמונות שצולמו באותו אור וצור מהן קבוצת עריכה, או בקש הצעה.'}
-            </p>
-          </div>
-          <div className="gw-first-actions">
-            <button type="button" className="btn btn-primary" onClick={suggestNow}>{W.suggest}</button>
-            <button
-              type="button"
-              className="btn"
-              onClick={() => {
-                sheetRef.current?.focus();
-                const first = visible[0];
-                if (first) { setFocus(first.name); setAnchor(first.name); setSelected(new Set([first.name])); }
-              }}
-            >
-              בחר ידנית
-            </button>
-          </div>
-        </section>
-      )}
 
       {!hinted && !firstRun && (
         <p className="gw-hint">בחר תמונה. Shift בוחר טווח.</p>
@@ -1324,6 +1235,9 @@ export default function GroupWorkspace({ projectId }: { projectId: string }) {
         )}
       </div>
 
+      </section>
+      </div>
+
       {/* ---- selection toolbar ---- */}
       {selected.size > 0 && (
         <div className="gw-selbar" role="toolbar" aria-label="פעולות על הבחירה">
@@ -1375,9 +1289,6 @@ export default function GroupWorkspace({ projectId }: { projectId: string }) {
       {menu?.kind === 'header' && (
         <Menu x={menu.x} y={menu.y} onClose={() => setMenu(null)} label="פעולות נוספות" items={[
           { label: W.suggest, onSelect: () => { setMenu(null); void suggestNow(); }, disabled: busy },
-          ...(kind === 'story' && state.batches.length
-            ? [{ label: 'העתק קבוצות עריכה כרצפים', onSelect: copyEditGroups }]
-            : []),
           { label: 'קיצורי מקלדת', hint: '?', onSelect: () => { setMenu(null); setDialog({ type: 'help' }); } },
         ]} />
       )}
@@ -1548,10 +1459,12 @@ export default function GroupWorkspace({ projectId }: { projectId: string }) {
         const i = indexOf.get(previewName);
         if (!f || i === undefined) return null;
         const owner = ownerOf(f);
-        return (
-          <div className="gw-overlay" role="dialog" aria-label={f.name} onClick={() => setPreviewName(null)}>
+        return createPortal(
+          <div className="gw-overlay gw-preview-overlay" role="dialog" aria-modal="true" aria-label={f.name} onClick={() => setPreviewName(null)}>
             <figure className="gw-preview" onClick={(e) => e.stopPropagation()}>
-              <img src={preview.url(f.path, 1600)} alt="" />
+              <div className="gw-preview-stage">
+                <img src={preview.url(f.path, 1600)} alt={f.name} />
+              </div>
               <figcaption>
                 <bdi dir="ltr" className="mono">{f.name}</bdi>
                 <bdi dir="ltr" className="mono">{clock(f.shot, true) || 'ללא זמן'}</bdi>
@@ -1570,7 +1483,8 @@ export default function GroupWorkspace({ projectId }: { projectId: string }) {
                 <button type="button" className="gw-icon" onClick={() => setPreviewName(null)} aria-label="סגור">×</button>
               </figcaption>
             </figure>
-          </div>
+          </div>,
+          document.body,
         );
       })()}
 
@@ -1636,7 +1550,7 @@ const Cell = memo(function Cell({
       role="gridcell"
       aria-selected={selected}
       title={`${f.name} · ${time || 'ללא זמן'}`}
-      draggable
+      draggable={selected}
       onClick={(e) => onEvent('click', f.name, e)}
       onDoubleClick={(e) => onEvent('dbl', f.name, e)}
       onContextMenu={(e) => onEvent('menu', f.name, e)}
@@ -1813,78 +1727,6 @@ function ViewName({ name, label, onRename }: { name: string; label: string; onRe
         if (!cancelled.current && draft.trim() !== name) onRename(draft);
       }}
     />
-  );
-}
-
-function Timeline({
-  frames, ownerOf, groups, active, onJump, nameOf,
-}: {
-  frames: Frame[];
-  ownerOf: (f: Frame) => string | null;
-  groups: Group[];
-  active: View;
-  onJump: (name: string) => void;
-  nameOf: (id: string | null) => string;
-}) {
-  const timed = useMemo(() => frames.filter((f) => f.shot > 0), [frames]);
-  const model = useMemo(() => {
-    if (timed.length < 2) return null;
-    const t0 = timed[0].shot;
-    const t1 = timed[timed.length - 1].shot;
-    const span = Math.max(60, t1 - t0);
-    const pct = (t: number) => ((t - t0) / span) * 100;
-    const order = new Map(groups.map((g, i) => [g.id, i]));
-    const runs: { gid: string | null; from: number; to: number; n: number }[] = [];
-    for (const f of timed) {
-      const gid = ownerOf(f);
-      const last = runs[runs.length - 1];
-      if (last && last.gid === gid) { last.to = f.shot; last.n += 1; } else runs.push({ gid, from: f.shot, to: f.shot, n: 1 });
-    }
-    const notches: { at: number; minutes: number }[] = [];
-    for (let i = 1; i < timed.length; i += 1) {
-      const gap = timed[i].shot - timed[i - 1].shot;
-      if (gap >= NOTCH_SECONDS) notches.push({ at: pct((timed[i].shot + timed[i - 1].shot) / 2), minutes: Math.round(gap / 60) });
-    }
-    const step = span > 6 * 3600 ? 7200 : 3600;
-    const ticks: { at: number; label: string }[] = [];
-    for (let t = Math.ceil(t0 / step) * step; t <= t1; t += step) ticks.push({ at: pct(t), label: clock(t) });
-    return { t0, span, pct, runs, notches, ticks, order };
-  }, [timed, ownerOf, groups]);
-
-  if (!model) return null;
-
-  const jump = (e: React.MouseEvent<HTMLDivElement>) => {
-    const r = e.currentTarget.getBoundingClientRect();
-    const t = model.t0 + ((e.clientX - r.left) / r.width) * model.span;
-    let best = timed[0];
-    for (const f of timed) if (Math.abs(f.shot - t) < Math.abs(best.shot - t)) best = f;
-    onJump(best.name);
-  };
-
-  return (
-    <div className="gw-timeline" dir="ltr" aria-label="ציר הזמן של יום הצילום">
-      <div className="gw-tl-bar" onClick={jump} role="presentation">
-        {model.runs.map((r, i) => {
-          const tone = r.gid === null ? 'none' : r.gid === active ? 'on' : (model.order.get(r.gid) ?? 0) % 2 ? 'b' : 'a';
-          return (
-            <span
-              key={i}
-              className={`gw-tl-seg ${tone}`}
-              style={{ left: `${model.pct(r.from)}%`, width: `max(3px, ${model.pct(r.to) - model.pct(r.from)}%)` }}
-              title={`${nameOf(r.gid)} · ${r.n} תמונות · ${clock(r.from)}–${clock(r.to)}`}
-            />
-          );
-        })}
-        {model.notches.map((n, i) => (
-          <span key={`n${i}`} className="gw-tl-notch" style={{ left: `${n.at}%` }} title={`הפסקה של ${n.minutes} דקות`} />
-        ))}
-      </div>
-      <div className="gw-tl-ticks" aria-hidden>
-        {model.ticks.map((t) => (
-          <span key={t.label} style={{ left: `${t.at}%` }} className="mono">{t.label}</span>
-        ))}
-      </div>
-    </div>
   );
 }
 

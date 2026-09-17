@@ -55,9 +55,61 @@ const HSL_TOOL: ToolDef[] = [
   },
 ];
 
+/* Mirrors engine/raw.py RAW_EXTENSIONS — change both together. The front end
+ * needs its own copy for one purpose only: deciding whether to OFFER the
+ * develop step. What a file actually is, is always the engine's answer. */
+export const RAW_EXTENSIONS = [
+  '.cr2', '.cr3', '.nef', '.arw', '.raf', '.rw2', '.dng', '.orf', '.pef', '.srw',
+];
+
+export function isRawFile(path: string | null | undefined): boolean {
+  if (!path) return false;
+  const dot = path.lastIndexOf('.');
+  return dot >= 0 && RAW_EXTENSIONS.includes(path.slice(dot).toLowerCase());
+}
+
 // THE registry. Adding a tool (global or AI) = one entry here. Nothing else
 // in the app needs to special-case it — the UI and pipeline are built from this.
 export const TOOLS: ToolDef[] = [
+  {
+    /* פיתוח גלם — the only step that is not spent on pixels.
+     *
+     * A sensor does not record a colour, it records how much light hit filters
+     * over each photosite; what counts as white is a DECISION, and the camera
+     * already made one. That decision is the default here (0 is exactly what
+     * the camera said), so nothing looks wrong on import and the frame matches
+     * what was on the camera's screen.
+     *
+     * Moving it changes the numbers the DECODER is given, before a picture
+     * exists. That is the whole point: the same correction made afterwards, on
+     * finished RGB, is what leaves skin looking bruised — there is no headroom
+     * left to move a colour into. Here there is nothing but headroom.
+     *
+     * Runs at order 0 because it is not first in the pipeline, it is BEFORE
+     * the pipeline. engine/render.TOOLS does not know this id, which is
+     * correct: the renderer has nothing to do with it. engine/raw.develop_of
+     * is what reads it.
+     */
+    id: 'raw-develop',
+    label: 'פיתוח גלם',
+    kind: 'global',
+    category: 'raw',
+    order: 0,
+    // The light of a room is one fact about a set, not a per-frame taste —
+    // so it belongs to the batch and lands on every frame shot under it.
+    batchPolicy: 'absolute',
+    rawOnly: true,
+    params: [
+      // ±100 is roughly ±1500K around daylight. Warm and cool, not Kelvin:
+      // a number that runs backwards (lower = warmer) is a control that has
+      // to be explained before it can be used.
+      { id: 'warmth', label: 'חום האור', min: -100, max: 100, step: 1, default: 0 },
+      // Positive is magenta, negative is green — the direction every other
+      // tool in this trade uses, so a hand that already knows it is not
+      // retrained here.
+      { id: 'tint', label: 'גוון האור', min: -100, max: 100, step: 1, default: 0 },
+    ],
+  },
   {
     // sensor noise is removed FIRST, before anything sharpens or stretches it.
     // Windows are fixed-pixel, not frame-relative — noise lives at pixel scale.

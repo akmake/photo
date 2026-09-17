@@ -145,7 +145,7 @@
   width: 100%;
   height: 100%;
   display: block;
-  object-fit: cover;
+  object-fit: contain;
   transition: transform var(--d-3) var(--ease);
 }
 
@@ -316,7 +316,7 @@
   width: 56px;
   height: 42px;
   display: block;
-  object-fit: cover;
+  object-fit: contain;
   border-radius: var(--r-photo);
   background: var(--cyc-200);
 }
@@ -609,7 +609,7 @@
   width: 100%;
   height: 100%;
   display: block;
-  object-fit: cover;
+  object-fit: contain;
 }
 
 .pj-row-copy {
@@ -883,7 +883,7 @@
   width: 100%;
   height: 100%;
   display: block;
-  object-fit: cover;
+  object-fit: contain;
 }
 
 /* No import yet: the client's initial on a calm plate. Never a broken image,
@@ -1145,7 +1145,7 @@
   display: block;
   width: 58px;
   height: 42px;
-  object-fit: cover;
+  object-fit: contain;
   border-radius: 3px;
   background: #f4f2f2;
 }
@@ -3096,7 +3096,7 @@ button.today-register-row:hover {
   height: 44px;
   flex: 0 0 auto;
   border-radius: 6px;
-  object-fit: cover;
+  object-fit: contain;
   background: linear-gradient(135deg, #b8a182, #6c7a5f 55%, #cfc5b0);
 }
 

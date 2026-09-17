@@ -16,10 +16,10 @@ export default function BatchesV2({
     <div className="tz-stage-container tz-stage-groups">
       <section className="tz-stage-header">
         <div className="tz-stage-header-copy">
-          <div className="tz-stage-tag">שלב 2 · רצפים</div>
-          <h1>רצפים</h1>
+          <div className="tz-stage-tag">שלב 2 · מקבצים</div>
+          <h1>מקבצים</h1>
           <p>
-            חלק את יום הצילום של <strong>{project.client}</strong> לרגעים שאפשר לבחור, לערוך ולעצב מהם.
+            חלק את הצילום של <strong>{project.client}</strong> למקבצים שאפשר לבחור ולערוך יחד.
           </p>
         </div>
 

@@ -2,10 +2,13 @@
 
 import io
 import base64
+import os
 import threading
 
 import numpy as np
 from PIL import Image, ImageOps
+
+import raw
 
 
 # --------------------------------------------------------------- source scale
@@ -134,8 +137,29 @@ def b64_to_image(data: str) -> Image.Image:
     return _upright(Image.open(io.BytesIO(base64.b64decode(data)))).convert("RGB")
 
 
-def load_image(path: str) -> Image.Image:
-    """Open a file from disk, EXIF-corrected."""
+def load_image(path: str, develop=None) -> Image.Image:
+    """Open a file from disk, EXIF-corrected. RAW goes through the decoder.
+
+    The gate for raw support in the whole product: apply, export, every tool
+    endpoint and the edit screen all arrive here, so a sensor file stops being
+    a special case one level below any of them.
+
+    `develop` is the decode-time part of a recipe (raw.develop_of) — white
+    balance, which has to be spent while the frame is still sensor data. None
+    means the camera's own decision, which is the right default and the one a
+    JPEG carries anyway.
+
+    A raw file is never allowed to fall through to Pillow: it would raise
+    "cannot identify image file", which reads as a corrupt photograph rather
+    than as a missing decoder.
+    """
+    if raw.is_raw(path):
+        try:
+            return _upright(raw.decode_path(path, develop=develop)).convert("RGB")
+        except FileNotFoundError:
+            raise  # a file that is not there is a different fact, and says so
+        except Exception as e:  # noqa: BLE001
+            raise OSError(f"לא ניתן לפענח את קובץ הגלם {os.path.basename(path)}: {e}") from e
     return _upright(Image.open(path)).convert("RGB")
 
 

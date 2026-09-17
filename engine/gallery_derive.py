@@ -22,6 +22,8 @@ import io
 
 from PIL import Image, ImageOps
 
+import raw
+
 PREVIEW_WIDTH = 1600
 PREVIEW_QUALITY = 75
 THUMB_WIDTH = 400
@@ -49,7 +51,20 @@ def _decode(path, width):
     no EXIF at all - which is the point. A proofing file is about to be handed
     to whoever has the link, and it should not carry the GPS of the venue or
     the camera's serial number with it.
+
+    A raw frame is published from the preview the camera buried inside it, the
+    same picture the photographer's own grid is showing. A gallery is a set
+    being CHOSEN from, not delivered - and rebuilding 600 frames from sensor
+    data to make a 1600px proof would turn a publish into an afternoon. What
+    the client is asked to pick is then exactly what the photographer sees
+    while picking alongside them, which is worth more here than the last
+    percent of fidelity.
     """
+    if raw.is_raw(path):
+        got = raw.embedded(path, width)
+        if got is not None:
+            return got[0]
+        return ImageOps.exif_transpose(raw.decode_path(path, width)).convert("RGB")
     im = Image.open(path)
     im.draft("RGB", (width * 2, width * 2))
     return ImageOps.exif_transpose(im).convert("RGB")

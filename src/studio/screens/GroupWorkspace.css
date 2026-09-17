@@ -1,4 +1,4 @@
-/* רצפים / קבוצות עריכה — the group workspace.
+/* מקבצים — the group workspace.
  *
  * Contact Sheet language (tokens.css): flat, hairline rules, near-square
  * corners, copper spent only where something is live. Three states are never
@@ -14,9 +14,12 @@
 
 .gw {
   --gw-brand: var(--acc-mark, var(--brand));
+  flex: 1 1 auto;
   display: flex;
   flex-direction: column;
+  height: 100%;
   min-height: 0;
+  overflow: hidden;
   gap: 0;
   color: var(--ink);
   font-family: var(--font);
@@ -25,38 +28,68 @@
 
 .gw .mono { font-family: var(--font-data); font-variant-numeric: tabular-nums; }
 
+/* The controls above the contact sheet are one navigator, not four unrelated
+ * horizontal bands. Keeping them on a single surface gives the eye one place
+ * to understand the current grouping before it drops into the photographs. */
+.gw-workarea {
+  flex: 1 1 auto;
+  min-height: 0;
+  min-width: 0;
+  display: flex;
+  align-items: stretch;
+  background: var(--card);
+}
+
+.gw-overview {
+  flex: 0 0 300px;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 0;
+  border-inline-end: 1px solid var(--line);
+  border-radius: 0;
+  background: var(--card);
+  box-shadow: none;
+}
+
+.gw-gallery-pane {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--canvas, var(--card));
+}
+
 /* ---- header ---- */
 
 .gw-head {
   display: flex;
-  align-items: center;
-  gap: var(--s4);
-  flex-wrap: wrap;
-  padding-bottom: var(--s2);
+  align-items: stretch;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px;
+  border-bottom: 1px solid var(--line);
+  background: color-mix(in srgb, var(--card) 92%, var(--card-2));
 }
 
-.gw-modes {
-  display: inline-flex;
-  border: 1px solid var(--line-strong);
-  border-radius: 3px;
-  overflow: hidden;
+.gw-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 10px;
 }
 
-.gw-modes button {
-  border: 0;
-  background: none;
-  font: inherit;
+.gw-heading > strong {
   font-family: var(--font-display);
-  font-size: var(--t-md);
-  font-weight: 500;
-  color: var(--ink-3);
-  padding: 6px 14px;
-  cursor: pointer;
+  font-size: var(--t-lg);
+  line-height: 1;
+  font-weight: 600;
+  color: var(--ink);
 }
-
-.gw-modes button + button { border-inline-start: 1px solid var(--line-strong); }
-.gw-modes button.on { color: var(--ink); background: var(--card-3); }
-.gw-modes button:focus-visible { outline: 2px solid var(--gw-brand); outline-offset: -2px; }
 
 .gw-stats {
   margin: 0;
@@ -70,21 +103,63 @@
 .gw-stats .mono { color: var(--ink); }
 .gw-stats i { font-style: normal; color: var(--ink-4); }
 
+.gw-view-switch {
+  display: flex;
+  gap: 4px;
+  padding: 3px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--card-2);
+}
+
+.gw-view-switch button {
+  flex: 1 1 0;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ink-2);
+  font: inherit;
+  font-size: var(--t-sm);
+  font-weight: 500;
+  padding: 6px 10px;
+  cursor: pointer;
+}
+
+.gw-view-switch button .mono {
+  margin-inline-start: 5px;
+  color: var(--ink-3);
+}
+
+.gw-view-switch button.on {
+  border-color: var(--line);
+  background: var(--card);
+  color: var(--ink);
+  box-shadow: 0 1px 4px rgba(44, 36, 29, 0.1);
+}
+
+.gw-view-switch button.drop {
+  border-color: var(--gw-brand);
+  color: var(--gw-brand);
+}
+
+.gw-view-switch button:focus-visible { outline: 2px solid var(--gw-brand); outline-offset: 1px; }
+
 .gw-head-actions {
-  margin-inline-start: auto;
   display: flex;
   align-items: center;
   gap: 4px;
 }
 
 .gw-search {
-  width: 190px;
+  width: auto;
+  min-width: 0;
+  flex: 1 1 auto;
   border: 1px solid var(--line);
-  border-radius: 3px;
+  border-radius: 8px;
   background: var(--card);
   font: inherit;
   font-size: var(--t-sm);
-  padding: 5px 8px;
+  padding: 7px 10px;
   margin-inline-end: 6px;
   color: var(--ink);
 }
@@ -96,9 +171,9 @@
   place-items: center;
   width: 30px;
   height: 30px;
-  border: 1px solid transparent;
-  border-radius: 3px;
-  background: none;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--card);
   color: var(--ink-2);
   font: inherit;
   font-size: 18px;
@@ -106,8 +181,8 @@
   cursor: pointer;
 }
 
-.gw-icon:hover:not(:disabled) { border-color: var(--line-strong); color: var(--ink); }
-.gw-icon:disabled { color: var(--ink-4); cursor: default; }
+.gw-icon:hover:not(:disabled) { border-color: var(--line-strong); color: var(--ink); background: var(--card-2); }
+.gw-icon:disabled { color: var(--ink-4); cursor: default; background: transparent; border-color: transparent; }
 .gw-icon:focus-visible { outline: 2px solid var(--gw-brand); outline-offset: 1px; }
 /* The undo glyph points the RTL way already; redo is its mirror. */
 .gw-redo svg { transform: scaleX(-1); }
@@ -131,7 +206,7 @@
   align-items: center;
   gap: var(--s3);
   padding: var(--s2) var(--s3);
-  margin-bottom: var(--s3);
+  margin: var(--s3) 14px;
   border: 1px solid var(--danger);
   border-radius: 3px;
   color: var(--danger-ink);
@@ -143,24 +218,45 @@
 
 /* ---- the strip ---- */
 
+.gw-strip-shell {
+  flex: 1 1 auto;
+  min-height: 0;
+  padding: 12px;
+  overflow: hidden;
+}
+
 .gw-strip {
   display: flex;
-  gap: var(--s2);
-  overflow-x: auto;
-  overflow-y: hidden;
-  padding: 2px 2px var(--s2);
+  flex-direction: column;
+  height: 100%;
+  gap: 10px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  padding: 2px 4px 12px;
   scrollbar-width: thin;
-  flex: 0 0 auto;
+  scrollbar-color: var(--line-strong) transparent;
+  overscroll-behavior-block: contain;
 }
+
+.gw-strip::-webkit-scrollbar { width: 7px; }
+.gw-strip::-webkit-scrollbar-track { background: transparent; }
+.gw-strip::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  border-radius: 99px;
+  background: var(--line-strong);
+  background-clip: padding-box;
+}
+.gw-strip::-webkit-scrollbar-thumb:hover { background-color: var(--ink-3); }
 
 .gw-tile {
   position: relative;
-  flex: 0 0 172px;
-  height: 112px;
+  flex: 0 0 142px;
+  width: 100%;
+  height: 142px;
   display: flex;
   flex-direction: column;
   border: 1px solid var(--line);
-  border-radius: 3px;
+  border-radius: 11px;
   background: var(--card);
   padding: 0;
   font: inherit;
@@ -168,18 +264,26 @@
   text-align: start;
   cursor: pointer;
   overflow: hidden;
+  transition: border-color 120ms ease, box-shadow 120ms ease, transform 120ms ease;
 }
 
-.gw-tile:hover { border-color: var(--line-strong); }
+.gw-tile:hover {
+  border-color: var(--line-strong);
+  box-shadow: 0 8px 20px rgba(44, 36, 29, 0.1);
+  transform: translateY(-2px);
+}
 .gw-tile:focus-within { border-color: var(--line-loud); }
 
-/* active group: a copper bar under the tile — not the photo's outline language */
-.gw-tile.on { border-color: var(--line-loud); }
+/* Active group must be readable at a glance, not only through a 3px underline. */
+.gw-tile.on {
+  border-color: var(--gw-brand);
+  box-shadow: 0 0 0 1px var(--gw-brand), 0 10px 24px color-mix(in srgb, var(--gw-brand) 20%, transparent);
+}
 .gw-tile.on::after {
   content: '';
   position: absolute;
   inset-inline: 0;
-  bottom: 0;
+  top: 0;
   height: 3px;
   background: var(--gw-brand);
 }
@@ -193,14 +297,14 @@
 .gw-tile.after::before {
   content: '';
   position: absolute;
-  top: 4px;
-  bottom: 4px;
-  width: 3px;
+  inset-inline: 4px;
+  width: auto;
+  height: 3px;
   background: var(--gw-brand);
   z-index: 2;
 }
-.gw-tile.before::before { inset-inline-start: 0; }
-.gw-tile.after::before { inset-inline-end: 0; }
+.gw-tile.before::before { top: 0; }
+.gw-tile.after::before { top: auto; bottom: 0; }
 
 .gw-tile-hit {
   flex: 1 1 auto;
@@ -247,7 +351,7 @@
   gap: 1px;
 }
 
-.gw-tile-mosaic img { width: 100%; height: 100%; object-fit: cover; display: block; min-height: 0; }
+.gw-tile-mosaic img { width: 100%; height: 100%; object-fit: contain; display: block; min-height: 0; }
 
 .gw-tile-foot {
   flex: 0 0 auto;
@@ -255,14 +359,14 @@
   grid-template-columns: 1fr auto;
   align-items: baseline;
   column-gap: 6px;
-  padding: 5px 8px 7px;
+  padding: 9px 11px 10px;
   border-top: 1px solid var(--line);
   background: var(--card);
 }
 
 .gw-tile-name {
-  font-size: var(--t-sm);
-  font-weight: 500;
+  font-size: var(--t-md);
+  font-weight: 650;
   color: var(--ink);
   white-space: nowrap;
   overflow: hidden;
@@ -270,13 +374,13 @@
   min-width: 0;
 }
 
-.gw-tile-count { font-size: var(--t-xs); color: var(--ink-2); }
+.gw-tile-count { font-size: var(--t-sm); color: var(--ink-2); }
 
 .gw-tile-span {
   grid-column: 1 / -1;
-  font-size: 11px;
-  color: var(--ink-3);
-  min-height: 13px;
+  font-size: var(--t-xs);
+  color: var(--ink-2);
+  min-height: 15px;
   text-align: end;
   justify-self: start;
 }
@@ -311,8 +415,8 @@
   width: 26px;
   height: 22px;
   border: 1px solid var(--line);
-  border-radius: 3px;
-  background: var(--card);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--card) 94%, transparent);
   color: var(--ink);
   font: inherit;
   line-height: 1;
@@ -325,68 +429,64 @@
 .gw-tile-more:focus-visible { opacity: 1; }
 
 .gw-tile-plus {
-  flex: 0 0 84px;
-  height: 112px;
+  flex: 0 0 54px;
+  width: 100%;
+  height: 54px;
   border: 1px dashed var(--line-strong);
-  border-radius: 3px;
-  background: none;
+  border-radius: 11px;
+  background: color-mix(in srgb, var(--card-2) 72%, var(--card));
   font: inherit;
-  font-size: var(--t-sm);
-  color: var(--ink-3);
+  font-size: var(--t-md);
+  font-weight: 600;
+  color: var(--ink-2);
   cursor: pointer;
 }
 
 .gw-tile-plus:hover,
 .gw-tile-plus.drop { border-color: var(--gw-brand); color: var(--gw-brand); }
 
-/* ---- timeline ---- */
-
-.gw-timeline {
-  flex: 0 0 auto;
-  padding: 0 0 2px;
+.gw-empty-groups {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: center;
+  gap: 18px;
+  padding: 24px 18px;
+  background:
+    linear-gradient(100deg, color-mix(in srgb, var(--brand-wash) 72%, var(--card)) 0%, var(--card) 58%);
 }
 
-.gw-tl-bar {
-  position: relative;
-  height: 10px;
-  background: var(--card-2);
-  border-radius: 2px;
-  cursor: pointer;
+.gw-empty-groups > div:first-child { max-width: none; }
+
+.gw-empty-kicker {
+  display: block;
+  margin-bottom: 5px;
+  color: var(--gw-brand);
+  font-size: var(--t-xs);
+  font-weight: 700;
+  letter-spacing: 0.03em;
 }
 
-.gw-tl-seg {
-  position: absolute;
-  top: 0;
-  bottom: 0;
+.gw-empty-groups strong {
+  display: block;
+  color: var(--ink);
+  font-family: var(--font-display);
+  font-size: var(--t-xl);
+  font-weight: 600;
 }
 
-.gw-tl-seg.a { background: var(--cyc-400); }
-.gw-tl-seg.b { background: var(--cyc-500); }
-.gw-tl-seg.none { background: repeating-linear-gradient(135deg, var(--cyc-300) 0 3px, transparent 3px 6px); }
-.gw-tl-seg.on { background: var(--gw-brand); }
-
-.gw-tl-notch {
-  position: absolute;
-  top: -3px;
-  bottom: -3px;
-  width: 2px;
-  margin-left: -1px;
-  background: var(--card);
-  box-shadow: 0 0 0 1px var(--ink-3);
+.gw-empty-groups p {
+  margin: 5px 0 0;
+  color: var(--ink-2);
+  font-size: var(--t-sm);
 }
 
-.gw-tl-ticks {
-  position: relative;
-  height: 14px;
-}
-
-.gw-tl-ticks span {
-  position: absolute;
-  top: 2px;
-  transform: translateX(-50%);
-  font-size: 10px;
-  color: var(--ink-3);
-  white-space: nowrap;
+.gw-empty-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 }
 
 /* ---- toolbar ---- */
@@ -397,8 +497,9 @@
   align-items: center;
   gap: var(--s4);
   flex-wrap: wrap;
-  padding: 6px 0;
-  border-top: 1px solid var(--line);
+  padding: 11px 16px;
+  border-bottom: 1px solid var(--line);
+  background: var(--card);
 }
 
 .gw-view-title {
@@ -406,6 +507,7 @@
   align-items: baseline;
   gap: 8px;
   font-size: var(--t-md);
+  min-width: 220px;
 }
 
 /* The active group's name IS the title, and it is a field: click and type.
@@ -447,7 +549,7 @@
 .gw-sizes {
   display: inline-flex;
   border: 1px solid var(--line);
-  border-radius: 3px;
+  border-radius: 7px;
   overflow: hidden;
 }
 
@@ -462,26 +564,13 @@
 }
 
 .gw-sizes button + button { border-inline-start: 1px solid var(--line); }
-.gw-sizes button.on { color: var(--ink); background: var(--card-3); }
-
-.gw-first {
-  display: flex;
-  align-items: center;
-  gap: var(--s4);
-  flex-wrap: wrap;
-  padding: var(--s3) var(--s4);
-  margin-bottom: var(--s2);
-  border: 1px solid var(--line);
-  border-inline-start: 3px solid var(--gw-brand);
-  border-radius: 3px;
-}
-
-.gw-first h3 { margin: 0 0 2px; font-family: var(--font-display); font-weight: 500; font-size: var(--t-lg); }
-.gw-first p { margin: 0; color: var(--ink-3); font-size: var(--t-sm); }
-.gw-first-actions { display: flex; gap: var(--s2); margin-inline-start: auto; }
+.gw-sizes button.on { color: var(--ink); background: var(--card-3); font-weight: 600; }
 
 .gw-hint {
-  margin: 0 0 var(--s2);
+  margin: 0;
+  padding: 5px 16px;
+  border-bottom: 1px solid var(--line);
+  background: var(--card);
   font-size: var(--t-xs);
   color: var(--ink-3);
 }
@@ -492,13 +581,14 @@
  * toolbar wrap taller, and a flex child with min-height 0 simply vanished. */
 .gw-sheet {
   flex: 1 1 auto;
-  min-height: 320px;
+  min-height: 0;
   overflow-y: auto;
   overflow-x: hidden;
   position: relative;
   outline: none;
   user-select: none;
   scrollbar-width: thin;
+  background: var(--card-2);
 }
 
 .gw-sheet:focus-visible { box-shadow: inset 0 0 0 1px var(--line-loud); }
@@ -890,22 +980,45 @@
 .gw-preview {
   margin: 0;
   display: grid;
-  grid-template-rows: 1fr auto;
-  gap: var(--s2);
-  width: min(1400px, 100%);
-  height: min(92vh, 100%);
+  grid-template-rows: minmax(0, 1fr) auto;
+  width: min(1280px, calc(100vw - 32px));
+  height: min(920px, calc(100dvh - 32px));
+  min-height: 0;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 12px;
+  background: #1b1917;
+  box-shadow: 0 28px 80px rgba(0, 0, 0, 0.42);
 }
 
-.gw-preview img { width: 100%; height: 100%; min-height: 0; object-fit: contain; }
+.gw-preview-overlay { padding: 16px; }
+
+.gw-preview-stage {
+  min-width: 0;
+  min-height: 0;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  background: #1b1917;
+}
+
+.gw-preview img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  object-fit: contain;
+}
 
 .gw-preview figcaption {
   display: flex;
   align-items: center;
   gap: var(--s3);
   flex-wrap: wrap;
-  padding: var(--s2) var(--s3);
+  padding: 10px 12px;
   background: var(--card);
-  border-radius: 3px;
+  border-top: 1px solid var(--line);
   font-size: var(--t-sm);
   color: var(--ink-2);
 }
@@ -957,7 +1070,10 @@
 .gw-empty-project { color: var(--ink-3); }
 
 @media (max-width: 1000px) {
-  .gw-search { width: 140px; }
-  .gw-tile { flex-basis: 150px; height: 100px; }
-  .gw-tile-plus { height: 100px; }
+  .gw-overview { flex-basis: 250px; }
+  .gw-search { width: auto; }
+  .gw-tile { flex-basis: 126px; height: 126px; }
+  .gw-tile-plus { flex-basis: 50px; height: 50px; }
+  .gw-view-title { min-width: 0; }
+  .gw-strip-shell { padding-inline: 8px; }
 }

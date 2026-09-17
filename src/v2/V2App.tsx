@@ -29,10 +29,11 @@ export default function V2App({ onSwitchToV1, onOpenProjectV1 }: V2AppProps) {
   const studio = useStudio();
 
   const isEditing = activeNav === 'project-detail' && activeStage === 'gallery-edit';
+  const isGrouping = activeNav === 'project-detail' && activeStage === 'batches';
   const isAlbumMode =
     (activeNav === 'project-detail' && activeStage === 'album-design') ||
     activeNav === 'albums';
-  const isSidebarCollapsed = sidebarCollapsed || isEditing || isAlbumMode;
+  const isSidebarCollapsed = sidebarCollapsed || isEditing || isGrouping || isAlbumMode;
 
   // Active project selection
   const selectedProject = studio.projects.find((p) => p.id === selectedProjectId) || studio.projects[0];
@@ -60,7 +61,7 @@ export default function V2App({ onSwitchToV1, onOpenProjectV1 }: V2AppProps) {
   const PROJECT_STAGES = [
     { id: 'client-status', label: 'סטטוס לקוח', icon: TzIconUsers },
     { id: 'gallery-upload', label: 'ייבוא תמונות', icon: TzIconUpload },
-    { id: 'batches', label: 'רצפים', icon: TzIconLayers },
+    { id: 'batches', label: 'מקבצים', icon: TzIconLayers },
     { id: 'send-to-client', label: 'שלח ללקוח', icon: TzIconSend },
     { id: 'gallery-edit', label: 'עריכה', icon: TzIconSliders },
     { id: 'album-design', label: 'אלבום', icon: TzIconBook },
@@ -189,7 +190,7 @@ export default function V2App({ onSwitchToV1, onOpenProjectV1 }: V2AppProps) {
   }
 
   return (
-    <div className={`tz-app ${isEditing ? 'is-editing' : ''}`}>
+    <div className={`tz-app ${isEditing ? 'is-editing' : ''} ${isGrouping ? 'is-grouping' : ''}`}>
       {/* 1. SIDEBAR (Placed on Right in natural RTL) */}
       <aside className={`tz-sidebar ${isSidebarCollapsed ? 'collapsed' : ''}`}>
         {/* Toggle Sidebar Collapse Button */}
@@ -309,7 +310,7 @@ export default function V2App({ onSwitchToV1, onOpenProjectV1 }: V2AppProps) {
       {/* 2. MAIN CONTENT WRAPPER */}
       <div className="tz-main-wrapper">
         {/* Top Header - Hidden when editing or in album mode to maximize workspace */}
-        {!isEditing && !isAlbumMode && (
+        {!isEditing && !isGrouping && !isAlbumMode && (
           <header className="tz-topbar">
             {activeNav === 'project-detail' ? (
               <button className="tz-topbar-back" type="button" onClick={() => setActiveNav('projects')}>
@@ -369,7 +370,7 @@ export default function V2App({ onSwitchToV1, onOpenProjectV1 }: V2AppProps) {
         )}
 
         {/* Content Area */}
-        <main className={`tz-content-scroll ${isAlbumMode ? 'album-mode' : ''}`}>
+        <main className={`tz-content-scroll ${isAlbumMode ? 'album-mode' : ''} ${isGrouping ? 'groups-mode' : ''}`}>
           {renderMainContent()}
         </main>
       </div>

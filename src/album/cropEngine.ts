@@ -14,6 +14,10 @@ export interface CropAssessment {
 
 const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
 
+/** How far a crop window of `size` can slide before it leaves the photograph —
+ *  0 when the window is the whole picture and there is nothing to slide. */
+const travel = (size: number) => Math.max(0, 1 - size);
+
 function intersectionRatio(box: NormalizedBox, crop: NormalizedBox): number {
   const x0 = Math.max(box.x, crop.x);
   const y0 = Math.max(box.y, crop.y);
@@ -106,10 +110,16 @@ export function assessCrop(
       y = clamp(focal.y - cropHeight / 2, 0, 1 - cropHeight);
     }
   } else {
-    const requestedX = (settings?.positionX ?? focal.x * 100) / 100;
-    const requestedY = (settings?.positionY ?? focal.y * 100) / 100;
-    x = clamp(requestedX - cropWidth / 2, 0, 1 - cropWidth);
-    y = clamp(requestedY - cropHeight / 2, 0, 1 - cropHeight);
+    /* positionX/Y speak CSS `object-position`: 0 pins the photo's own start
+     * edge to the frame's, 100 pins its end edge — NOT "put this point of the
+     * photograph in the middle of the frame". Reading them as a centre is what
+     * made the last ~11% of a portrait unreachable: 100 resolved to a window
+     * centred at 66%, so the bottom of the photo could never become the bottom
+     * of the frame. The renderer (object-position) and the print rasteriser
+     * (`(width - drawnWidth) * share`) have always used the alignment reading;
+     * this is the one place that did not. */
+    x = travel(cropWidth) * clamp((settings?.positionX ?? focal.x * 100) / 100, 0, 1);
+    y = travel(cropHeight) * clamp((settings?.positionY ?? focal.y * 100) / 100, 0, 1);
   }
 
   const crop = { x, y, width: cropWidth, height: cropHeight };
@@ -130,8 +140,9 @@ export function assessCrop(
 
   return {
     fit: 'cover',
-    positionX: clamp((x + cropWidth / 2) * 100, 0, 100),
-    positionY: clamp((y + cropHeight / 2) * 100, 0, 100),
+    // back to the alignment language the screen and the rasteriser both draw in
+    positionX: travel(cropWidth) > 1e-6 ? clamp(x / travel(cropWidth) * 100, 0, 100) : 50,
+    positionY: travel(cropHeight) > 1e-6 ? clamp(y / travel(cropHeight) * 100, 0, 100) : 50,
     crop,
     safe,
     retainedPercent: Math.round(retained * 100),

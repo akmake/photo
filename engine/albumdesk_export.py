@@ -110,11 +110,13 @@ def _load(path: str) -> Image.Image:
     """
     if not path or not os.path.isfile(path):
         raise ExportError(f"file not found: {path}")
-    ext = os.path.splitext(path)[1].lower()
-    if ext in {".cr2", ".cr3", ".nef", ".arw", ".raf", ".rw2", ".orf", ".dng", ".pef"}:
-        try:
-            import raw  # engine-local
+    # The list of raw extensions lives in raw.py and nowhere else. Kept here as
+    # a second copy it had already drifted - .srw was missing, so a Samsung
+    # frame was handed to Pillow and failed as if the file were corrupt.
+    import raw  # engine-local
 
+    if raw.is_raw(path):
+        try:
             return ImageOps.exif_transpose(raw.decode_path(path)).convert("RGB")
         except ExportError:
             raise

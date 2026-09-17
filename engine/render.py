@@ -20,6 +20,7 @@ import numpy as np
 
 import common
 import masks
+import raw
 
 import abpn
 import background
@@ -625,8 +626,15 @@ def export(
     fmt: str = "jpeg",
     quality: int = DEFAULT_QUALITY,
 ):
-    """Render one file from disk and write the result. -> (path, meta)."""
-    img = common.load_image(src_path)
+    """Render one file from disk and write the result. -> (path, meta).
+
+    A raw frame is developed on the way in: the white-balance step of the
+    recipe is spent on the DECODER, where it costs the picture nothing, and
+    never afterwards on finished RGB, where the same correction bruises skin.
+    `render` below does not see that step and does not need to — it is not in
+    TOOLS, so it is filtered out with every other id this renderer never knew.
+    """
+    img = common.load_image(src_path, develop=raw.develop_of(recipe_tools))
     out, meta = render(img, recipe_tools)
 
     os.makedirs(dest_dir, exist_ok=True)

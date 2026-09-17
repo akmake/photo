@@ -145,6 +145,15 @@
   flex-direction: column !important;
 }
 
+.tz-content-scroll.groups-mode {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  height: 100%;
+  overflow: hidden;
+  padding: 0;
+}
+
 
 /* Logo */
 .tz-logo-wrap {

@@ -137,15 +137,22 @@ _FRAMES_LOCK = threading.Lock()
 _FRAMES_MAX = 3
 
 
-def _working_frame(path, capreq):
-    """-> (source PIL, working PIL, extra scale) for `path` at `capreq`."""
-    ident = (_photo_key(path), int(capreq or 0))
+def _working_frame(path, capreq, develop=None):
+    """-> (source PIL, working PIL, extra scale) for `path` at `capreq`.
+
+    `develop` is part of the IDENTITY of the frame, not a detail of how it was
+    read: two different white balances are two different photographs out of the
+    same raw file, and a cache that could not tell them apart would answer the
+    second one with the first — a slider that moves and changes nothing.
+    """
+    d = develop or {}
+    ident = (_photo_key(path), int(capreq or 0), d.get("warmth", 0), d.get("tint", 0))
     with _FRAMES_LOCK:
         hit = _FRAMES.get(ident)
         if hit is not None:
             _FRAMES.move_to_end(ident)
             return hit
-    entry = previews.working_frame(path, capreq)
+    entry = previews.working_frame(path, capreq, develop=develop)
     with _FRAMES_LOCK:
         _FRAMES[ident] = entry
         while len(_FRAMES) > _FRAMES_MAX:
@@ -349,7 +356,7 @@ def _ahead_loop():
         path, width, recipe = job
 
         def work():
-            source, img, scale = _working_frame(path, width)
+            source, img, scale = _working_frame(path, width, raw.develop_of(recipe))
             render.render(
                 img, recipe, scale, source if img is not source else None,
                 key=_photo_key(path), should_stop=lambda: _INTERACTIVE.value > 0,
@@ -522,7 +529,15 @@ import previews  # noqa: E402
 
 
 def _render_proxy(path, width, recipe, should_stop=None):
-    im, source_long = _decode_small(path, width)
+    # No recipe means nobody is judging this frame yet — it is the ungraded
+    # view behind a grid. That is the one case where a raw file may be shown
+    # from the camera's own buried preview instead of being rebuilt from
+    # sensor data, which is the difference between a folder that opens now and
+    # one that opens in four minutes. The moment a recipe exists the frame is
+    # being looked at, and it is decoded properly.
+    im, source_long = _decode_small(
+        path, width, develop=raw.develop_of(recipe), fast=not recipe
+    )
     # Decided BEFORE rendering, from the frame as decoded — so the answer does
     # not depend on how many times the image was resized on the way here.
     out_size = _fit_size(im.size, width)
@@ -1237,7 +1252,9 @@ class Handler(BaseHTTPRequestHandler):
                 # worked from these pixels instead of refused. Thumbnails go
                 # through /preview and deliberately do not get this.
                 if path:
-                    source, img, extra = _working_frame(path, capreq)
+                    source, img, extra = _working_frame(
+                        path, capreq, raw.develop_of(recipe)
+                    )
                     scale = asked * extra
                 else:
                     img = common.b64_to_image(inline)
@@ -1615,8 +1632,7 @@ if ($path) {
             if not folder or not os.path.isdir(folder):
                 self._json(400, {"error": f"לא נמצאה תיקייה: {folder}"})
                 return
-            exts = {".jpg", ".jpeg", ".png", ".tif", ".tiff", ".webp",
-                    ".cr2", ".cr3", ".nef", ".arw", ".dng", ".raf", ".orf"}
+            exts = workspace.IMAGE_EXTS
             names = sorted(
                 n for n in os.listdir(folder)
                 if os.path.splitext(n)[1].lower() in exts

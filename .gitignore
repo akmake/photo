@@ -52,3 +52,7 @@ engine/models/
 engine/gallery_config.json
 TEZA/gallery/
 TEZA/gallery-db/
+
+# Temporary and generated output
+tmp/
+output/

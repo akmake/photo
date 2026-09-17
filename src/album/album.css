@@ -1768,7 +1768,7 @@
 .album-photo-thumb img {
   width: 100%;
   height: 100%;
-  object-fit: cover;
+  object-fit: contain;
 }
 
 .album-analysis-state {
@@ -2753,7 +2753,7 @@
   border-radius: var(--r-sm);
   background: var(--line);
 }
-.cover-photo-tray img { width: 100%; height: 100%; display: block; object-fit: cover; }
+.cover-photo-tray img { width: 100%; height: 100%; display: block; object-fit: contain; }
 .cover-photo-tray span {
   position: absolute;
   inset: auto 0 0;
@@ -3146,7 +3146,7 @@
   background: var(--card-2);
   flex-shrink: 0;
 }
-.tl-photo img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.tl-photo img { width: 100%; height: 100%; object-fit: contain; display: block; }
 .tl-photo-missing {
   display: grid;
   place-items: center;
@@ -3548,6 +3548,19 @@
   user-select: none;
 }
 .album-frame-z:hover { background: rgba(255, 255, 255, .12); }
+/* the frame's own grip: dragging the picture moves the picture, this moves the place */
+.album-frame-grip {
+  font-size: 11px;
+  color: #e8e8e8;
+  padding: 3px 9px;
+  border-radius: 5px;
+  cursor: grab;
+  user-select: none;
+  touch-action: none;
+  border-inline-end: 1px solid rgba(255, 255, 255, .16);
+}
+.album-frame-grip:hover { background: rgba(255, 255, 255, .12); }
+.album-frame-grip:active { cursor: grabbing; }
 .album-style-help {
   display: block;
   margin-top: 7px;
@@ -3738,7 +3751,7 @@
 }
 .album-picker-photo:hover .album-picker-image { transform: translateY(-2px); box-shadow: 0 8px 22px rgba(45, 34, 24, .12); }
 .album-picker-photo.selected .album-picker-image { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(183, 80, 31, .13); }
-.album-picker-image img { width: 100%; height: 100%; display: block; object-fit: cover; }
+.album-picker-image img { width: 100%; height: 100%; display: block; object-fit: contain; }
 .album-picker-check {
   position: absolute;
   top: 9px;
@@ -3904,7 +3917,7 @@
 .album-wizard-photo-grid button { position: relative; aspect-ratio: 4 / 3; padding: 0; border: 2px solid transparent; border-radius: 8px; overflow: hidden; background: #e5e2de; cursor: pointer; }
 .album-wizard-photo-grid button:hover { transform: translateY(-2px); box-shadow: 0 8px 18px rgba(41,36,31,.12); }
 .album-wizard-photo-grid button.selected { border-color: #668f88; box-shadow: 0 0 0 3px rgba(102,143,136,.15); }
-.album-wizard-photo-grid img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.album-wizard-photo-grid img { width: 100%; height: 100%; object-fit: contain; display: block; }
 .album-wizard-photo-grid button > span { position: absolute; top: 7px; right: 7px; width: 25px; height: 25px; display: grid; place-items: center; border-radius: 50%; background: rgba(28,26,23,.5); color: #fff; opacity: 0; font-size: 11px; font-weight: 750; }
 .album-wizard-photo-grid button:hover > span, .album-wizard-photo-grid button.selected > span { opacity: 1; }
 .album-wizard-photo-grid button.selected > span { background: #557e77; }

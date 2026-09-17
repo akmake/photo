@@ -4,6 +4,9 @@ import type {
 import { assessCrop } from './cropEngine';
 import type { GeneratedAlbumLayout } from './layoutEngine';
 import { finalizeAlbumJpeg } from '../api';
+import { spreadTemplate } from './templates/library';
+import { elementUrl } from './templates/elementStore';
+import { drawTemplateSpread, missingPhotos } from './templates/raster';
 
 interface SpreadExportItem {
   spread: AlbumSpread;
@@ -108,6 +111,23 @@ function drawPhoto(
   context.restore();
 }
 
+/** A proof must never be confused with a press-ready file. */
+function stampProof(context: CanvasRenderingContext2D, width: number, height: number): void {
+  const stripHeight = Math.max(24, Math.round(height * 0.018));
+  context.save();
+  context.globalAlpha = 1;
+  context.globalCompositeOperation = 'source-over';
+  context.fillStyle = 'rgba(25, 25, 25, 0.74)';
+  context.fillRect(0, 0, width, stripHeight);
+  context.fillStyle = '#ffffff';
+  context.textAlign = 'center';
+  context.textBaseline = 'middle';
+  context.direction = 'rtl';
+  context.font = `${Math.max(12, Math.round(stripHeight * 0.45))}px Arial`;
+  context.fillText('TEZA PROOF • הגהה בלבד • לא לדפוס', width / 2, stripHeight / 2);
+  context.restore();
+}
+
 async function renderSpread(
   item: SpreadExportItem,
   photosById: Map<string, AlbumPhoto>,
@@ -122,12 +142,36 @@ async function renderSpread(
   canvas.height = height;
   const context = canvas.getContext('2d', { alpha: false });
   if (!context) throw new Error('הדפדפן אינו מאפשר רינדור הגהה');
-  /* Drawing only the photos of a Vault page would hand over a file without its
-   * colours, title and lines — a wrong file that looks finished. Refuse loudly
-   * until the layer export exists. */
-  if (item.spread.templateInstance) {
+
+  /* A page from the Vault carries its own colours, lines and words, so it is
+   * drawn by the template renderer — the same geometry, crop and paint order
+   * the photographer approved on screen. */
+  const template = spreadTemplate(item.spread, profile.spreadWidthMm / profile.spreadHeightMm);
+  if (item.spread.templateInstance && template) {
+    const photos = [...photosById.values()];
+    const missing = missingPhotos({ template, spread: item.spread, photos });
+    if (missing.length) {
+      throw new Error(
+        `חסרות ${missing.length} תמונות בכפולה ${item.spread.pageStart}–${item.spread.pageStart + 1}`,
+      );
+    }
+    await drawTemplateSpread(context, width, height, {
+      template,
+      instance: item.spread.templateInstance,
+      spread: item.spread,
+      photos,
+      bitmapOf: (photo) => loadBitmap(photo.url).catch(() => null),
+      elementBitmapOf: async (assetId) => {
+        const url = elementUrl(assetId);
+        return url ? await loadBitmap(url).catch(() => null) : null;
+      },
+    });
+    if (watermark) stampProof(context, width, height);
+    return { blob: await canvasBlob(canvas), width, height };
+  }
+  if (item.spread.templateInstance && !template) {
     throw new Error(
-      `כפולה ${item.spread.pageStart}–${item.spread.pageStart + 1} היא עמוד מהכספת — ייצוא עמודים אלה עוד לא נבנה`,
+      `העמוד המעוצב של כפולה ${item.spread.pageStart}–${item.spread.pageStart + 1} לא נמצא בספריית הכספת`,
     );
   }
 
@@ -154,17 +198,7 @@ async function renderSpread(
     }
   }
 
-  if (watermark) {
-    // A proof must never be confused with a press-ready file.
-    const stripHeight = Math.max(24, Math.round(height * 0.018));
-    context.fillStyle = 'rgba(25, 25, 25, 0.74)';
-    context.fillRect(0, 0, width, stripHeight);
-    context.fillStyle = '#ffffff';
-    context.textAlign = 'center';
-    context.textBaseline = 'middle';
-    context.font = `${Math.max(12, Math.round(stripHeight * 0.45))}px Arial`;
-    context.fillText('TEZA PROOF • הגהה בלבד • לא לדפוס', width / 2, stripHeight / 2);
-  }
+  if (watermark) stampProof(context, width, height);
 
   return { blob: await canvasBlob(canvas), width, height };
 }
@@ -187,16 +221,15 @@ function drawCoverImage(
   const zoom = Math.max(1, (settings?.zoom ?? 100) / 100);
   sourceWidth /= zoom;
   sourceHeight /= zoom;
-  const focusX = settings ? settings.positionX / 100 : focal.x;
-  const focusY = settings ? settings.positionY / 100 : focal.y;
-  const sourceX = Math.max(0, Math.min(
-    bitmap.width - sourceWidth,
-    focusX * bitmap.width - sourceWidth / 2,
-  ));
-  const sourceY = Math.max(0, Math.min(
-    bitmap.height - sourceHeight,
-    focusY * bitmap.height - sourceHeight / 2,
-  ));
+  /* The screen draws the cover with `object-position`, where the number is an
+   * ALIGNMENT — 0 pins the photo's own edge to the frame's, 100 the far edge.
+   * Reading it here as "centre the window on this point" printed a different
+   * cover from the one on screen, and pushed it further off the further the
+   * photographer moved from the middle. Same reading on both sides now. */
+  const shareX = Math.max(0, Math.min(1, (settings ? settings.positionX / 100 : focal.x)));
+  const shareY = Math.max(0, Math.min(1, (settings ? settings.positionY / 100 : focal.y)));
+  const sourceX = (bitmap.width - sourceWidth) * shareX;
+  const sourceY = (bitmap.height - sourceHeight) * shareY;
   context.drawImage(
     bitmap,
     sourceX,

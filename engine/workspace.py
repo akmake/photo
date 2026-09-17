@@ -28,14 +28,19 @@ import os
 import shutil
 import time
 
+import raw
+
 RAW_DIR = "תמונות גלם"
 EDITED_DIR = "תמונות"
 STATE_FILE = "project.json"
 
+# The raw half comes from raw.py rather than being typed out again: a format
+# missing HERE is a card that imports as an empty folder, with nothing said.
+# This list had already drifted - .rw2 (Lumix), .pef (Pentax) and .srw
+# (Samsung) decode fine and were being skipped at the door.
 IMAGE_EXTS = {
     ".jpg", ".jpeg", ".png", ".tif", ".tiff", ".webp",
-    ".cr2", ".cr3", ".nef", ".arw", ".dng", ".raf", ".orf",
-}
+} | raw.RAW_EXTENSIONS
 
 # Windows forbids these outright, and a trailing dot or space produces a folder
 # that cannot be deleted from Explorer. A client's name is user text — it WILL

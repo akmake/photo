@@ -1,9 +1,14 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 
-/* The toolbar that appears over the spread when a photo or element is selected —
- * Canva's pattern: a short row of named tools, each opening a small panel right
- * under it, and the actions (duplicate, delete) at the end. Only what belongs
- * to the selected thing is ever on screen. */
+/* The tools of whatever is selected — a photograph, a text, an element.
+ *
+ * It lives in the side panel, in the place the spread's own tabs occupy when
+ * nothing is selected. It used to float across the top of the canvas with its
+ * panel dropping over the spread, which put the controls on top of the very
+ * photograph they adjust; the spread panel next door says in its own header
+ * comment that a selection "replaces this panel with its own tools", and this
+ * is that. Same shape as that panel on purpose: a rail of named tools, one
+ * open at a time, a line of explanation, and the destructive actions last. */
 
 export interface ToolbarTool {
   id: string;
@@ -27,70 +32,57 @@ export default function ContextToolbar({ name, tools, actions, onDone }: {
   actions: ToolbarAction[];
   onDone(): void;
 }) {
-  const [open, setOpen] = useState<string | null>(null);
-  const [anchor, setAnchor] = useState(0);
-  const bar = useRef<HTMLDivElement>(null);
+  /* The first tool is open on arrival. Nothing is covered here, so making the
+   * photographer click twice to reach the control she came for buys nothing. */
+  const [open, setOpen] = useState<string>(tools[0]?.id ?? '');
+  const current = tools.find((tool) => tool.id === open) ?? tools[0];
 
-  // a click anywhere outside the toolbar closes its panel; Escape too
+  // the selection changed under us — fall back to the first tool of the new one
   useEffect(() => {
-    if (!open) return undefined;
-    const onDown = (event: PointerEvent) => {
-      if (bar.current && !bar.current.contains(event.target as Node)) setOpen(null);
-    };
-    const onKey = (event: KeyboardEvent) => { if (event.key === 'Escape') setOpen(null); };
-    window.addEventListener('pointerdown', onDown, true);
-    window.addEventListener('keydown', onKey, true);
-    return () => {
-      window.removeEventListener('pointerdown', onDown, true);
-      window.removeEventListener('keydown', onKey, true);
-    };
-  }, [open]);
-
-  const current = tools.find((tool) => tool.id === open);
+    if (!tools.some((tool) => tool.id === open)) setOpen(tools[0]?.id ?? '');
+  }, [tools, open]);
 
   return (
-    <div className="ctx-toolbar" ref={bar} onPointerDown={(event) => event.stopPropagation()}>
-      <div className="ctx-bar" role="toolbar" aria-label={`כלים ל${name}`}>
-        <span className="ctx-name">{name}</span>
+    <div className="ctx-panel">
+      <header className="ctx-panel-head">
+        <strong>{name}</strong>
+        <button className="ctx-done" onClick={onDone}>סיום</button>
+      </header>
+
+      <nav className="ctx-rail" role="tablist" aria-label={`כלים ל${name}`}>
         {tools.map((tool) => (
           <button
             key={tool.id}
-            className={open === tool.id ? 'on' : ''}
-            aria-expanded={open === tool.id}
-            onClick={(event) => {
-              const barBox = bar.current?.getBoundingClientRect();
-              const box = event.currentTarget.getBoundingClientRect();
-              setAnchor(barBox ? box.left + box.width / 2 - barBox.left : 0);
-              setOpen(open === tool.id ? null : tool.id);
-            }}
+            role="tab"
+            className={tool.id === current?.id ? 'on' : ''}
+            aria-selected={tool.id === current?.id}
+            onClick={() => setOpen(tool.id)}
           >
             {tool.icon}
             <span>{tool.label}</span>
           </button>
         ))}
-        {actions.length > 0 && <i className="ctx-divider" aria-hidden="true" />}
-        {actions.map((action) => (
-          <button
-            key={action.id}
-            className={`ctx-icon ${action.danger ? 'danger' : ''}`}
-            title={action.label}
-            aria-label={action.label}
-            onClick={() => { setOpen(null); action.onClick(); }}
-          >
-            {action.icon}
-          </button>
-        ))}
-        <i className="ctx-divider" aria-hidden="true" />
-        <button className="ctx-done" onClick={onDone}>סיום</button>
-      </div>
+      </nav>
+
       {current && (
-        <div className="ctx-popover" style={{ '--ctx-anchor': `${anchor}px` } as React.CSSProperties} role="dialog" aria-label={current.label}>
-          <header>
-            <strong>{current.label}</strong>
-            <button onClick={() => setOpen(null)} aria-label="סגירה">×</button>
-          </header>
-          <div className="ctx-popover-body">{current.content}</div>
+        <div className="ctx-panel-body" role="tabpanel" aria-label={current.label}>
+          {current.content}
         </div>
+      )}
+
+      {actions.length > 0 && (
+        <footer className="ctx-panel-actions">
+          {actions.map((action) => (
+            <button
+              key={action.id}
+              className={action.danger ? 'danger' : ''}
+              onClick={action.onClick}
+            >
+              {action.icon}
+              <span>{action.label}</span>
+            </button>
+          ))}
+        </footer>
       )}
     </div>
   );

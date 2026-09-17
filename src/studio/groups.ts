@@ -1,13 +1,12 @@
-/* Groups — the two ways a shoot is divided, as pure functions.
+/* Groups — grouping rules as pure functions.
  *
  *   edit   קבוצת עריכה   a LIGHT. Lives in `batches` / `assign`, and owns a
  *                        colour recipe in `recipe.perBatch`.
  *   story  רצף           a CHAPTER of the day. Lives in `moments` /
  *                        `momentAssign`, and owns nothing but membership.
  *
- * They are different claims about the same photographs, so they never share a
- * record: moving a frame between chapters must not change one pixel, and
- * moving it between lights must not reorder the album's story.
+ * `edit` is the product's canonical grouping. `story` remains in the schema so
+ * older projects can be read and migrated without losing their organisation.
  *
  * Everything here takes a ProjectMemory and returns a NEW one. Nothing reads
  * the clock, the disk or React — which is what lets the store keep undo as a
@@ -415,6 +414,25 @@ export function copyEditGroupsAsMoments(
     if (!members.length) continue;
     const meta = make(batch);
     s = createGroup(s, 'story', { ...meta, name: batch.name }, members, Infinity);
+  }
+  return s;
+}
+
+/** One-way, additive migration for projects created while story moments were
+ * exposed as a separate mode. Existing edit assignments always win. */
+export function copyStoryMomentsAsEditGroups(
+  state: ProjectMemory,
+  make: (moment: Group) => { id: string; createdAt: string },
+): ProjectMemory {
+  let s = normalize(state);
+  const taken = s.assign;
+  for (const moment of groupsOf(s, 'story')) {
+    const members = Object.entries(s.momentAssign ?? {})
+      .filter(([name, gid]) => gid === moment.id && !taken[name])
+      .map(([name]) => name);
+    if (!members.length) continue;
+    const meta = make(moment);
+    s = createGroup(s, 'edit', { ...meta, name: moment.name }, members, Infinity);
   }
   return s;
 }

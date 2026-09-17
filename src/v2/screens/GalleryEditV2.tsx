@@ -17,10 +17,9 @@ import {
 import { EDIT_WIDTH, learnColorModel, prepareFrames, renderRecipeAtPath, Superseded, thumbUrl } from '../../api';
 import type { LearnColorResponse } from '../../api';
 import type { LearnedColorModel, ManualStroke, ToolInstance } from '../../types';
-import { defaultParams, getTool, isToolAtDefault } from '../../toolRegistry';
+import { defaultParams, getTool, isRawFile, isToolAtDefault } from '../../toolRegistry';
 import ManualBrush, { DEFAULT_R, MAX_R, MIN_R } from './ManualBrush';
 import ToolsPanelV2 from './ToolsPanelV2';
-import Histogram from './Histogram';
 import { useSetPreview } from '../../studio/preview';
 import BeforeAfter from '../../studio/screens/BeforeAfter';
 import {
@@ -600,27 +599,22 @@ export default function GalleryEditV2({
                     className={`tz-ge-slide-item ${isActive ? 'active' : ''}`}
                     onClick={() => setActiveSlideIndex(idx)}
                   >
+                    {/* The photograph, at its own shape and nothing else. A file
+                      * name is not what a photographer recognises a frame by —
+                      * it stays on hover, where it costs no room. */}
+                    <img
+                      className="tz-ge-slide-thumb"
+                      src={thumbUrl(f.path, 320)}
+                      alt={f.name}
+                      title={f.name}
+                      loading="lazy"
+                    />
                     <span className="tz-ge-slide-idx">
                       {String(idx + 1).padStart(2, '0')}
                     </span>
-
-                    <div className="tz-ge-slide-thumb-wrap">
-                      <img
-                        className="tz-ge-slide-thumb"
-                        src={thumbUrl(f.path, 320)}
-                        alt={f.name}
-                        loading="lazy"
-                      />
-                    </div>
-
-                    <div className="tz-ge-slide-info">
-                      <span className="tz-ge-slide-title" title={f.name}>
-                        {f.name}
-                      </span>
-                      {isCustomized && (
-                        <span className="tz-ge-slide-badge">מותאם</span>
-                      )}
-                    </div>
+                    {isCustomized && (
+                      <span className="tz-ge-slide-badge">מותאם</span>
+                    )}
                   </div>
                 );
               })
@@ -779,7 +773,7 @@ export default function GalleryEditV2({
               <button
                 type="button"
                 className={`tz-sc-source-pill ${activeTab === 'primary' ? 'active' : ''}`}
-                style={{ padding: '5px 12px', fontSize: 12 }}
+                style={{ padding: '7px 14px', fontSize: 12.5 }}
                 onClick={() => setActiveTab('primary')}
               >
                 <TzIconSliders size={14} />
@@ -788,7 +782,7 @@ export default function GalleryEditV2({
               <button
                 type="button"
                 className={`tz-sc-source-pill ${activeTab === 'colormatch' ? 'active' : ''}`}
-                style={{ padding: '5px 12px', fontSize: 12 }}
+                style={{ padding: '7px 14px', fontSize: 12.5 }}
                 onClick={() => setActiveTab('colormatch')}
               >
                 <TzIconSparkle size={14} />
@@ -797,11 +791,6 @@ export default function GalleryEditV2({
             </div>
 
           </div>
-
-          {/* The histogram reads the frame on screen, so it answers for what
-              is delivered — including the one thing the screen cannot show:
-              areas already at pure black or pure white. */}
-          {activeTab === 'primary' && <Histogram src={renderedSrc} />}
 
           <div className="tz-ge-panel-scroll">
             {activeTab === 'primary' ? (
@@ -813,10 +802,11 @@ export default function GalleryEditV2({
                 onOpenBrush={() => setBrushOn((v) => !v)}
                 brushOn={brushOn}
                 brushStrokes={manualStrokes.length}
+                isRaw={isRawFile(currentPath)}
               />
             ) : (
               /* ColorMatch Tab */
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 14, padding: 16, overflowY: 'auto', minHeight: 0 }}>
                 <p style={{ margin: 0, fontSize: 13, color: '#52525b', lineHeight: 1.45 }}>
                   העלה את הגרסה הערוכה של תמונה זו מ-Lightroom/Photoshop, והמנוע ילמד את הצבע ויחיל אותו על כל המקבץ.
                 </p>
