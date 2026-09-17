@@ -65,8 +65,14 @@ export function photoFrameStyle(layer: PhotoLayer): CSSProperties {
   if (layer.rotation) style.transform = `rotate(${layer.rotation}deg)`;
   if (layer.opacity !== undefined) style.opacity = layer.opacity;
   if (layer.blendMode) style.mixBlendMode = layer.blendMode as CSSProperties['mixBlendMode'];
-  if (layer.feather) {
-    const f = layer.feather;
+  if (layer.feather) Object.assign(style, featherMask(layer.feather, '100% 100%'));
+  return style;
+}
+
+/** CSS mask for a fade. `size`/`position` place it when the element is larger
+ *  than the faded box (a full-spread layer wrapper). */
+function featherMask(f: NonNullable<PhotoLayer['feather']>, size: string, position = '0 0'): CSSProperties {
+  {
     const stops = f.stops
       .map((stop) => `<stop offset='${stop.offset}' stop-color='white' stop-opacity='${stop.opacity}'/>`)
       .join('');
@@ -74,14 +80,17 @@ export function photoFrameStyle(layer: PhotoLayer): CSSProperties {
       + `<defs><linearGradient id='f' gradientUnits='userSpaceOnUse' x1='${f.x1}' y1='${f.y1}' x2='${f.x2}' y2='${f.y2}'>${stops}</linearGradient></defs>`
       + `<rect width='1' height='1' fill='url(#f)'/></svg>`;
     const url = `url("data:image/svg+xml,${encodeURIComponent(svg)}")`;
-    Object.assign(style, {
+    return {
       maskImage: url,
       WebkitMaskImage: url,
-      maskSize: '100% 100%',
-      WebkitMaskSize: '100% 100%',
-    });
+      maskSize: size,
+      WebkitMaskSize: size,
+      maskPosition: position,
+      WebkitMaskPosition: position,
+      maskRepeat: 'no-repeat',
+      WebkitMaskRepeat: 'no-repeat',
+    } as CSSProperties;
   }
-  return style;
 }
 
 function Shape({ layer, template, instance, viewWidth }: {
@@ -156,6 +165,15 @@ export function TemplateLayerView({ template, instance, layer, zIndex }: {
     opacity: layer.opacity,
     mixBlendMode: layer.blendMode as CSSProperties['mixBlendMode'],
   };
+  if (layer.type === 'shape' && layer.feather && layer.box.width < 1 && layer.box.height < 1) {
+    // the wrapper spans the spread; place the fade over this layer's box
+    const { x, y, width, height } = layer.box;
+    Object.assign(wrapper, featherMask(
+      layer.feather,
+      `${width * 100}% ${height * 100}%`,
+      `${(x / (1 - width)) * 100}% ${(y / (1 - height)) * 100}%`,
+    ));
+  }
 
   if (layer.type === 'text' && !usesSourceLettering(instance, layer)) {
     return (

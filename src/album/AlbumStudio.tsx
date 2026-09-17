@@ -13,14 +13,15 @@ import {
 } from './layoutEngine';
 import { assessCrop } from './cropEngine';
 import {
-  applyTemplate, newInstance, photoLayers, spreadTemplate, templateBackground, templateSlots,
+  applyTemplate, findTemplate, newInstance, photoLayers, spreadTemplate, templateBackground, templateSlots,
 } from './templates/library';
 import { rankTemplates } from './templates/choose';
+import { designFade } from './templates/fades';
 import { smartGuides, type GuideResult } from './templates/smartGuides';
 import SmartGuideOverlay from './templates/SmartGuideOverlay';
 import { TemplateDecor, photoFrameStyle, templateZ } from './templates/TemplateLayers';
 import TemplatePanel from './templates/TemplatePanel';
-import type { AlbumTemplate, SpreadTemplateInstance } from './templates/types';
+import type { AlbumTemplate, PhotoFade, SpreadTemplateInstance } from './templates/types';
 import { analyzeAlbumPhoto } from '../api';
 import { exportAlbumForPrint, exportAlbumProof } from './exportEngine';
 import {
@@ -2539,6 +2540,55 @@ export default function AlbumStudio({ job, onBack }: {
               </div>
             </div>
             </>)}
+            {activeTemplate && spread.templateInstance && selectedSlotIndex !== null && templatePhotoLayers[selectedSlotIndex] && (() => {
+              const placeId = templatePhotoLayers[selectedSlotIndex].id;
+              const designed = findTemplate(spread.templateInstance.templateId)?.layers
+                .find((layer) => layer.id === placeId);
+              const fade = spread.templateInstance.fades?.[placeId]
+                ?? designFade(designed?.type === 'photo' ? designed : undefined);
+              const setFade = (patch: Partial<PhotoFade>, done = false) => {
+                editTemplateInstance((instance) => ({
+                  ...instance,
+                  fades: { ...instance.fades, [placeId]: { ...fade, ...patch } },
+                }));
+                if (done) endTemplateEdit();
+              };
+              return (
+                <div className="album-inspector-section tpl-fade">
+                  <span>מעבר ושקיפות</span>
+                  <div className="tpl-fade-sides" role="group" aria-label="צד המעבר">
+                    {([['none', 'ללא'], ['right', 'ימין'], ['left', 'שמאל'], ['top', 'למעלה'], ['bottom', 'למטה']] as const)
+                      .map(([side, label]) => (
+                        <button key={side} className={fade.side === side ? 'on' : ''} onClick={() => setFade({ side }, true)}>{label}</button>
+                      ))}
+                  </div>
+                  {fade.side !== 'none' && (
+                    <div className="tpl-fade-modes" role="group" aria-label="סוג המעבר">
+                      <button className={fade.mode === 'background' ? 'on' : ''} onClick={() => setFade({ mode: 'background' }, true)}>נמוג אל הרקע</button>
+                      <button className={fade.mode === 'blend' ? 'on' : ''} onClick={() => setFade({ mode: 'blend' }, true)}>מתמזג לתמונה הסמוכה</button>
+                    </div>
+                  )}
+                  {fade.side !== 'none' && (
+                    <label className="tpl-fade-slider">
+                      <span>רכות <output>{fade.softness}</output></span>
+                      <input
+                        type="range" min="0" max="100" value={fade.softness}
+                        onChange={(event) => setFade({ softness: Number(event.target.value) })}
+                        onPointerUp={endTemplateEdit} onKeyUp={endTemplateEdit} onBlur={endTemplateEdit}
+                      />
+                    </label>
+                  )}
+                  <label className="tpl-fade-slider">
+                    <span>שקיפות <output>{fade.transparency}%</output></span>
+                    <input
+                      type="range" min="0" max="90" value={fade.transparency}
+                      onChange={(event) => setFade({ transparency: Number(event.target.value) })}
+                      onPointerUp={endTemplateEdit} onKeyUp={endTemplateEdit} onBlur={endTemplateEdit}
+                    />
+                  </label>
+                </div>
+              );
+            })()}
             <label className="album-inspector-section album-zoom-control">
               <span>זום <output>{selectedFrameSettings.zoom ?? 100}%</output></span>
               <input type="range" min="100" max="250" value={selectedFrameSettings.zoom ?? 100} disabled={selectedFrameSettings.fit === 'contain'} onChange={(event) => updateFrameSettings({ zoom: Number(event.target.value) })} />

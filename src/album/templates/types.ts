@@ -92,6 +92,8 @@ export interface ShapeLayer extends BaseLayer {
   strokeToken?: string;
   /** Fraction of the spread height. */
   strokeWidth?: number;
+  /** A frame line around a fading photo fades with it. */
+  feather?: PhotoFeather;
 }
 
 export type TemplateLayer = PhotoLayer | TextLayer | ShapeLayer;
@@ -133,4 +135,18 @@ export interface SpreadTemplateInstance {
   /** photo place id → where the photographer dragged or resized it, as
    *  fractions of this spread. Absent = as designed. */
   places?: Record<string, LayerBox>;
+  /** photo place id → how that photo fades. Absent = as designed. */
+  fades?: Record<string, PhotoFade>;
+}
+
+/** How one photo fades — see fades.ts. */
+export interface PhotoFade {
+  side: 'none' | 'left' | 'right' | 'top' | 'bottom';
+  /** 'background' dissolves into the page; 'blend' reaches over the neighbouring
+   *  photo on that side and dissolves into it. */
+  mode: 'background' | 'blend';
+  /** 0–100; 50 is the designed length. */
+  softness: number;
+  /** 0 (solid) – 100 (invisible). */
+  transparency: number;
 }

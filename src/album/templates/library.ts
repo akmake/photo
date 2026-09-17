@@ -4,6 +4,7 @@ import type {
 } from './types';
 import { VAULT_TEMPLATES } from './vaultLibrary.ts';
 import { fittedTemplate } from './adapt.ts';
+import { withFades } from './fades.ts';
 
 export { fitTemplate, fittedTemplate } from './adapt.ts';
 
@@ -100,7 +101,8 @@ export function spreadTemplate(spread: AlbumSpread, spreadAspect: number): Album
   if (!spread.templateInstance) return null;
   const template = findTemplate(spread.templateInstance.templateId);
   if (!template) return null;
-  return withPlaceEdits(fittedTemplate(template, spreadAspect), spread.templateInstance.places);
+  const placed = withPlaceEdits(fittedTemplate(template, spreadAspect), spread.templateInstance.places);
+  return withFades(placed, template, spread.templateInstance.fades);
 }
 
 /** A photo place the photographer moved or resized, applied to the page. A

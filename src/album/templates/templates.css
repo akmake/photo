@@ -107,3 +107,13 @@
 .sg-label.equal { background: #ff2d8a; }
 .sg-size { transform: translate(-50%, 8px); display: flex; gap: 6px; background: #1c1c1e; }
 .sg-size b { padding: 0 5px; border-radius: 3px; background: #ff2d8a; font-weight: 700; }
+
+/* Fade controls in the photo panel */
+.tpl-fade { display: grid; gap: 8px; }
+.tpl-fade-sides, .tpl-fade-modes { display: flex; flex-wrap: wrap; gap: 4px; }
+.tpl-fade-sides button, .tpl-fade-modes button { flex: 1; min-height: 28px; padding: 0 6px; border: 1px solid var(--line-strong); border-radius: 5px; color: var(--ink); background: var(--card); font-size: 11px; white-space: nowrap; }
+.tpl-fade-sides button.on, .tpl-fade-modes button.on { border-color: var(--accent); background: var(--accent); color: #fff; }
+.tpl-fade-slider { display: grid; gap: 3px; }
+.tpl-fade-slider > span { display: flex; justify-content: space-between; font-size: 11px; color: var(--ink-2); }
+.tpl-fade-slider output { color: var(--ink-3); font: 10px var(--font-data); direction: ltr; }
+.tpl-fade-slider input { width: 100%; accent-color: var(--accent); }

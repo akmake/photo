@@ -260,3 +260,41 @@ test('guides: the block size and distances are reported in centimetres', () => {
   assert.equal(r.size, '10.0 × 10.0 ס״מ'); // 0.2 of a 500 mm spread, 0.4 of 250 mm
   assert.ok(r.gaps.some((g) => g.label === '5.0 ס״מ'), 'distance to the left page edge');
 });
+
+
+/* ---- photo fades (fades.ts) ---- */
+import { withFades, designFade } from '../src/album/templates/fades.ts';
+
+test('fades: the designed fade is read back as settings', () => {
+  const page = findTemplate('vault-p136')!;
+  const byId = (id: string) => page.layers.find((l) => l.id === id) as never;
+  assert.equal(designFade(byId('p1')).side, 'left');
+  assert.equal(designFade(byId('p3')).side, 'right');
+  assert.equal(designFade(byId('p6')).side, 'none');
+});
+
+test('fades: blend reaches over the neighbouring photo, with no background between', () => {
+  const page = findTemplate('vault-p136')!;
+  const out = withFades(page, page, {
+    p3: { side: 'right', mode: 'blend', softness: 50, transparency: 0 },
+    p1: { side: 'left', mode: 'blend', softness: 50, transparency: 0 },
+  });
+  const left = out.layers.find((l) => l.id === 'p3')!;
+  const right = out.layers.find((l) => l.id === 'p1')!;
+  assert.ok(left.box.x + left.box.width > right.box.x, 'the left photo now overlaps the right one');
+  assert.ok(left.zIndex > right.zIndex, 'the blending photo paints above');
+  assert.ok(left.type === 'photo' && left.feather, 'it fades');
+  assert.ok(right.type === 'photo' && !right.feather, 'the photo underneath stays whole');
+});
+
+test('fades: softness lengthens the transition, transparency applies to the photo and its frame line', () => {
+  const page = findTemplate('vault-p136')!;
+  const soft = withFades(page, page, { p1: { side: 'left', mode: 'background', softness: 100, transparency: 40 } });
+  const hard = withFades(page, page, { p1: { side: 'left', mode: 'background', softness: 0, transparency: 0 } });
+  const share = (t: typeof page) => { const f = (t.layers.find((l) => l.id === 'p1') as { feather: { x1: number; x2: number } }).feather; return Math.abs(f.x1 - f.x2); };
+  assert.ok(share(soft) > share(hard));
+  assert.equal(soft.layers.find((l) => l.id === 'p1')!.opacity, 0.6);
+  const frame = soft.layers.find((l) => l.id === 's2')!;
+  assert.equal(frame.opacity, 0.6);
+  assert.ok(frame.type === 'shape' && frame.feather, 'the white frame line fades with its photo');
+});
