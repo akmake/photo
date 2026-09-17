@@ -6,9 +6,9 @@
  * off is the exception, handled here on the frame that prompted it rather than
  * as three checkboxes on every one of six hundred cells.
  *
- * After the lock it asks a different question: what needs fixing. Same screen,
- * because it is the same photograph and the couple should not have to learn a
- * second place.
+ * And at every moment, before the lock and after it: what needs fixing, pinned
+ * to the spot. Same screen, because it is the same photograph and the couple
+ * should not have to learn a second place.
  */
 
 import { useEffect, useRef, useState } from 'react';
@@ -94,7 +94,6 @@ export default function Lightbox({
   /* Where on the photograph they touched, as a fraction of the rendered image
    * — not of the stage, which is letterboxed around it. */
   const place = (e: React.MouseEvent<HTMLImageElement>) => {
-    if (!locked) return;
     const box = (e.target as HTMLImageElement).getBoundingClientRect();
     setPin({
       x: Math.min(1, Math.max(0, (e.clientX - box.left) / box.width)),
@@ -146,22 +145,26 @@ export default function Lightbox({
             alt=""
             draggable={false}
             className={loaded ? 'is-loaded' : ''}
-            style={{ background: item.color, cursor: locked ? 'crosshair' : 'default' }}
+            style={{ background: item.color, cursor: 'crosshair' }}
             onLoad={() => setLoaded(true)}
             onClick={place}
           />
           {/* Rings, never filled blobs: a mark that covers what it points at
-              is worse than no mark. */}
-          {locked &&
-            item.notes.map((note) => (
-              <i
-                key={note.id}
-                className="gal-pin is-sent"
-                style={{ left: `${note.x * 100}%`, top: `${note.y * 100}%` }}
-              />
-            ))}
+              is worse than no mark. Numbered, so with three notes on one frame
+              each ring says which sentence below it belongs to. */}
+          {item.notes.map((note, n) => (
+            <i
+              key={note.id}
+              className="gal-pin is-sent"
+              style={{ left: `${note.x * 100}%`, top: `${note.y * 100}%` }}
+            >
+              {n + 1}
+            </i>
+          ))}
           {pin && (
-            <i className="gal-pin" style={{ left: `${pin.x * 100}%`, top: `${pin.y * 100}%` }} />
+            <i className="gal-pin" style={{ left: `${pin.x * 100}%`, top: `${pin.y * 100}%` }}>
+              {item.notes.length + 1}
+            </i>
           )}
         </div>
       </div>
@@ -169,7 +172,7 @@ export default function Lightbox({
       <div className="gal-controls">
         {notice && <p className="gal-notice">{notice}</p>}
 
-        {!locked ? (
+        {!locked && (
           <>
             <button
               className={`gal-big-heart${chosen ? ' is-on' : ''}`}
@@ -200,14 +203,18 @@ export default function Lightbox({
               </div>
             )}
           </>
-        ) : (
-          <div className="gal-notes">
+        )}
+
+        {/* Notes live beside the heart, not after the lock: "this one, but
+            without the chair" is said while choosing. */}
+        <div className="gal-notes">
             {item.version > 1 && (
               <p className="gal-updated">עודכן · גרסה {item.version}</p>
             )}
 
-            {item.notes.map((note) => (
+            {item.notes.map((note, n) => (
               <p className="gal-note-sent" key={note.id}>
+                <b className="gal-note-n">{n + 1}</b>
                 {note.text}
               </p>
             ))}
@@ -239,17 +246,18 @@ export default function Lightbox({
             ) : (
               <>
                 <p className="gal-hint">געו במקום בתמונה כדי להעיר עליו</p>
-                <button
-                  type="button"
-                  className={`gal-chip${item.clientDone ? ' is-on' : ''}`}
-                  onClick={() => onDone(item, !item.clientDone)}
-                >
-                  {item.clientDone ? '✓ סיימתי עם התמונה' : 'סיימתי עם התמונה'}
-                </button>
+                {locked && (
+                  <button
+                    type="button"
+                    className={`gal-chip${item.clientDone ? ' is-on' : ''}`}
+                    onClick={() => onDone(item, !item.clientDone)}
+                  >
+                    {item.clientDone ? '✓ סיימתי עם התמונה' : 'סיימתי עם התמונה'}
+                  </button>
+                )}
               </>
             )}
-          </div>
-        )}
+        </div>
       </div>
     </div>
   );

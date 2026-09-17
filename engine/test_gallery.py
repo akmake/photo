@@ -152,8 +152,9 @@ def main():
         check("the album id did not move", renamed["id"] == all_albums[2])
 
         print("\nlocking")
-        raises("no comments before the choice is closed", 409,
-               gallery.comment, token, ids[0], 0.5, 0.5, "מוקדם מדי")
+        early = gallery.comment(token, ids[2], 0.5, 0.5, "אם אפשר בלי הכיסא")
+        check("a note can be left while still choosing, on any frame",
+              bool(early["id"]))
         gallery.lock(token)
         check("the gallery reports itself locked",
               gallery.manifest(token)["gallery"]["locked"] is True)
@@ -161,8 +162,6 @@ def main():
                gallery.select, token, ids[4], all_albums)
 
         print("\ncomments")
-        raises("only chosen frames take comments", 409,
-               gallery.comment, token, ids[2], 0.5, 0.5, "לא נבחרה")
         posted = gallery.comment(token, ids[0], 0.31, 0.72,
                                  "תוריד את הבחור משמאל")
         check("a comment belongs to the version it was written on",
@@ -179,10 +178,14 @@ def main():
               str(sorted(s["frameId"] for s in st["selection"])))
         check("the counts match what was chosen",
               st["counts"][all_albums[0]] == 3, str(st["counts"]))
+        late = [c for c in st["comments"] if c["id"] == posted["id"]]
         check("the comment arrives with its pin",
-              st["comments"][0]["x"] == 0.31 and st["comments"][0]["y"] == 0.72)
+              len(late) == 1 and late[0]["x"] == 0.31 and late[0]["y"] == 0.72)
         check("the comment carries the frame it belongs to",
-              st["comments"][0]["frameId"] == "frame-0")
+              late and late[0]["frameId"] == "frame-0")
+        check("the note left while choosing reaches the photographer too",
+              any(c["id"] == early["id"] and c["frameId"] == "frame-2"
+                  for c in st["comments"]))
         check("the lock is visible to the photographer",
               bool(st["gallery"]["lockedAt"]))
 

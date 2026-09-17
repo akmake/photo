@@ -797,15 +797,12 @@ def comment(token, item_id, x, y, text):
     fixes the wrong thing, and the round trip was wasted. The coordinates are
     normalised 0..1 so they survive every size the frame is ever shown at, and
     they land on the canvas in the studio at the spot that was touched.
+
+    Open from the first look, on every frame: the note is part of choosing
+    ("this one, but without the chair"), not a stage that starts after it.
     """
     gallery_id = _session_gallery(token)
-    gallery = _gallery(gallery_id)
-    if not gallery.get("lockedAt"):
-        raise GalleryError(409, "הערות נפתחות אחרי שסוגרים את הבחירה")
-
     item = _item(gallery_id, item_id)
-    if not item.get("albumIds"):
-        raise GalleryError(409, "אפשר להעיר רק על תמונות שנבחרו")
 
     text = (text or "").strip()[:2000]
     if not text:
