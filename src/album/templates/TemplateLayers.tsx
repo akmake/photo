@@ -64,7 +64,10 @@ export function photoFrameStyle(layer: PhotoLayer, spreadAspect?: number): CSSPr
   const style: CSSProperties = {};
   if (layer.radius && spreadAspect) {
     // circular corners on a box measured in fractions of each axis
-    style.borderRadius = `% / %`;
+    const corners = `${(layer.radius / (layer.box.width * spreadAspect)) * 100}% / ${(layer.radius / layer.box.height) * 100}%`;
+    style.borderRadius = corners;
+    // clip the element itself, so a scaled (composited) photo is cut too
+    style.clipPath = `inset(0 round ${corners})`;
   }
   if (layer.rotation) style.transform = `rotate(${layer.rotation}deg)`;
   if (layer.opacity !== undefined) style.opacity = layer.opacity;
