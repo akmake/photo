@@ -268,33 +268,116 @@ DEDUP_THRESHOLD = 0.92
 
 
 # A moment is a scene, not a shot: the getting-ready room, the ceremony, the
-# first dance. Far looser than dedup, because two frames from the same scene
-# shot minutes apart share very little pixel-wise and a great deal semantically.
+# first dance — or, in a studio, one SETUP: this backdrop, this wrap, these
+# people.
+#
+# WHY THERE IS NO FIXED SIMILARITY THRESHOLD ANY MORE. There was: 0.55, one
+# number for every shoot. It was chosen against a wedding, where "ceremony" and
+# "cake" look nothing alike, and on that kind of set it works. Measured on a
+# newborn session of 416 frames — one room, one baby, one blanket — 410 of the
+# 415 neighbouring pairs sat ABOVE it (half of them above 0.93). The visual test
+# could not fire, so every boundary came from the clock, and the photographer
+# got a division by when he stopped shooting rather than by what he shot. His
+# words: "it divides, but not correctly".
+#
+# A shoot's own spread is the only scale that means anything, so the bar is read
+# off this set (see `_seam_bar`).
+#
+# WHAT COUNTS AS A SEAM. Not "this frame differs from the running average" —
+# that fires on a close-up inside a setup, and it cut 25 times where the
+# photographs show 8. A setup change is SUSTAINED: the frames before the seam
+# and the frames after it disagree, and go on disagreeing. So the test compares
+# the mean of the SEAM_WINDOW frames before against the mean of the same number
+# after. One odd frame barely moves it; a new backdrop drops it off a cliff.
+SEAM_WINDOW = 12
+# How far below the set's typical seam a real seam has to fall, in robust
+# spreads. 4.0 gave the 8 setups on the newborn session (basket, mother,
+# parents, father, taupe wrap, pink, pink with props, purple), 10 on a 648-frame
+# set and 2 on a 31-frame outdoor shoot.
+SEAM_DROP = 4.0
+# A scene of five frames is a detail shot inside a setup, not a setup. Two cuts
+# never land closer than this.
+MOMENT_MIN_RUN = 8
+
+# A gap in the shooting this long MIGHT end a scene. It is a hint and not a
+# verdict: a 37-minute feed break in the middle of the parents' setup is still
+# the parents' setup, and splitting it there was the plainest of the wrong cuts.
+MOMENT_TIME_GAP = 12 * 60.0
+# ...so a pause only ends a scene when the pictures across it also disagree this
+# much. Measured on the newborn set: at 0.85 the break inside the parents' setup
+# is absorbed and every real change of backdrop is still cut.
+MOMENT_TIME_AGREE = 0.85
+
+# Kept for callers that still name it, and for the dedup-style question "is this
+# the same scene at all". Nothing in the splitting reads it any more.
 MOMENT_THRESHOLD = 0.55
 
-# A gap in the shooting this long ends a scene regardless of what the pictures
-# look like. Photographers stop shooting when the event moves.
-MOMENT_TIME_GAP = 12 * 60.0
+
+def _unit(v):
+    n = float(np.linalg.norm(v))
+    return v / (n or 1.0)
+
+
+def _seam_curve(vecs, window):
+    """For every position: how much the frames before it disagree with those after.
+
+    1.0 where the shoot is carrying on with the same thing; it falls where the
+    backdrop, the wrap or the people change, and stays fallen — which is what
+    makes a seam a seam rather than one odd frame.
+    """
+    n = len(vecs)
+    curve = np.ones(n, np.float32)
+    for i in range(1, n):
+        before = vecs[max(0, i - window):i]
+        after = vecs[i:min(n, i + window)]
+        if len(before) and len(after):
+            curve[i] = float(_unit(before.mean(axis=0)) @ _unit(after.mean(axis=0)))
+    return curve
+
+
+def _seam_bar(curve, drop):
+    """How low a seam has to go ON THIS SET to count as a change of setup.
+
+    Median and a robust spread (MAD), not a mean: on a set where a third of the
+    positions ARE seams, the mean would be dragged down by the very thing it is
+    supposed to stand out from. A shoot that never changes setup has a spread of
+    nearly zero, so the bar sits just under its own floor and nothing is cut,
+    which is the right answer for it.
+    """
+    body = curve[1:]
+    if len(body) < 2:
+        return -1.0
+    med = float(np.median(body))
+    mad = float(np.median(np.abs(body - med))) * 1.4826
+    return med - drop * mad
 
 
 def group_moments(paths, times=None, threshold=MOMENT_THRESHOLD,
                   time_gap=MOMENT_TIME_GAP):
-    """Split a set into the SCENES it was shot in — the album's chapters.
+    """Split a set into the SETUPS it was shot in — the album's chapters.
 
     This is what the DINOv2 vectors were computed for. Until now they answered
     only "is this the same shot twice", which is the smallest question they can
     answer; the same numbers know that forty frames belong to the ceremony and
-    the next twelve to the cake.
+    the next twelve to the cake — or that the baby was in the basket and is now
+    on the purple blanket.
 
     The rule is a sequential one, not a free clustering, and that is deliberate:
     an album is a story told in the order it happened, so a scene must be a
     CONTIGUOUS run of frames. Free clustering would happily put the last dance
     beside the first one because they look alike, and reorder the evening.
 
-    A frame continues the current moment when it is close enough to that
-    moment's running centre AND was taken soon enough after the last frame.
-    Either test can end a scene: the camera turning to something else, or the
-    photographer stopping.
+    Three tests, in this order:
+      1. a SEAM — the frames before a position disagree with the frames after
+         it, by more than this set's own spread (`_seam_curve`, `_seam_bar`);
+      2. a PAUSE the pictures agree with — a long gap in the shooting, where
+         the two sides also look different (MOMENT_TIME_AGREE);
+      3. no crumbs — cuts never land closer together than MOMENT_MIN_RUN, so a
+         handful of detail shots stay inside the setup they belong to.
+
+    `threshold` is accepted and reported for callers that still pass one, and is
+    no longer what decides: see the note above MOMENT_THRESHOLD for the 416-frame
+    measurement that retired it.
 
     `times` is capture time in epoch seconds, aligned with `paths`. Without it
     the split is visual only — honest, but weaker; the caller says so rather
@@ -326,31 +409,42 @@ def group_moments(paths, times=None, threshold=MOMENT_THRESHOLD,
     if used_time:
         order = sorted(order, key=lambda p: time_by_path.get(p, 0.0))
 
-    moments = [[order[0]]]
-    centre = vecs[order[0]].astype(np.float32).copy()
+    stack = np.stack([vecs[p].astype(np.float32) for p in order])
+    curve = _seam_curve(stack, SEAM_WINDOW)
+    bar = _seam_bar(curve, SEAM_DROP)
 
-    for previous, current in zip(order, order[1:]):
-        v = vecs[current].astype(np.float32)
-        # The centre is a running mean of the moment so far, renormalised — one
-        # outlier frame cannot drag a scene, and a slow pan stays in it.
-        norm = float(np.linalg.norm(centre)) or 1.0
-        similarity = float(v @ (centre / norm))
+    # The deepest seams first, so that when two candidates are closer together
+    # than a scene can be, the one the pictures are surer about wins.
+    cuts = []
+    for i in np.argsort(curve):
+        i = int(i)
+        if i == 0 or curve[i] >= bar:
+            break
+        if all(abs(i - c) >= MOMENT_MIN_RUN for c in cuts):
+            cuts.append(i)
 
-        broke_time = False
-        if used_time and previous in time_by_path and current in time_by_path:
-            broke_time = (time_by_path[current] - time_by_path[previous]) > time_gap
+    # ...then the pauses the pictures agree with.
+    if used_time:
+        for i in range(1, len(order)):
+            gap = time_by_path.get(order[i], 0.0) - time_by_path.get(order[i - 1], 0.0)
+            if gap > time_gap and curve[i] < MOMENT_TIME_AGREE:
+                if all(abs(i - c) >= MOMENT_MIN_RUN for c in cuts):
+                    cuts.append(i)
 
-        if similarity >= threshold and not broke_time:
-            moments[-1].append(current)
-            centre += v
-        else:
-            moments.append([current])
-            centre = v.copy()
+    moments, start = [], 0
+    for cut in sorted(cuts) + [len(order)]:
+        if cut > start:
+            moments.append(order[start:cut])
+            start = cut
 
     return {
         "moments": moments,
         "missing": missing,
         "embedded": len(order),
+        # What the set itself said a change of setup looks like here. Reported
+        # because it is the number a person would ask about when a division
+        # surprises them, and because the screen shows why each cut was made.
+        "seamBar": round(float(bar), 4),
         "threshold": float(threshold),
         "timeGap": float(time_gap),
         "usedTime": used_time,
