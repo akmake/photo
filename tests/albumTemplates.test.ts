@@ -213,3 +213,50 @@ test('a run longer than any page is split into near-equal spreads', () => {
   assert.deepEqual(splitForLibrary(['x']), [['x']]);
   assert.equal(rankTemplates([], [], 2).length, 0);
 });
+
+
+/* ---- smart guides (smartGuides.ts) ---- */
+import { smartGuides } from '../src/album/templates/smartGuides.ts';
+
+const ctxFor = (others: { x: number; y: number; width: number; height: number }[]) => ({
+  aspect: 2, heightMm: 250, safeMarginMm: 8, tolerancePx: 7, screenHeightPx: 500, others, sizeReferences: others,
+});
+const B = (x: number, y: number, width: number, height: number) => ({ x, y, width, height });
+const close = (a: number, b: number) => Math.abs(a - b) < 1e-9;
+
+test('guides: a block dragged near another block edge locks onto it and shows a line', () => {
+  const other = B(0.1, 0.1, 0.2, 0.3);
+  const r = smartGuides(B(0, 0, 0.1, 0.2), B(0.104, 0.55, 0.1, 0.2), 'move', ctxFor([other]), { snap: true, keepRatio: false });
+  assert.ok(close(r.box.x, 0.1), `x=${r.box.x}`);
+  assert.ok(r.lines.some((l) => close(l.x1, 0.1) && close(l.x2, 0.1)));
+});
+
+test('guides: Alt drags freely — no snap', () => {
+  const r = smartGuides(B(0, 0, 0.1, 0.2), B(0.104, 0.55, 0.1, 0.2), 'move', ctxFor([B(0.1, 0.1, 0.2, 0.3)]), { snap: false, keepRatio: false });
+  assert.ok(close(r.box.x, 0.104));
+  assert.equal(r.lines.length, 0);
+});
+
+test('guides: equal spacing locks to a gap that already exists in the row, and marks both gaps', () => {
+  // two blocks with a 0.05-wide gap, a third dragged to their right almost 0.05 away
+  const a = B(0.1, 0.2, 0.1, 0.3);
+  const b = B(0.25, 0.2, 0.1, 0.3);
+  const r = smartGuides(B(0, 0, 0.1, 0.3), B(0.403, 0.26, 0.1, 0.3), 'move', ctxFor([a, b]), { snap: true, keepRatio: false });
+  assert.ok(close(r.box.x, 0.4), `x=${r.box.x}`);
+  const equal = r.gaps.filter((g) => g.equal);
+  assert.ok(equal.length >= 2, 'the new gap and the matched gap are both marked');
+  assert.ok(equal.every((g) => g.label === equal[0].label));
+});
+
+test('guides: resizing to almost another photo width locks to it and says so', () => {
+  const ref = B(0.6, 0.1, 0.2, 0.3);
+  const r = smartGuides(B(0.1, 0.5, 0.15, 0.2), B(0.1, 0.5, 0.203, 0.2), 'e', ctxFor([ref]), { snap: true, keepRatio: false });
+  assert.ok(close(r.box.width, 0.2), `w=${r.box.width}`);
+  assert.ok(r.badges.includes('רוחב זהה'));
+});
+
+test('guides: the block size and distances are reported in centimetres', () => {
+  const r = smartGuides(B(0.1, 0.1, 0.2, 0.4), B(0.1, 0.1, 0.2, 0.4), 'move', ctxFor([]), { snap: false, keepRatio: false });
+  assert.equal(r.size, '10.0 × 10.0 ס״מ'); // 0.2 of a 500 mm spread, 0.4 of 250 mm
+  assert.ok(r.gaps.some((g) => g.label === '5.0 ס״מ'), 'distance to the left page edge');
+});

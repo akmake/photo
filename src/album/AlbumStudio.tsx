@@ -16,6 +16,8 @@ import {
   applyTemplate, newInstance, photoLayers, spreadTemplate, templateBackground, templateSlots,
 } from './templates/library';
 import { rankTemplates } from './templates/choose';
+import { smartGuides, type GuideResult } from './templates/smartGuides';
+import SmartGuideOverlay from './templates/SmartGuideOverlay';
 import { TemplateDecor, photoFrameStyle, templateZ } from './templates/TemplateLayers';
 import TemplatePanel from './templates/TemplatePanel';
 import type { AlbumTemplate, SpreadTemplateInstance } from './templates/types';
@@ -163,9 +165,8 @@ export default function AlbumStudio({ job, onBack }: {
   const [isHydrated, setIsHydrated] = useState(false);
   const [selectedPhotoId, setSelectedPhotoId] = useState<string | null>(null);
   const [selectedSlotIndex, setSelectedSlotIndex] = useState<number | null>(null);
-  const [frameGuides, setFrameGuides] = useState<{ vertical: number[]; horizontal: number[] }>({
-    vertical: [], horizontal: [],
-  });
+  /** Smart guides, measurements and badges while a block is dragged or resized. */
+  const [frameGuides, setFrameGuides] = useState<GuideResult | null>(null);
   /* Double-click a frame to reposition the PHOTO inside it (pan + zoom); until
    * then a drag anywhere on the frame moves the frame itself. One frame at a
    * time is in this mode. */
@@ -1437,31 +1438,9 @@ export default function AlbumStudio({ job, onBack }: {
     const dy = (event.clientY - g.startY) / g.rect.height;
     let { x, y, width, height } = g.slot;
     if (g.mode === 'move') {
-      x = clamp(g.slot.x + dx, 0, 1 - g.slot.width);
-      y = clamp(g.slot.y + dy, 0, 1 - g.slot.height);
-      const others = g.baseSlots.filter((_, index) => index !== g.index);
-      const xTargets = [0, 0.5, 1, ...others.flatMap((slot) => [slot.x, slot.x + slot.width / 2, slot.x + slot.width])];
-      const yTargets = [0, 0.5, 1, ...others.flatMap((slot) => [slot.y, slot.y + slot.height / 2, slot.y + slot.height])];
-      const snap = (position: number, size: number, targets: number[]) => {
-        let best = { distance: 0.0081, value: position, guide: undefined as number | undefined };
-        for (const target of targets) {
-          for (const edge of [position, position + size / 2, position + size]) {
-            const distance = Math.abs(target - edge);
-            if (distance < best.distance) best = { distance, value: position + target - edge, guide: target };
-          }
-        }
-        return best;
-      };
-      const snapX = snap(x, g.slot.width, xTargets);
-      const snapY = snap(y, g.slot.height, yTargets);
-      x = clamp(snapX.value, 0, 1 - g.slot.width);
-      y = clamp(snapY.value, 0, 1 - g.slot.height);
-      setFrameGuides({
-        vertical: snapX.guide === undefined ? [] : [snapX.guide],
-        horizontal: snapY.guide === undefined ? [] : [snapY.guide],
-      });
+      x = g.slot.x + dx;
+      y = g.slot.y + dy;
     } else {
-      setFrameGuides({ vertical: [], horizontal: [] });
       // corner handles move two edges, side handles one
       const east = g.mode.endsWith('e');
       const west = g.mode.endsWith('w');
@@ -1490,6 +1469,28 @@ export default function AlbumStudio({ job, onBack }: {
         if (!south) y = g.slot.y + g.slot.height - height;
       }
     }
+    /* Alignment, equal spacing, equal size and measurements — against every
+     * other block on the page. Alt drags freely, as in design tools. */
+    const others = activeTemplate
+      ? activeTemplate.layers
+        .filter((layer) => layer.id !== g.baseSlots[g.index].id)
+        .map((layer) => layer.box)
+      : g.baseSlots.filter((_, index) => index !== g.index);
+    const guided = smartGuides(g.slot, { x, y, width, height }, g.mode, {
+      aspect: profile.spreadWidthMm / profile.spreadHeightMm,
+      heightMm: profile.spreadHeightMm,
+      safeMarginMm: profile.safeMarginMm,
+      tolerancePx: 7,
+      screenHeightPx: g.rect.height,
+      others,
+      sizeReferences: g.baseSlots.filter((_, index) => index !== g.index),
+    }, { snap: !event.altKey, keepRatio: event.shiftKey });
+    ({ x, y, width, height } = guided.box);
+    if (g.mode === 'move') {
+      x = clamp(x, 0, 1 - width);
+      y = clamp(y, 0, 1 - height);
+    }
+    setFrameGuides({ ...guided, box: { x, y, width, height } });
     g.moved = true;
     if (activeTemplate && spread.templateInstance) {
       /* On a Vault page the move is kept as this spread's own change to one
@@ -1529,7 +1530,7 @@ export default function AlbumStudio({ job, onBack }: {
       setHistoryFuture([]);
       setNotice(g.mode === 'move' ? 'המסגרת הוזזה' : 'גודל המסגרת עודכן');
     }
-    setFrameGuides({ vertical: [], horizontal: [] });
+    setFrameGuides(null);
     frameGesture.current = null;
   }
 
@@ -2261,12 +2262,7 @@ export default function AlbumStudio({ job, onBack }: {
               <div className="album-page album-page-right" />
               <div className="album-gutter" />
               {showGuides && <><div className="album-bleed-guide" /><div className="album-safe-guide" /></>}
-              {frameGuides.vertical.map((position) => (
-                <div key={`v-${position}`} className="album-smart-guide vertical" style={{ left: `${position * 100}%` }} />
-              ))}
-              {frameGuides.horizontal.map((position) => (
-                <div key={`h-${position}`} className="album-smart-guide horizontal" style={{ top: `${position * 100}%` }} />
-              ))}
+              {frameGuides && <SmartGuideOverlay guides={frameGuides} />}
 
               {activeTemplate && spread.templateInstance && (
                 <TemplateDecor template={activeTemplate} instance={spread.templateInstance} />

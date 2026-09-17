@@ -96,3 +96,14 @@
 .album-frame-selection .album-frame-handle.s { bottom: -7px; left: calc(50% - 6.5px); cursor: ns-resize; }
 .album-frame-selection .album-frame-handle.e { right: -7px; top: calc(50% - 6.5px); cursor: ew-resize; }
 .album-frame-selection .album-frame-handle.w { left: -7px; top: calc(50% - 6.5px); cursor: ew-resize; }
+
+/* Smart guides (SmartGuideOverlay) — above every layer and the selection box. */
+.sg-overlay { position: absolute; inset: 0; z-index: 6500; pointer-events: none; }
+.sg-overlay svg { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
+.sg-line { stroke: #ff2d8a; stroke-width: 1; }
+.sg-gap { stroke: rgb(255 255 255 / .85); stroke-width: 1; stroke-dasharray: 3 3; }
+.sg-gap.equal { stroke: #ff2d8a; stroke-dasharray: none; stroke-width: 1.5; }
+.sg-label, .sg-size { position: absolute; transform: translate(-50%, -50%); padding: 1px 6px; border-radius: 4px; color: #fff; background: rgb(30 30 32 / .82); font: 600 10px/16px var(--font-data); white-space: nowrap; direction: rtl; }
+.sg-label.equal { background: #ff2d8a; }
+.sg-size { transform: translate(-50%, 8px); display: flex; gap: 6px; background: #1c1c1e; }
+.sg-size b { padding: 0 5px; border-radius: 3px; background: #ff2d8a; font-weight: 700; }
