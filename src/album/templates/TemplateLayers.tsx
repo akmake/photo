@@ -1,4 +1,4 @@
-import type { CSSProperties } from 'react';
+import { useId, type CSSProperties } from 'react';
 import { assessCrop } from '../cropEngine';
 import type { AlbumPhoto, AlbumSpread, PhotoFrameSettings } from '../model';
 import { colorOf, paintOrder, textOf, usesSourceLettering } from './library';
@@ -60,8 +60,12 @@ function outlineTransform(outline: LayerOutline): string | undefined {
 
 /** A photo place's own look: rotation, fade, opacity and blend. Shared by the
  *  read-only page and the editor's interactive frames. */
-export function photoFrameStyle(layer: PhotoLayer): CSSProperties {
+export function photoFrameStyle(layer: PhotoLayer, spreadAspect?: number): CSSProperties {
   const style: CSSProperties = {};
+  if (layer.radius && spreadAspect) {
+    // circular corners on a box measured in fractions of each axis
+    style.borderRadius = `% / %`;
+  }
   if (layer.rotation) style.transform = `rotate(${layer.rotation}deg)`;
   if (layer.opacity !== undefined) style.opacity = layer.opacity;
   if (layer.blendMode) style.mixBlendMode = layer.blendMode as CSSProperties['mixBlendMode'];
@@ -101,18 +105,44 @@ function Shape({ layer, template, instance, viewWidth }: {
 }) {
   const common = {
     fill: layer.fillToken ? colorOf(template, instance, layer.fillToken) : 'none',
-    stroke: layer.strokeToken ? colorOf(template, instance, layer.strokeToken) : undefined,
+    stroke: layer.strokeColor ?? (layer.strokeToken ? colorOf(template, instance, layer.strokeToken) : undefined),
     strokeWidth: layer.strokeWidth ? layer.strokeWidth * VIEW_HEIGHT : undefined,
   };
   const rotation = svgRotation(layer, viewWidth);
+  const shadowId = useId().replace(/:/g, '');
   const { x, y, width, height } = layer.box;
   if (layer.shape === 'rect') {
+    const radius = layer.radius ? layer.radius * VIEW_HEIGHT : undefined;
+    if (layer.shadow) {
+      const strength = layer.shadow / 100;
+      return (
+        <>
+          <defs>
+            <filter id={shadowId} x="-50%" y="-50%" width="200%" height="200%">
+              <feGaussianBlur stdDeviation={6 + 22 * strength} />
+            </filter>
+          </defs>
+          <rect
+            x={x * viewWidth}
+            y={y * VIEW_HEIGHT + 4 + 10 * strength}
+            width={width * viewWidth}
+            height={height * VIEW_HEIGHT}
+            rx={radius}
+            fill="#000"
+            fillOpacity={0.2 + 0.45 * strength}
+            filter={`url(#${shadowId})`}
+            transform={rotation}
+          />
+        </>
+      );
+    }
     return (
       <rect
         x={x * viewWidth}
         y={y * VIEW_HEIGHT}
         width={width * viewWidth}
         height={height * VIEW_HEIGHT}
+        rx={radius}
         transform={rotation}
         {...common}
       />
@@ -278,7 +308,7 @@ export function TemplatePage({
               zIndex: z.get(layer.id),
               /* An empty place shows its outline plainly — no fade, which on an
                * empty place reads as a smudge. */
-              ...(photo ? photoFrameStyle(layer) : { transform: layer.rotation ? `rotate(${layer.rotation}deg)` : undefined }),
+              ...(photo ? photoFrameStyle(layer, spreadAspect) : { transform: layer.rotation ? `rotate(${layer.rotation}deg)` : undefined }),
             }}
           >
             {!photo && <span className="tpl-place-number">{photoIndex + 1}</span>}
@@ -291,7 +321,7 @@ export function TemplatePage({
                 style={{
                   objectFit: crop.fit,
                   objectPosition: `${crop.positionX}% ${crop.positionY}%`,
-                  transform: `scale(${crop.fit === 'contain' ? 1 : (settings.zoom ?? 100) / 100})`,
+                  transform: `scale(${(crop.fit === 'contain' ? 1 : (settings.zoom ?? 100) / 100) * (layer.flipX ? -1 : 1)}, ${(crop.fit === 'contain' ? 1 : (settings.zoom ?? 100) / 100) * (layer.flipY ? -1 : 1)})`,
                   transformOrigin: `${crop.positionX}% ${crop.positionY}%`,
                 }}
               />

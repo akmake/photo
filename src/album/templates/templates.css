@@ -117,3 +117,20 @@
 .tpl-fade-slider > span { display: flex; justify-content: space-between; font-size: 11px; color: var(--ink-2); }
 .tpl-fade-slider output { color: var(--ink-3); font: 10px var(--font-data); direction: ltr; }
 .tpl-fade-slider input { width: 100%; accent-color: var(--accent); }
+
+/* Photo tools in the photo panel */
+.tpl-tools { display: grid; gap: 8px; }
+.tpl-tool-row { display: flex; gap: 4px; }
+.tpl-tool-row button { flex: 1; min-height: 28px; padding: 0 6px; border: 1px solid var(--line-strong); border-radius: 5px; color: var(--ink); background: var(--card); font-size: 11px; white-space: nowrap; }
+.tpl-tool-row button:hover { border-color: var(--accent); }
+.tpl-tool-row button.on { border-color: var(--accent); background: var(--accent); color: #fff; }
+.tpl-tool-row button.danger { color: var(--danger-ink); }
+.tpl-tool-row button.danger:hover { border-color: var(--danger); background: var(--danger-soft); }
+.tpl-tool-label { font-size: 11px; color: var(--ink-2); }
+.tpl-tool-color { display: flex; align-items: center; justify-content: space-between; font-size: 11px; color: var(--ink-2); }
+.tpl-tool-color input { width: 38px; height: 24px; padding: 0; border: 1px solid var(--line-strong); border-radius: 4px; background: none; }
+
+/* rotation handle above the selection box */
+.album-frame-selection .album-frame-rotate { position: absolute; top: -34px; left: calc(50% - 8px); width: 16px; height: 16px; border: 2px solid var(--accent); border-radius: 50%; background: #fff; pointer-events: auto; cursor: grab; box-shadow: 0 1px 3px rgb(0 0 0 / .3); }
+.album-frame-selection .album-frame-rotate::after { content: ''; position: absolute; top: 14px; left: 5px; width: 2px; height: 18px; background: var(--accent); }
+.album-frame-selection .album-frame-rotate:active { cursor: grabbing; }

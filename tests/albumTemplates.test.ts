@@ -298,3 +298,44 @@ test('fades: softness lengthens the transition, transparency applies to the phot
   assert.equal(frame.opacity, 0.6);
   assert.ok(frame.type === 'shape' && frame.feather, 'the white frame line fades with its photo');
 });
+
+
+/* ---- photo tools (placeStyles.ts) ---- */
+import { withPlaceStyles, withStructure, duplicatePlace, reorderZ } from '../src/album/templates/placeStyles.ts';
+
+test('tools: rotate, flip, corners, border and shadow apply to the place, not the design', () => {
+  const page = VAULT_PAGE_4;
+  const [photo] = photoLayers(page);
+  const out = withPlaceStyles(page, { [photo.id]: { rotation: 12, flipX: true, radius: 0.02, border: 0.01, borderColor: '#000000', shadow: 60 } });
+  const styled = photoLayers(out)[0];
+  assert.equal(styled.rotation, 12);
+  assert.equal(styled.flipX, true);
+  assert.equal(styled.radius, 0.02);
+  const border = out.layers.find((l) => l.id === `${photo.id}-border`)!;
+  const shadow = out.layers.find((l) => l.id === `${photo.id}-shadow`)!;
+  assert.ok(border.zIndex > styled.zIndex && shadow.zIndex < styled.zIndex, 'shadow under, border over');
+  assert.ok(border.type === 'shape' && border.strokeColor === '#000000');
+  assert.equal(photoLayers(page)[0].rotation, undefined, 'the library page is untouched');
+});
+
+test('tools: a place can be duplicated and removed, and its frame line leaves with it', () => {
+  const page = findTemplate('vault-p136')!;
+  const p1 = photoLayers(page).find((p) => p.id === 'p1')!;
+  const removed = withStructure(page, undefined, ['p1']);
+  assert.equal(photoLayers(removed).length, photoLayers(page).length - 1);
+  assert.ok(!removed.layers.some((l) => l.id === 's2'), 'the white frame around p1 went too');
+  const copy = duplicatePlace(p1, 99, 1);
+  const added = withStructure(page, [copy], undefined);
+  assert.equal(photoLayers(added).length, photoLayers(page).length + 1);
+  assert.equal(photoLayers(added).at(-1)!.id, copy.id, 'a new place is the last photo');
+});
+
+test('tools: order moves a layer one step or all the way', () => {
+  const layers = [{ id: 'a', zIndex: 1 }, { id: 'b', zIndex: 2 }, { id: 'c', zIndex: 3 }] as never;
+  assert.ok(reorderZ(layers, 'a', 'front') > 3);
+  assert.ok(reorderZ(layers, 'c', 'back') < 1);
+  const forward = reorderZ(layers, 'a', 'forward');
+  assert.ok(forward > 2 && forward < 3);
+  const backward = reorderZ(layers, 'c', 'backward');
+  assert.ok(backward > 1 && backward < 2);
+});

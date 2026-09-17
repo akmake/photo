@@ -17,11 +17,12 @@ import {
 } from './templates/library';
 import { rankTemplates } from './templates/choose';
 import { designFade } from './templates/fades';
+import { duplicatePlace, reorderZ } from './templates/placeStyles';
 import { smartGuides, type GuideResult } from './templates/smartGuides';
 import SmartGuideOverlay from './templates/SmartGuideOverlay';
 import { TemplateDecor, photoFrameStyle, templateZ } from './templates/TemplateLayers';
 import TemplatePanel from './templates/TemplatePanel';
-import type { AlbumTemplate, PhotoFade, SpreadTemplateInstance } from './templates/types';
+import type { AlbumTemplate, PhotoFade, PlaceStyle, SpreadTemplateInstance } from './templates/types';
 import { analyzeAlbumPhoto } from '../api';
 import { exportAlbumForPrint, exportAlbumProof } from './exportEngine';
 import {
@@ -1180,6 +1181,111 @@ export default function AlbumStudio({ job, onBack }: {
     setNotice('השינויים נשמרו');
   }
 
+  /* ---- photo tools on a Vault page: rotate, flip, corners, border, shadow,
+   * order, duplicate and delete — the spread's own changes ---- */
+  const selectedPlace = activeTemplate && selectedSlotIndex !== null
+    ? templatePhotoLayers[selectedSlotIndex]
+    : undefined;
+
+  function setPlaceStyle(patch: Partial<PlaceStyle>, done = true) {
+    if (!selectedPlace) return;
+    const id = selectedPlace.id;
+    editTemplateInstance((instance) => ({
+      ...instance,
+      styles: { ...instance.styles, [id]: { ...instance.styles?.[id], ...patch } },
+    }));
+    if (done) endTemplateEdit();
+  }
+
+  function orderPlace(to: 'front' | 'forward' | 'backward' | 'back') {
+    if (!selectedPlace || !activeTemplate) return;
+    setPlaceStyle({ zIndex: reorderZ(activeTemplate.layers, selectedPlace.id, to) });
+    setNotice({ front: 'הובא לחזית', forward: 'הוזז קדימה', backward: 'הוזז אחורה', back: 'נשלח לרקע' }[to]);
+  }
+
+  function duplicateSelectedPlace() {
+    if (!selectedPlace || !activeTemplate || !spread.templateInstance || selectedSlotIndex === null) return;
+    const topZ = Math.max(...activeTemplate.layers.map((layer) => layer.zIndex));
+    const copy = duplicatePlace(selectedPlace, topZ, Date.now());
+    updateSpread({
+      templateInstance: {
+        ...spread.templateInstance,
+        addedPlaces: [...(spread.templateInstance.addedPlaces ?? []), copy],
+        styles: spread.templateInstance.styles?.[selectedPlace.id]
+          ? { ...spread.templateInstance.styles, [copy.id]: { ...spread.templateInstance.styles[selectedPlace.id], zIndex: undefined } }
+          : spread.templateInstance.styles,
+      },
+      photoIds: [...layout.photoIds, layout.photoIds[selectedSlotIndex] ?? ''],
+    });
+    setSelectedSlotIndex(layout.photoIds.length);
+    setNotice('המקום שוכפל');
+  }
+
+  function deleteSelectedPlace() {
+    if (!selectedPlace || !spread.templateInstance || selectedSlotIndex === null) return;
+    const id = selectedPlace.id;
+    const instance = spread.templateInstance;
+    const wasAdded = instance.addedPlaces?.some((place) => place.id === id);
+    const drop = <T,>(record: Record<string, T> | undefined) => {
+      if (!record) return record;
+      const { [id]: _removed, ...rest } = record;
+      return rest;
+    };
+    updateSpread({
+      templateInstance: {
+        ...instance,
+        addedPlaces: wasAdded ? instance.addedPlaces!.filter((place) => place.id !== id) : instance.addedPlaces,
+        removedPlaces: wasAdded ? instance.removedPlaces : [...(instance.removedPlaces ?? []), id],
+        styles: drop(instance.styles),
+        places: drop(instance.places),
+        fades: drop(instance.fades),
+      },
+      photoIds: layout.photoIds.filter((_, index) => index !== selectedSlotIndex),
+    });
+    setSelectedSlotIndex(null);
+    setNotice('המקום נמחק מהכפולה · Ctrl+Z לביטול');
+  }
+
+  /* rotation handle: angle from the block's centre; snaps to every 45° within
+   * 4°, Shift turns in 15° steps, Alt turns freely */
+  const rotateSession = useRef<{ cx: number; cy: number; startAngle: number; startRotation: number } | null>(null);
+
+  function beginRotate(event: React.PointerEvent<HTMLSpanElement>) {
+    if (!selectedPlace) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const box = (event.currentTarget.parentElement as HTMLElement).getBoundingClientRect();
+    const cx = box.left + box.width / 2;
+    const cy = box.top + box.height / 2;
+    try { event.currentTarget.setPointerCapture(event.pointerId); } catch { /* released */ }
+    rotateSession.current = {
+      cx, cy,
+      startAngle: Math.atan2(event.clientY - cy, event.clientX - cx),
+      startRotation: selectedPlace.rotation ?? 0,
+    };
+  }
+
+  function moveRotate(event: React.PointerEvent<HTMLSpanElement>) {
+    const session = rotateSession.current;
+    if (!session) return;
+    const angle = Math.atan2(event.clientY - session.cy, event.clientX - session.cx);
+    let degrees = session.startRotation + ((angle - session.startAngle) * 180) / Math.PI;
+    degrees = ((degrees + 540) % 360) - 180;
+    if (event.shiftKey) degrees = Math.round(degrees / 15) * 15;
+    else if (!event.altKey) {
+      const nearest45 = Math.round(degrees / 45) * 45;
+      if (Math.abs(nearest45 - degrees) < 4) degrees = nearest45;
+    }
+    setPlaceStyle({ rotation: Math.round(degrees * 10) / 10 }, false);
+    setNotice(`סיבוב ${Math.round(degrees)}°`);
+  }
+
+  function endRotate() {
+    if (!rotateSession.current) return;
+    rotateSession.current = null;
+    endTemplateEdit();
+  }
+
   function updateSelectedSlot(patch: Partial<LayoutSlot>) {
     if (blockTemplateGeometry()) return;
     if (selectedSlotIndex === null) return;
@@ -2299,7 +2405,7 @@ export default function AlbumStudio({ job, onBack }: {
                       ...(crop?.letterboxed ? { background: spreadPaper } : null),
                       ...(activeTemplate ? {
                         zIndex: templateZOrder.get(templatePhotoLayers[slotIndex].id),
-                        ...photoFrameStyle(templatePhotoLayers[slotIndex]),
+                        ...photoFrameStyle(templatePhotoLayers[slotIndex], profile.spreadWidthMm / profile.spreadHeightMm),
                       } : null),
                     }}
                     onClick={() => assignPhoto(slotIndex)}
@@ -2340,7 +2446,7 @@ export default function AlbumStudio({ job, onBack }: {
                         style={{
                           objectFit: crop?.fit,
                           objectPosition: `${crop?.positionX ?? 50}% ${crop?.positionY ?? 50}%`,
-                          transform: `scale(${crop?.fit === 'contain' ? 1 : (frameSettings.zoom ?? 100) / 100})`,
+                          transform: `scale(${(crop?.fit === 'contain' ? 1 : (frameSettings.zoom ?? 100) / 100) * (templatePhotoLayers[slotIndex]?.flipX ? -1 : 1)}, ${(crop?.fit === 'contain' ? 1 : (frameSettings.zoom ?? 100) / 100) * (templatePhotoLayers[slotIndex]?.flipY ? -1 : 1)})`,
                           transformOrigin: `${crop?.positionX ?? 50}% ${crop?.positionY ?? 50}%`,
                         }}
                       />
@@ -2389,6 +2495,16 @@ export default function AlbumStudio({ job, onBack }: {
                       : undefined,
                   }}
                 >
+                  {activeTemplate && (
+                    <span
+                      className="album-frame-rotate"
+                      title="סיבוב · Shift בקפיצות של 15°"
+                      onPointerDown={beginRotate}
+                      onPointerMove={moveRotate}
+                      onPointerUp={endRotate}
+                      onPointerCancel={endRotate}
+                    />
+                  )}
                   {(['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w'] as const).map((h) => (
                     <span
                       key={h}
@@ -2586,6 +2702,60 @@ export default function AlbumStudio({ job, onBack }: {
                       onPointerUp={endTemplateEdit} onKeyUp={endTemplateEdit} onBlur={endTemplateEdit}
                     />
                   </label>
+                </div>
+              );
+            })()}
+            {selectedPlace && spread.templateInstance && (() => {
+              const style = spread.templateInstance.styles?.[selectedPlace.id] ?? {};
+              const mm = (fraction: number | undefined) => Math.round((fraction ?? 0) * profile.spreadHeightMm * 10) / 10;
+              const fromMm = (value: number) => value / profile.spreadHeightMm;
+              const rotation = Math.round(selectedPlace.rotation ?? 0);
+              const live = { onPointerUp: endTemplateEdit, onKeyUp: endTemplateEdit, onBlur: endTemplateEdit };
+              return (
+                <div className="album-inspector-section tpl-tools">
+                  <span>עיצוב התמונה</span>
+                  <label className="tpl-fade-slider">
+                    <span>סיבוב <output>{rotation}°</output></span>
+                    <input type="range" min="-180" max="180" value={rotation} onChange={(event) => setPlaceStyle({ rotation: Number(event.target.value) }, false)} {...live} />
+                  </label>
+                  <div className="tpl-tool-row">
+                    <button onClick={() => setPlaceStyle({ rotation: ((rotation - 90 + 540) % 360) - 180 })} title="סיבוב 90° נגד כיוון השעון">↺ 90°</button>
+                    <button onClick={() => setPlaceStyle({ rotation: ((rotation + 90 + 540) % 360) - 180 })} title="סיבוב 90° עם כיוון השעון">↻ 90°</button>
+                    <button onClick={() => setPlaceStyle({ rotation: 0 })}>ישר</button>
+                  </div>
+                  <div className="tpl-tool-row">
+                    <button className={style.flipX ? 'on' : ''} onClick={() => setPlaceStyle({ flipX: !style.flipX })}>⇋ היפוך אופקי</button>
+                    <button className={style.flipY ? 'on' : ''} onClick={() => setPlaceStyle({ flipY: !style.flipY })}>⇅ היפוך אנכי</button>
+                  </div>
+                  <label className="tpl-fade-slider">
+                    <span>פינות מעוגלות <output>{mm(style.radius)} מ״מ</output></span>
+                    <input type="range" min="0" max="60" step="0.5" value={mm(style.radius)} onChange={(event) => setPlaceStyle({ radius: fromMm(Number(event.target.value)) }, false)} {...live} />
+                  </label>
+                  <label className="tpl-fade-slider">
+                    <span>מסגרת <output>{mm(style.border)} מ״מ</output></span>
+                    <input type="range" min="0" max="15" step="0.5" value={mm(style.border)} onChange={(event) => setPlaceStyle({ border: fromMm(Number(event.target.value)) }, false)} {...live} />
+                  </label>
+                  {(style.border ?? 0) > 0 && (
+                    <label className="tpl-tool-color">
+                      <span>צבע המסגרת</span>
+                      <input type="color" value={style.borderColor ?? '#ffffff'} onChange={(event) => setPlaceStyle({ borderColor: event.target.value }, false)} onBlur={endTemplateEdit} />
+                    </label>
+                  )}
+                  <label className="tpl-fade-slider">
+                    <span>צל <output>{style.shadow ?? 0}</output></span>
+                    <input type="range" min="0" max="100" value={style.shadow ?? 0} onChange={(event) => setPlaceStyle({ shadow: Number(event.target.value) }, false)} {...live} />
+                  </label>
+                  <span className="tpl-tool-label">סדר</span>
+                  <div className="tpl-tool-row">
+                    <button onClick={() => orderPlace('front')}>לחזית</button>
+                    <button onClick={() => orderPlace('forward')}>קדימה</button>
+                    <button onClick={() => orderPlace('backward')}>אחורה</button>
+                    <button onClick={() => orderPlace('back')}>לרקע</button>
+                  </div>
+                  <div className="tpl-tool-row">
+                    <button onClick={duplicateSelectedPlace}>⧉ שכפול</button>
+                    <button className="danger" onClick={deleteSelectedPlace}>מחיקת המקום</button>
+                  </div>
                 </div>
               );
             })()}

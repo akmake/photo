@@ -59,6 +59,10 @@ export interface PhotoLayer extends BaseLayer {
   /** The design deliberately runs this photo across the fold. */
   allowCrossGutter?: boolean;
   feather?: PhotoFeather;
+  flipX?: boolean;
+  flipY?: boolean;
+  /** Corner radius, in spread heights. */
+  radius?: number;
 }
 
 export interface TextLayer extends BaseLayer {
@@ -94,6 +98,12 @@ export interface ShapeLayer extends BaseLayer {
   strokeWidth?: number;
   /** A frame line around a fading photo fades with it. */
   feather?: PhotoFeather;
+  /** rect only — corner radius, in spread heights. */
+  radius?: number;
+  /** A literal colour, for lines the photographer added (not a page colour). */
+  strokeColor?: string;
+  /** rect only — a soft drop shadow, 0–100. */
+  shadow?: number;
 }
 
 export type TemplateLayer = PhotoLayer | TextLayer | ShapeLayer;
@@ -137,6 +147,28 @@ export interface SpreadTemplateInstance {
   places?: Record<string, LayerBox>;
   /** photo place id → how that photo fades. Absent = as designed. */
   fades?: Record<string, PhotoFade>;
+  /** photo place id → rotation, flip, corners, border, shadow, order. */
+  styles?: Record<string, PlaceStyle>;
+  /** Photo places the photographer added to this spread. */
+  addedPlaces?: PhotoLayer[];
+  /** Designed photo places the photographer removed from this spread. */
+  removedPlaces?: string[];
+}
+
+/** The photographer's styling of one photo place — see placeStyles.ts. */
+export interface PlaceStyle {
+  /** Degrees, clockwise. */
+  rotation?: number;
+  flipX?: boolean;
+  flipY?: boolean;
+  /** Corner radius, in spread heights. */
+  radius?: number;
+  /** Border width, in spread heights. */
+  border?: number;
+  borderColor?: string;
+  /** 0–100. */
+  shadow?: number;
+  zIndex?: number;
 }
 
 /** How one photo fades — see fades.ts. */
