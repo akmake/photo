@@ -1,0 +1,151 @@
+/* The frame big, with the client's numbered notes beside it. */
+
+.nv {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  background: rgba(10, 10, 12, 0.86);
+  display: grid;
+  place-items: center;
+  padding: 24px;
+}
+
+.nv-panel {
+  width: 100%;
+  height: 100%;
+  display: grid;
+  grid-template-columns: 1fr 320px;
+  gap: 16px;
+  min-height: 0;
+}
+
+.nv-stage {
+  min-width: 0;
+  min-height: 0;
+  display: grid;
+  place-items: center;
+}
+
+.nv-frame {
+  position: relative;
+  display: inline-block;
+  line-height: 0;
+}
+.nv-frame img {
+  display: block;
+  max-width: 100%;
+  max-height: calc(100vh - 48px);
+  opacity: 0;
+  transition: opacity 160ms ease-out;
+}
+.nv-frame img.is-loaded { opacity: 1; }
+
+.nv-pin {
+  position: absolute;
+  width: 30px;
+  height: 30px;
+  margin: -15px 0 0 -15px;
+  padding: 0;
+  border-radius: 999px;
+  border: 2px solid #fff;
+  background: transparent;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.55);
+  color: #fff;
+  font: 700 13px/1 Assistant, system-ui, sans-serif;
+  text-shadow: 0 0 3px rgba(0, 0, 0, 0.95);
+  cursor: pointer;
+  transition: transform 120ms ease-out;
+}
+.nv-pin.is-active {
+  border-color: var(--tz-brand, #e8b04a);
+  transform: scale(1.25);
+}
+.nv-pin.is-done { opacity: 0.45; }
+
+.nv-side {
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: #1c1c1f;
+  border-radius: 12px;
+  color: #f4f4f5;
+  overflow: hidden;
+}
+
+.nv-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 12px 14px;
+  border-bottom: 1px solid #2e2e33;
+}
+.nv-file {
+  font-size: 12px;
+  color: #a1a1aa;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.nv-x {
+  border: 0;
+  background: transparent;
+  color: #f4f4f5;
+  font-size: 16px;
+  cursor: pointer;
+}
+
+.nv-list {
+  list-style: none;
+  margin: 0;
+  padding: 8px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.nv-note {
+  display: flex;
+  gap: 10px;
+  padding: 10px;
+  border-radius: 10px;
+  border: 1px solid transparent;
+}
+.nv-note.is-active { border-color: var(--tz-brand, #e8b04a); background: #26262a; }
+.nv-note.is-done p { color: #71717a; }
+
+.nv-n {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 999px;
+  border: 1.5px solid #a1a1aa;
+  font-size: 12px;
+}
+
+.nv-body { min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+.nv-body p { margin: 0; font-size: 14px; line-height: 1.5; white-space: pre-wrap; }
+
+.nv-resolve {
+  align-self: flex-start;
+  border: 1px solid #3f3f46;
+  background: transparent;
+  color: #f4f4f5;
+  border-radius: 8px;
+  padding: 4px 10px;
+  font: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+.nv-resolve:disabled { opacity: 0.5; cursor: default; }
+.nv-done { font-size: 12.5px; color: #71717a; }
+
+@media (max-width: 800px) {
+  .nv { padding: 12px; }
+  .nv-panel { grid-template-columns: 1fr; grid-template-rows: minmax(0, 1fr) auto; }
+  .nv-frame img { max-height: 55vh; }
+  .nv-side { max-height: 40vh; }
+}

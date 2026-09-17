@@ -36,6 +36,7 @@ import {
 } from '../store';
 import type { Frame } from '../../api';
 import { publishAll, unlinkGallery, useGalleryWatch, type PublishProgress } from '../galleryLink';
+import NoteViewer from '../NoteViewer';
 import { IcCheckCircle, IcLink } from '../../design/Icons';
 import './client-gallery.css';
 
@@ -468,7 +469,9 @@ function Live({
 
       {link.importedAt && <Imported projectId={projectId} link={link} />}
 
-      {state && locked && <Queue projectId={projectId} state={state} link={link} />}
+      {/* Notes arrive while the client is still choosing, so the queue does
+          not wait for the lock. */}
+      {state && <Queue projectId={projectId} state={state} link={link} />}
 
       <div className="cg-danger">
         {status === 'active' ? (
@@ -602,11 +605,24 @@ function Queue({
   const frames = framesOf(projectId);
   const [busy, setBusy] = useState<string | null>(null);
   const [done, setDone] = useState<Record<string, boolean>>({});
+  const [opened, setOpened] = useState<string | null>(null);
 
   const open = state.comments.filter((c) => !c.resolvedAt && !done[c.id]);
   if (!state.comments.length) {
     return <p className="cg-hint cg-quiet">אין הערות מהלקוח.</p>;
   }
+
+  const resolve = async (id: string) => {
+    setBusy(id);
+    try {
+      await galleryResolve(link.galleryId, id);
+      setDone((d) => ({ ...d, [id]: true }));
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const openFrame = opened ? frames.find((f) => f.name === opened) : undefined;
 
   return (
     <div className="cg-queue">
@@ -619,7 +635,13 @@ function Queue({
         const resolved = Boolean(comment.resolvedAt) || done[comment.id];
         return (
           <div className={`cg-note-row${resolved ? ' is-done' : ''}`} key={comment.id}>
-            <div className="cg-note-thumb">
+            <div
+              className="cg-note-thumb"
+              role={frame ? 'button' : undefined}
+              title={frame ? 'פתח בגדול עם כל ההערות' : undefined}
+              style={frame ? { cursor: 'zoom-in' } : undefined}
+              onClick={frame ? () => setOpened(comment.frameId) : undefined}
+            >
               {frame ? (
                 <>
                   <img
@@ -645,15 +667,7 @@ function Queue({
                   <button
                     className="btn"
                     disabled={busy === comment.id}
-                    onClick={async () => {
-                      setBusy(comment.id);
-                      try {
-                        await galleryResolve(link.galleryId, comment.id);
-                        setDone((d) => ({ ...d, [comment.id]: true }));
-                      } finally {
-                        setBusy(null);
-                      }
-                    }}
+                    onClick={() => resolve(comment.id)}
                   >
                     סמן שטופל
                   </button>
@@ -685,6 +699,18 @@ function Queue({
           </div>
         );
       })}
+
+      {openFrame && (
+        <NoteViewer
+          frameId={openFrame.name}
+          src={`${ENGINE}/thumb?path=${encodeURIComponent(openFrame.shown)}&w=1800`}
+          comments={state.comments.filter((c) => c.frameId === openFrame.name)}
+          isResolved={(c) => Boolean(c.resolvedAt) || Boolean(done[c.id])}
+          busyId={busy}
+          onResolve={(c) => resolve(c.id)}
+          onClose={() => setOpened(null)}
+        />
+      )}
     </div>
   );
 }
