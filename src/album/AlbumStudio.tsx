@@ -18,7 +18,9 @@ import {
 import { rankTemplates } from './templates/choose';
 import { designFade } from './templates/fades';
 import { duplicatePlace, reorderZ } from './templates/placeStyles';
-import ElementsPanel from './templates/ElementsPanel';
+import SpreadPanel from './templates/SpreadPanel';
+import { FONT_CATALOG, FONT_GROUP_LABELS, familyOf, fontStack, type FontEntry } from './templates/fonts';
+import { importUserFonts, loadUserFonts } from './templates/userFonts';
 import { elementToLayer, type ElementDef } from './templates/elements';
 import { importElements, loadMyElements, removeMyElement } from './templates/elementStore';
 import { smartGuides, type GuideResult } from './templates/smartGuides';
@@ -208,7 +210,18 @@ export default function AlbumStudio({ job, onBack }: {
   /** An element the photographer added to the spread (text, shape, artwork, import). */
   const [selectedElementId, setSelectedElementId] = useState<string | null>(null);
   const [myElements, setMyElements] = useState<ElementDef[]>([]);
+  const [userFonts, setUserFonts] = useState<FontEntry[]>([]);
   useEffect(() => {
+    let alive = true;
+    loadUserFonts()
+      .then(({ fonts, failed }) => {
+        if (!alive) return;
+        setUserFonts(fonts);
+        if (failed.length) setNotice(`לא ניתן לטעון ${failed.length} גופנים: ${failed.slice(0, 3).join(', ')}`);
+      })
+      .catch(() => { if (alive) setNotice('לא ניתן לקרוא את הגופנים שלך'); });
+    return () => { alive = false; };
+  }, []);  useEffect(() => {
     let alive = true;
     loadMyElements()
       .then(({ elements, missing }) => {
@@ -1349,6 +1362,16 @@ export default function AlbumStudio({ job, onBack }: {
       ...result.refused.map((item) => `${item.name}: ${item.reason}`),
     ].filter(Boolean);
     setNotice(parts.join(' · ') || 'לא יובא דבר');
+  }
+
+  async function importMyFonts(files: FileList) {
+    const result = await importUserFonts(files);
+    if (result.added.length) setUserFonts((fonts) => [...fonts, ...result.added]);
+    const parts = [
+      result.added.length ? `נוספו ${result.added.length} גופנים: ${result.added.map((font) => font.family).join(', ')}` : '',
+      ...result.refused.map((item) => `${item.name}: ${item.reason}`),
+    ].filter(Boolean);
+    setNotice(parts.join(' · ') || 'לא נוסף גופן');
   }
 
   async function removeFromMyElements(element: ElementDef) {
@@ -3096,6 +3119,29 @@ export default function AlbumStudio({ job, onBack }: {
                       onKeyDown={(event) => event.stopPropagation()}
                     />
                   </label>
+                  <label className="tpl-texts">
+                    <span>גופן</span>
+                    <select
+                      value={familyOf(selectedElement.fontFamily)}
+                      style={{ fontFamily: selectedElement.fontFamily }}
+                      onChange={(event) => updateElement(selectedElement.id, (layer) => ({ ...layer, fontFamily: fontStack(event.target.value) }))}
+                    >
+                      {(['mine', 'hebrew', 'script', 'latin'] as const).map((group) => {
+                        const fonts = group === 'mine' ? userFonts : FONT_CATALOG.filter((font) => font.group === group);
+                        if (!fonts.length) return null;
+                        return (
+                          <optgroup key={group} label={FONT_GROUP_LABELS[group]}>
+                            {fonts.map((font) => (
+                              <option key={font.family} value={font.family} style={{ fontFamily: `'${font.family}'` }}>{font.label}</option>
+                            ))}
+                          </optgroup>
+                        );
+                      })}
+                      {![...FONT_CATALOG, ...userFonts].some((font) => font.family === familyOf(selectedElement.fontFamily)) && (
+                        <option value={familyOf(selectedElement.fontFamily)}>{familyOf(selectedElement.fontFamily)}</option>
+                      )}
+                    </select>
+                  </label>
                   <label className="tpl-fade-slider">
                     <span>גודל <output>{Math.round(selectedElement.fontSize * profile.spreadHeightMm * 2.835)} pt</output></span>
                     <input
@@ -3189,22 +3235,14 @@ export default function AlbumStudio({ job, onBack }: {
           </div>
         ) : (
           <>
-          <div className="album-layout-focus">
-            <span>עמוד מהכספת</span>
-            <strong>{activeTemplate ? activeTemplate.name : 'לא נבחר עמוד'}</strong>
-            <small>{layout.photoIds.filter(Boolean).length} תמונות</small>
-            <div className="album-layout-cycle">
-              <button onClick={() => cycleLayout(-1)} aria-label="עמוד קודם">↑</button>
-              <button onClick={() => cycleLayout(1)} aria-label="עמוד הבא">↓</button>
-            </div>
-          </div>
-          <TemplatePanel
+          <SpreadPanel
             key={spread.id}
             spread={spread}
             photos={photos}
             spreadAspect={profile.spreadWidthMm / profile.spreadHeightMm}
             template={activeTemplate}
             onApply={placeTemplate}
+            onCycle={(direction) => cycleLayout(direction)}
             onColor={(token, value) => editTemplateInstance((instance) => ({
               ...instance, colors: { ...instance.colors, [token]: value },
             }))}
@@ -3212,18 +3250,13 @@ export default function AlbumStudio({ job, onBack }: {
               ...instance, texts: { ...instance.texts, [layerId]: value },
             }))}
             onEditEnd={endTemplateEdit}
-          />
-          <ElementsPanel
             myElements={myElements}
-            enabled={Boolean(activeTemplate)}
-            onAdd={addElement}
-            onImport={(files) => { void importMyElements(files); }}
+            userFonts={userFonts}
+            onAddElement={addElement}
+            onImportElements={(files) => { void importMyElements(files); }}
             onRemoveMine={(element) => { void removeFromMyElements(element); }}
-          />
-          <div className="album-tip">
-            <span>↑↓ עמוד אחר מהכספת · ←→ כפולה · Enter לעריכה</span>
-          </div>
-          </>
+            onImportFonts={(files) => { void importMyFonts(files); }}
+          />          </>
         )}
         </aside>
           </>

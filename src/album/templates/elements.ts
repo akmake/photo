@@ -14,7 +14,7 @@ import type { ImageLayer, ShapeLayer, TextLayer } from './types';
 export interface ElementDef {
   id: string;
   name: string;
-  group: 'vault' | 'basic' | 'mine';
+  group: 'vault' | 'basic' | 'mine' | 'icons';
   kind: 'path' | 'text' | 'rect' | 'ellipse' | 'line' | 'image';
   /** path: artwork and its bounds in its source viewBox units. */
   d?: string;
@@ -25,6 +25,11 @@ export interface ElementDef {
   strokeWidth?: number;
   text?: string;
   fontFamily?: string;
+  /** In page heights. */
+  fontSize?: number;
+  fontWeight?: number;
+  /** Words to find the element by in search. */
+  keywords?: string;
   /** image: element library id, and width ÷ height. */
   assetId?: string;
   aspect?: number;
@@ -92,8 +97,16 @@ export function vaultElements(): ElementDef[] {
   return out;
 }
 
+/** Ready-made text styles, as in Canva's text panel. */
+export const TEXT_PRESETS: ElementDef[] = [
+  { id: 'text-heading', name: 'כותרת', group: 'basic', kind: 'text', text: 'כותרת', fontFamily: "'Frank Ruhl Libre', serif", fontSize: 0.09, fontWeight: 700, fill: '#ffffff' },
+  { id: 'text-subheading', name: 'כותרת משנה', group: 'basic', kind: 'text', text: 'כותרת משנה', fontFamily: "'Heebo', sans-serif", fontSize: 0.05, fontWeight: 400, fill: '#ffffff' },
+  { id: 'text-body', name: 'טקסט', group: 'basic', kind: 'text', text: 'טקסט רגיל', fontFamily: "'Assistant', sans-serif", fontSize: 0.032, fontWeight: 400, fill: '#ffffff' },
+  { id: 'text-script', name: 'כתב יד', group: 'basic', kind: 'text', text: 'Forever', fontFamily: "'Great Vibes', cursive", fontSize: 0.1, fontWeight: 400, fill: '#ffffff' },
+  { id: 'text-hebrew-hand', name: 'כתב יד עברי', group: 'basic', kind: 'text', text: 'רגעים של אושר', fontFamily: "'Amatic SC', cursive", fontSize: 0.09, fontWeight: 700, fill: '#ffffff' },
+];
+
 export const BASIC_ELEMENTS: ElementDef[] = [
-  { id: 'basic-text', name: 'טקסט', group: 'basic', kind: 'text', text: 'טקסט חדש', fontFamily: "'Rubik', 'Segoe UI', sans-serif", fill: '#ffffff' },
   { id: 'basic-line', name: 'קו', group: 'basic', kind: 'line', stroke: '#ffffff', strokeWidth: 0.004 },
   { id: 'basic-rect', name: 'מלבן', group: 'basic', kind: 'rect', stroke: '#ffffff', strokeWidth: 0.004 },
   { id: 'basic-ellipse', name: 'עיגול', group: 'basic', kind: 'ellipse', stroke: '#ffffff', strokeWidth: 0.004 },
@@ -130,14 +143,14 @@ export function elementToLayer(
     };
   }
   if (element.kind === 'text') {
-    const size = 0.06;
+    const size = element.fontSize ?? 0.06;
     return {
       type: 'text', id, name: 'טקסט', zIndex,
-      box: place(0.5, size * 1.6),
+      box: place(Math.min(0.9, Math.max(0.25, (element.text ?? '').length * size * 0.55)), size * 1.6),
       defaultText: element.text ?? 'טקסט',
       direction: /[֐-׿]/.test(element.text ?? '') ? 'rtl' : 'ltr',
       fontFamily: element.fontFamily ?? "'Rubik', sans-serif",
-      fontWeight: 400,
+      fontWeight: element.fontWeight ?? 400,
       fontSize: size,
       lineHeight: 1.2,
       align: 'center',

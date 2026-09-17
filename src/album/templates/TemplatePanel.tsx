@@ -20,6 +20,10 @@ interface Props {
   onColor(token: string, value: string): void;
   onText(layerId: string, value: string): void;
   onEditEnd(): void;
+  /** Which part of the panel: choosing the page, or its colours. */
+  section: 'page' | 'colors';
+  /** Next/previous fitting page. */
+  onCycle?(direction: 1 | -1): void;
 }
 
 /** Photo counts the Vault has pages for. */
@@ -30,7 +34,7 @@ const PHOTO_COUNTS = [...new Set(TEMPLATE_LIBRARY.map((item) => item.photoCount)
 /* The side-panel section for Vault pages: which designs fit this spread, and —
  * once one is placed — this spread's own colours and words. */
 export default function TemplatePanel({
-  spread, photos, spreadAspect, template, onApply, onColor, onText, onEditEnd,
+  spread, photos, spreadAspect, template, onApply, onColor, onText, onEditEnd, section, onCycle,
 }: Props) {
   const placed = spread.photoIds.filter(Boolean);
   /* The photographer decides how many photos the spread holds, then picks a
@@ -119,9 +123,20 @@ export default function TemplatePanel({
       {`הצג עמודים ל־${count} תמונות`}
     </button>
   );
-  if (!template || !spread.templateInstance) {
+  if (section === 'page') {
     return (
-      <section className="tpl-panel" aria-label="עמודים מהכספת">
+      <section className="tpl-panel" aria-label="עמוד מהכספת">
+        <div className="tpl-page-now">
+          <span>העמוד בכפולה</span>
+          <strong>{template ? template.name : 'עוד לא נבחר עמוד'}</strong>
+        </div>
+        {template && onCycle && (
+          <div className="tpl-cycle">
+            <button onClick={() => onCycle(-1)} title="מקלדת: ↑">‹ עמוד קודם</button>
+            <button onClick={() => onCycle(1)} title="מקלדת: ↓">עמוד הבא ›</button>
+            <small>עוברים בין עמודי הכספת שמתאימים לתמונות שבכפולה, מהמתאים ביותר. אפשר גם בחצים ↑↓.</small>
+          </div>
+        )}
         <strong>כמה תמונות בכפולה?</strong>
         {countPicker}
         {count === null ? cards : openGallery}
@@ -130,12 +145,20 @@ export default function TemplatePanel({
     );
   }
 
+  if (!template || !spread.templateInstance) {
+    return (
+      <section className="tpl-panel">
+        <small>הצבעים שייכים לעמוד מהכספת. בחר קודם עמוד בלשונית "עמוד".</small>
+      </section>
+    );
+  }
+
   const instance = spread.templateInstance;
   const texts = template.layers.filter((layer): layer is TextLayer => layer.type === 'text');
   const standIn = texts.some((layer) => layer.sourceFont && !usesSourceLettering(instance, layer));
   return (
-    <section className="tpl-panel" aria-label="עמוד מהכספת">
-      <strong>{template.name}</strong>
+    <section className="tpl-panel" aria-label="צבעי העמוד">
+      <small>הצבעים של הכפולה הזאת בלבד. כפולות אחרות לא משתנות.</small>
       <div className="tpl-colors">
         {template.colors.map((color) => (
           <label key={color.id}>
@@ -151,6 +174,7 @@ export default function TemplatePanel({
       </div>
       {texts.length > 0 && (
         <div className="tpl-texts">
+          <strong>טקסט שבעיצוב</strong>
           {texts.map((layer) => (
             <label key={layer.id}>
               <span>{layer.name}</span>
@@ -172,12 +196,6 @@ export default function TemplatePanel({
       {standIn && (
         <small>הטקסט מוצג בגופן דומה. הגופן של המעצבת ייכנס כשיתקבל קובץ הגופן.</small>
       )}
-      <details className="tpl-more">
-        <summary>החלפת עמוד או מספר תמונות</summary>
-        {countPicker}
-        {openGallery}
-        {gallery}
-      </details>
     </section>
   );
 }
