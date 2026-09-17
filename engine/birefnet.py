@@ -16,6 +16,7 @@ rest of the engine uses, no timm, no transformers, no trust_remote_code.
 import hashlib
 import os
 import threading
+from concurrent.futures import ThreadPoolExecutor
 
 import cv2
 import numpy as np
@@ -91,6 +92,65 @@ def _cache_path(x: np.ndarray) -> str:
     return os.path.join(base, "TEZA", "cache", "subject", f"{digest}.npy")
 
 
+def _infer(x: np.ndarray, cached_at: str) -> np.ndarray:
+    try:
+        out = _instance().run(None, {"input_image": x})[0]
+        try:
+            os.makedirs(os.path.dirname(cached_at), exist_ok=True)
+            # ".tmp.npy", not ".tmp": np.save APPENDS ".npy" to any name that
+            # lacks it, so this wrote "<digest>.npy.tmp.npy" and the replace
+            # below renamed a path that did not exist. The OSError went into
+            # the handler underneath and the cache stored nothing, ever — every
+            # file in the subject cache was an orphaned temp, and the 6.4s
+            # below was paid again on every single frame.
+            tmp = f"{cached_at}.{os.getpid()}.{threading.get_ident()}.tmp.npy"
+            np.save(tmp, out)
+            os.replace(tmp, cached_at)
+        except OSError:
+            pass  # a cache that cannot be written still serves pixels
+        return out
+    finally:
+        with _inflight_lock:
+            _inflight.pop(cached_at, None)
+
+
+# ---------------------------------------------------------------- starting early
+#
+# Opening a frame nobody prepared runs the retouch tools first and reaches the
+# subject mask seconds later, and only THEN pays ~3.3s for it — although the
+# answer depends on nothing but the photograph, and was knowable the moment the
+# frame was opened. `start()` begins that inference on a thread of its own as
+# soon as a render begins, so it runs WHILE the face tools do; when the pipeline
+# gets to it, `subject_alpha` waits for the run already under way.
+#
+# Identical by construction: the same input tensor, the same session, and the
+# waiting call receives that very output. It is safe off the image worker
+# because onnxruntime's `run` is thread-safe — unlike MediaPipe, which is why
+# only THIS model is started early.
+_inflight = {}                 # cache path -> Future of the raw output
+_inflight_lock = threading.Lock()
+_early = ThreadPoolExecutor(max_workers=1, thread_name_prefix="subject-early")
+
+
+def start(rgb: np.ndarray) -> bool:
+    """Begin inferring `rgb` in the background, unless it is cached or running.
+
+    `rgb` must be the frame `subject_alpha` will later be asked about — the
+    mask-resolution frame, `common.downscale` of the source. -> True if started.
+    """
+    if not available():
+        return False
+    x = _prep(rgb)
+    cached_at = _cache_path(x)
+    if os.path.exists(cached_at):
+        return False
+    with _inflight_lock:
+        if cached_at in _inflight:
+            return False
+        _inflight[cached_at] = _early.submit(_infer, x, cached_at)
+    return True
+
+
 def subject_alpha(rgb: np.ndarray) -> np.ndarray:
     """(H, W) float32 alpha in 0..1. Raises if the model is missing.
 
@@ -114,21 +174,18 @@ def subject_alpha(rgb: np.ndarray) -> np.ndarray:
         out = None
 
     if out is None:
-        sess = _instance()
-        out = sess.run(None, {"input_image": x})[0]
-        try:
-            os.makedirs(os.path.dirname(cached_at), exist_ok=True)
-            # ".tmp.npy", not ".tmp": np.save APPENDS ".npy" to any name that
-            # lacks it, so this wrote "<digest>.npy.tmp.npy" and the replace
-            # below renamed a path that did not exist. The OSError went into
-            # the handler underneath and the cache stored nothing, ever — every
-            # file in the subject cache was an orphaned temp, and the 6.4s
-            # below was paid again on every single frame.
-            tmp = cached_at + ".tmp.npy"
-            np.save(tmp, out)
-            os.replace(tmp, cached_at)
-        except OSError:
-            pass  # a cache that cannot be written still serves pixels
+        # Already being inferred — started early by `start()` — so wait for
+        # that run instead of paying for a second one.
+        with _inflight_lock:
+            running = _inflight.get(cached_at)
+        if running is not None:
+            out = running.result()
+        else:
+            # it may have finished between the read above and the lookup
+            try:
+                out = np.load(cached_at)
+            except Exception:  # noqa: BLE001
+                out = _infer(x, cached_at)
 
     alpha = np.squeeze(out).astype(np.float32)
     if alpha.min() < 0.0 or alpha.max() > 1.0:  # some exports emit logits

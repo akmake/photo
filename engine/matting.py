@@ -90,6 +90,25 @@ def _solidify(alpha: np.ndarray, lo: float = 0.08, hi: float = 0.62) -> np.ndarr
     return a * a * (3.0 - 2.0 * a)  # smoothstep
 
 
+def start_early(source_rgb: np.ndarray) -> None:
+    """Begin the subject inference for this frame now, in the background.
+
+    Called when a render starts, so BiRefNet runs alongside the face tools
+    instead of after them (see birefnet.start). The frame handed to BiRefNet
+    later is `common.downscale` of the source — masks.get_mask computes every
+    mask at that resolution — so that is the frame started here, or the early
+    run would answer a question nobody asks. Never raises: starting early is an
+    optimisation.
+    """
+    try:
+        import birefnet
+        import common
+
+        birefnet.start(common.downscale(source_rgb))
+    except Exception:  # noqa: BLE001
+        pass
+
+
 def subject_alpha(rgb: np.ndarray) -> np.ndarray:
     """High-quality soft alpha for the people in the frame.
 

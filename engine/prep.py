@@ -128,6 +128,8 @@ def _do(job):
                 masks.get_mask(rgb, k)
         finally:
             masks.clear_source()
+    # Ready means ON DISK: the engine reads these files, not this process.
+    masks.flush_writes()
     if marker:
         os.makedirs(os.path.dirname(marker), exist_ok=True)
         open(marker, "wb").close()

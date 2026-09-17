@@ -620,7 +620,38 @@ def _load_cached(on_disk: str, rgb: np.ndarray):
         return None
 
 
+# Writing is not the caller's business. A compressed mask costs ~20-60ms to
+# write, several of them per frame — measured 0.26-0.45s of an unprepared open
+# spent waiting on the disk for answers already in memory. They go to one
+# writer thread instead; `flush_writes()` is for callers whose product IS the
+# files (prep.py), who must not report a frame ready before they exist.
+_WRITES = None
+_WRITES_LOCK = threading.Lock()
+
+
+def _writer():
+    global _WRITES
+    with _WRITES_LOCK:
+        if _WRITES is None:
+            from concurrent.futures import ThreadPoolExecutor
+
+            _WRITES = ThreadPoolExecutor(max_workers=1, thread_name_prefix="mask-writes")
+        return _WRITES
+
+
+def flush_writes() -> None:
+    """Block until every queued cache write has reached the disk."""
+    _writer().submit(lambda: None).result()
+
+
 def _save_cached(on_disk: str, arr: np.ndarray, rgb: np.ndarray) -> None:
+    # The fingerprint is taken NOW, from the picture in hand; only the file
+    # system work waits.
+    fp = _fingerprint(rgb) if on_disk.endswith(".npz") else None
+    _writer().submit(_write_cached, on_disk, arr, fp)
+
+
+def _write_cached(on_disk: str, arr: np.ndarray, fp) -> None:
     try:
         os.makedirs(os.path.dirname(on_disk), exist_ok=True)
         # The suffix has to match what numpy writes: np.save APPENDS ".npy" and
@@ -630,7 +661,7 @@ def _save_cached(on_disk: str, arr: np.ndarray, rgb: np.ndarray) -> None:
         # stored nothing while the directory filled with orphaned temp files.
         if on_disk.endswith(".npz"):
             tmp = on_disk + ".tmp.npz"
-            np.savez_compressed(tmp, a=arr, fp=_fingerprint(rgb))
+            np.savez_compressed(tmp, a=arr, fp=fp)
         else:
             tmp = on_disk + ".tmp.npy"
             np.save(tmp, arr)

@@ -480,6 +480,14 @@ def render(img, recipe_tools, source_scale: float = 1.0, source_img=None, key=No
     source_rgb = rgb
     work_rgb = np.array(resumed[0]) if resumed is not None else rgb
 
+    # A named photograph with tools still to run: start the subject inference
+    # now, so it runs beside the face tools rather than after them. A no-op
+    # when it is cached already (matting.start_early).
+    if key and start < len(active):
+        import matting
+
+        matting.start_early(source_rgb)
+
     # `key` names the photograph so its masks outlive this particular width.
     # The masks come from the PRISTINE frame even when resuming mid-stack.
     masks.set_source(source_rgb, key)  # every tool sees the same, pristine masks
