@@ -743,3 +743,265 @@
   cursor: not-allowed;
 }
 
+
+/* ============================================================
+   THE TOOLS PANEL — built from the catalogue, in engine order.
+   Structure follows the approved mock (histogram at the top, jump pills,
+   one module per tool with a switch, a reset and a "changed" dot). The
+   COLOURS follow this screen, which is light: the mock's neutral grey was a
+   second theme, and a panel that does not match the screen it lives in is a
+   worse answer than either look on its own.
+   ============================================================ */
+
+.tz-hist-wrap {
+  padding: 10px 12px 8px;
+  border-bottom: 1px solid #f4f3ef;
+}
+
+.tz-hist {
+  position: relative;
+  height: 84px;
+  border-radius: 8px;
+  background: #1c1c1f;      /* the curve is read against dark, always */
+  overflow: hidden;
+}
+
+.tz-hist canvas {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.tz-hist-clip {
+  position: absolute;
+  top: 5px;
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.18);
+}
+
+.tz-hist-clip.left { left: 6px; }
+.tz-hist-clip.right { right: 6px; }
+.tz-hist-clip.on { background: #ff5a4f; }
+
+.tz-hist-meta {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 5px;
+  font-size: 11px;
+  color: #a1a1aa;
+}
+
+.tz-tp {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  flex: 1;
+}
+
+.tz-tp-jump {
+  display: flex;
+  gap: 5px;
+  padding: 8px 12px;
+  border-bottom: 1px solid #f4f3ef;
+  overflow-x: auto;
+}
+
+.tz-tp-jump button {
+  flex: none;
+  height: 26px;
+  padding: 0 11px;
+  border: 1px solid #e7e4dd;
+  border-radius: 999px;
+  background: transparent;
+  color: #52525b;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.tz-tp-jump button:hover {
+  border-color: var(--tz-brand, #b95c2a);
+  color: #18181b;
+}
+
+.tz-tp-modules {
+  min-height: 0;
+  overflow-y: auto;
+  padding-bottom: 18px;
+}
+
+.tz-tp-section {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  margin: 0;
+  padding: 10px 12px 6px;
+  background: #ffffff;
+  color: #8b8b93;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+}
+
+.tz-tp-mod {
+  border-top: 1px solid #f4f3ef;
+}
+
+.tz-tp-head {
+  display: grid;
+  grid-template-columns: 1fr auto auto auto;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 12px;
+}
+
+.tz-tp-name {
+  padding: 0;
+  border: 0;
+  background: none;
+  text-align: start;
+  font-size: 13px;
+  font-weight: 700;
+  color: #18181b;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+}
+
+.tz-tp-chev {
+  color: #a1a1aa;
+  transition: transform 0.12s ease;
+}
+
+.tz-tp-mod.closed .tz-tp-chev { transform: rotate(90deg); }
+.tz-tp-mod.off .tz-tp-name { color: #9b9ba1; }
+.tz-tp-mod.off .tz-tp-body { opacity: 0.45; }
+
+.tz-tp-count {
+  padding: 0 6px;
+  border-radius: 999px;
+  background: #f1efe9;
+  color: #52525b;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.tz-tp-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #e0864f;
+}
+
+.tz-tp-dot.idle { background: transparent; }
+
+.tz-tp-icon {
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: #a1a1aa;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.tz-tp-icon:hover { background: #f4f3ef; color: #18181b; }
+
+.tz-tp-switch {
+  position: relative;
+  width: 28px;
+  height: 16px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: #ddd9d1;
+  cursor: pointer;
+}
+
+.tz-tp-switch::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #fff;
+  transition: right 0.12s ease;
+}
+
+.tz-tp-switch[aria-checked='true'] { background: #e0864f; }
+.tz-tp-switch[aria-checked='true']::after { right: 14px; }
+
+.tz-tp-body { padding: 0 12px 10px; }
+
+.tz-tp-row {
+  display: grid;
+  grid-template-columns: 1fr 46px;
+  align-items: center;
+  gap: 0 8px;
+  padding: 3px 0;
+}
+
+.tz-tp-row label {
+  color: #52525b;
+  font-size: 12.5px;
+}
+
+.tz-tp-val {
+  width: 46px;
+  height: 20px;
+  padding: 0 3px;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: transparent;
+  color: #52525b;
+  font-size: 11.5px;
+  text-align: left;
+  direction: ltr;
+}
+
+.tz-tp-val:hover,
+.tz-tp-val:focus {
+  border-color: #e7e4dd;
+  background: #faf9f5;
+}
+
+.tz-tp-row input[type='range'] {
+  grid-column: 1 / -1;
+  width: 100%;
+  height: 14px;
+  margin: 0;
+  accent-color: #e0864f;
+}
+
+.tz-tp-row.changed label { color: #18181b; }
+.tz-tp-row.changed .tz-tp-val { color: #b95c2a; }
+
+.tz-tp-note {
+  margin: 6px 0 0;
+  color: #9b9ba1;
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.tz-tp-brush {
+  margin-top: 8px;
+  width: 100%;
+  height: 30px;
+  border: 1px solid #e7e4dd;
+  border-radius: 8px;
+  background: #faf9f5;
+  color: #18181b;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.tz-tp-brush:hover { border-color: #e0864f; }
+.tz-tp-brush.active { background: #ef4444; border-color: #ef4444; color: #fff; }

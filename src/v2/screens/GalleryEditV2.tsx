@@ -17,8 +17,10 @@ import {
 import { EDIT_WIDTH, learnColorModel, prepareFrames, renderRecipeAtPath, Superseded, thumbUrl } from '../../api';
 import type { LearnColorResponse } from '../../api';
 import type { LearnedColorModel, ManualStroke, ToolInstance } from '../../types';
-import { defaultParams, getTool } from '../../toolRegistry';
+import { defaultParams, getTool, isToolAtDefault } from '../../toolRegistry';
 import ManualBrush, { DEFAULT_R, MAX_R, MIN_R } from './ManualBrush';
+import ToolsPanelV2 from './ToolsPanelV2';
+import Histogram from './Histogram';
 import { useSetPreview } from '../../studio/preview';
 import BeforeAfter from '../../studio/screens/BeforeAfter';
 import {
@@ -70,76 +72,30 @@ export default function GalleryEditV2({
   // Active tool category tab: 'primary' | 'colormatch'
   const [activeTab, setActiveTab] = useState<'primary' | 'colormatch'>('primary');
 
-  // Tool categories mapping
-  const CATEGORY_TOOLS: Record<string, string[]> = useMemo(
+  /* WHERE A TOOL STARTS when it is switched on.
+   *
+   * The catalogue default of a slider is where it sits when it does NOTHING —
+   * zero, usually — which is the right answer for a recipe and the wrong one
+   * for a switch: a tool turned on that changes nothing reads as broken. These
+   * are the values the screen has always used for that moment, kept when the
+   * panel stopped being built out of categories.
+   *
+   * (Tonal contrast is the reason to be careful here: it used to be switched
+   * on with a value named "contrast", which the engine does not read, so the
+   * tool came on and the picture never changed.) */
+  const ON_DEFAULTS: Record<string, Record<string, number>> = useMemo(
     () => ({
-      retouch: ['skin-retouch', 'skin-cleanup', 'eye-sparkle'],
-      glow: ['glow'],
-      contour: ['contour'],
-      tone: ['tone-color'],
-      contrast: ['tonal-contrast'],
-      sharpen: ['sharpen'],
+      'skin-retouch': { blemishes: 100, evenness: 70, texture: 0, glow: 0, keepMoles: 1 },
+      'skin-cleanup': { redness: 90 },
+      'eye-sparkle': { strength: 50 },
+      glow: { amount: 35, people: 25, skin: 20, fabric: 15, radius: 40 },
+      contour: { cheekbones: 25, forehead: 15, jaw: 15, undereye: -10, sculpt: 20 },
+      'tone-color': { exposure: 0, contrast: 15, highlights: -10, shadows: 15, temperature: 0, saturation: 5 },
+      'tonal-contrast': { amount: 40 },
+      sharpen: { amount: 30, radius: 20, masking: 25 },
     }),
     [],
   );
-
-  // Default activation values when user flips a category switch ON
-  const DEFAULT_ACTIVATION_PARAMS: Record<string, Record<string, Record<string, number>>> = useMemo(
-    () => ({
-      retouch: {
-        'skin-retouch': { blemishes: 100, evenness: 70, texture: 0, glow: 0, keepMoles: 1 },
-        'skin-cleanup': { redness: 90 },
-        'eye-sparkle': { strength: 50 },
-      },
-      glow: {
-        glow: { amount: 35, people: 25, skin: 20, fabric: 15, radius: 40 },
-      },
-      contour: {
-        contour: { cheekbones: 25, forehead: 15, jaw: 15, undereye: -10, sculpt: 20 },
-      },
-      tone: {
-        'tone-color': { exposure: 0, contrast: 15, highlights: -10, shadows: 15, temperature: 0, saturation: 5 },
-      },
-      contrast: {
-        // `amount` is the tool's strength (engine/tonal_contrast.py). This used
-        // to send `contrast`, a name the engine does not read — the category
-        // switched on and the slider moved, and the picture never changed.
-        'tonal-contrast': { amount: 40 },
-      },
-      sharpen: {
-        sharpen: { amount: 30, radius: 20, masking: 25 },
-      },
-    }),
-    [],
-  );
-
-  // Accordion state for tool categories
-  const [openCategories, setOpenCategories] = useState<Record<string, boolean>>({
-    retouch: true, // Default open
-    glow: true,    // Glow open & accessible
-    contour: false,
-    tone: false,
-    contrast: false,
-    sharpen: false,
-  });
-
-  const toggleCategory = useCallback((catId: string) => {
-    setOpenCategories((prev) => ({ ...prev, [catId]: !prev[catId] }));
-  }, []);
-
-  const allOpen = useMemo(() => Object.values(openCategories).every(Boolean), [openCategories]);
-
-  const toggleAllCategories = useCallback(() => {
-    const nextVal = !allOpen;
-    setOpenCategories({
-      retouch: nextVal,
-      glow: nextVal,
-      contour: nextVal,
-      tone: nextVal,
-      contrast: nextVal,
-      sharpen: nextVal,
-    });
-  }, [allOpen]);
 
   // Canvas comparison state
   const [showOriginal, setShowOriginal] = useState(false);
@@ -212,91 +168,14 @@ export default function GalleryEditV2({
     return effectiveRecipe(project.id, currentFrame.name);
   }, [project.id, currentFrame, recipe]);
 
-  // Helper to extract slider value
-  const getParamVal = useCallback(
-    (toolId: string, paramId: string, fallback: number): number => {
-      const step = frameEffectiveTools.find((t) => t.toolId === toolId);
-      if (step && step.params && step.params[paramId] !== undefined) {
-        return Number(step.params[paramId]);
-      }
-      return fallback;
-    },
-    [frameEffectiveTools],
-  );
-
-  // Retired tools a category still has to reach. Work saved with them keeps
-  // rendering, so switching the category OFF must switch them off too. They
-  // are never switched ON: turning a category on uses the tool that replaced
-  // them, and reviving both would apply two retouches on top of each other.
-  const RETIRED_CATEGORY_TOOLS: Record<string, string[]> = useMemo(
-    () => ({ retouch: ['face-retouch', 'skin'] }),
-    [],
-  );
-
-  // Category enable state (true if any tool in category is enabled)
-  const isCategoryEnabled = useCallback(
-    (catId: string): boolean => {
-      const toolIds = [...(CATEGORY_TOOLS[catId] || []), ...(RETIRED_CATEGORY_TOOLS[catId] || [])];
-      return toolIds.some((tid) => {
-        const step = frameEffectiveTools.find((t) => t.toolId === tid);
-        return step ? step.enabled : false;
-      });
-    },
-    [CATEGORY_TOOLS, RETIRED_CATEGORY_TOOLS, frameEffectiveTools],
-  );
-
-  // Toggle category on/off
-  const toggleCategoryEnabled = useCallback(
-    (catId: string, enabled: boolean) => {
-      if (!currentFrame) return;
-      const toolIds = CATEGORY_TOOLS[catId] || [];
-      for (const tid of toolIds) {
-        const existing = frameEffectiveTools.find((t) => t.toolId === tid);
-        if (existing) {
-          setFrameStep(project.id, currentFrame.name, { ...existing, enabled });
-        } else if (enabled) {
-          const defaults = DEFAULT_ACTIVATION_PARAMS[catId]?.[tid] ?? {};
-          setFrameStep(project.id, currentFrame.name, {
-            toolId: tid,
-            enabled: true,
-            params: defaults,
-          });
-        }
-      }
-      if (!enabled) {
-        for (const tid of RETIRED_CATEGORY_TOOLS[catId] || []) {
-          const existing = frameEffectiveTools.find((t) => t.toolId === tid);
-          if (existing?.enabled) {
-            setFrameStep(project.id, currentFrame.name, { ...existing, enabled: false });
-          }
-        }
-      }
-    },
-    [currentFrame, CATEGORY_TOOLS, RETIRED_CATEGORY_TOOLS, DEFAULT_ACTIVATION_PARAMS, frameEffectiveTools, project.id],
-  );
-
-  // Category tweak indicators
-  const hasRetouchTweaks = Boolean(
-    frameEffectiveTools.some(
-      (t) =>
-        ['skin-retouch', 'face-retouch', 'skin', 'skin-cleanup', 'eye-sparkle'].includes(t.toolId) && t.enabled,
-    ),
-  );
-  const hasGlowTweaks = Boolean(
-    frameEffectiveTools.some((t) => t.toolId === 'glow' && t.enabled),
-  );
-  const hasContourTweaks = Boolean(
-    frameEffectiveTools.some((t) => t.toolId === 'contour' && t.enabled),
-  );
-  const hasToneTweaks = Boolean(
-    frameEffectiveTools.some((t) => t.toolId === 'tone-color' && t.enabled),
-  );
-  const hasContrastTweaks = Boolean(
-    frameEffectiveTools.some((t) => t.toolId === 'tonal-contrast' && t.enabled),
-  );
-  const hasSharpenTweaks = Boolean(
-    frameEffectiveTools.some((t) => t.toolId === 'sharpen' && t.enabled),
-  );
+  /* RETIRED TOOLS RIDE WITH THE ONE THAT REPLACED THEM.
+   *
+   * A recipe saved before `skin-retouch` existed still carries `face-retouch`
+   * or `skin`, and they still render. Switching the retouch off has to switch
+   * those off too, or the skin keeps being smoothed by a tool the panel does
+   * not show. They are never switched back ON from here: that would put two
+   * retouches on top of each other. */
+  const RETIRED_WITH: Record<string, string[]> = { 'skin-retouch': ['face-retouch', 'skin'] };
 
   // Update a slider value for the active frame
   const handleParamChange = useCallback(
@@ -313,6 +192,49 @@ export default function GalleryEditV2({
       setFrameStep(project.id, currentFrame.name, nextStep);
     },
     [currentFrame, frameEffectiveTools, project.id],
+  );
+
+  /* A TOOL'S OWN SWITCH. Turning one off must leave its values alone: the
+   * switch says "not on this photograph", not "forget what I set". */
+  const handleToolEnabled = useCallback(
+    (toolId: string, enabled: boolean) => {
+      if (!currentFrame) return;
+      const existing = frameEffectiveTools.find((t) => t.toolId === toolId);
+      const base = existing?.params ?? defaultParams(getTool(toolId));
+      // Untouched means every slider still sits where the catalogue put it, so
+      // this is the FIRST time the tool is switched on and it gets a starting
+      // point. A tool he has already set keeps exactly what he set.
+      const untouched = !existing || isToolAtDefault(existing);
+      setFrameStep(project.id, currentFrame.name, {
+        toolId,
+        enabled,
+        params: enabled && untouched ? { ...base, ...(ON_DEFAULTS[toolId] ?? {}) } : base,
+        ...(existing?.model ? { model: existing.model } : {}),
+        ...(existing?.selection ? { selection: existing.selection } : {}),
+        ...(existing?.strokes ? { strokes: existing.strokes } : {}),
+      });
+      if (!enabled) {
+        for (const old of RETIRED_WITH[toolId] ?? []) {
+          const inst = frameEffectiveTools.find((t) => t.toolId === old);
+          if (inst?.enabled) {
+            setFrameStep(project.id, currentFrame.name, { ...inst, enabled: false });
+          }
+        }
+      }
+    },
+    [currentFrame, frameEffectiveTools, project.id, ON_DEFAULTS],
+  );
+
+  /* BACK TO THE SET. A frame-level exception is REMOVED rather than set to the
+   * catalogue's defaults — otherwise "reset" would silently detach the frame
+   * from the batch it belongs to, and a later change to the batch would stop
+   * reaching it. */
+  const handleToolReset = useCallback(
+    (toolId: string) => {
+      if (!currentFrame) return;
+      removeFrameStep(project.id, currentFrame.name, toolId);
+    },
+    [currentFrame, project.id],
   );
 
   /* WHAT HE PAINTED ON THIS PHOTOGRAPH. Strokes live on the frame's own step —
@@ -874,458 +796,24 @@ export default function GalleryEditV2({
               </button>
             </div>
 
-            {activeTab === 'primary' && (
-              <button
-                type="button"
-                className="tz-ge-accordion-toggle-all"
-                onClick={toggleAllCategories}
-              >
-                {allOpen ? 'סגור הכל' : 'פתח הכל'}
-              </button>
-            )}
           </div>
+
+          {/* The histogram reads the frame on screen, so it answers for what
+              is delivered — including the one thing the screen cannot show:
+              areas already at pure black or pure white. */}
+          {activeTab === 'primary' && <Histogram src={renderedSrc} />}
 
           <div className="tz-ge-panel-scroll">
             {activeTab === 'primary' ? (
-              <>
-                {/* 1. Face Retouch & Skin Smoothing */}
-                <div className={`tz-ge-accordion-sec ${openCategories.retouch ? 'open' : ''}`}>
-                  <div
-                    className="tz-ge-accordion-head"
-                    onClick={() => toggleCategory('retouch')}
-                  >
-                    <div className="tz-ge-accordion-title">
-                      <TzIconSparkle size={15} />
-                      <span>ריטוש פנים והחלקת עור (AI)</span>
-                    </div>
-                    <div className="tz-ge-accordion-meta">
-                      {hasRetouchTweaks && <span className="tz-ge-accordion-dot" title="ערכים שונו בתמונה זו" />}
-                      <label
-                        className="tz-ge-switch"
-                        onClick={(e) => e.stopPropagation()}
-                        title={isCategoryEnabled('retouch') ? 'כבה ריטוש' : 'הפעל ריטוש'}
-                      >
-                        <input
-                          type="checkbox"
-                          checked={isCategoryEnabled('retouch')}
-                          onChange={(e) => toggleCategoryEnabled('retouch', e.target.checked)}
-                        />
-                        <span className="tz-ge-switch-slider" />
-                      </label>
-                      <span className={`tz-ge-accordion-chevron ${openCategories.retouch ? 'open' : ''}`}>
-                        ⌄
-                      </span>
-                    </div>
-                  </div>
-                  {openCategories.retouch && (
-                    <div className="tz-ge-accordion-body">
-                      <SliderField
-                        label="ניקוי פגמים"
-                        value={getParamVal('skin-retouch', 'blemishes', 100)}
-                        min={0}
-                        max={100}
-                        defaultVal={100}
-                        onChange={(v) => handleParamChange('skin-retouch', 'blemishes', v)}
-                      />
-                      <SliderField
-                        label="אחידות עור"
-                        value={getParamVal('skin-retouch', 'evenness', 70)}
-                        min={0}
-                        max={100}
-                        defaultVal={70}
-                        onChange={(v) => handleParamChange('skin-retouch', 'evenness', v)}
-                      />
-                      <SliderField
-                        label="ריכוך מרקם"
-                        value={getParamVal('skin-retouch', 'texture', 0)}
-                        min={0}
-                        max={100}
-                        defaultVal={0}
-                        onChange={(v) => handleParamChange('skin-retouch', 'texture', v)}
-                      />
-                      <SliderField
-                        label="זוהר"
-                        value={getParamVal('skin-retouch', 'glow', 0)}
-                        min={0}
-                        max={100}
-                        defaultVal={0}
-                        onChange={(v) => handleParamChange('skin-retouch', 'glow', v)}
-                      />
-                      <label className="tz-ge-toggle-row">
-                        <span>שמירת שומות ונמשים</span>
-                        <span className="tz-ge-switch">
-                          <input
-                            type="checkbox"
-                            checked={getParamVal('skin-retouch', 'keepMoles', 1) >= 0.5}
-                            onChange={(e) =>
-                              handleParamChange('skin-retouch', 'keepMoles', e.target.checked ? 1 : 0)
-                            }
-                          />
-                          <span className="tz-ge-switch-slider" />
-                        </span>
-                      </label>
-                      <SliderField
-                        label="ניקוי אדמומיות"
-                        value={getParamVal('skin-cleanup', 'redness', 90)}
-                        min={0}
-                        max={100}
-                        defaultVal={90}
-                        onChange={(v) => handleParamChange('skin-cleanup', 'redness', v)}
-                      />
-                      <SliderField
-                        label="ברק ולובן עיניים"
-                        value={getParamVal('eye-sparkle', 'strength', 50)}
-                        min={0}
-                        max={100}
-                        defaultVal={50}
-                        onChange={(v) => handleParamChange('eye-sparkle', 'strength', v)}
-                      />
-                    </div>
-                  )}
-                </div>
-
-                {/* 2. Glow (Bloom & Glow) */}
-                <div className={`tz-ge-accordion-sec ${openCategories.glow ? 'open' : ''}`}>
-                  <div
-                    className="tz-ge-accordion-head"
-                    onClick={() => toggleCategory('glow')}
-                  >
-                    <div className="tz-ge-accordion-title">
-                      <TzIconSparkle size={15} />
-                      <span>גלואו רך (Bloom & Glow)</span>
-                    </div>
-                    <div className="tz-ge-accordion-meta">
-                      {hasGlowTweaks && <span className="tz-ge-accordion-dot" title="ערכים שונו בתמונה זו" />}
-                      <label
-                        className="tz-ge-switch"
-                        onClick={(e) => e.stopPropagation()}
-                        title={isCategoryEnabled('glow') ? 'כבה גלואו' : 'הפעל גלואו'}
-                      >
-                        <input
-                          type="checkbox"
-                          checked={isCategoryEnabled('glow')}
-                          onChange={(e) => toggleCategoryEnabled('glow', e.target.checked)}
-                        />
-                        <span className="tz-ge-switch-slider" />
-                      </label>
-                      <span className={`tz-ge-accordion-chevron ${openCategories.glow ? 'open' : ''}`}>
-                        ⌄
-                      </span>
-                    </div>
-                  </div>
-                  {openCategories.glow && (
-                    <div className="tz-ge-accordion-body">
-                      <SliderField
-                        label="עוצמת גלואו כללית"
-                        value={getParamVal('glow', 'amount', 0)}
-                        min={0}
-                        max={100}
-                        defaultVal={35}
-                        onChange={(v) => handleParamChange('glow', 'amount', v)}
-                      />
-                      <SliderField
-                        label="אנשים ופנים"
-                        value={getParamVal('glow', 'people', 0)}
-                        min={0}
-                        max={100}
-                        defaultVal={25}
-                        onChange={(v) => handleParamChange('glow', 'people', v)}
-                      />
-                      <SliderField
-                        label="עור בלבד"
-                        value={getParamVal('glow', 'skin', 0)}
-                        min={0}
-                        max={100}
-                        defaultVal={20}
-                        onChange={(v) => handleParamChange('glow', 'skin', v)}
-                      />
-                      <SliderField
-                        label="בגדים ולבנים"
-                        value={getParamVal('glow', 'fabric', 0)}
-                        min={0}
-                        max={100}
-                        defaultVal={15}
-                        onChange={(v) => handleParamChange('glow', 'fabric', v)}
-                      />
-                      <SliderField
-                        label="רכות ורדיוס"
-                        value={getParamVal('glow', 'radius', 40)}
-                        min={0}
-                        max={100}
-                        defaultVal={40}
-                        onChange={(v) => handleParamChange('glow', 'radius', v)}
-                      />
-                    </div>
-                  )}
-                </div>
-
-                {/* 3. Light & Shadow Sculpting (Contour / Dodge & Burn) */}
-                <div className={`tz-ge-accordion-sec ${openCategories.contour ? 'open' : ''}`}>
-                  <div
-                    className="tz-ge-accordion-head"
-                    onClick={() => toggleCategory('contour')}
-                  >
-                    <div className="tz-ge-accordion-title">
-                      <TzIconSliders size={15} />
-                      <span>פיסול אור וצל (Dodge & Burn)</span>
-                    </div>
-                    <div className="tz-ge-accordion-meta">
-                      {hasContourTweaks && <span className="tz-ge-accordion-dot" title="ערכים שונו בתמונה זו" />}
-                      <label
-                        className="tz-ge-switch"
-                        onClick={(e) => e.stopPropagation()}
-                        title={isCategoryEnabled('contour') ? 'כבה פיסול אור וצל' : 'הפעל פיסול אור וצל'}
-                      >
-                        <input
-                          type="checkbox"
-                          checked={isCategoryEnabled('contour')}
-                          onChange={(e) => toggleCategoryEnabled('contour', e.target.checked)}
-                        />
-                        <span className="tz-ge-switch-slider" />
-                      </label>
-                      <span className={`tz-ge-accordion-chevron ${openCategories.contour ? 'open' : ''}`}>
-                        ⌄
-                      </span>
-                    </div>
-                  </div>
-                  {openCategories.contour && (
-                    <div className="tz-ge-accordion-body">
-                      <SliderField
-                        label="עצמות לחיים"
-                        value={getParamVal('contour', 'cheekbones', 0)}
-                        min={-100}
-                        max={100}
-                        defaultVal={0}
-                        onChange={(v) => handleParamChange('contour', 'cheekbones', v)}
-                      />
-                      <SliderField
-                        label="מרכז המצח"
-                        value={getParamVal('contour', 'forehead', 0)}
-                        min={-100}
-                        max={100}
-                        defaultVal={0}
-                        onChange={(v) => handleParamChange('contour', 'forehead', v)}
-                      />
-                      <SliderField
-                        label="קו הלסת"
-                        value={getParamVal('contour', 'jaw', 0)}
-                        min={-100}
-                        max={100}
-                        defaultVal={0}
-                        onChange={(v) => handleParamChange('contour', 'jaw', v)}
-                      />
-                      <SliderField
-                        label="מתחת לעיניים"
-                        value={getParamVal('contour', 'undereye', 0)}
-                        min={-100}
-                        max={100}
-                        defaultVal={0}
-                        onChange={(v) => handleParamChange('contour', 'undereye', v)}
-                      />
-                      <SliderField
-                        label="הגברת תאורה קיימת"
-                        value={getParamVal('contour', 'sculpt', 0)}
-                        min={0}
-                        max={100}
-                        defaultVal={0}
-                        onChange={(v) => handleParamChange('contour', 'sculpt', v)}
-                      />
-                    </div>
-                  )}
-                </div>
-
-                {/* 4. Tone, Exposure & Color */}
-                <div className={`tz-ge-accordion-sec ${openCategories.tone ? 'open' : ''}`}>
-                  <div
-                    className="tz-ge-accordion-head"
-                    onClick={() => toggleCategory('tone')}
-                  >
-                    <div className="tz-ge-accordion-title">
-                      <TzIconSliders size={15} />
-                      <span>טון, חשיפה וצבע</span>
-                    </div>
-                    <div className="tz-ge-accordion-meta">
-                      {hasToneTweaks && <span className="tz-ge-accordion-dot" title="ערכים שונו בתמונה זו" />}
-                      <label
-                        className="tz-ge-switch"
-                        onClick={(e) => e.stopPropagation()}
-                        title={isCategoryEnabled('tone') ? 'כבה טון וצבע' : 'הפעל טון וצבע'}
-                      >
-                        <input
-                          type="checkbox"
-                          checked={isCategoryEnabled('tone')}
-                          onChange={(e) => toggleCategoryEnabled('tone', e.target.checked)}
-                        />
-                        <span className="tz-ge-switch-slider" />
-                      </label>
-                      <span className={`tz-ge-accordion-chevron ${openCategories.tone ? 'open' : ''}`}>
-                        ⌄
-                      </span>
-                    </div>
-                  </div>
-                  {openCategories.tone && (
-                    <div className="tz-ge-accordion-body">
-                      <SliderField
-                        label="חשיפה"
-                        value={getParamVal('tone-color', 'exposure', 0)}
-                        min={-200}
-                        max={200}
-                        defaultVal={0}
-                        onChange={(v) => handleParamChange('tone-color', 'exposure', v)}
-                      />
-                      <SliderField
-                        label="ניגודיות"
-                        value={getParamVal('tone-color', 'contrast', 0)}
-                        min={-100}
-                        max={100}
-                        defaultVal={0}
-                        onChange={(v) => handleParamChange('tone-color', 'contrast', v)}
-                      />
-                      <SliderField
-                        label="היילייטים"
-                        value={getParamVal('tone-color', 'highlights', 0)}
-                        min={-100}
-                        max={100}
-                        defaultVal={0}
-                        onChange={(v) => handleParamChange('tone-color', 'highlights', v)}
-                      />
-                      <SliderField
-                        label="צלליות"
-                        value={getParamVal('tone-color', 'shadows', 0)}
-                        min={-100}
-                        max={100}
-                        defaultVal={0}
-                        onChange={(v) => handleParamChange('tone-color', 'shadows', v)}
-                      />
-                      <SliderField
-                        label="חום (טמפרטורה)"
-                        value={getParamVal('tone-color', 'temperature', 0)}
-                        min={-200}
-                        max={200}
-                        defaultVal={0}
-                        onChange={(v) => handleParamChange('tone-color', 'temperature', v)}
-                      />
-                      <SliderField
-                        label="רוויה"
-                        value={getParamVal('tone-color', 'saturation', 0)}
-                        min={-100}
-                        max={100}
-                        defaultVal={0}
-                        onChange={(v) => handleParamChange('tone-color', 'saturation', v)}
-                      />
-                    </div>
-                  )}
-                </div>
-
-                {/* 5. Tonal Contrast */}
-                <div className={`tz-ge-accordion-sec ${openCategories.contrast ? 'open' : ''}`}>
-                  <div
-                    className="tz-ge-accordion-head"
-                    onClick={() => toggleCategory('contrast')}
-                  >
-                    <div className="tz-ge-accordion-title">
-                      <TzIconSparkle size={15} />
-                      <span>תלת מימד ומבנה (Tonal Contrast)</span>
-                    </div>
-                    <div className="tz-ge-accordion-meta">
-                      {hasContrastTweaks && <span className="tz-ge-accordion-dot" title="ערכים שונו בתמונה זו" />}
-                      <label
-                        className="tz-ge-switch"
-                        onClick={(e) => e.stopPropagation()}
-                        title={isCategoryEnabled('contrast') ? 'כבה תלת מימד' : 'הפעל תלת מימד'}
-                      >
-                        <input
-                          type="checkbox"
-                          checked={isCategoryEnabled('contrast')}
-                          onChange={(e) => toggleCategoryEnabled('contrast', e.target.checked)}
-                        />
-                        <span className="tz-ge-switch-slider" />
-                      </label>
-                      <span className={`tz-ge-accordion-chevron ${openCategories.contrast ? 'open' : ''}`}>
-                        ⌄
-                      </span>
-                    </div>
-                  </div>
-                  {openCategories.contrast && (
-                    <div className="tz-ge-accordion-body">
-                      <SliderField
-                        label="קונטרסט תלת מימד"
-                        value={
-                          // A frame saved under the old `contrast` name renders
-                          // with no strength at all, so the slider says 0 — what
-                          // the engine actually applies — until it is moved.
-                          frameEffectiveTools.some((t) => t.toolId === 'tonal-contrast')
-                            ? getParamVal('tonal-contrast', 'amount', 0)
-                            : 40
-                        }
-                        min={0}
-                        max={100}
-                        defaultVal={40}
-                        onChange={(v) => handleParamChange('tonal-contrast', 'amount', v)}
-                      />
-                    </div>
-                  )}
-                </div>
-
-                {/* 6. Sharpen & Details */}
-                <div className={`tz-ge-accordion-sec ${openCategories.sharpen ? 'open' : ''}`}>
-                  <div
-                    className="tz-ge-accordion-head"
-                    onClick={() => toggleCategory('sharpen')}
-                  >
-                    <div className="tz-ge-accordion-title">
-                      <TzIconSliders size={15} />
-                      <span>חידוד ופרטים</span>
-                    </div>
-                    <div className="tz-ge-accordion-meta">
-                      {hasSharpenTweaks && <span className="tz-ge-accordion-dot" title="ערכים שונו בתמונה זו" />}
-                      <label
-                        className="tz-ge-switch"
-                        onClick={(e) => e.stopPropagation()}
-                        title={isCategoryEnabled('sharpen') ? 'כבה חידוד' : 'הפעל חידוד'}
-                      >
-                        <input
-                          type="checkbox"
-                          checked={isCategoryEnabled('sharpen')}
-                          onChange={(e) => toggleCategoryEnabled('sharpen', e.target.checked)}
-                        />
-                        <span className="tz-ge-switch-slider" />
-                      </label>
-                      <span className={`tz-ge-accordion-chevron ${openCategories.sharpen ? 'open' : ''}`}>
-                        ⌄
-                      </span>
-                    </div>
-                  </div>
-                  {openCategories.sharpen && (
-                    <div className="tz-ge-accordion-body">
-                      <SliderField
-                        label="עוצמת חידוד"
-                        value={getParamVal('sharpen', 'amount', 0)}
-                        min={0}
-                        max={100}
-                        defaultVal={30}
-                        onChange={(v) => handleParamChange('sharpen', 'amount', v)}
-                      />
-                      <SliderField
-                        label="רדיוס"
-                        value={getParamVal('sharpen', 'radius', 20)}
-                        min={0}
-                        max={100}
-                        defaultVal={20}
-                        onChange={(v) => handleParamChange('sharpen', 'radius', v)}
-                      />
-                      <SliderField
-                        label="מיסוך — רק קצוות"
-                        value={getParamVal('sharpen', 'masking', 0)}
-                        min={0}
-                        max={100}
-                        defaultVal={0}
-                        onChange={(v) => handleParamChange('sharpen', 'masking', v)}
-                      />
-                    </div>
-                  )}
-                </div>
-              </>
+              <ToolsPanelV2
+                tools={frameEffectiveTools}
+                onParam={(toolId, paramId, value) => handleParamChange(toolId, paramId, value)}
+                onToggle={handleToolEnabled}
+                onReset={handleToolReset}
+                onOpenBrush={() => setBrushOn((v) => !v)}
+                brushOn={brushOn}
+                brushStrokes={manualStrokes.length}
+              />
             ) : (
               /* ColorMatch Tab */
               <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
