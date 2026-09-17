@@ -100,7 +100,10 @@ export default function GalleryEditV2({
         'tone-color': { exposure: 0, contrast: 15, highlights: -10, shadows: 15, temperature: 0, saturation: 5 },
       },
       contrast: {
-        'tonal-contrast': { contrast: 40 },
+        // `amount` is the tool's strength (engine/tonal_contrast.py). This used
+        // to send `contrast`, a name the engine does not read — the category
+        // switched on and the slider moved, and the picture never changed.
+        'tonal-contrast': { amount: 40 },
       },
       sharpen: {
         sharpen: { amount: 30, radius: 20, masking: 25 },
@@ -1085,11 +1088,18 @@ export default function GalleryEditV2({
                     <div className="tz-ge-accordion-body">
                       <SliderField
                         label="קונטרסט תלת מימד"
-                        value={getParamVal('tonal-contrast', 'contrast', 40)}
+                        value={
+                          // A frame saved under the old `contrast` name renders
+                          // with no strength at all, so the slider says 0 — what
+                          // the engine actually applies — until it is moved.
+                          frameEffectiveTools.some((t) => t.toolId === 'tonal-contrast')
+                            ? getParamVal('tonal-contrast', 'amount', 0)
+                            : 40
+                        }
                         min={0}
                         max={100}
                         defaultVal={40}
-                        onChange={(v) => handleParamChange('tonal-contrast', 'contrast', v)}
+                        onChange={(v) => handleParamChange('tonal-contrast', 'amount', v)}
                       />
                     </div>
                   )}
