@@ -8,6 +8,7 @@ editor uses these facts to score layouts; the model never silently crops.
 import cv2
 import numpy as np
 
+import album_palette
 import common
 import masks
 
@@ -88,6 +89,7 @@ def analyze(image):
         "faces": face_boxes,
         "subject": subject_box,
         "focalPoint": _weighted_focal(face_boxes, subject_box),
+        "palette": album_palette.measure(work, face_boxes),
         "sharpnessScore": round(sharpness_score, 4),
         "qualityScore": round(float(quality), 4),
         "analyzedBy": "mediapipe-local-v1",

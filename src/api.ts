@@ -27,6 +27,30 @@ export interface AiToolResult {
   meta?: Record<string, number>;
 }
 
+/** One colour a photograph actually covers area with, in Lab: lightness,
+ *  chroma and hue — the axes the album's colour rule reasons on. */
+export interface PaletteColor {
+  hex: string;
+  /** Share of the frame, 0..1. */
+  weight: number;
+  l: number;
+  c: number;
+  h: number;
+}
+
+/** A frame's measured colours, away from the skin on it, and the skin tone
+ *  itself — kept apart because a page has to lean towards the one and stay
+ *  away from the other. Measured by the engine (engine/album_palette.py). */
+export interface PhotoPalette {
+  colors: PaletteColor[];
+  /** How many of those colours carry a usable hue rather than being grey. */
+  chromaticCount: number;
+  skin: Omit<PaletteColor, 'weight'> | null;
+  meanL: number;
+  meanC: number;
+  measuredBy: string;
+}
+
 export interface AlbumAnalysisResponse {
   widthPx: number;
   heightPx: number;
@@ -35,6 +59,9 @@ export interface AlbumAnalysisResponse {
   focalPoint: { x: number; y: number };
   sharpnessScore: number;
   qualityScore: number;
+  /** Absent from an older engine; the album then leaves pages their designed
+   *  colours rather than colouring them from a guess. */
+  palette?: PhotoPalette;
   analyzedBy: string;
 }
 

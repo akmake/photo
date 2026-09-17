@@ -1,6 +1,8 @@
 import { newInstance } from './templates/library';
 import { rankTemplates, splitForLibrary } from './templates/choose';
 import type { AlbumPhoto, AlbumSession, AlbumSpread } from './model';
+import type { ColorDirection } from './albumColor';
+import { measureDirection, pageColors, tintedBackground } from './albumColor';
 import { getAlbumStyle } from './styleEngine';
 
 /* The album is a timeline with cuts.
@@ -161,23 +163,57 @@ export function buildAlbumFromGroups(
     splitForLibrary(group).forEach((photoIds) => pieces.push({ photoIds, sessionId: groupSessionIds[index] }));
   });
 
+  /* The colour of a page comes from the photographs on it — see albumColor.ts.
+   * A chapter is coloured as a whole, so the pages of one scene belong
+   * together, and each chapter is placed against the album's own average
+   * brightness rather than against an assumption about what kind of day this
+   * was. Photographs whose palette was never measured leave the pages their
+   * designed colours. */
+  const byId = new Map(photos.map((photo) => [photo.id, photo]));
+  const paletteOf = (id: string) => byId.get(id)?.analysis?.palette;
+  const albumDirection = measureDirection(
+    pieces.flatMap((piece) => piece.photoIds).map(paletteOf),
+  );
+  const chapterPhotos = new Map<string, string[]>();
+  pieces.forEach(({ photoIds, sessionId }) => {
+    if (!sessionId) return;
+    chapterPhotos.set(sessionId, [...(chapterPhotos.get(sessionId) ?? []), ...photoIds]);
+  });
+  const chapterDirections = new Map<string, ColorDirection | null>(
+    [...chapterPhotos].map(([id, ids]) => [id, measureDirection(ids.map(paletteOf))]),
+  );
+
   const spreads: AlbumSpread[] = [];
   pieces.forEach(({ photoIds, sessionId }, index) => {
     const sessionStart = Boolean(sessionId) && sessionId !== pieces[index - 1]?.sessionId;
     const recent = spreads.slice(-4).map((spread) => spread.templateInstance?.templateId ?? '');
     const choice = rankTemplates(photoIds, photos, spreadAspect, recent)[0];
+    const chapter = (sessionId ? chapterDirections.get(sessionId) : null) ?? albumDirection;
+    const designedBackground = style.backgrounds[index % style.backgrounds.length];
     spreads.push({
       id: `spread-${stamp}-${index}`,
       pageStart: 2 + index * 2,
       layoutId: choice?.template.id ?? 'balanced',
       photoIds: choice?.photoIds ?? photoIds,
-      background: style.backgrounds[index % style.backgrounds.length],
+      background: chapter
+        ? tintedBackground(designedBackground, chapter, albumDirection ?? chapter)
+        : designedBackground,
       locked: false,
       status: 'draft',
       frameSettings: {},
       sessionId,
       sessionStart,
-      templateInstance: choice ? newInstance(choice.template) : undefined,
+      templateInstance: choice
+        ? {
+          ...newInstance(choice.template),
+          colors: pageColors(
+            choice.template.colors,
+            choice.template.backgroundToken,
+            chapter,
+            albumDirection,
+          ),
+        }
+        : undefined,
     });
   });
   return spreads;

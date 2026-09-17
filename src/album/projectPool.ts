@@ -87,6 +87,7 @@ export async function enrichPool(
             focalPoint: a.focalPoint,
             sharpnessScore: a.sharpnessScore,
             qualityScore: a.qualityScore,
+            palette: a.palette,
             analyzedBy: a.analyzedBy,
           },
         });

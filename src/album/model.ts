@@ -1,3 +1,4 @@
+import type { PhotoPalette } from '../api';
 import type { SpreadTemplateInstance } from './templates/types';
 
 export type PhotoOrientation = 'portrait' | 'landscape' | 'square';
@@ -63,6 +64,8 @@ export interface AlbumPhotoAnalysis {
   focalPoint: { x: number; y: number };
   sharpnessScore: number;
   qualityScore: number;
+  /** The frame's measured colours, used to colour the page it lands on. */
+  palette?: PhotoPalette;
   analyzedBy: string;
 }
 
