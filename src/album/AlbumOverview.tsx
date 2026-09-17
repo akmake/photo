@@ -22,12 +22,15 @@ interface Props {
   onAddPhotos(): void;
   onAddSpread(): void;
   onRemoveSpread(index: number): void;
+  onOpenCover(): void;
+  onSetCoverPhoto(photoId: string, zone: 'front' | 'back'): void;
 }
 
 export default function AlbumOverview({
   project, photos, profile, issues, timelineOpen, initialScrollTop,
   onTimelineOpen, onScrollTop, onSelectSpread, onOpenSpread, onReorderSpreads,
   onChangeGroups, onCycleLayout, onAddPhotos, onAddSpread, onRemoveSpread,
+  onOpenCover, onSetCoverPhoto,
 }: Props) {
   const bookRef = useRef<HTMLDivElement>(null);
   const spreadRefs = useRef(new Map<string, HTMLElement>());
@@ -37,6 +40,7 @@ export default function AlbumOverview({
   const [overPhoto, setOverPhoto] = useState<string | null>(null);
   const [hoveredSpread, setHoveredSpread] = useState<number | null>(null);
   const [menuSpread, setMenuSpread] = useState<number | null>(null);
+  const [overCover, setOverCover] = useState<'front' | 'back' | null>(null);
 
   const order = useMemo(() => project.spreads.flatMap((spread) => spread.photoIds), [project.spreads]);
   const known = useMemo(() => new Map(photos.map((photo) => [photo.id, photo])), [photos]);
@@ -52,6 +56,29 @@ export default function AlbumOverview({
     [project.sessions],
   );
   const unplaced = useMemo(() => photos.filter((photo) => !used.has(photo.id)), [photos, used]);
+  /* The flat cover, laid out as it is printed: back, spine, front. In a Hebrew
+   * album the front is on the right, so the strip is drawn left-to-right and
+   * the order is reversed for a book that opens the other way. */
+  const coverZones = useMemo(() => {
+    const spec = profile.coverSpec;
+    const side = Math.max(1, (spec.totalWidthMm - spec.spineWidthMm) / 2);
+    const total = side * 2 + spec.spineWidthMm;
+    const byId = new Map(photos.map((photo) => [photo.id, photo]));
+    const front = {
+      kind: 'front' as const,
+      share: (side / total) * 100,
+      photo: project.cover?.frontPhotoId ? byId.get(project.cover.frontPhotoId) : undefined,
+    };
+    const back = {
+      kind: 'back' as const,
+      share: (side / total) * 100,
+      photo: project.cover?.backPhotoId ? byId.get(project.cover.backPhotoId) : undefined,
+    };
+    const spine = { kind: 'spine' as const, share: (spec.spineWidthMm / total) * 100, photo: undefined };
+    return (project.openingDirection ?? 'rtl') === 'rtl'
+      ? [back, spine, front]
+      : [front, spine, back];
+  }, [profile.coverSpec, photos, project.cover, project.openingDirection]);
   const cuts = useMemo(() => {
     const result = new Set<number>();
     let cursor = 0;
@@ -116,6 +143,75 @@ export default function AlbumOverview({
         onScroll={(event) => onScrollTop(event.currentTarget.scrollTop)}
       >
         <div className="album-book-column">
+          {/* The cover is the album's first thing: it is what the client opens
+            * and what the lab prints on its own sheet. So it is the first card
+            * here, not an item in a menu — and choosing its photographs is the
+            * same gesture as everywhere else in this screen, a frame dragged
+            * from the strip onto the place it belongs. */}
+          <article className="album-book-cover">
+            <header>
+              <span>
+                <strong>כריכה</strong>
+                {' · '}
+                {(profile.coverSpec.totalWidthMm / 10).toFixed(profile.coverSpec.totalWidthMm % 10 ? 1 : 0)}
+                ×
+                {(profile.coverSpec.totalHeightMm / 10).toFixed(profile.coverSpec.totalHeightMm % 10 ? 1 : 0)}
+                {' ס״מ · שדרה '}
+                {(profile.coverSpec.spineWidthMm / 10).toFixed(profile.coverSpec.spineWidthMm % 10 ? 1 : 0)}
+              </span>
+              <div className="album-spread-hover-actions">
+                <button className="album-spread-edit" onClick={onOpenCover}>עריכה</button>
+              </div>
+            </header>
+            <div
+              className="album-cover-strip"
+              style={{
+                aspectRatio: `${profile.coverSpec.totalWidthMm} / ${profile.coverSpec.totalHeightMm}`,
+                background: project.cover?.background ?? '#f8f6f1',
+              }}
+            >
+              {coverZones.map((zone) => (zone.kind === 'spine' ? (
+                <div className="album-cover-spine" key="spine" style={{ width: `${zone.share}%` }}>
+                  {project.cover?.spineText && <span>{project.cover.spineText}</span>}
+                </div>
+              ) : (
+                <button
+                  key={zone.kind}
+                  className={`album-cover-zone${overCover === zone.kind ? ' over' : ''}`}
+                  style={{ width: `${zone.share}%` }}
+                  onClick={onOpenCover}
+                  onDragOver={(event) => { if (dragPhoto) { event.preventDefault(); setOverCover(zone.kind); } }}
+                  onDragLeave={() => setOverCover((current) => (current === zone.kind ? null : current))}
+                  onDrop={(event) => {
+                    event.preventDefault();
+                    if (dragPhoto) onSetCoverPhoto(dragPhoto, zone.kind);
+                    setDragPhoto(null);
+                    setOverCover(null);
+                  }}
+                  aria-label={zone.kind === 'front'
+                    ? 'חזית הכריכה. גרור לכאן תמונה, או לחץ לפתיחת מסך הכריכה'
+                    : 'גב הכריכה. גרור לכאן תמונה, או לחץ לפתיחת מסך הכריכה'}
+                >
+                  {zone.photo ? (
+                    <img
+                      src={zone.photo.url}
+                      alt=""
+                      draggable={false}
+                      style={{ objectPosition: `${(zone.photo.focalPoint?.x ?? 0.5) * 100}% ${(zone.photo.focalPoint?.y ?? 0.5) * 100}%` }}
+                    />
+                  ) : (
+                    <span className="album-cover-empty">
+                      <strong>{zone.kind === 'front' ? 'חזית' : 'גב'}</strong>
+                      <small>{dragPhoto ? 'שחרר כאן' : 'גרור תמונה'}</small>
+                    </span>
+                  )}
+                  {zone.kind === 'front' && project.cover?.title && (
+                    <span className="album-cover-title">{project.cover.title}</span>
+                  )}
+                </button>
+              )))}
+            </div>
+          </article>
           {project.spreads.map((spread, index) => {
             const spreadIssues = issues.filter((issue) => issue.spreadId === spread.id);
             const blockers = spreadIssues.filter((issue) => issue.severity === 'blocker').length;

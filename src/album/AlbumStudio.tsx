@@ -1036,6 +1036,28 @@ export default function AlbumStudio({ job, onBack }: {
     setNotice(`${added.length} תמונות נוספו`);
   }
 
+  /** Put a photograph on the cover. The same assignment the cover screen makes,
+   *  so a frame dragged onto the first card and a frame chosen inside that
+   *  screen are one thing. */
+  function setCoverPhoto(photoId: string, zone: 'front' | 'back') {
+    if (!photos.some((photo) => photo.id === photoId)) {
+      setNotice('התמונה הזאת אינה באלבום');
+      return;
+    }
+    commitProject((album) => {
+      const cover = album.cover ?? {
+        background: '#f8f6f1', title: album.name, subtitle: '', spineText: album.name,
+      };
+      return {
+        ...album,
+        cover: zone === 'front'
+          ? { ...cover, frontPhotoId: photoId, frontSettings: cover.frontSettings ?? DEFAULT_FRAME_SETTINGS }
+          : { ...cover, backPhotoId: photoId, backSettings: cover.backSettings ?? DEFAULT_FRAME_SETTINGS },
+      };
+    });
+    setNotice(zone === 'front' ? 'התמונה הוגדרה כחזית הכריכה' : 'התמונה הוגדרה כגב הכריכה');
+  }
+
   function createReviewVersion() {
     const versions = project.reviewVersions ?? [];
     const version = {
@@ -2573,6 +2595,8 @@ export default function AlbumStudio({ job, onBack }: {
             onAddSpread={addSpread}
             onRemoveSpread={removeSpreadAt}
             onAddPhotos={() => setShowPhotoPicker(true)}
+            onOpenCover={() => setShowCover(true)}
+            onSetCoverPhoto={setCoverPhoto}
           />
         ) : (
           <>

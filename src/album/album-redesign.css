@@ -394,6 +394,25 @@
 .album-empty-spread { aspect-ratio: 2 / 1; display: grid; place-content: center; gap: 4px; color: var(--ink-3); background: var(--album-paper); }
 .album-empty-spread strong { color: var(--ink-3); font-size: 14px; }
 .album-empty-spread small { font-size: 11px; }
+/* The cover — the album's first card. Slightly wider than a spread and set
+   apart by the paper edge above it, because it is a different object: it is
+   printed on its own sheet and it is the first thing the client sees. */
+.album-book-cover { position: relative; display: grid; gap: 8px; margin-bottom: 34px; padding-bottom: 30px; border-bottom: 1px solid var(--line-strong); }
+.album-book-cover > header { min-height: 28px; display: flex; align-items: center; justify-content: space-between; padding: 0 2px; color: var(--ink); font-size: 11px; }
+.album-book-cover > header strong { color: var(--ink); font: 650 12px var(--font-display); }
+.album-book-cover:hover .album-spread-hover-actions,
+.album-book-cover .album-spread-hover-actions:focus-within { opacity: 1; }
+.album-cover-strip { display: flex; direction: ltr; width: 100%; box-shadow: 0 13px 38px rgb(0 0 0 / .34); }
+.album-cover-zone { position: relative; flex: 0 0 auto; padding: 0; border: 0; background: transparent; cursor: pointer; overflow: hidden; }
+.album-cover-zone img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.album-cover-zone.over { box-shadow: inset 0 0 0 2px var(--album-copper); }
+.album-cover-empty { position: absolute; inset: 0; display: grid; place-content: center; gap: 3px; color: var(--ink-3); }
+.album-cover-empty strong { color: var(--ink-3); font-size: 12px; }
+.album-cover-empty small { font-size: 10px; }
+.album-cover-title { position: absolute; inset-inline: 8%; bottom: 8%; color: #fff; font: 650 clamp(9px, 1.5vw, 15px) var(--font-display); text-shadow: 0 1px 6px rgb(0 0 0 / .55); }
+.album-cover-spine { flex: 0 0 auto; display: grid; place-items: center; border-inline: 1px solid rgb(0 0 0 / .18); }
+.album-cover-spine span { color: var(--ink-3); font-size: 9px; writing-mode: vertical-rl; white-space: nowrap; overflow: hidden; }
+
 .album-add-spread-inline { width: 100%; min-height: 62px; border: 1px dashed var(--line-strong); border-radius: var(--r-sm); color: var(--ink); background: transparent; font-weight: 700; }
 .album-add-spread-inline:hover { border-color: var(--album-copper); color: var(--ink); background: rgb(183 80 31 / .07); }
 
