@@ -1445,6 +1445,9 @@ def _candidates(crop, crop_pre, det: Detection, orifice, anchor_src, down_field,
     anatomy_vetoed = 0
     if repair.any():
         zones = masks.get_mask(crop_pre, "face-shadow-zones") > 0.5
+        # Hair as the face parser sees it refuses a component the same way:
+        # curls lying on a forehead were read as marks.
+        zones |= masks.get_mask(crop_pre, "parse-hair") > 0.5
         if zones.any():
             n_r, l_r = cv2.connectedComponents(repair, connectivity=8)
             for i in range(1, n_r):

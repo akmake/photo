@@ -905,7 +905,38 @@ def _compute_mask(rgb: np.ndarray, kind: str) -> np.ndarray:
         for lm in faces:
             for part in shadow_zone_parts(rgb, lm).values():
                 m = np.maximum(m, part)
+        # ...and the same zones from the FACE PARSER, per pixel. Landmarks land
+        # in the wrong place on a sleeping baby turned on its side — the audit
+        # found the under-the-nostrils band drawn beside the nose — while the
+        # parser outlines nose, mouth and brows correctly there. Landmark zones
+        # stay for the smile fold, which the parser has no class for. Grown by
+        # face width, because the shadow sits AROUND the feature: the alar
+        # groove and the nostril shadow around the nose, the corners around the
+        # mouth, the fine edge hairs around a brow.
+        import facehair
+
+        lab = facehair.labels(rgb, faces)
+        if lab.any():
+            fw = float(np.median([abs(lm[FACE_RIGHT].x - lm[FACE_LEFT].x) * w for lm in faces]))
+
+            def grown(sel, rx, ry):
+                k = cv2.getStructuringElement(
+                    cv2.MORPH_ELLIPSE, (max(3, int(fw * rx)) | 1, max(3, int(fw * ry)) | 1))
+                return cv2.dilate(sel.astype(np.uint8) * 255, k)
+
+            m = np.maximum(m, grown(lab == facehair.NOSE, 0.12, 0.12))
+            m = np.maximum(m, grown(np.isin(lab, facehair.MOUTH), 0.16, 0.07))
+            m = np.maximum(m, grown(np.isin(lab, facehair.BROWS), 0.06, 0.06))
         return m.astype(np.float32) / 255.0
+
+    if kind == "parse-hair":
+        # Head hair as the face parser sees it — including curls lying on a
+        # child's forehead, which the selfie segmenter misses (audit
+        # 2026-09-17: six "marks" on one child were curl tips at the hairline).
+        import facehair
+
+        lab = facehair.labels(rgb, _face_landmarks(rgb))
+        return np.isin(lab, (facehair.HAIR, facehair.HAT)).astype(np.float32)
 
     if kind == "face-anatomy":
         # Superset of `face-features`: adds the face's own creases and contour.

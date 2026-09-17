@@ -67,17 +67,45 @@ def _instance():
     return _session
 
 
-def beard_mask(rgb: np.ndarray, faces) -> np.ndarray:
-    """(H, W) float32 in 0..1 — facial hair of every face in `faces`.
+# class ids of the parser (ghost-2.0: background, person, skin, left brow,
+# right brow, left eye, right eye, mouth, teeth, lips, left ear, right ear,
+# nose, neck, beard, hair, hat, headphone, glasses, earring)
+BROWS = (3, 4)
+EYES = (5, 6)
+MOUTH = (7, 8, 9)
+NOSE = 12
+HAIR = 15
+HAT = 16
 
-    `faces` are landmark lists in normalised frame coordinates (masks'
-    `_face_landmarks`). Crops that run past the frame are padded with black,
-    so a face at the edge of a tight crop is still seen at its own proportions.
+_labels_cache = {}
+_labels_order = []
+_LABELS_KEEP = 6
+
+
+def _key(rgb, faces):
+    import hashlib
+
+    thumb = cv2.resize(rgb, (32, 32), interpolation=cv2.INTER_AREA)
+    marks = tuple(round(float(p.x), 3) for lm in faces for p in (lm[1], lm[152]))
+    return (rgb.shape, hashlib.blake2b(thumb.tobytes(), digest_size=12).hexdigest(), marks)
+
+
+def labels(rgb: np.ndarray, faces) -> np.ndarray:
+    """(H, W) uint8 class id per pixel for every face in `faces`, 0 elsewhere.
+
+    One inference per face per picture, shared by every mask kind that asks
+    (beard, hair, nose, mouth, brows) — they are one question to the network.
+    Where two faces' crops overlap, a pixel keeps the first answer unless that
+    answer was only background/person/skin and the other face says more.
     """
     h, w = rgb.shape[:2]
-    out = np.zeros((h, w), np.float32)
+    out = np.zeros((h, w), np.uint8)
     if not faces or not available():
         return out
+    key = _key(rgb, faces)
+    hit = _labels_cache.get(key)
+    if hit is not None:
+        return hit
     sess = _instance()
     for lm in faces:
         xs = np.array([p.x for p in lm]) * w
@@ -98,13 +126,20 @@ def beard_mask(rgb: np.ndarray, faces) -> np.ndarray:
         interp = cv2.INTER_AREA if side > SIZE else cv2.INTER_LINEAR
         x = cv2.resize(crop, (SIZE, SIZE), interpolation=interp).astype(np.float32) / 255.0
         x = ((x - MEAN) / STD).transpose(2, 0, 1)[None].astype(np.float32)
-        labels = sess.run(None, {"input": x})[0][0, 0]
-        beard = (labels == BEARD).astype(np.float32)
-        if not beard.any():
-            continue
-        # Back to the crop's own size, smoothly — a 512 label edge blown up to a
-        # 1500px crop would otherwise be a staircase.
-        beard = cv2.resize(beard, (side, side), interpolation=cv2.INTER_LINEAR)
-        region = beard[sy0 - y0:sy1 - y0, sx0 - x0:sx1 - x0]
-        out[sy0:sy1, sx0:sx1] = np.maximum(out[sy0:sy1, sx0:sx1], region)
-    return np.clip(out, 0.0, 1.0)
+        lab = sess.run(None, {"input": x})[0][0, 0].astype(np.uint8)
+        # class ids: NEAREST — averaging two labels invents a third
+        lab = cv2.resize(lab, (side, side), interpolation=cv2.INTER_NEAREST)
+        region = lab[sy0 - y0:sy1 - y0, sx0 - x0:sx1 - x0]
+        dst = out[sy0:sy1, sx0:sx1]
+        take = (dst <= 2) & (region > dst)
+        dst[take] = region[take]
+    _labels_cache[key] = out
+    _labels_order.append(key)
+    while len(_labels_order) > _LABELS_KEEP:
+        _labels_cache.pop(_labels_order.pop(0), None)
+    return out
+
+
+def beard_mask(rgb: np.ndarray, faces) -> np.ndarray:
+    """(H, W) float32 in 0..1 — facial hair of every face in `faces` (class 14)."""
+    return (labels(rgb, faces) == BEARD).astype(np.float32)
