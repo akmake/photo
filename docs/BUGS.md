@@ -74,7 +74,7 @@ coming back. IDs are permanent and never reused.
 | [BUG-003](#bug-003--the-drool-fluid-trail-is-detected-and-then-thrown-away-by-the-mean-width-gate) | `OPEN` | High | The drool (fluid trail) is detected and then thrown away by the mean-width gate |
 | [BUG-004](#bug-004--skin-cleanup-heals-the-eye-corners-at-full-resolution-invisible-in-preview) | `FIXED` | Medium | skin-cleanup heals the eye corners at full resolution, invisible in preview |
 | [BUG-005](#bug-005--the-mask-cache-serves-stale-masks-after-any-change-to-mask-code) | `FIXED` | High | The mask cache serves stale masks after any change to mask code |
-| [BUG-006](#bug-006--facial-hair-is-face-skin-to-every-operator-so-repairs-paste-beard-onto-cheek-and-cheek-into-beard) | `OPEN` | High | Facial hair is `face-skin` to every operator, so repairs paste beard onto cheek and cheek into beard |
+| [BUG-006](#bug-006--facial-hair-is-face-skin-to-every-operator-so-repairs-paste-beard-onto-cheek-and-cheek-into-beard) | `FIXED` (cleanup) | High | Facial hair is `face-skin` to every operator, so repairs paste beard onto cheek and cheek into beard |
 | [BUG-007](#bug-007--face-lips-contains-the-teeth-so-lip-gloss-reduction-recolours-them) | `FIXED` | Medium | `face-lips` contains the teeth, so lip-gloss reduction recolours them |
 | [BUG-008](#bug-008--the-evening-network-runs-without-its-final-sigmoid-so-face-retouch-blends-raw-logits) | `OPEN` | High | The evening network runs without its final sigmoid, so `face-retouch` blends raw logits |
 
@@ -775,8 +775,8 @@ changing `anatomy_parts` (or any mask function) changes `_MASK_CODE_VERSION`.
 
 ## BUG-006 — Facial hair is `face-skin` to every operator, so repairs paste beard onto cheek and cheek into beard
 
-**Status:** `OPEN` · found 2026-08-04 · cause confirmed, no fix — two attempts
-measured and rejected, both removed
+**Status:** `FIXED` for skin-cleanup 2026-09-17 (see "Fix" at the end) · found
+2026-08-04 · two rule-based attempts measured and rejected before it
 **Severity:** High — the repair writes hair texture onto a man's cheek and skin
 tone into his beard, at full delivery resolution. It is not a weak effect that a
 slider can restrain; it is the wrong material in the wrong place, and every
@@ -867,6 +867,55 @@ None exists. A test would inject a synthetic dark band across a cheek (a
 stand-in for a beard edge), heal a mark beside it, and assert that no repaired
 pixel takes its value from the far side of the band. That test is worth writing
 before the fix, because it is the fix's acceptance criterion.
+
+### Fix (2026-09-17)
+
+Reported again, from use, as critical: a soft smeared patch across a father's
+beard under the moustache (`chayamushka-103`). Measured: spot healing, not the
+colour stage — 752px of the lower face moved by more than 20 levels, peak 143.
+
+**A third rule-based map was tried and rejected first:** landmark-zoned, self-
+referenced lightness plus texture. It found 0px of a full beard (the forehead
+reference was contaminated by glasses and hair) and marked jaw shadows and
+background on three girls. Rules cannot separate a beard from a shadow.
+
+**What fixed it is a network that knows beards.** `facehair.py` runs the face
+parser from GHOST 2.0 (ai-forever, Apache-2.0; own 20k-image dataset; class 14
+= beard) on the authors' wide face crop, exposed as the mask kind `face-hair`.
+On 14 faces: beard and moustache outlined on all three bearded men, 0px on
+every woman, girl and baby. ~0.55s a face on CPU, cached. Downloaded by
+`setup_models.py`; absent weights mean "no facial hair", i.e. the old behaviour.
+
+In `cleanup.py`, one definition (`_hair` = head hair ∪ facial hair) replaces the
+segmenter's `hair` in every stage that asked "is this skin" — the heal-eligible
+region, the sampling support, the pigment stage, the shine surface — and the
+fluid pass excludes facial hair too. On top of that, a repair component that
+TOUCHES the beard is refused whole (`hairVetoed`, verdict `hair`, shown as
+refused in the marking view): excluding the beard alone still let a heal under
+the nose diffuse the moustache into the skin at full resolution (40px, peak 128).
+
+`python test_beard_guard.py <images>` — beard interior pixels moved by >8 levels,
+guard off vs on (each run on its own caches):
+
+| frame | resolution | without | with |
+|---|---|---|---|
+| chayamushka-103 | edit (1536) | 538px, peak 108 | **0px** |
+| 321A5078 | edit (1536) | 38px, peak 57 | **0px** |
+| 321A5015 | edit (1536) | 0 | 0 |
+| chayamushka-103 | full | 992px | **8px, peak 13** |
+| 321A5078 | full | 546px, peak 54 | **0px** |
+
+`test_cleanup_recall.py` on 321A4934 / 321A5254 / 321A5173: identical to before,
+mark for mark (321A4934 already failed at 3/5 before the change).
+
+**Found while verifying, not caused by this and not fixed:**
+- `test_cleanup_marking.py` fails on 321A5078 with facial hair switched off too
+  (165k px differ) — marking every accepted candidate does not reproduce the
+  automatic run on that multi-face frame.
+- chayamushka-103: a reddish blotch where the nose meets the cheek (a shadow
+  healed as a mark), before and after the fix.
+- 321A5078: a pale square patch beside a small child's mouth corner, before and
+  after the fix.
 
 ---
 

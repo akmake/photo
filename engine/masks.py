@@ -786,6 +786,14 @@ def _compute_mask(rgb: np.ndarray, kind: str) -> np.ndarray:
             m = (cat == CLS_BODY_SKIN)
         return m.astype(np.float32)
 
+    if kind == "face-hair":
+        # Beard and moustache — docs/BUGS.md BUG-006. The segmenter above calls
+        # them `face-skin`; facehair.py asks a face parser that knows beards.
+        # All zeros when its weights are not installed.
+        import facehair
+
+        return facehair.beard_mask(rgb, _face_landmarks(rgb))
+
     if kind == "face-features":
         # Everything a retoucher masks OFF before healing skin: eyes, eyebrows,
         # lips and nostrils. Removing "dark spots" inside these erases the

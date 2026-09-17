@@ -42,6 +42,12 @@ MODELS = {
     # class-agnostic region segmentation for pixel_color's material anchors
     # (ChaoningZhang/MobileSAM, Apache 2.0 -- verified against the repo's own
     # LICENSE file, not assumed from memory, per the project's own rule).
+    # face parser with a BEARD class (GHOST 2.0, ai-forever, Apache-2.0) —
+    # facehair.py, docs/BUGS.md BUG-006. Optional: without it no tool knows
+    # where facial hair is, which is how cleanup used to smear beards.
+    "segformer_B5_ce.onnx": (
+        "https://github.com/ai-forever/ghost-2.0/releases/download/aligner/segformer_B5_ce.onnx"
+    ),
     "mobile_sam.pt": (
         "https://raw.githubusercontent.com/ChaoningZhang/MobileSAM/master/"
         "weights/mobile_sam.pt"

@@ -47,6 +47,7 @@ function verdictLabel(item: SpotCandidate): string {
   if (item.verdict === 'heal') return item.kind === 'debris' ? 'לכלוך בטוח' : 'כתם בטוח';
   if (item.verdict === 'line') return 'דומה לקו או שיער';
   if (item.verdict === 'shading') return 'דומה להצללה טבעית';
+  if (item.verdict === 'hair') return 'נוגע בזקן או בשפם';
   return 'גדול מדי לניקוי אוטומטי';
 }
 

@@ -197,7 +197,7 @@ export interface SpotCandidate {
   id: string;
   face: number;
   kind: 'spot' | 'debris' | 'fluid';
-  verdict: 'heal' | 'line' | 'shading' | 'size';
+  verdict: 'heal' | 'line' | 'shading' | 'size' | 'hair';
   contours: [number, number][][];
   /** x0, y0, x1, y1 — normalised to the frame */
   bbox: [number, number, number, number];

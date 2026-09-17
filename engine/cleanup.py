@@ -1017,6 +1017,18 @@ def _structural_lift(model, structures, region, face_d):
     return (np.clip(lift, 0.0, None) * region).astype(np.float32)
 
 
+def _hair(rgb):
+    """Everything that is hair and not skin: head hair from the segmenter, and
+    the beard and moustache from the face parser (`face-hair`).
+
+    The segmenter alone returned 0% of a full beard (docs/BUGS.md BUG-006), so
+    every consumer that subtracted `hair` to find skin was healing, evening and
+    sampling a beard as if it were cheek. One definition, used everywhere this
+    file asks the question, so no stage can be left out of the fix.
+    """
+    return np.maximum(masks.get_mask(rgb, "hair"), masks.get_mask(rgb, "face-hair"))
+
+
 def confidence(rgb, params: dict):
     """Measure this face. -> Detection (unpacks as conf, region, face_d, model)."""
     strength = common.clamp01(params.get("strength", 60))
@@ -1031,7 +1043,7 @@ def confidence(rgb, params: dict):
     # deviations to the skin model, so without them the detector spends its
     # sensitivity on the face's own structure instead of on dirt.
     features = masks.get_mask(rgb, "face-anatomy")
-    hair = masks.get_mask(rgb, "hair")
+    hair = _hair(rgb)
     hr = max(3, int(face_d * 0.035)) | 1
     hair = cv2.dilate(hair, np.ones((hr, hr), np.uint8))
 
@@ -1420,9 +1432,14 @@ def _candidates(crop, crop_pre, det: Detection, orifice, anchor_src, down_field,
         # fluid's whole purpose is to start at the mouth. It set lip reachability
         # to exactly 0.000, i.e. it made drool permanently unremovable in order to
         # protect an eye. `face-eye-region` withholds the eyes and nothing else.
+        # ...and off facial hair. A moustache and a beard begin exactly where a
+        # fluid trail begins, at the mouth, and the pass read their dark strands
+        # as a trail: measured on 321A5078, half of the beard pixels cleanup
+        # still moved after every other stage was guarded came from here.
         skin_zone = np.clip(
             masks.get_mask(crop, "face-skin") * masks.get_mask(crop, "face-oval")
-            - masks.get_mask(crop, "face-eye-region"),
+            - masks.get_mask(crop, "face-eye-region")
+            - masks.get_mask(crop, "face-hair"),
             0.0,
             1.0,
         )
@@ -1440,6 +1457,38 @@ def _candidates(crop, crop_pre, det: Detection, orifice, anchor_src, down_field,
         )
         if fluid_found:
             repair = np.maximum(repair, fluid)
+
+    # --- a repair that touches facial hair is refused ------------------------
+    #
+    # docs/BUGS.md BUG-006. Taking the beard out of `region` stops the beard
+    # itself being called a mark, but a real mark on the skin RIGHT BESIDE a
+    # beard is still dangerous to rebuild: reconstruction diffuses inward from
+    # the mark's border, and a border that runs along the moustache pulls the
+    # moustache's darkness into the skin. Measured at full resolution on
+    # chayamushka-103: with the beard only excluded, a heal under the nose tip
+    # dragged the moustache into it — 40 moved pixels, peak 128, a grey smear.
+    #
+    # So a component that touches the beard (grown a little, the beard's edge
+    # being soft) is refused whole, and shown as refused with its reason — the
+    # same treatment as a line or shading veto, so a person can still choose it.
+    # Applied after the fluid merge so a fluid trail is held to it too.
+    hair_vetoed = 0
+    if repair.any():
+        facial = masks.get_mask(crop_pre, "face-hair") > 0.5
+        if facial.any():
+            g = max(3, int(face_c * 0.02)) | 1
+            near = cv2.dilate(facial.astype(np.uint8), np.ones((g, g), np.uint8)) > 0
+            n_r, l_r = cv2.connectedComponents(repair, connectivity=8)
+            for i in range(1, n_r):
+                sel = l_r == i
+                touching = int((near & sel).sum())
+                if not touching:
+                    continue
+                repair[sel] = 0
+                hair_vetoed += 1
+                report.append({"verdict": "hair", "wet": False,
+                               "facts": {"hairTouchPx": touching},
+                               "mask": sel.astype(np.uint8)})
 
     # --- attribution --------------------------------------------------------
     #
@@ -1505,6 +1554,7 @@ def _candidates(crop, crop_pre, det: Detection, orifice, anchor_src, down_field,
         "lineVetoed": line_vetoed,
         "shadingVetoed": shading_vetoed,
         "creaseVetoed": crease_vetoed,
+        "hairVetoed": hair_vetoed,
         "wetTrails": wet_trails,
         "fluidTrails": fluid_found,
     }
@@ -1618,7 +1668,7 @@ def _scan_face(rgb, params: dict, candidates: bool = True, frame_eye=None) -> Fa
         ovr = max(3, int(face_pc * 0.06)) | 1
         oval_c = cv2.dilate(masks.get_mask(crop, "face-oval"), np.ones((ovr, ovr), np.uint8))
         skin_c = masks.get_mask(crop, "face-skin") * oval_c
-        hair_c = masks.get_mask(crop, "hair")
+        hair_c = _hair(crop)
         hpr = max(3, int(face_pc * 0.02)) | 1
         hair_c = cv2.dilate(hair_c, np.ones((hpr, hpr), np.uint8))
         # One mask for both halves. `face-pigment-protect` frees exactly the three
@@ -1686,7 +1736,7 @@ def _scan_face(rgb, params: dict, candidates: bool = True, frame_eye=None) -> Fa
         surface = np.clip(
             skin_s
             - masks.get_mask(crop, "face-pigment-protect")
-            - cv2.dilate(masks.get_mask(crop, "hair"), np.ones((hs, hs), np.uint8)),
+            - cv2.dilate(_hair(crop), np.ones((hs, hs), np.uint8)),
             0.0,
             1.0,
         )
@@ -1941,6 +1991,7 @@ def apply(rgb, params: dict):
         # the five faces are 137-154px against MIN_FACE_PX 180, so the tool did
         # nothing to them and said nothing about it.
         totals = {"spotsRemoved": 0, "correctedPx": 0, "lineVetoed": 0, "creaseVetoed": 0,
+                  "hairVetoed": 0,
                   "shadingVetoed": 0, "wetTrails": 0, "fluidTrails": 0,
                   "pigmentPx": 0, "protectedSpotPx": 0, "selected": 0,
                   "faceTooSmall": 0, "spotsOff": 0, "previewTooSmall": 0}

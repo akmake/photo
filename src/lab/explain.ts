@@ -285,6 +285,11 @@ export function markReason(verdict: string, facts: Record<string, number>): stri
         `(${(facts.ringNovelty ?? 0).toFixed(2)} מול סף ${(facts.ringBar ?? 0).toFixed(2)}). ` +
         'זו הצללה, סומק או אור, ולא לכלוך'
       );
+    case 'hair':
+      return (
+        'נדחה: נוגע בזקן או בשפם. שחזור כאן מושך את כהות השיער אל העור ' +
+        'ומשאיר מריחה — אם בכל זאת לנקות, לבדוק את הגבול אחרי'
+      );
     case 'size':
       return (
         `נדחה: רחב מדי לכתם — ${area}, עובי ${Math.round(facts.thicknessPx ?? 0)}px ` +
