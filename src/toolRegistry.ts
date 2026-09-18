@@ -537,7 +537,21 @@ export const TOOLS: ToolDef[] = [
       { id: 'people', label: 'אנשים — כל הדמות', min: 0, max: 100, step: 1, default: 0 },
       { id: 'skin', label: 'עור בלבד', min: 0, max: 100, step: 1, default: 0 },
       { id: 'fabric', label: 'בגדים ולבנים', min: 0, max: 100, step: 1, default: 0 },
+      // Her move in the video: the glow generated over everything and then
+      // erased off the figures, so the warmth stays behind them. It could not
+      // be asked for before — the tool is frame-relative, so a region mask is
+      // dropped on it (render.py FRAME_ONLY), which is why the regions are
+      // sliders of its own.
+      { id: 'background', label: 'רקע בלבד', min: 0, max: 100, step: 1, default: 0 },
       { id: 'radius', label: 'רכות', min: 0, max: 100, step: 1, default: 40 },
+      // Nik's Glamour Glow carries these four beside the glow itself, and they
+      // are what makes it evening light instead of grey mist. They shape the
+      // ADDED LIGHT, so each one means the same thing whichever slider above
+      // the light came from. At 0 the glow is byte-identical to before.
+      { id: 'warmth', label: 'חמימות הזוהר', min: -100, max: 100, step: 1, default: 0 },
+      { id: 'saturation', label: 'צבעוניות הזוהר', min: -100, max: 100, step: 1, default: 0 },
+      { id: 'shadows', label: 'השפעה על הצללים', min: -100, max: 100, step: 1, default: 0 },
+      { id: 'highlights', label: 'השפעה על הבהירים', min: -100, max: 100, step: 1, default: 0 },
     ],
   },
   {
@@ -650,6 +664,47 @@ export function normalizeRecipe(recipe: Recipe): Recipe {
     tools.push(inst);
   }
   return { tools };
+}
+
+/* ------------------------------------------------------------------ masks
+ *
+ * WHERE A TOOL LANDS. In Photoshop this is a black mask and a brush: run the
+ * filter over everything, then paint back the parts you meant. The engine has
+ * been able to do it from both ends for a long time — a named region or a
+ * hand-drawn one, inverted, feathered, at a strength (engine/render.py
+ * ::_region_mask) — and nothing on screen could ask for it.
+ *
+ * These are the regions offered, in the order a photographer thinks of them.
+ * The ids are what engine/masks.py answers to; `skin`, `fabric` and
+ * `background` are composed there out of the segmented kinds.
+ */
+export const MASK_REGIONS: { id: string; label: string }[] = [
+  { id: 'subject', label: 'אנשים' },
+  { id: 'background', label: 'רקע' },
+  { id: 'skin', label: 'עור' },
+  { id: 'hair', label: 'שיער' },
+  { id: 'fabric', label: 'בגדים' },
+  { id: 'painted', label: 'צבע ידנית' },
+];
+
+/** Mirrors engine/render.py FRAME_ONLY — change both together.
+ *
+ *  These tools are defined RELATIVE TO THE FRAME: a vignette is its corners, a
+ *  light point is a place in it, a glow is its whole atmosphere. The engine
+ *  drops a region mask on them on purpose, because blending one through a
+ *  subject outline produces arcs and blotches. Offering the control here would
+ *  be offering a control the engine ignores.
+ *
+ *  Glow is on this list and is exactly why it grew its own region sliders
+ *  instead (people / skin / fabric / background). */
+const FRAME_ONLY = new Set(['light-point', 'glow', 'vignette']);
+
+export function isMaskable(def: ToolDef): boolean {
+  if (FRAME_ONLY.has(def.id)) return false;
+  // The develop step is spent on the raw decoder, before there are pixels to
+  // find a subject in; the cleaning brush IS a painted region already.
+  if (def.rawOnly || def.id === 'manual-clean') return false;
+  return def.params.length > 0;
 }
 
 export function getInstance(recipe: Recipe, toolId: string): ToolInstance {

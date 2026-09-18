@@ -276,12 +276,14 @@ def _run_on_source_faces(fn, rgb, params, floor_px):
 def _region_mask(rgb, spec):
     """Build the 0..1 map a masked tool is blended through.
 
-    spec: {region, invert, feather, strength, paint?}. `region` is any kind
-    masks.py knows — subject, hair, face-skin, body-skin, face-features — plus
-    `background` (the subject inverted) and `painted`: a hand-drawn alpha the
-    UI ships as a base64 image in `paint`, at whatever resolution it was drawn.
-    Painted masks are per-photo state — they live with the photo, never inside
-    a style, because a brush stroke cannot transfer to the next frame.
+    spec: {region, invert, feather, strength, paint?, strokes?}. `region` is
+    any kind masks.py knows — subject, background, skin, fabric, hair,
+    face-skin, body-skin, face-features — plus `painted`, which is whatever a
+    hand drew: `strokes` (brush geometry in fractions of the frame, what the
+    panel sends) or `paint` (a base64 alpha at whatever resolution it was
+    drawn, kept for recipes saved before strokes existed). Painted masks are
+    per-photo state — they live with the photo, never inside a style, because
+    a brush stroke cannot transfer to the next frame.
     """
     region = spec.get("region", "subject")
     invert = bool(spec.get("invert", False))
@@ -289,14 +291,24 @@ def _region_mask(rgb, spec):
         region, invert = "subject", not invert
 
     if region == "painted":
+        strokes = spec.get("strokes")
         paint = spec.get("paint")
-        if not paint:
+        if strokes:
+            # Rasterised at THIS frame's size from the same geometry the
+            # cleaning brush records, so the mask he painted on a preview
+            # covers the same ground in the file being delivered.
+            m = manual_clean.strokes_mask(rgb.shape, strokes).astype(np.float32)
+        elif paint:
+            pm = common.to_np(common.b64_to_image(paint)).astype(np.float32)
+            if pm.ndim == 3:
+                pm = pm[..., :3].max(axis=2)
+            m = cv2.resize(pm / 255.0, (rgb.shape[1], rgb.shape[0]),
+                           interpolation=cv2.INTER_LINEAR)
+        else:
+            # Nothing painted yet. Zero, and the tool does nothing — which is
+            # the honest answer and NOT the same as "no mask", where the tool
+            # would land on the whole frame.
             return np.zeros(rgb.shape[:2], np.float32)
-        pm = common.to_np(common.b64_to_image(paint)).astype(np.float32)
-        if pm.ndim == 3:
-            pm = pm[..., :3].max(axis=2)
-        m = cv2.resize(pm / 255.0, (rgb.shape[1], rgb.shape[0]),
-                       interpolation=cv2.INTER_LINEAR)
     else:
         m = masks.get_mask(rgb, region).astype(np.float32)
     if invert:

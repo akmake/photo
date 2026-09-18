@@ -1083,7 +1083,11 @@ export function useRecipe(projectId: string): ProjectRecipe {
 function shareable(step: ToolInstance): ToolInstance {
   const { selection: _drop, strokes: _painted_by_hand, mask, ...rest } = step;
   if (!mask) return rest;
-  const { paint: _painted, ...maskRest } = mask;
+  // The mask itself travels — "the 3D on the clothes" is a sentence about
+  // every photograph in the set. What he drew BY HAND inside it does not, in
+  // either of the two shapes it comes in: `paint` is an alpha of one frame's
+  // pixels, `strokes` is a path across one frame's faces.
+  const { paint: _painted, strokes: _by_hand, ...maskRest } = mask;
   return { ...rest, mask: maskRest };
 }
 

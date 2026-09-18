@@ -995,6 +995,97 @@
 .tz-tp-brush:hover { border-color: #e0864f; }
 .tz-tp-brush.active { background: #ef4444; border-color: #ef4444; color: #fff; }
 
+/* ------------------------------------------------- where the tool lands
+ *
+ * Separated from the sliders by a rule rather than by space: the sliders say
+ * HOW MUCH and this says WHERE, and they are read as two questions. Quiet
+ * until something is chosen — a tool on the whole frame is the normal case and
+ * must not look like a setting someone left on.
+ */
+.tz-tp-mask {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid #efece5;
+}
+
+.tz-tp-mask-chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 5px;
+}
+
+.tz-tp-mask-lbl {
+  width: 100%;
+  margin-bottom: 3px;
+  color: #9b9ba1;
+  font-size: 11px;
+}
+
+.tz-tp-chip {
+  height: 25px;
+  padding: 0 9px;
+  border: 1px solid #e7e4dd;
+  border-radius: 13px;
+  background: #fff;
+  color: #52525b;
+  font-size: 11.5px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.tz-tp-chip:hover { border-color: #d6d1c6; color: #18181b; }
+
+.tz-tp-chip.on {
+  border-color: #e0864f;
+  background: #fdf3ec;
+  color: #b95c2a;
+  font-weight: 600;
+}
+
+/* How much is painted, on the chip itself. */
+.tz-tp-chip-n {
+  margin-right: 5px;
+  padding: 0 5px;
+  border-radius: 8px;
+  background: #3b82f6;
+  color: #fff;
+  font-size: 10px;
+  font-style: normal;
+}
+
+.tz-tp-mask-fine { margin-top: 8px; }
+
+.tz-tp-mask-inv {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 0 2px;
+  color: #52525b;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.tz-tp-brush.sm {
+  margin-top: 4px;
+  height: 30px;
+  font-size: 11.5px;
+}
+
+/* The mask brush is blue wherever it appears, because red on this screen
+ * already means "this is coming out of the picture". */
+.tz-tp-brush.sm.active { background: #3b82f6; border-color: #3b82f6; color: #fff; }
+
+.tz-tp-note.warn { color: #b95c2a; }
+
+/* What did NOT travel to the rest of the batch. */
+.tz-ge-held {
+  margin: 8px 0 0;
+  color: #b95c2a;
+  font-size: 11.5px;
+  line-height: 1.5;
+}
+
 /* Quiet scrollbars — the default ones, arrows and all, are the loudest thing
  * on a screen whose subject is a photograph. */
 .tz-ge-deck-scroll::-webkit-scrollbar,

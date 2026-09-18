@@ -25,8 +25,8 @@
  */
 import React, { useCallback, useMemo, useState } from 'react';
 
-import type { ToolDef, ToolInstance } from '../../types';
-import { TOOLS, defaultParams, isToolAtDefault } from '../../toolRegistry';
+import type { ToolDef, ToolInstance, ToolMask } from '../../types';
+import { MASK_REGIONS, TOOLS, defaultParams, isMaskable, isToolAtDefault } from '../../toolRegistry';
 
 /** The sections, in the order the engine runs them. Names are what a
  *  photographer calls these stages, not what the code calls them. */
@@ -47,6 +47,11 @@ const HEAVY = new Set([
 /** Driven from the canvas, not from here — it has no sliders of its own. */
 const BRUSH_TOOL = 'manual-clean';
 
+/** The hand-drawn region. Its chip does not only set a value — it opens the
+ *  brush on the photograph, because a painted mask with nothing painted on it
+ *  is a tool switched off. */
+const PAINTED = 'painted';
+
 type Props = {
   /** What this frame actually renders with, defaults included. */
   tools: ToolInstance[];
@@ -57,13 +62,25 @@ type Props = {
   onOpenBrush: () => void;
   brushOn: boolean;
   brushStrokes: number;
+  /** WHERE EACH TOOL LANDS. `null` clears the mask — the tool goes back to the
+   *  whole frame, which is the state with no mask at all rather than a mask
+   *  that happens to cover everything. */
+  onMask: (toolId: string, mask: ToolMask | null) => void;
+  /** Opens the brush on the photograph for THIS tool's painted region. The
+   *  same brush as the cleaning one; what it writes into is the difference. */
+  onPaintMask: (toolId: string) => void;
+  /** Which tool's mask is being painted right now, if any. */
+  paintingMask: string | null;
+  /** Strokes already painted per tool, for the count on screen. */
+  maskStrokes: Record<string, number>;
   /** Whether the frame on screen is still sensor data. Decides whether the
    *  develop step is offered at all — see `rawOnly`. */
   isRaw?: boolean;
 };
 
 export default function ToolsPanelV2({
-  tools, onParam, onToggle, onReset, onOpenBrush, brushOn, brushStrokes, isRaw = false,
+  tools, onParam, onToggle, onReset, onOpenBrush, brushOn, brushStrokes,
+  onMask, onPaintMask, paintingMask, maskStrokes, isRaw = false,
 }: Props) {
   const [open, setOpen] = useState<Record<string, boolean>>({});
   /* A value being dragged on a heavy tool. It is what the slider shows until
@@ -256,6 +273,100 @@ export default function ToolsPanelV2({
                           );
                         })
                       )}
+                      {!brush && isMaskable(def) && (() => {
+                        const mask = inst?.mask;
+                        const painting = paintingMask === def.id;
+                        const painted = maskStrokes[def.id] ?? 0;
+                        /* Changing the region keeps what was painted: he picks
+                         * "clothes", looks, goes back to his brush strokes. */
+                        const pick = (region: string | null) => {
+                          if (!region) return onMask(def.id, null);
+                          onMask(def.id, { ...(mask ?? {}), region });
+                          if (region === PAINTED) onPaintMask(def.id);
+                        };
+                        return (
+                          <div className="tz-tp-mask">
+                            <div className="tz-tp-mask-chips">
+                              <span className="tz-tp-mask-lbl">על מה זה חל</span>
+                              <button
+                                type="button"
+                                className={`tz-tp-chip ${mask ? '' : 'on'}`}
+                                onClick={() => pick(null)}
+                              >
+                                כל התמונה
+                              </button>
+                              {MASK_REGIONS.map((rg) => (
+                                <button
+                                  key={rg.id}
+                                  type="button"
+                                  className={`tz-tp-chip ${mask?.region === rg.id ? 'on' : ''}`}
+                                  onClick={() => pick(rg.id)}
+                                >
+                                  {rg.label}
+                                  {rg.id === PAINTED && painted > 0 && (
+                                    <i className="tz-tp-chip-n">{painted}</i>
+                                  )}
+                                </button>
+                              ))}
+                            </div>
+
+                            {mask && (
+                              <div className="tz-tp-mask-fine">
+                                {mask.region === PAINTED && (
+                                  <button
+                                    type="button"
+                                    className={`tz-tp-brush sm ${painting ? 'active' : ''}`}
+                                    onClick={() => onPaintMask(def.id)}
+                                  >
+                                    {painting ? 'סיימתי לצבוע' : 'צבע על התמונה'}
+                                  </button>
+                                )}
+                                <label className="tz-tp-mask-inv">
+                                  <input
+                                    type="checkbox"
+                                    checked={Boolean(mask.invert)}
+                                    onChange={(e) =>
+                                      onMask(def.id, { ...mask, invert: e.target.checked })}
+                                  />
+                                  הכל חוץ מזה
+                                </label>
+                                <div className="tz-tp-row">
+                                  <label htmlFor={`${def.id}-mask-feather`}>ריכוך הקצוות</label>
+                                  <input
+                                    className="tz-tp-val"
+                                    type="number"
+                                    min={0}
+                                    max={100}
+                                    value={mask.feather ?? 0}
+                                    onChange={(e) => {
+                                      const n = Number(e.target.value);
+                                      if (Number.isFinite(n)) onMask(def.id, { ...mask, feather: n });
+                                    }}
+                                  />
+                                  <input
+                                    id={`${def.id}-mask-feather`}
+                                    type="range"
+                                    min={0}
+                                    max={100}
+                                    step={1}
+                                    value={mask.feather ?? 0}
+                                    onChange={(e) =>
+                                      onMask(def.id, { ...mask, feather: Number(e.target.value) })}
+                                    onDoubleClick={() => onMask(def.id, { ...mask, feather: 0 })}
+                                  />
+                                </div>
+                              </div>
+                            )}
+
+                            {mask?.region === PAINTED && painted === 0 && (
+                              <p className="tz-tp-note warn">
+                                עוד לא צבעת כלום, ולכן הכלי לא נוגע בתמונה.
+                              </p>
+                            )}
+                          </div>
+                        );
+                      })()}
+
                       {!brush && HEAVY.has(def.id) && (
                         <p className="tz-tp-note">מחושב כשמשחררים את המחוון</p>
                       )}

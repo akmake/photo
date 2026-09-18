@@ -16,7 +16,7 @@ import {
 } from '../../studio/store';
 import { EDIT_WIDTH, learnColorModel, prepareFrames, renderRecipeAtPath, Superseded, thumbUrl } from '../../api';
 import type { LearnColorResponse } from '../../api';
-import type { LearnedColorModel, ManualStroke, ToolInstance } from '../../types';
+import type { LearnedColorModel, ManualStroke, ToolInstance, ToolMask } from '../../types';
 import { defaultParams, getTool, isRawFile, isToolAtDefault } from '../../toolRegistry';
 import ManualBrush, { DEFAULT_R, MAX_R, MIN_R } from './ManualBrush';
 import ToolsPanelV2 from './ToolsPanelV2';
@@ -110,6 +110,9 @@ export default function GalleryEditV2({
   const canvasImgRef = useRef<HTMLImageElement | null>(null);
   const [brushOn, setBrushOn] = useState(false);
   const [brushErase, setBrushErase] = useState(false);
+  /* The tool whose REGION is being painted, if any. Null means the brush on
+   * the picture — when there is one — is the cleaning brush. */
+  const [maskPaintTool, setMaskPaintTool] = useState<string | null>(null);
   const [brushR, setBrushR] = useState(DEFAULT_R);
   const [pendingStrokes, setPendingStrokes] = useState<ManualStroke[]>([]);
 
@@ -187,6 +190,12 @@ export default function GalleryEditV2({
         enabled: true,
         params: updatedParams,
         ...(existing?.model ? { model: existing.model } : {}),
+        // Moving a slider must not un-mask the tool. Every piece of per-photo
+        // state the step carries is carried through here for that reason: it
+        // is written whole, so anything not named is dropped.
+        ...(existing?.mask ? { mask: existing.mask } : {}),
+        ...(existing?.selection ? { selection: existing.selection } : {}),
+        ...(existing?.strokes ? { strokes: existing.strokes } : {}),
       };
       setFrameStep(project.id, currentFrame.name, nextStep);
     },
@@ -209,6 +218,7 @@ export default function GalleryEditV2({
         enabled,
         params: enabled && untouched ? { ...base, ...(ON_DEFAULTS[toolId] ?? {}) } : base,
         ...(existing?.model ? { model: existing.model } : {}),
+        ...(existing?.mask ? { mask: existing.mask } : {}),
         ...(existing?.selection ? { selection: existing.selection } : {}),
         ...(existing?.strokes ? { strokes: existing.strokes } : {}),
       });
@@ -234,6 +244,79 @@ export default function GalleryEditV2({
       removeFrameStep(project.id, currentFrame.name, toolId);
     },
     [currentFrame, project.id],
+  );
+
+  /* ------------------------------------------------------ where a tool lands
+   *
+   * The mask is part of the STEP, not a mode of the screen: it is written on
+   * the frame's own entry, so switching photographs shows that photograph's
+   * answer, and a named region (the clothes, the background) rides along into
+   * the batch while the hand-painted one does not — studio/store.ts::shareable
+   * is the single door that enforces it.
+   */
+  const handleMask = useCallback(
+    (toolId: string, mask: ToolMask | null) => {
+      if (!currentFrame) return;
+      const existing = frameEffectiveTools.find((t) => t.toolId === toolId);
+      const base: ToolInstance = {
+        toolId,
+        // Masking a tool is asking it to act HERE, so it comes on. Choosing
+        // where something lands and then finding it switched off would be the
+        // screen arguing with him.
+        enabled: true,
+        params: existing?.params ?? { ...defaultParams(getTool(toolId)), ...(ON_DEFAULTS[toolId] ?? {}) },
+        ...(existing?.model ? { model: existing.model } : {}),
+        ...(existing?.selection ? { selection: existing.selection } : {}),
+        ...(existing?.strokes ? { strokes: existing.strokes } : {}),
+      };
+      // Leaving the painted region drops the brush with it — the strokes stay
+      // on the step until he clears them, so coming back to "צבע ידנית" finds
+      // the work he already did.
+      if (!mask && maskPaintTool === toolId) setMaskPaintTool(null);
+      setFrameStep(project.id, currentFrame.name, mask ? { ...base, mask } : base);
+    },
+    [currentFrame, frameEffectiveTools, project.id, ON_DEFAULTS, maskPaintTool],
+  );
+
+  /** The strokes of one tool's painted region. */
+  const maskStrokesOf = useCallback(
+    (toolId: string): ManualStroke[] =>
+      frameEffectiveTools.find((t) => t.toolId === toolId)?.mask?.strokes ?? [],
+    [frameEffectiveTools],
+  );
+
+  /** How much is painted per tool, for the number on the chip. */
+  const maskStrokeCounts = useMemo(() => {
+    const out: Record<string, number> = {};
+    for (const t of frameEffectiveTools) {
+      const n = t.mask?.strokes?.length ?? 0;
+      if (n) out[t.toolId] = n;
+    }
+    return out;
+  }, [frameEffectiveTools]);
+
+  const writeMaskStrokes = useCallback(
+    (toolId: string, next: ManualStroke[]) => {
+      if (!currentFrame) return;
+      const existing = frameEffectiveTools.find((t) => t.toolId === toolId);
+      if (!existing?.mask) return;
+      setFrameStep(project.id, currentFrame.name, {
+        ...existing,
+        mask: { ...existing.mask, region: 'painted', strokes: next },
+      });
+    },
+    [currentFrame, frameEffectiveTools, project.id],
+  );
+
+  /* ONE BRUSH ON THE PICTURE AT A TIME. The cleaning brush removes things and
+   * the mask brush chooses where a tool lands; they take the same pointer over
+   * the same photograph, so entering one leaves the other. */
+  const handlePaintMask = useCallback(
+    (toolId: string) => {
+      setMaskPaintTool((cur) => (cur === toolId ? null : toolId));
+      setBrushOn(false);
+    },
+    [],
   );
 
   /* WHAT HE PAINTED ON THIS PHOTOGRAPH. Strokes live on the frame's own step —
@@ -288,6 +371,37 @@ export default function GalleryEditV2({
       }
     },
     [manualStrokes, writeStrokes],
+  );
+
+  /* The mask brush's own stroke and erase. Same gestures as the cleaning
+   * brush, a different book they are written into. Nothing is "pending" here:
+   * a cleaning stroke is shown in red until the engine has answered and the
+   * mark is gone, while a mask stroke IS the answer — it stays on screen as
+   * long as it is part of the region. */
+  const handleMaskStroke = useCallback(
+    (st: ManualStroke) => {
+      if (!maskPaintTool) return;
+      writeMaskStrokes(maskPaintTool, [...maskStrokesOf(maskPaintTool), st]);
+    },
+    [maskPaintTool, maskStrokesOf, writeMaskStrokes],
+  );
+
+  const handleMaskErase = useCallback(
+    (x: number, y: number) => {
+      if (!maskPaintTool) return;
+      const list = maskStrokesOf(maskPaintTool);
+      const img = canvasImgRef.current;
+      const aspect = img && img.clientWidth ? img.clientHeight / img.clientWidth : 1;
+      const hit = (st: ManualStroke) =>
+        st.points.some(([px, py]) => Math.hypot(px - x, (py - y) * aspect) <= st.r * 1.1);
+      for (let i = list.length - 1; i >= 0; i--) {
+        if (hit(list[i])) {
+          writeMaskStrokes(maskPaintTool, list.filter((_, j) => j !== i));
+          return;
+        }
+      }
+    },
+    [maskPaintTool, maskStrokesOf, writeMaskStrokes],
   );
 
   const undoStroke = useCallback(() => {
@@ -450,18 +564,38 @@ export default function GalleryEditV2({
     };
   }, [slideFrames.length, brushOn, undoStroke]);
 
-  // Sync current photo's edits to the entire batch
+  /* Sync current photo's edits to the entire batch.
+   *
+   * A HAND-PAINTED REGION DOES NOT GO. The shared layer strips what he drew
+   * (store.ts::shareable), so sending such a step on would put a `painted`
+   * mask with nothing in it onto every frame in the batch — a tool that reads
+   * as applied on screen and touches no pixel on any of them. The step is held
+   * back instead, and the screen SAYS which ones stayed behind: a silent
+   * no-op is the most expensive bug there is (CLAUDE.md section 6).
+   *
+   * A named region rides along untouched. That is the whole point of it —
+   * "the 3D on the clothes" means the clothes in every photograph. */
+  const [heldBack, setHeldBack] = useState<string[]>([]);
   const handleSyncToBatch = useCallback(() => {
     if (!currentFrame || !at) return;
     const tools = frameSteps(project.id, currentFrame.name);
     if (!tools.length) return;
 
+    const held: string[] = [];
     for (const tool of tools) {
+      if (tool.mask?.region === 'painted') {
+        held.push(getTool(tool.toolId).label);
+        continue;
+      }
       setStep(project.id, tool, at);
     }
+    setHeldBack(held);
     // Warm all frames in the batch
     preview.warm(slideFrames.map((f) => f.path));
   }, [currentFrame, at, project.id, slideFrames, preview]);
+
+  /* The list belongs to the photograph it was computed on. */
+  useEffect(() => { setHeldBack([]); }, [currentName]);
 
   // Reset current frame back to batch defaults
   const handleResetFrame = useCallback(() => {
@@ -660,7 +794,10 @@ export default function GalleryEditV2({
               <button
                 type="button"
                 className={`tz-ge-brush-btn ${brushOn ? 'active' : ''}`}
-                onClick={() => setBrushOn((v) => !v)}
+                onClick={() => {
+                  setBrushOn((v) => !v);
+                  setMaskPaintTool(null);
+                }}
                 title="צייר על מה שצריך להיעלם — לכלוך, ריר, כתם (Esc ליציאה)"
               >
                 <TzIconSparkle size={14} />
@@ -749,6 +886,21 @@ export default function GalleryEditV2({
                     onErase={handleErase}
                   />
                 )}
+                {/* The mask brush. Blue, because it is not the cleaning brush:
+                    red on this screen has always meant "this is coming out of
+                    the picture", and a region is the opposite promise. */}
+                {maskPaintTool && !showOriginal && (
+                  <ManualBrush
+                    imgRef={canvasImgRef}
+                    pending={maskStrokesOf(maskPaintTool)}
+                    radius={brushR}
+                    onRadius={setBrushR}
+                    erasing={brushErase}
+                    onStroke={handleMaskStroke}
+                    onErase={handleMaskErase}
+                    tint="59, 130, 246"
+                  />
+                )}
                 {showOriginal && (
                   <div className="tz-ge-canvas-badge-original">
                     תמונת מקור (לפני עריכה)
@@ -799,9 +951,13 @@ export default function GalleryEditV2({
                 onParam={(toolId, paramId, value) => handleParamChange(toolId, paramId, value)}
                 onToggle={handleToolEnabled}
                 onReset={handleToolReset}
-                onOpenBrush={() => setBrushOn((v) => !v)}
+                onOpenBrush={() => { setBrushOn((v) => !v); setMaskPaintTool(null); }}
                 brushOn={brushOn}
                 brushStrokes={manualStrokes.length}
+                onMask={handleMask}
+                onPaintMask={handlePaintMask}
+                paintingMask={maskPaintTool}
+                maskStrokes={maskStrokeCounts}
                 isRaw={isRawFile(currentPath)}
               />
             ) : (
@@ -879,6 +1035,13 @@ export default function GalleryEditV2({
                   ? `החל עריכה על כל התמונות ללא מקבץ (${slideFrames.length})`
                   : `החל עריכה על כל המקבץ (${slideFrames.length} תמונות)`}
             </button>
+
+            {heldBack.length > 0 && (
+              <p className="tz-ge-held">
+                {heldBack.join(' · ')} — נשאר רק על התמונה הזו, כי צבעת את האזור ביד
+                והצביעה הזו לא מתאימה לתמונה אחרת.
+              </p>
+            )}
 
             {hasCustomEdits && (
               <button

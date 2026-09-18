@@ -44,13 +44,23 @@ export type ParamValues = Record<string, number>;
 
 // A tool placed in a recipe, with the values the photographer chose.
 /** A region the tool is blended through instead of the whole frame.
- *  `painted` carries a hand-drawn alpha (data URL) — per-photo state that must
- *  never be saved into a style: a brush stroke cannot transfer to the next
- *  frame. Semantic regions (subject, background, …) transfer fine. */
+ *  `painted` carries what a hand drew — per-photo state that must never be
+ *  saved into a style: a brush stroke cannot transfer to the next frame.
+ *  Semantic regions (subject, background, skin, fabric, hair …) transfer
+ *  fine, and are the point: "the 3D on the clothes" has to mean the clothes
+ *  in every photograph of the set, not the pixels of one of them. */
 export interface ToolMask {
   region: string;
   /** data URL of the drawn alpha, white = affected (region "painted" only) */
   paint?: string;
+  /** What he painted, as GEOMETRY rather than pixels — region "painted".
+   *  The same shape the cleaning brush records, and for the same reason: a
+   *  stroke in fractions of the frame means the same thing on a 1400px preview
+   *  and on the delivered file, while a rasterised alpha means one resolution
+   *  and weighs kilobytes per tool in a store that has to hold a whole shoot.
+   *  The engine rasterises it (engine/render.py::_region_mask).
+   *  Per-photo, like `paint`: stripped at the door into any shared layer. */
+  strokes?: ManualStroke[];
   /** flip the mask: paint becomes "everywhere except here" */
   invert?: boolean;
   /** edge softness, 0..100 of frame scale (engine-side gaussian) */

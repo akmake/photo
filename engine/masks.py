@@ -791,6 +791,37 @@ def _reusable(computed, small: np.ndarray, kind: str) -> bool:
     return computed is not None and computed.shape[:2] == small.shape[:2]
 
 
+# Kinds that are not segmented but ARRANGED out of kinds that are. They live
+# here rather than in whatever tool wants them, because "where is X in the
+# picture" has one address (CLAUDE.md section 2) — tonal_contrast.py built
+# `fabric` privately, and the moment a second caller needed the clothes there
+# would have been two definitions of what a garment is.
+#
+# Deliberately NOT disk-cached: each is a few array ops over parts that are
+# themselves cached, so storing it would only buy microseconds and would add a
+# file that goes stale independently of the masks it is made of.
+_COMPOSITE = ("skin", "fabric", "background")
+
+
+def _composite_mask(rgb: np.ndarray, kind: str) -> np.ndarray:
+    if kind == "skin":
+        # Face and body are separate classes in the parse. A person asking for
+        # "skin" means both — a hand on a shoulder is not a different material.
+        return np.clip(get_mask(rgb, "face-skin") + get_mask(rgb, "body-skin"), 0.0, 1.0)
+
+    if kind == "background":
+        return np.clip(1.0 - get_mask(rgb, "subject"), 0.0, 1.0)
+
+    # fabric: the person, minus the parts of the person that are not cloth.
+    # Same definition tonal_contrast.py has always used. Hair is subtracted and
+    # never given back — structure on hair reads as crunchy, which is a bug.
+    return np.clip(
+        get_mask(rgb, "subject") - _composite_mask(rgb, "skin") - get_mask(rgb, "hair"),
+        0.0,
+        1.0,
+    )
+
+
 def get_mask(rgb: np.ndarray, kind: str) -> np.ndarray:
     """Return a float32 mask in 0..1 with the same H,W as the image.
 
@@ -811,6 +842,9 @@ def get_mask(rgb: np.ndarray, kind: str) -> np.ndarray:
     src = getattr(_source, "rgb", None)
     if src is not None and src.shape == rgb.shape:
         rgb = src
+
+    if kind in _COMPOSITE:
+        return _composite_mask(rgb, kind)
 
     key = _cache_key(rgb, kind)
     hit = _CACHE.get(key)

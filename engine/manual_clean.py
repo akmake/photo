@@ -52,8 +52,15 @@ CONTEXT = 1.0
 MIN_RADIUS_PX = 2
 
 
-def _mask(shape, strokes) -> np.ndarray:
-    """(H, W) uint8 0/1 — the union of the strokes, in THIS frame's pixels."""
+def strokes_mask(shape, strokes) -> np.ndarray:
+    """(H, W) uint8 0/1 — the union of the strokes, in THIS frame's pixels.
+
+    Public because it is the one place that turns what a hand painted into
+    pixels: the cleaning brush rasterises here, and so does a tool masked to
+    `painted` (engine/render.py::_region_mask). Two rasterisers would mean the
+    brush he paints a mask with covers slightly different ground than the brush
+    he cleans with, at the same radius.
+    """
     h, w = shape[:2]
     m = np.zeros((h, w), np.uint8)
     for s in strokes or []:
@@ -81,7 +88,7 @@ def apply(rgb: np.ndarray, params: dict):
     if not strokes:
         return rgb, {"strokes": 0, "cleanedPx": 0}
 
-    repair = _mask(rgb.shape, strokes)
+    repair = strokes_mask(rgb.shape, strokes)
     if not repair.any():
         return rgb, {"strokes": len(strokes), "cleanedPx": 0}
 

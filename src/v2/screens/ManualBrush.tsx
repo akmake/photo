@@ -39,10 +39,14 @@ type Props = {
   /** Erase mode: the point he clicked, in fractions. The parent decides which
    *  stroke that lands on — it is the one holding the list. */
   onErase: (x: number, y: number) => void;
+  /** "r, g, b" for the marks. The default red means "this is coming out of the
+   *  picture" — the cleaning brush. A region being painted passes its own,
+   *  because the two brushes share the pointer and must never share a colour. */
+  tint?: string;
 };
 
 export default function ManualBrush({
-  imgRef, pending, radius, onRadius, erasing, onStroke, onErase,
+  imgRef, pending, radius, onRadius, erasing, onStroke, onErase, tint = '239, 68, 68',
 }: Props) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const [box, setBox] = useState<{ left: number; top: number; w: number; h: number } | null>(null);
@@ -113,7 +117,7 @@ export default function ManualBrush({
       }
     };
 
-    ctx.strokeStyle = 'rgba(239, 68, 68, 0.45)';
+    ctx.strokeStyle = `rgba(${tint}, 0.45)`;
     for (const s of pending) path(s.points, s.r);
     if (drawing.current) path(drawing.current, radius);
 
@@ -122,7 +126,7 @@ export default function ManualBrush({
       ctx.beginPath();
       ctx.arc(at[0] * box.w, at[1] * box.h, radius * box.w, 0, Math.PI * 2);
       ctx.lineWidth = 1.5;
-      ctx.strokeStyle = erasing ? 'rgba(250, 250, 250, 0.9)' : 'rgba(239, 68, 68, 0.95)';
+      ctx.strokeStyle = erasing ? 'rgba(250, 250, 250, 0.9)' : `rgba(${tint}, 0.95)`;
       ctx.stroke();
       ctx.lineWidth = 3;
       ctx.strokeStyle = 'rgba(0, 0, 0, 0.35)';
