@@ -36,6 +36,9 @@ export function frameToPhoto(frame: Frame): AlbumPhoto {
     name: frame.name,
     url: thumbUrl(frame.shown, POOL_THUMB_WIDTH),
     sourcePath: frame.path,
+    /* The export draws `shown`, not `path`: an album whose photographs were
+     * edited must print the edit. */
+    exportPath: frame.shown,
     orientation: 'square',
     widthPx: 0,
     heightPx: 0,

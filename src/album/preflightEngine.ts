@@ -2,6 +2,7 @@ import { assessCrop } from './cropEngine';
 import { buildAlbumLayoutCandidates } from './layoutEngine';
 import { spreadTemplate, templateSlots } from './templates/library';
 import type { AlbumPhoto, AlbumProject, PrintProductProfile } from './model';
+import { coverSheetOf, coverTemplateOf } from './coverSheet';
 
 export interface PreflightIssue {
   id: string;
@@ -77,59 +78,62 @@ export function runAlbumPreflight(
       target: 'cover',
     });
   }
-  if (!project.cover?.frontPhotoId) {
+  /* THE COVER is a designed sheet, so it is checked the way a spread is:
+   * every photo place on it, against the place's own size in millimetres. The
+   * front and back of a plain cover are two such places; a design from the
+   * Vault placed on the cover can have any number, and they are all checked. */
+  const coverSheet = coverSheetOf(project, profile);
+  const coverDesign = coverTemplateOf(coverSheet, profile, project.openingDirection ?? 'rtl');
+  const coverPlaces = coverDesign ? templateSlots(coverDesign) : [];
+  if (!coverSheet.photoIds.some(Boolean)) {
     issues.push({
-      id: 'cover-front-missing',
+      id: 'cover-photo-missing',
       severity: 'blocker',
       code: 'COVER_FRONT_MISSING',
-      title: 'חסרה תמונת חזית',
-      detail: 'יש לשבץ תמונה בחזית הכריכה.',
+      title: 'אין תמונה על הכריכה',
+      detail: 'יש לשבץ תמונה בחזית הכריכה, או לבחור עיצוב כריכה ללא תמונות במכוון.',
       target: 'cover',
     });
   }
-  const pageWidthMm = (coverSpec.totalWidthMm - coverSpec.spineWidthMm) / 2;
-  const pageAspect = pageWidthMm / Math.max(1, coverSpec.totalHeightMm);
-  ([
-    ['front', project.cover?.frontPhotoId, project.cover?.frontSettings, 'חזית'],
-    ['back', project.cover?.backPhotoId, project.cover?.backSettings, 'גב'],
-  ] as const).forEach(([side, photoId, settings, label]) => {
-    const coverPhoto = photoMap.get(photoId ?? '');
-    if (!coverPhoto || pageWidthMm <= 0) return;
-    const zoom = Math.max(1, (settings?.zoom ?? 100) / 100);
-    const sourceAspect = coverPhoto.widthPx / Math.max(1, coverPhoto.heightPx);
-    const usedWidth = sourceAspect > pageAspect
-      ? coverPhoto.heightPx * pageAspect
-      : coverPhoto.widthPx;
-    const usedHeight = sourceAspect > pageAspect
-      ? coverPhoto.heightPx
-      : coverPhoto.widthPx / pageAspect;
+  coverPlaces.forEach((place, index) => {
+    const coverPhoto = photoMap.get(coverSheet.photoIds[index] ?? '');
+    if (!coverPhoto) return;
+    const placeWidthMm = place.width * coverSpec.totalWidthMm;
+    const placeHeightMm = place.height * coverSpec.totalHeightMm;
+    if (placeWidthMm <= 0 || placeHeightMm <= 0) return;
+    const crop = assessCrop(
+      coverPhoto,
+      place,
+      coverSheet.frameSettings?.[place.id],
+      coverSpec.totalWidthMm / Math.max(1, coverSpec.totalHeightMm),
+    );
     const coverPpi = Math.floor(Math.min(
-      usedWidth / zoom / (pageWidthMm / 25.4),
-      usedHeight / zoom / (coverSpec.totalHeightMm / 25.4),
+      coverPhoto.widthPx * crop.crop.width / Math.max(0.01, placeWidthMm / 25.4),
+      coverPhoto.heightPx * crop.crop.height / Math.max(0.01, placeHeightMm / 25.4),
     ));
     if (coverPpi < profile.minPpi) {
       issues.push({
-        id: `cover-${side}-low-ppi`,
+        id: `cover-${place.id}-low-ppi`,
         severity: 'blocker',
         code: 'COVER_LOW_PPI',
-        title: `תמונת ${label} הכריכה ברזולוציה נמוכה · ${coverPpi} PPI`,
-        detail: `הסף החוסם הוא ${profile.minPpi} PPI.`,
+        title: `תמונה בכריכה ברזולוציה נמוכה · ${coverPpi} PPI`,
+        detail: `${coverPhoto.name} · הסף החוסם הוא ${profile.minPpi} PPI.`,
         photoId: coverPhoto.id,
         target: 'cover',
       });
     } else if (coverPpi < profile.targetPpi) {
       issues.push({
-        id: `cover-${side}-ppi-warning`,
+        id: `cover-${place.id}-ppi-warning`,
         severity: 'warning',
         code: 'COVER_PPI_BELOW_TARGET',
-        title: `תמונת ${label} הכריכה מתחת ליעד · ${coverPpi} PPI`,
-        detail: `יעד המוצר הוא ${profile.targetPpi} PPI.`,
+        title: `תמונה בכריכה מתחת ליעד · ${coverPpi} PPI`,
+        detail: `${coverPhoto.name} · יעד המוצר הוא ${profile.targetPpi} PPI.`,
         photoId: coverPhoto.id,
         target: 'cover',
       });
     }
   });
-  if (!project.cover?.title.trim()) {
+  if (!(coverSheet.templateInstance?.texts.title ?? '').trim()) {
     issues.push({
       id: 'cover-title-missing',
       severity: 'warning',
@@ -149,17 +153,6 @@ export function runAlbumPreflight(
         code: 'MISSING_TEMPLATE',
         title: `העיצוב של כפולה ${spread.pageStart}–${spread.pageStart + 1} לא נמצא`,
         detail: 'העמוד מהכספת שהוצב כאן אינו קיים בספרייה. יש לבחור עיצוב אחר לכפולה.',
-        spreadId: spread.id,
-        target: 'spread',
-      });
-    }
-    if (template) {
-      issues.push({
-        id: `template-export-${spread.id}`,
-        severity: 'blocker',
-        code: 'TEMPLATE_EXPORT_PENDING',
-        title: `כפולה ${spread.pageStart}–${spread.pageStart + 1} היא עמוד מהכספת`,
-        detail: 'במסך העמוד מוצג במלואו. ייצוא הגהה ודפוס לעמודים מהכספת עוד לא נבנה, ולכן הקובץ נחסם במקום לצאת בלי הטקסט והקישוטים.',
         spreadId: spread.id,
         target: 'spread',
       });

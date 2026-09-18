@@ -48,6 +48,12 @@ export interface AlbumPhoto {
    *  serves its pixels and reports its real dimensions — so a project album never
    *  copies a photograph and never has to guess a size a PPI check could quote. */
   sourcePath?: string;
+  /** The file an EXPORT must draw: the edited version when one exists, the raw
+   *  otherwise — the same file the screen is showing. `sourcePath` stays the raw
+   *  because that is what the analysis measures; printing from it would hand the
+   *  lab the unedited frame. Absent on an imported photo, whose blob IS the
+   *  original and is already full size in the browser. */
+  exportPath?: string;
 }
 
 export interface NormalizedBox {
@@ -149,6 +155,14 @@ export interface ReviewVersion {
 
 export interface AlbumCover {
   background: string;
+  /** THE COVER, as a designed sheet: back, spine and front on one piece of
+   *  paper, holding a template instance exactly as a spread does — which is
+   *  what lets every tool in the designer work on it. See coverSheet.ts.
+   *
+   *  The fields below it are what a cover was before it could be designed.
+   *  They are read once, to build this sheet, and are kept so an album saved
+   *  by an older version still opens with its cover intact. */
+  sheet?: AlbumSpread;
   frontPhotoId?: string;
   backPhotoId?: string;
   frontSettings?: PhotoFrameSettings;

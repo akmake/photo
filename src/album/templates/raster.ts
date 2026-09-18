@@ -2,7 +2,7 @@ import { assessCrop } from '../cropEngine';
 import type { AlbumPhoto, AlbumSpread, PhotoFrameSettings } from '../model';
 import { colorOf, paintOrder, photoLayers, templateBackground, textOf, usesSourceLettering } from './library';
 import type {
-  AlbumTemplate, ImageLayer, PhotoLayer, ShapeLayer, SpreadTemplateInstance, TextLayer,
+  AlbumTemplate, ImageLayer, LayerBox, PhotoLayer, ShapeLayer, SpreadTemplateInstance, TextLayer,
 } from './types';
 
 /* A designed page (הכספת) drawn onto a canvas, for export.
@@ -41,9 +41,11 @@ export interface TemplateRasterInput {
   instance: SpreadTemplateInstance;
   spread: AlbumSpread;
   photos: AlbumPhoto[];
-  /** The pixels of one photograph, at whatever size the caller can afford.
+  /** The pixels of one photograph. `need` is how many pixels the place will
+   *  actually take on this canvas, zoom included, so an export can ask the
+   *  engine for that size and no more and a screen can ignore it.
    *  Returning null is a missing file, and the caller decides what that means. */
-  bitmapOf(photo: AlbumPhoto): Promise<ImageBitmap | null>;
+  bitmapOf(photo: AlbumPhoto, need: { width: number; height: number }): Promise<ImageBitmap | null>;
   /** Pixels of an element the photographer imported, by asset id. */
   elementBitmapOf?(assetId: string): Promise<ImageBitmap | null>;
   /** Leave the photo places empty and transparent. The print path uses this to
@@ -52,6 +54,16 @@ export interface TemplateRasterInput {
   /** Fill the sheet with the page's designed background before drawing.
    *  Off for the decoration-only pass, which must stay transparent. */
   withBackground?: boolean;
+  /** Extra paper around the finished spread, in pixels of THIS canvas, which
+   *  the guillotine removes. `width`/`height` stay the finished size; the
+   *  canvas is that plus this on each of the four outer sides.
+   *
+   *  A photograph printed exactly to the trim line shows a white sliver
+   *  wherever the cut drifts, so anything touching an outer edge — a photo
+   *  place, a designed band, the background — is carried out into the margin.
+   *  The fold down the middle of a spread is not an outer edge and is never
+   *  extended. */
+  bleedPx?: { x: number; y: number };
 }
 
 /** Every photograph a page needs, in the order of its photo places. Missing
@@ -317,10 +329,35 @@ async function drawImageLayer(
   context.restore();
 }
 
+/* Does this box reach an outer edge of the spread, and by how much does it
+ * have to grow to cross the trim line? The middle of a spread is the fold, and
+ * a design that meets it must NOT be pushed past it. */
+const TOUCHES = 0.004;
+
+function spilled<T extends { box: LayerBox }>(layer: T, fx: number, fy: number): T {
+  if (!fx && !fy) return layer;
+  const { x, y, width, height } = layer.box;
+  const left = x <= TOUCHES ? fx : 0;
+  const right = x + width >= 1 - TOUCHES ? fx : 0;
+  const top = y <= TOUCHES ? fy : 0;
+  const bottom = y + height >= 1 - TOUCHES ? fy : 0;
+  if (!left && !right && !top && !bottom) return layer;
+  return {
+    ...layer,
+    box: {
+      x: x - left,
+      y: y - top,
+      width: width + left + right,
+      height: height + top + bottom,
+    },
+  };
+}
+
 /** Draw one designed page onto a canvas of `width` × `height` pixels.
  *
- * The canvas is the whole open spread, bleed excluded: the caller owns the
- * sheet, exactly as the screen's wrapper owns it. */
+ * `width`/`height` are the FINISHED spread. With `bleedPx` the canvas is
+ * larger than that — the page is drawn inset by the bleed and everything that
+ * meets an outer edge is carried out into it. */
 export async function drawTemplateSpread(
   context: CanvasRenderingContext2D,
   width: number,
@@ -329,15 +366,22 @@ export async function drawTemplateSpread(
 ): Promise<void> {
   const {
     template, instance, spread, photos, bitmapOf, elementBitmapOf,
-    withoutPhotos = false, withBackground = true,
+    withoutPhotos = false, withBackground = true, bleedPx,
   } = input;
   const viewWidth = template.nativeAspect * VIEW_HEIGHT;
   const spreadAspect = width / height;
   const byId = new Map(photos.map((photo) => [photo.id, photo]));
+  const bleedX = Math.max(0, bleedPx?.x ?? 0);
+  const bleedY = Math.max(0, bleedPx?.y ?? 0);
+  const spillX = bleedX / width;
+  const spillY = bleedY / height;
+
+  context.save();
+  context.translate(bleedX, bleedY);
 
   if (withBackground) {
     context.fillStyle = templateBackground(template, instance);
-    context.fillRect(0, 0, width, height);
+    context.fillRect(-bleedX, -bleedY, width + bleedX * 2, height + bleedY * 2);
   }
 
   // Photo places bind to spread.photoIds in the order they appear in `layers`,
@@ -345,7 +389,15 @@ export async function drawTemplateSpread(
   const photoIndexById = new Map<string, number>();
   photoLayers(template).forEach((layer, index) => photoIndexById.set(layer.id, index));
 
-  for (const layer of paintOrder(template)) {
+  for (const drawn of paintOrder(template)) {
+    /* Into the bleed go the photographs and the designed fills behind them.
+     * Artwork and lettering are not stretched: a flourish drawn to the edge is
+     * meant to be cut there, and scaling it would move the drawing itself. */
+    const layer = drawn.type === 'photo'
+      || (drawn.type === 'shape' && drawn.shape === 'rect' && !drawn.outline
+        && (drawn.fillToken || drawn.fillColor))
+      ? spilled(drawn, spillX, spillY)
+      : drawn;
     context.save();
     context.globalAlpha = 1;
     context.globalCompositeOperation = 'source-over';
@@ -353,13 +405,16 @@ export async function drawTemplateSpread(
     if (layer.type === 'photo') {
       if (withoutPhotos) { context.restore(); continue; }
       const photo = byId.get(spread.photoIds[photoIndexById.get(layer.id) ?? -1] ?? '');
-      const bitmap = photo ? await bitmapOf(photo) : null;
+      const boxWidth = layer.box.width * width;
+      const boxHeight = layer.box.height * height;
+      const left = layer.box.x * width;
+      const top = layer.box.y * height;
+      const settings = spread.frameSettings?.[layer.id] ?? DEFAULT_SETTINGS;
+      const zoom = Math.max(1, (settings.zoom ?? 100) / 100);
+      const bitmap = photo
+        ? await bitmapOf(photo, { width: boxWidth * zoom, height: boxHeight * zoom })
+        : null;
       if (photo && bitmap) {
-        const boxWidth = layer.box.width * width;
-        const boxHeight = layer.box.height * height;
-        const left = layer.box.x * width;
-        const top = layer.box.y * height;
-        const settings = spread.frameSettings?.[layer.id] ?? DEFAULT_SETTINGS;
         const crop = assessCrop(
           photo,
           { ...layer.box, id: layer.id, role: layer.role, preferred: layer.preferred },
@@ -439,4 +494,6 @@ export async function drawTemplateSpread(
     }
     context.restore();
   }
+
+  context.restore();
 }

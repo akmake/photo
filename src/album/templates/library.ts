@@ -102,10 +102,25 @@ export function spreadTemplate(spread: AlbumSpread, spreadAspect: number): Album
   if (!spread.templateInstance) return null;
   const template = findTemplate(spread.templateInstance.templateId);
   if (!template) return null;
-  const instance = spread.templateInstance;
-  const structured = withStructure(fittedTemplate(template, spreadAspect), instance.addedPlaces, instance.removedPlaces, instance.addedLayers);
+  return withInstance(fittedTemplate(template, spreadAspect), spread.templateInstance, template);
+}
+
+/** A design with everything ONE sheet changed about it laid over it: the places
+ *  moved, the fades, the styling, the elements added and the ones taken away.
+ *
+ *  Split out of `spreadTemplate` because the cover is a designed sheet too and
+ *  its page is not a library page — it is built from the product's own spine
+ *  and size. Both roads must go through the same edits, or a photographer's
+ *  move would apply on a spread and be ignored on the cover. */
+export function withInstance(
+  fitted: AlbumTemplate,
+  instance: SpreadTemplateInstance,
+  /** The design as the library holds it — what a fade measures against. */
+  designed: AlbumTemplate = fitted,
+): AlbumTemplate {
+  const structured = withStructure(fitted, instance.addedPlaces, instance.removedPlaces, instance.addedLayers);
   const placed = withPlaceEdits(structured, instance.places);
-  const faded = withFades(placed, template, instance.fades);
+  const faded = withFades(placed, designed, instance.fades);
   return withPlaceStyles(faded, instance.styles);
 }
 

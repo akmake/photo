@@ -1,12 +1,40 @@
 import type {
-  AlbumPhoto, AlbumProject, AlbumSpread, LayoutSlot, PhotoFrameSettings, PrintProductProfile,
+  AlbumPhoto, AlbumProject, AlbumSpread, LayoutSlot, PrintProductProfile,
 } from './model';
 import { assessCrop } from './cropEngine';
 import type { GeneratedAlbumLayout } from './layoutEngine';
-import { finalizeAlbumJpeg } from '../api';
+import { albumSourceUrl, finalizeAlbumSheet } from '../api';
 import { spreadTemplate } from './templates/library';
 import { elementUrl } from './templates/elementStore';
 import { drawTemplateSpread, missingPhotos } from './templates/raster';
+import { jpegPagesToPdf, type PdfPage } from './pdf';
+import { coverSheetOf, coverTemplateOf } from './coverSheet';
+
+/* Getting the album out of the screen — to the couple as a proof, to the lab
+ * as files it can print.
+ *
+ * Both roads are the same renderer, on purpose: what the photographer approved
+ * on screen, what the client signs off on, and what the press receives are one
+ * drawing at three resolutions. A second renderer for print would drift, and
+ * the drift would only be visible once the album arrived.
+ *
+ * Two things separate the print road from the proof road, and neither is
+ * cosmetic:
+ *
+ *   THE PIXELS. The pool a screen draws from is 1200px wide — a proxy, because
+ *   the browser cannot read D:\Shoots and a layout must stay responsive. A
+ *   56cm spread at 300dpi is 6614px. Drawing THAT from the proxy is an
+ *   enlargement of five and a half times: right on the monitor, ruined on
+ *   paper, and invisible until the album is delivered. So an export never
+ *   touches `photo.url`. It asks the engine for the real file, at the size the
+ *   place on the page actually takes.
+ *
+ *   THE BLEED. The lab prints on a larger sheet and cuts. A photograph ending
+ *   exactly on the trim line shows a white sliver wherever the blade drifts,
+ *   so the sheet carries `bleedMm` of extra paper on the four outer sides and
+ *   everything that meets an edge is carried out into it. The fold in the
+ *   middle of a spread is not an outer edge and is never extended.
+ */
 
 interface SpreadExportItem {
   spread: AlbumSpread;
@@ -34,7 +62,29 @@ export interface ProofExportResult {
   pixelSize: { width: number; height: number };
 }
 
-const PROOF_PPI = 120;
+/** A proof is looked at on a screen and, at most, printed on A4 to be marked
+ *  up. 150 leaves a face readable at that size without making a file too heavy
+ *  to send. The press file's resolution is the printer's to state, and comes
+ *  from the profile. */
+const PROOF_PPI = 150;
+const PROOF_QUALITY = 0.88;
+
+interface SheetOptions {
+  ppi: number;
+  /** Extra paper on the four outer sides. Zero for a proof: a proof shows the
+   *  album as it will be cut, not as it is printed. */
+  bleedMm: number;
+  watermark: boolean;
+}
+
+interface Sheet {
+  canvas: HTMLCanvasElement;
+  /** The finished sheet, bleed excluded — what the page of a PDF must be. */
+  trimWidthMm: number;
+  trimHeightMm: number;
+}
+
+const mmToPx = (mm: number, ppi: number) => Math.max(1, Math.round(mm / 25.4 * ppi));
 
 function loadBitmap(url: string): Promise<ImageBitmap> {
   return fetch(url)
@@ -45,19 +95,60 @@ function loadBitmap(url: string): Promise<ImageBitmap> {
     .then((blob) => createImageBitmap(blob));
 }
 
-function canvasBlob(canvas: HTMLCanvasElement): Promise<Blob> {
-  return new Promise((resolve, reject) => {
-    canvas.toBlob(
-      (blob) => blob ? resolve(blob) : reject(new Error('יצירת קובץ ההגהה נכשלה')),
-      'image/jpeg',
-      0.94,
-    );
-  });
+/** How large a source this place can actually use.
+ *
+ *  `need` is the place in sheet pixels, zoom included. The file is scaled to
+ *  cover it, so what matters is the scale that covering takes: at or above 1:1
+ *  the whole file is wanted, below it the engine resizes once with Lanczos —
+ *  better than the browser doing it while it draws, and far less memory.
+ *
+ *  With the photo's real dimensions not yet measured, ask generously: the
+ *  engine never upscales, so the worst case is a file that comes back at its
+ *  own size. */
+function sourceLongEdge(photo: AlbumPhoto, need: { width: number; height: number }): number {
+  const width = photo.widthPx;
+  const height = photo.heightPx;
+  if (width > 0 && height > 0) {
+    const cover = Math.max(need.width / width, need.height / height);
+    return Math.ceil(Math.max(width, height) * Math.min(1, cover) * 1.04);
+  }
+  return Math.ceil(Math.max(need.width, need.height) * 2);
 }
 
-function drawPhoto(
+/** The pixels of one photograph for an export: the file itself.
+ *
+ *  A photo imported into a standalone album has no path — its blob IS the
+ *  original and is already whole in the browser. */
+function exportBitmap(
+  photo: AlbumPhoto,
+  need: { width: number; height: number },
+): Promise<ImageBitmap> {
+  return loadBitmap(
+    photo.exportPath
+      ? albumSourceUrl(photo.exportPath, sourceLongEdge(photo, need))
+      : photo.url,
+  );
+}
+
+/** A place that meets an outer edge, carried out into the bleed. */
+function spilledSlot(slot: LayoutSlot, spillX: number, spillY: number): LayoutSlot {
+  if (!spillX && !spillY) return slot;
+  const left = slot.x <= 0.004 ? spillX : 0;
+  const right = slot.x + slot.width >= 0.996 ? spillX : 0;
+  const top = slot.y <= 0.004 ? spillY : 0;
+  const bottom = slot.y + slot.height >= 0.996 ? spillY : 0;
+  if (!left && !right && !top && !bottom) return slot;
+  return {
+    ...slot,
+    x: slot.x - left,
+    y: slot.y - top,
+    width: slot.width + left + right,
+    height: slot.height + top + bottom,
+  };
+}
+
+async function drawPhoto(
   context: CanvasRenderingContext2D,
-  bitmap: ImageBitmap,
   slot: LayoutSlot,
   photo: AlbumPhoto,
   spread: AlbumSpread,
@@ -78,37 +169,46 @@ function drawPhoto(
     settings,
     profile.spreadWidthMm / profile.spreadHeightMm,
   );
+  const zoom = Math.max(1, (settings?.zoom ?? 100) / 100);
+  const bitmap = await exportBitmap(photo, {
+    width: frame.width * zoom,
+    height: frame.height * zoom,
+  });
 
   context.save();
   context.beginPath();
   context.rect(frame.x, frame.y, frame.width, frame.height);
   context.clip();
 
-  if (crop.fit === 'contain') {
-    const scale = Math.min(frame.width / bitmap.width, frame.height / bitmap.height);
-    const width = bitmap.width * scale;
-    const height = bitmap.height * scale;
-    context.drawImage(
-      bitmap,
-      frame.x + (frame.width - width) / 2,
-      frame.y + (frame.height - height) / 2,
-      width,
-      height,
-    );
-  } else {
-    context.drawImage(
-      bitmap,
-      crop.crop.x * bitmap.width,
-      crop.crop.y * bitmap.height,
-      crop.crop.width * bitmap.width,
-      crop.crop.height * bitmap.height,
-      frame.x,
-      frame.y,
-      frame.width,
-      frame.height,
-    );
+  try {
+    if (crop.fit === 'contain') {
+      const scale = Math.min(frame.width / bitmap.width, frame.height / bitmap.height);
+      const width = bitmap.width * scale;
+      const height = bitmap.height * scale;
+      context.drawImage(
+        bitmap,
+        frame.x + (frame.width - width) / 2,
+        frame.y + (frame.height - height) / 2,
+        width,
+        height,
+      );
+    } else {
+      context.drawImage(
+        bitmap,
+        crop.crop.x * bitmap.width,
+        crop.crop.y * bitmap.height,
+        crop.crop.width * bitmap.width,
+        crop.crop.height * bitmap.height,
+        frame.x,
+        frame.y,
+        frame.width,
+        frame.height,
+      );
+    }
+  } finally {
+    bitmap.close();
+    context.restore();
   }
-  context.restore();
 }
 
 /** A proof must never be confused with a press-ready file. */
@@ -128,210 +228,151 @@ function stampProof(context: CanvasRenderingContext2D, width: number, height: nu
   context.restore();
 }
 
+function newSheet(
+  trimWidthMm: number,
+  trimHeightMm: number,
+  options: SheetOptions,
+): { sheet: Sheet; context: CanvasRenderingContext2D; bleedPx: number } {
+  const bleedPx = options.bleedMm > 0 ? mmToPx(options.bleedMm, options.ppi) : 0;
+  const canvas = document.createElement('canvas');
+  canvas.width = mmToPx(trimWidthMm, options.ppi) + bleedPx * 2;
+  canvas.height = mmToPx(trimHeightMm, options.ppi) + bleedPx * 2;
+  const context = canvas.getContext('2d', { alpha: false });
+  if (!context) throw new Error('הדפדפן אינו מאפשר רינדור של האלבום');
+  context.imageSmoothingEnabled = true;
+  context.imageSmoothingQuality = 'high';
+  return { sheet: { canvas, trimWidthMm, trimHeightMm }, context, bleedPx };
+}
+
 async function renderSpread(
   item: SpreadExportItem,
   photosById: Map<string, AlbumPhoto>,
   profile: PrintProductProfile,
-  ppi = PROOF_PPI,
-  watermark = true,
-): Promise<{ blob: Blob; width: number; height: number }> {
-  const width = Math.round(profile.spreadWidthMm / 25.4 * ppi);
-  const height = Math.round(profile.spreadHeightMm / 25.4 * ppi);
-  const canvas = document.createElement('canvas');
-  canvas.width = width;
-  canvas.height = height;
-  const context = canvas.getContext('2d', { alpha: false });
-  if (!context) throw new Error('הדפדפן אינו מאפשר רינדור הגהה');
+  options: SheetOptions,
+): Promise<Sheet> {
+  const { sheet, context, bleedPx } = newSheet(
+    profile.spreadWidthMm,
+    profile.spreadHeightMm,
+    options,
+  );
+  const trimWidth = sheet.canvas.width - bleedPx * 2;
+  const trimHeight = sheet.canvas.height - bleedPx * 2;
+  const pages = `${item.spread.pageStart}–${item.spread.pageStart + 1}`;
 
   /* A page from the Vault carries its own colours, lines and words, so it is
    * drawn by the template renderer — the same geometry, crop and paint order
    * the photographer approved on screen. */
   const template = spreadTemplate(item.spread, profile.spreadWidthMm / profile.spreadHeightMm);
+  if (item.spread.templateInstance && !template) {
+    throw new Error(`העמוד המעוצב של כפולה ${pages} לא נמצא בספריית הכספת`);
+  }
   if (item.spread.templateInstance && template) {
     const photos = [...photosById.values()];
     const missing = missingPhotos({ template, spread: item.spread, photos });
-    if (missing.length) {
-      throw new Error(
-        `חסרות ${missing.length} תמונות בכפולה ${item.spread.pageStart}–${item.spread.pageStart + 1}`,
-      );
+    /* An empty place is a page still being worked on. A proof shows it exactly
+     * as the screen does — refusing to make a proof is refusing the one thing
+     * that would let anyone see the gap. The press file is another matter and
+     * says no. */
+    if (missing.length && !options.watermark) {
+      throw new Error(`חסרות ${missing.length} תמונות בכפולה ${pages}`);
     }
-    await drawTemplateSpread(context, width, height, {
+    await drawTemplateSpread(context, trimWidth, trimHeight, {
       template,
       instance: item.spread.templateInstance,
       spread: item.spread,
       photos,
-      bitmapOf: (photo) => loadBitmap(photo.url).catch(() => null),
+      bitmapOf: (photo, need) => exportBitmap(photo, need).catch(() => null),
       elementBitmapOf: async (assetId) => {
         const url = elementUrl(assetId);
         return url ? await loadBitmap(url).catch(() => null) : null;
       },
+      bleedPx: { x: bleedPx, y: bleedPx },
     });
-    if (watermark) stampProof(context, width, height);
-    return { blob: await canvasBlob(canvas), width, height };
-  }
-  if (item.spread.templateInstance && !template) {
-    throw new Error(
-      `העמוד המעוצב של כפולה ${item.spread.pageStart}–${item.spread.pageStart + 1} לא נמצא בספריית הכספת`,
-    );
+    if (options.watermark) stampProof(context, sheet.canvas.width, sheet.canvas.height);
+    return sheet;
   }
 
   context.fillStyle = item.spread.background;
-  context.fillRect(0, 0, width, height);
-
+  context.fillRect(0, 0, sheet.canvas.width, sheet.canvas.height);
+  context.save();
+  context.translate(bleedPx, bleedPx);
   for (let index = 0; index < item.layout.slots.length; index += 1) {
     const photo = photosById.get(item.layout.photoIds[index]);
-    if (!photo) throw new Error(`חסרה תמונה בכפולה ${item.spread.pageStart}`);
-    const bitmap = await loadBitmap(photo.url);
-    try {
-      drawPhoto(
-        context,
-        bitmap,
-        item.layout.slots[index],
-        photo,
-        item.spread,
-        profile,
-        width,
-        height,
-      );
-    } finally {
-      bitmap.close();
+    if (!photo) {
+      if (!options.watermark) throw new Error(`חסרה תמונה בכפולה ${pages}`);
+      continue;
     }
+    await drawPhoto(
+      context,
+      spilledSlot(item.layout.slots[index], bleedPx / trimWidth, bleedPx / trimHeight),
+      photo,
+      item.spread,
+      profile,
+      trimWidth,
+      trimHeight,
+    );
   }
+  context.restore();
 
-  if (watermark) stampProof(context, width, height);
-
-  return { blob: await canvasBlob(canvas), width, height };
+  if (options.watermark) stampProof(context, sheet.canvas.width, sheet.canvas.height);
+  return sheet;
 }
 
-function drawCoverImage(
-  context: CanvasRenderingContext2D,
-  bitmap: ImageBitmap,
-  x: number,
-  width: number,
-  height: number,
-  focal = { x: 0.5, y: 0.5 },
-  settings?: PhotoFrameSettings,
-) {
-  const sourceAspect = bitmap.width / bitmap.height;
-  const frameAspect = width / height;
-  let sourceWidth = bitmap.width;
-  let sourceHeight = bitmap.height;
-  if (sourceAspect > frameAspect) sourceWidth = bitmap.height * frameAspect;
-  else sourceHeight = bitmap.width / frameAspect;
-  const zoom = Math.max(1, (settings?.zoom ?? 100) / 100);
-  sourceWidth /= zoom;
-  sourceHeight /= zoom;
-  /* The screen draws the cover with `object-position`, where the number is an
-   * ALIGNMENT — 0 pins the photo's own edge to the frame's, 100 the far edge.
-   * Reading it here as "centre the window on this point" printed a different
-   * cover from the one on screen, and pushed it further off the further the
-   * photographer moved from the middle. Same reading on both sides now. */
-  const shareX = Math.max(0, Math.min(1, (settings ? settings.positionX / 100 : focal.x)));
-  const shareY = Math.max(0, Math.min(1, (settings ? settings.positionY / 100 : focal.y)));
-  const sourceX = (bitmap.width - sourceWidth) * shareX;
-  const sourceY = (bitmap.height - sourceHeight) * shareY;
-  context.drawImage(
-    bitmap,
-    sourceX,
-    sourceY,
-    sourceWidth,
-    sourceHeight,
-    x,
-    0,
-    width,
-    height,
-  );
-}
-
+/** Back, spine and front on one sheet, in the order they are printed.
+ *
+ *  The cover is a designed sheet like any other page — the same template
+ *  renderer, the same crops, the same elements and lettering. It has its own
+ *  shape (the two boards plus the spine) and its own bleed, which the product
+ *  states; everything else about drawing it is the album's normal machinery.
+ *
+ *  The two boards meet the outer edges, so they are carried into the bleed;
+ *  the spine is interior and never is. */
 async function renderCover(
   project: AlbumProject,
   photosById: Map<string, AlbumPhoto>,
   profile: PrintProductProfile,
-): Promise<{ blob: Blob; width: number; height: number }> {
-  if (!project.cover) throw new Error('עיצוב הכריכה חסר');
+  options: SheetOptions,
+): Promise<Sheet> {
   const spec = profile.coverSpec;
-  const width = Math.round(spec.totalWidthMm / 25.4 * profile.targetPpi);
-  const height = Math.round(spec.totalHeightMm / 25.4 * profile.targetPpi);
-  const spineWidth = Math.round(spec.spineWidthMm / spec.totalWidthMm * width);
-  const pageWidth = Math.round((width - spineWidth) / 2);
-  const canvas = document.createElement('canvas');
-  canvas.width = width;
-  canvas.height = height;
-  const context = canvas.getContext('2d', { alpha: false });
-  if (!context) throw new Error('רינדור הכריכה נכשל');
-  context.fillStyle = project.cover.background;
-  context.fillRect(0, 0, width, height);
+  const cover = coverSheetOf(project, profile);
+  const template = coverTemplateOf(cover, profile, project.openingDirection ?? 'rtl');
+  if (!template || !cover.templateInstance) throw new Error('עיצוב הכריכה חסר');
 
-  const back = photosById.get(project.cover.backPhotoId ?? '');
-  if (back) {
-    const bitmap = await loadBitmap(back.url);
-    try {
-      drawCoverImage(
-        context, bitmap, 0, pageWidth, height, back.focalPoint, project.cover.backSettings,
-      );
-    } finally {
-      bitmap.close();
-    }
-  }
-  const front = photosById.get(project.cover.frontPhotoId ?? '');
-  if (!front) throw new Error('חסרה תמונת חזית לכריכה');
-  const frontBitmap = await loadBitmap(front.url);
-  try {
-    drawCoverImage(
-      context,
-      frontBitmap,
-      pageWidth + spineWidth,
-      pageWidth,
-      height,
-      front.focalPoint,
-      project.cover.frontSettings,
-    );
-  } finally {
-    frontBitmap.close();
-  }
+  const { sheet, context, bleedPx } = newSheet(
+    spec.totalWidthMm,
+    spec.totalHeightMm,
+    { ...options, bleedMm: options.bleedMm > 0 ? spec.bleedMm : 0 },
+  );
+  await drawTemplateSpread(
+    context,
+    sheet.canvas.width - bleedPx * 2,
+    sheet.canvas.height - bleedPx * 2,
+    {
+      template,
+      instance: cover.templateInstance,
+      spread: cover,
+      photos: [...photosById.values()],
+      bitmapOf: (photo, need) => exportBitmap(photo, need).catch(() => null),
+      elementBitmapOf: async (assetId) => {
+        const url = elementUrl(assetId);
+        return url ? await loadBitmap(url).catch(() => null) : null;
+      },
+      bleedPx: { x: bleedPx, y: bleedPx },
+    },
+  );
 
-  context.save();
-  context.textAlign = 'center';
-  context.fillStyle = '#ffffff';
-  context.shadowColor = 'rgba(0,0,0,0.45)';
-  context.shadowBlur = Math.max(4, height * 0.008);
-  const titleX = pageWidth + spineWidth + pageWidth / 2;
-  context.font = `600 ${Math.round(height * 0.065)}px Arial`;
-  context.fillText(project.cover.title, titleX, height * 0.72, pageWidth * 0.78);
-  if (project.cover.subtitle) {
-    context.font = `400 ${Math.round(height * 0.028)}px Arial`;
-    context.fillText(project.cover.subtitle, titleX, height * 0.78, pageWidth * 0.78);
-  }
-  context.restore();
-
-  if (project.cover.spineText && spineWidth > 8) {
-    context.save();
-    context.translate(pageWidth + spineWidth / 2, height / 2);
-    context.rotate(-Math.PI / 2);
-    context.textAlign = 'center';
-    context.textBaseline = 'middle';
-    context.fillStyle = '#ffffff';
-    context.shadowColor = 'rgba(0,0,0,0.35)';
-    context.shadowBlur = Math.max(3, height * 0.004);
-    context.font = `500 ${Math.max(12, Math.round(spineWidth * 0.34))}px Arial`;
-    context.fillText(project.cover.spineText, 0, 0, height * 0.82);
-    context.restore();
-  }
-  return { blob: await canvasBlob(canvas), width, height };
+  if (options.watermark) stampProof(context, sheet.canvas.width, sheet.canvas.height);
+  return sheet;
 }
 
-function blobToDataUrl(blob: Blob): Promise<string> {
+function encode(canvas: HTMLCanvasElement, type: string, quality?: number): Promise<Blob> {
   return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result));
-    reader.onerror = () => reject(reader.error ?? new Error('קריאת הרינדור נכשלה'));
-    reader.readAsDataURL(blob);
+    canvas.toBlob(
+      (blob) => blob ? resolve(blob) : reject(new Error('יצירת הקובץ נכשלה')),
+      type,
+      quality,
+    );
   });
-}
-
-async function dataUrlToBlob(dataUrl: string): Promise<Blob> {
-  const response = await fetch(dataUrl);
-  return response.blob();
 }
 
 async function sha256(blob: Blob): Promise<string> {
@@ -341,13 +382,12 @@ async function sha256(blob: Blob): Promise<string> {
     .join('');
 }
 
-function safeFileName(value: string): string {
+function safeFileName(value: string, extension = '.jpg'): string {
   const cleaned = value.replace(/[<>:"/\\|?*\u0000-\u001f]/g, '-').trim();
-  const withExtension = cleaned.toLowerCase().endsWith('.jpg')
-    || cleaned.toLowerCase().endsWith('.jpeg')
+  const withExtension = cleaned.toLowerCase().endsWith(extension)
     ? cleaned
-    : `${cleaned}.jpg`;
-  return withExtension || 'spread.jpg';
+    : `${cleaned}${extension}`;
+  return withExtension || `album${extension}`;
 }
 
 function downloadBlob(name: string, blob: Blob) {
@@ -366,6 +406,10 @@ async function writeFile(directory: WritableDirectoryHandle, name: string, data:
   await writable.close();
 }
 
+/** The proof: ONE PDF, the album in order, cover first, every page at the
+ *  album's true size and every sheet marked as a proof. One file is what a
+ *  couple can open on a phone and what comes back with remarks on it; forty
+ *  loose JPEGs are not. */
 export async function exportAlbumProof(
   project: AlbumProject,
   items: SpreadExportItem[],
@@ -373,51 +417,61 @@ export async function exportAlbumProof(
   profile: PrintProductProfile,
   onProgress?: (current: number, total: number) => void,
 ): Promise<ProofExportResult> {
-  const directoryPicker = (window as DirectoryPickerWindow).showDirectoryPicker;
-  let directory: WritableDirectoryHandle | null = null;
-  if (directoryPicker) {
-    directory = await directoryPicker.call(window, { mode: 'readwrite' });
-  }
-
   const photosById = new Map(photos.map((photo) => [photo.id, photo]));
-  const written: Array<{ name: string; width: number; height: number }> = [];
+  const options: SheetOptions = { ppi: PROOF_PPI, bleedMm: 0, watermark: true };
+  const pages: PdfPage[] = [];
+  const total = items.length + 1;
+
+  const addSheet = async (sheet: Sheet) => {
+    pages.push({
+      jpeg: await encode(sheet.canvas, 'image/jpeg', PROOF_QUALITY),
+      widthPx: sheet.canvas.width,
+      heightPx: sheet.canvas.height,
+      widthMm: sheet.trimWidthMm,
+      heightMm: sheet.trimHeightMm,
+    });
+    // The canvas is 8MB and up; let it go before the next one is built.
+    sheet.canvas.width = 0;
+    sheet.canvas.height = 0;
+  };
+
+  /* The cover opens the proof, because it is the first thing anyone opening
+   * the album sees. */
+  onProgress?.(1, total);
+  await addSheet(await renderCover(project, photosById, profile, options));
   for (let index = 0; index < items.length; index += 1) {
-    onProgress?.(index + 1, items.length);
-    const rendered = await renderSpread(items[index], photosById, profile);
-    const name = `${String(index + 1).padStart(3, '0')}-spread-proof.jpg`;
-    if (directory) await writeFile(directory, name, rendered.blob);
-    else downloadBlob(name, rendered.blob);
-    written.push({ name, width: rendered.width, height: rendered.height });
+    onProgress?.(index + 2, total);
+    await addSheet(await renderSpread(items[index], photosById, profile, options));
   }
 
-  const manifest = JSON.stringify({
-    kind: 'TEZA_ALBUM_PROOF',
-    printReady: false,
-    warning: 'PROOF_ONLY_NOT_FOR_PRINT',
-    projectId: project.id,
-    projectName: project.name,
-    generatedAt: new Date().toISOString(),
-    proofPpi: PROOF_PPI,
-    profile: {
-      id: profile.id,
-      name: profile.name,
-      widthMm: profile.spreadWidthMm,
-      heightMm: profile.spreadHeightMm,
-      verified: false,
-      colorProfile: profile.colorProfile,
-    },
-    files: written,
-  }, null, 2);
-  if (directory) await writeFile(directory, 'proof-manifest.json', manifest);
-  else downloadBlob('proof-manifest.json', new Blob([manifest], { type: 'application/json' }));
+  const pdf = await jpegPagesToPdf(pages, {
+    title: `${project.name} — הגהה`,
+    subject: 'הגהה בלבד · לא לדפוס',
+  });
+  const name = safeFileName(`${project.name} — הגהה`, '.pdf');
 
+  const directoryPicker = (window as DirectoryPickerWindow).showDirectoryPicker;
+  if (directoryPicker) {
+    const directory = await directoryPicker.call(window, { mode: 'readwrite' });
+    await writeFile(directory, name, pdf);
+    return {
+      files: 1,
+      destination: 'folder',
+      pixelSize: { width: pages[0]?.widthPx ?? 0, height: pages[0]?.heightPx ?? 0 },
+    };
+  }
+  downloadBlob(name, pdf);
   return {
-    files: written.length + 1,
-    destination: directory ? 'folder' : 'downloads',
-    pixelSize: { width: written[0]?.width ?? 0, height: written[0]?.height ?? 0 },
+    files: 1,
+    destination: 'downloads',
+    pixelSize: { width: pages[0]?.widthPx ?? 0, height: pages[0]?.heightPx ?? 0 },
   };
 }
 
+/** The press package: one file per spread at the printer's resolution, with
+ *  bleed, plus the cover and a manifest the lab can check the delivery
+ *  against. Each sheet is compressed exactly once — it leaves the browser
+ *  lossless and the engine encodes it. */
 export async function exportAlbumForPrint(
   project: AlbumProject,
   items: SpreadExportItem[],
@@ -438,53 +492,46 @@ export async function exportAlbumForPrint(
   if (!directoryPicker) throw new Error('הדפדפן אינו תומך בשמירת חבילת דפוס לתיקייה');
   const directory = await directoryPicker.call(window, { mode: 'readwrite' });
   const photosById = new Map(photos.map((photo) => [photo.id, photo]));
+  const options: SheetOptions = {
+    ppi: profile.targetPpi,
+    bleedMm: profile.bleedMm,
+    watermark: false,
+  };
   const written: Array<{
     name: string;
     width: number;
     height: number;
     sha256: string;
   }> = [];
+  const total = items.length + 1;
 
-  for (let index = 0; index < items.length; index += 1) {
-    onProgress?.(index + 1, items.length);
-    const rendered = await renderSpread(
-      items[index],
-      photosById,
-      profile,
-      profile.targetPpi,
-      false,
-    );
-    const finalized = await finalizeAlbumJpeg(
-      await blobToDataUrl(rendered.blob),
-      profile.targetPpi,
-    );
-    const blob = await dataUrlToBlob(finalized.image);
-    const sequence = String(index + 1).padStart(3, '0');
-    const name = safeFileName(profile.namingPattern
-      .replace('{index}', sequence)
-      .replace('{pageStart}', String(items[index].spread.pageStart)));
-    await writeFile(directory, name, blob);
+  const finalize = async (sheet: Sheet, name: string) => {
+    const lossless = await encode(sheet.canvas, 'image/png');
+    sheet.canvas.width = 0;
+    sheet.canvas.height = 0;
+    const finished = await finalizeAlbumSheet(lossless, options.ppi);
+    await writeFile(directory, name, finished.blob);
     written.push({
       name,
-      width: finalized.meta.widthPx,
-      height: finalized.meta.heightPx,
-      sha256: await sha256(blob),
+      width: finished.widthPx,
+      height: finished.heightPx,
+      sha256: await sha256(finished.blob),
     });
+  };
+
+  for (let index = 0; index < items.length; index += 1) {
+    onProgress?.(index + 1, total);
+    const sequence = String(index + 1).padStart(3, '0');
+    await finalize(
+      await renderSpread(items[index], photosById, profile, options),
+      safeFileName(profile.namingPattern
+        .replace('{index}', sequence)
+        .replace('{pageStart}', String(items[index].spread.pageStart))),
+    );
   }
 
-  const coverRendered = await renderCover(project, photosById, profile);
-  const coverFinalized = await finalizeAlbumJpeg(
-    await blobToDataUrl(coverRendered.blob),
-    profile.targetPpi,
-  );
-  const coverBlob = await dataUrlToBlob(coverFinalized.image);
-  await writeFile(directory, 'cover.jpg', coverBlob);
-  written.push({
-    name: 'cover.jpg',
-    width: coverFinalized.meta.widthPx,
-    height: coverFinalized.meta.heightPx,
-    sha256: await sha256(coverBlob),
-  });
+  onProgress?.(total, total);
+  await finalize(await renderCover(project, photosById, profile, options), 'cover.jpg');
 
   const manifest = JSON.stringify({
     kind: 'TEZA_ALBUM_PRINT_EXPORT',
@@ -499,10 +546,17 @@ export async function exportAlbumForPrint(
       version: profile.profileVersion,
       widthMm: profile.spreadWidthMm,
       heightMm: profile.spreadHeightMm,
+      bleedMm: profile.bleedMm,
       ppi: profile.targetPpi,
       format: profile.outputFormat,
       colorProfile: profile.colorProfile,
       verified: profile.verified,
+    },
+    cover: {
+      totalWidthMm: profile.coverSpec.totalWidthMm,
+      totalHeightMm: profile.coverSpec.totalHeightMm,
+      spineWidthMm: profile.coverSpec.spineWidthMm,
+      bleedMm: profile.coverSpec.bleedMm,
     },
     files: written,
   }, null, 2);

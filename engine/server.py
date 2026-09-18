@@ -701,6 +701,9 @@ class Handler(BaseHTTPRequestHandler):
         if self.path.startswith("/thumb?"):
             self._thumb()
             return
+        if self.path.startswith("/album/source?"):
+            self._album_source()
+            return
         if self.path.startswith("/preview?"):
             self._preview()
         if self.path == "/db/health":
@@ -759,6 +762,36 @@ class Handler(BaseHTTPRequestHandler):
             # The file on disk does not change under a stable path, and a folder
             # view re-requests the same frames constantly.
             self.send_header("Cache-Control", "public, max-age=86400")
+            self.end_headers()
+            self.wfile.write(data)
+        except Exception as e:  # noqa: BLE001
+            self._json(500, {"error": str(e)})
+
+    def _album_source(self):
+        r"""GET /album/source?path=<abs>&w=<long edge px> -> an export JPEG.
+
+        An album being exported needs the photograph, not a picture of it.
+        /thumb serves quality 82 from the camera's embedded preview on a raw
+        frame — fine for a grid, and on a 56cm spread it is the difference
+        between a print and an excuse. This door decodes the file properly,
+        resizes it once with Lanczos to the size the place on the page will
+        actually take, and never upscales.
+
+        Deliberately NOT cached to disk: these are one-shot, they are huge,
+        and the thumbnail cache would fill with them.
+        """
+        try:
+            args = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+            path = (args.get("path") or [""])[0]
+            width = int((args.get("w") or ["0"])[0])
+            if not path or not os.path.isfile(path):
+                self._json(404, {"error": "not found"})
+                return
+            data = on_worker(album_export.source_jpeg, path, width)
+            self.send_response(200)
+            self.send_header("Content-Type", "image/jpeg")
+            self.send_header("Content-Length", str(len(data)))
+            self.send_header("Access-Control-Allow-Origin", "*")
             self.end_headers()
             self.wfile.write(data)
         except Exception as e:  # noqa: BLE001
@@ -1045,6 +1078,9 @@ class Handler(BaseHTTPRequestHandler):
             return
         if self.path == "/album/analyze":
             self._album_analyze()
+            return
+        if self.path.startswith("/album/finalize-sheet"):
+            self._album_finalize_sheet()
             return
         if self.path == "/album/finalize-jpeg":
             self._album_finalize_jpeg()
@@ -2076,6 +2112,33 @@ if ($path) {
                 body.get("background", "#ffffff"),
             )
             self._json(200, report)
+        except Exception as e:  # noqa: BLE001
+            self._json(500, {"error": str(e)})
+
+    def _album_finalize_sheet(self):
+        """POST /album/finalize-sheet?ppi=<n> — a rendered sheet in (PNG bytes),
+        the file for the lab out (JPEG bytes). No base64 in either direction:
+        a 56cm spread at 300dpi is 17 megapixels, and JSON would carry it as a
+        ninety-megabyte string.
+        """
+        try:
+            args = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+            ppi = int((args.get("ppi") or ["300"])[0])
+            length = int(self.headers.get("Content-Length", 0))
+            if length <= 0:
+                self._json(400, {"error": "empty sheet"})
+                return
+            data, meta = on_worker(album_export.finalize_sheet, self.rfile.read(length), ppi)
+            self.send_response(200)
+            self.send_header("Content-Type", "image/jpeg")
+            self.send_header("Content-Length", str(len(data)))
+            self.send_header("X-Sheet-Width", str(meta["widthPx"]))
+            self.send_header("X-Sheet-Height", str(meta["heightPx"]))
+            self.send_header("X-Sheet-Ppi", str(meta["ppi"]))
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.send_header("Access-Control-Expose-Headers", "X-Sheet-Width, X-Sheet-Height, X-Sheet-Ppi")
+            self.end_headers()
+            self.wfile.write(data)
         except Exception as e:  # noqa: BLE001
             self._json(500, {"error": str(e)})
 

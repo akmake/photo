@@ -95,6 +95,31 @@ export async function analyzeAlbumFrame(path: string): Promise<AlbumAnalysisResp
   return parsed;
 }
 
+/** A rendered sheet in, the file the lab prints out.
+ *
+ *  The sheet goes over as a PNG and comes back a JPEG, so it is compressed
+ *  exactly once: sending it as a JPEG and re-encoding it in the engine puts
+ *  every printed page through two compressions, and the second one shows in
+ *  skin and in a hairline. Bytes both ways, no base64 — a 56cm spread at
+ *  300dpi is 17 megapixels, and JSON would carry it as a 90MB string. */
+export async function finalizeAlbumSheet(sheet: Blob, ppi: number): Promise<{
+  blob: Blob;
+  widthPx: number;
+  heightPx: number;
+}> {
+  const response = await fetch(`${ENGINE}/album/finalize-sheet?ppi=${Math.round(ppi)}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'image/png' },
+    body: sheet,
+  });
+  if (!response.ok) throw new Error('מנוע הייצוא המקומי אינו זמין');
+  return {
+    blob: await response.blob(),
+    widthPx: Number(response.headers.get('X-Sheet-Width') ?? 0),
+    heightPx: Number(response.headers.get('X-Sheet-Height') ?? 0),
+  };
+}
+
 export async function finalizeAlbumJpeg(
   imageDataUrl: string,
   ppi: number,
@@ -764,6 +789,18 @@ export async function exportColorFiles(
  * engine has disk access, so the engine serves the pixels. */
 export function thumbUrl(path: string, width = 320): string {
   return `${ENGINE}/thumb?path=${encodeURIComponent(path)}&w=${width}`;
+}
+
+/** The pixels an album EXPORT draws with: the real file, decoded properly and
+ *  resized once, by the engine, to the size the place on the page takes.
+ *
+ *  Not `thumbUrl`. A thumbnail is quality 82 and, on a raw frame, the camera's
+ *  own embedded preview — which on a 56cm spread is the difference between a
+ *  print and an excuse. `longEdge` is a cap: a file smaller than its place
+ *  comes back at its own size, never enlarged. */
+export function albumSourceUrl(path: string, longEdge: number): string {
+  const cap = Math.max(0, Math.round(longEdge));
+  return `${ENGINE}/album/source?path=${encodeURIComponent(path)}&w=${cap}`;
 }
 
 /* ------------------------------------------------------- the project's recipe
