@@ -1078,6 +1078,326 @@
 
 .tz-tp-note.warn { color: #b95c2a; }
 
+/* ====================================================== התאמת צבעים
+ *
+ * A panel about COLOUR, in a column about 380px wide. Two rules follow from
+ * that and shape everything here:
+ *
+ *   * the photographs are the interface. Every step shows the picture it is
+ *     talking about at the largest size the column allows, because "is this
+ *     the same frame" and "did it match" are judged by eye and by nothing
+ *     else;
+ *   * the surround stays neutral and pale. Anything saturated next to a
+ *     photograph changes how its colour reads, which is the one thing this
+ *     panel must not do.
+ */
+.tz-cm { padding: 16px; }
+
+.tz-cm-intro h3 {
+  margin: 0 0 5px;
+  color: #18181b;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.tz-cm-intro p {
+  margin: 0 0 16px;
+  color: #6b6b72;
+  font-size: 12.5px;
+  line-height: 1.55;
+}
+
+.tz-cm-step, .tz-cm-result {
+  border: 1px solid #e7e4dd;
+  border-radius: 12px;
+  background: #fff;
+  padding: 12px;
+}
+
+.tz-cm-step > header, .tz-cm-result > header {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  margin-bottom: 10px;
+}
+
+/* The step number. A ring rather than a filled disc — it is a signpost, not
+ * an alert, and it sits beside a photograph. */
+.tz-cm-n {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 21px;
+  height: 21px;
+  border: 1.5px solid #e0864f;
+  border-radius: 50%;
+  color: #b95c2a;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.tz-cm-step b, .tz-cm-result b {
+  display: block;
+  color: #18181b;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.tz-cm-step i, .tz-cm-result > header i {
+  display: block;
+  margin-top: 1px;
+  color: #9b9ba1;
+  font-size: 11.5px;
+  font-style: normal;
+  line-height: 1.4;
+}
+
+/* The well. 16:10 rather than a fixed height, so a portrait frame and a
+ * landscape one both sit in a box of the same weight in the column. */
+.tz-cm-well {
+  position: relative;
+  display: grid;
+  place-items: center;
+  aspect-ratio: 16 / 10;
+  overflow: hidden;
+  border-radius: 9px;
+  background: #f5f3ee;
+}
+
+.tz-cm-well img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background: #2a2a2e;
+}
+
+.tz-cm-well.drop {
+  border: 1.5px dashed #ddd8cd;
+  background: #faf9f5;
+  cursor: pointer;
+  transition: border-color .15s, background .15s;
+}
+
+.tz-cm-well.drop:hover { border-color: #e0864f; background: #fdf8f3; }
+.tz-cm-well.drop.filled { border-style: solid; border-color: #e7e4dd; }
+
+.tz-cm-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+  padding: 12px;
+  color: #9b9ba1;
+  text-align: center;
+}
+
+.tz-cm-empty span { color: #52525b; font-size: 12.5px; font-weight: 600; }
+.tz-cm-empty i { color: #a8a8ae; font-size: 11px; font-style: normal; }
+
+.tz-cm-well-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+/* A filename is data, not prose: it stays LTR and truncates from the end. */
+.tz-cm-file {
+  overflow: hidden;
+  direction: ltr;
+  text-align: right;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: #9b9ba1;
+  font-size: 11px;
+}
+
+.tz-cm-link {
+  flex: none;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: #b95c2a;
+  font-size: 11.5px;
+  font-weight: 600;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.tz-cm-arrow {
+  padding: 7px 0;
+  color: #cfcabe;
+  font-size: 16px;
+  text-align: center;
+}
+
+.tz-cm-learn, .tz-cm-apply {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  width: 100%;
+  height: 40px;
+  margin-top: 14px;
+  border: 0;
+  border-radius: 10px;
+  background: #e0864f;
+  color: #fff;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.tz-cm-learn:hover:not(:disabled), .tz-cm-apply:hover { background: #d0743c; }
+
+.tz-cm-learn:disabled {
+  background: #ece9e2;
+  color: #a8a8ae;
+  cursor: not-allowed;
+}
+
+.tz-cm-hint, .tz-cm-where {
+  margin: 7px 0 0;
+  color: #9b9ba1;
+  font-size: 11.5px;
+  line-height: 1.5;
+  text-align: center;
+}
+
+.tz-cm-error, .tz-cm-warn {
+  margin: 10px 0 0;
+  padding: 9px 11px;
+  border-radius: 9px;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.tz-cm-error { background: #fef2f2; color: #b91c1c; }
+.tz-cm-warn { background: #fdf6ec; color: #92500f; }
+
+.tz-cm-result { margin-top: 14px; }
+
+/* The two pictures that answer the question, side by side and the same size.
+ * Stacking them, or sizing them differently, is how a comparison stops being
+ * one. */
+.tz-cm-pair {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 7px;
+}
+
+.tz-cm-pair figure { margin: 0; }
+
+.tz-cm-pair img {
+  display: block;
+  width: 100%;
+  aspect-ratio: 3 / 2;
+  object-fit: cover;
+  border-radius: 7px;
+  background: #2a2a2e;
+}
+
+.tz-cm-pair figcaption {
+  margin-top: 4px;
+  color: #9b9ba1;
+  font-size: 10.5px;
+  text-align: center;
+}
+
+.tz-cm-score { margin-top: 12px; }
+
+.tz-cm-score-head {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.tz-cm-score-head b { font-size: 21px; font-weight: 700; }
+.tz-cm-score-head span { color: #6b6b72; font-size: 12px; }
+
+.tz-cm-bar {
+  height: 5px;
+  margin: 7px 0 8px;
+  border-radius: 3px;
+  background: #ece9e2;
+  overflow: hidden;
+}
+
+.tz-cm-bar i { display: block; height: 100%; border-radius: 3px; }
+
+.tz-cm-score p {
+  margin: 0;
+  color: #6b6b72;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.tz-cm-score.good .tz-cm-score-head b { color: #15803d; }
+.tz-cm-score.good .tz-cm-bar i { background: #22c55e; }
+.tz-cm-score.ok .tz-cm-score-head b { color: #b95c2a; }
+.tz-cm-score.ok .tz-cm-bar i { background: #e0864f; }
+.tz-cm-score.weak .tz-cm-score-head b { color: #b91c1c; }
+.tz-cm-score.weak .tz-cm-bar i { background: #ef4444; }
+
+.tz-cm-done {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  margin: 10px 0 0;
+  padding: 9px;
+  border-radius: 9px;
+  background: #f0fdf4;
+  color: #166534;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+/* The source picker, over the photograph rather than beside it. */
+.tz-cm-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(24, 24, 27, 0.55);
+}
+
+.tz-cm-dialog {
+  display: flex;
+  flex-direction: column;
+  width: min(940px, 100%);
+  max-height: 84vh;
+  overflow: hidden;
+  border-radius: 14px;
+  background: #fff;
+}
+
+.tz-cm-dialog-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 16px;
+  border-bottom: 1px solid #efece5;
+}
+
+.tz-cm-dialog-head h4 { margin: 0; font-size: 14px; font-weight: 700; }
+
+.tz-cm-dialog-head button {
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: 7px;
+  background: #f5f3ee;
+  color: #52525b;
+  cursor: pointer;
+}
+
+.tz-cm-dialog-body { padding: 14px 16px; overflow: auto; }
+
 /* What did NOT travel to the rest of the batch. */
 .tz-ge-held {
   margin: 8px 0 0;

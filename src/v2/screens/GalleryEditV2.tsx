@@ -20,6 +20,7 @@ import type { LearnedColorModel, ManualStroke, ToolInstance, ToolMask } from '..
 import { defaultParams, getTool, isRawFile, isToolAtDefault } from '../../toolRegistry';
 import ManualBrush, { DEFAULT_R, MAX_R, MIN_R } from './ManualBrush';
 import ToolsPanelV2 from './ToolsPanelV2';
+import ColorMatchPanel from './ColorMatchPanel';
 import { useSetPreview } from '../../studio/preview';
 import BeforeAfter from '../../studio/screens/BeforeAfter';
 import {
@@ -116,11 +117,6 @@ export default function GalleryEditV2({
   const [brushR, setBrushR] = useState(DEFAULT_R);
   const [pendingStrokes, setPendingStrokes] = useState<ManualStroke[]>([]);
 
-  // ColorMatch state
-  const [cmEdited, setCmEdited] = useState<{ name: string; data: string } | null>(null);
-  const [cmLearning, setCmLearning] = useState(false);
-  const [cmLearned, setCmLearned] = useState<LearnColorResponse | null>(null);
-  const [cmError, setCmError] = useState<string | null>(null);
   const [sheetModel, setSheetModel] = useState<LearnedColorModel | null>(null);
 
   // Initialize batch to first non-empty batch or all photos
@@ -153,6 +149,57 @@ export default function GalleryEditV2({
     }
     return frames;
   }, [at, project.id, frames]);
+
+  /* ---------------------------------------------- WHERE "ON EVERYTHING" LANDS
+   *
+   * A BUG THIS SCREEN HAD, found while rebuilding the colour panel. The batch
+   * tabs use two ids that the store has never heard of: `'__all__'` for the
+   * whole project and `null` for the frames in no batch. Both were handed
+   * straight to setStep() as if they were batch ids — so "apply to everything"
+   * wrote a layer into perBatch['__all__'], which effectiveRecipe() never
+   * reads, because it looks up the batch a FRAME belongs to and no frame
+   * belongs to that one. The button ran, said nothing, and changed no
+   * photograph. With the `null` tab it returned even earlier and did nothing
+   * at all.
+   *
+   * The whole project is not a batch — it is the BASE layer, which every frame
+   * reads under its batch. That is what `base` means here.
+   *
+   * The unassigned tab has no honest answer while batches also exist: base
+   * would reach the batched frames too, and a per-frame copy of a colour model
+   * on a wedding is megabytes of localStorage. When those frames ARE the whole
+   * project (no batches made yet — the common case) it is the same set as
+   * base, and base is exactly right. Otherwise the screen says so instead of
+   * pretending.
+   */
+  const applyScope = useMemo((): {
+    batchId: string | null;
+    label: string;
+    count: number;
+    blocked: string | null;
+  } => {
+    const n = slideFrames.length;
+    if (at === '__all__') {
+      return { batchId: null, label: 'על כל התמונות בפרויקט', count: n, blocked: null };
+    }
+    if (at === null) {
+      const all = frames.length === n;
+      return {
+        batchId: null,
+        label: 'על כל התמונות בפרויקט',
+        count: n,
+        blocked: all
+          ? null
+          : 'התמונות שאינן במקבץ אינן שכבה בפני עצמה, אז אי אפשר לקבוע עליהן מראה בלי לגעת בשאר. בחר מקבץ, או "כל התמונות".',
+      };
+    }
+    return {
+      batchId: at,
+      label: `על המקבץ ${currentBatch?.name ?? ''}`.trim(),
+      count: n,
+      blocked: null,
+    };
+  }, [at, slideFrames.length, frames.length, currentBatch]);
 
   // Active frame
   const currentFrame = slideFrames[activeSlideIndex] ?? slideFrames[0] ?? null;
@@ -577,7 +624,7 @@ export default function GalleryEditV2({
    * "the 3D on the clothes" means the clothes in every photograph. */
   const [heldBack, setHeldBack] = useState<string[]>([]);
   const handleSyncToBatch = useCallback(() => {
-    if (!currentFrame || !at) return;
+    if (!currentFrame || applyScope.blocked) return;
     const tools = frameSteps(project.id, currentFrame.name);
     if (!tools.length) return;
 
@@ -587,12 +634,12 @@ export default function GalleryEditV2({
         held.push(getTool(tool.toolId).label);
         continue;
       }
-      setStep(project.id, tool, at);
+      setStep(project.id, tool, applyScope.batchId);
     }
     setHeldBack(held);
     // Warm all frames in the batch
     preview.warm(slideFrames.map((f) => f.path));
-  }, [currentFrame, at, project.id, slideFrames, preview]);
+  }, [currentFrame, applyScope, project.id, slideFrames, preview]);
 
   /* The list belongs to the photograph it was computed on. */
   useEffect(() => { setHeldBack([]); }, [currentName]);
@@ -607,23 +654,20 @@ export default function GalleryEditV2({
   }, [currentFrame, project.id]);
 
   // ColorMatch learn
-  const handleLearnColorMatch = useCallback(async () => {
-    if (!currentFrame || !cmEdited) return;
-    setCmError(null);
-    setCmLearning(true);
-    setCmLearned(null);
-    try {
-      const res = await learnColorModel({ path: currentFrame.path }, { data: cmEdited.data });
-      setCmLearned(res);
-      // Automatically apply to batch
-      setStep(project.id, { toolId: 'pixel-color', params: {}, enabled: true, model: res.model }, at);
+  /* PUTTING A LEARNED LOOK ON THE SET. Its own step now, and its own button:
+   * learning used to apply itself the moment it finished, which spent a whole
+   * batch on a colour nobody had looked at yet. */
+  const applyColorModel = useCallback(
+    (model: LearnedColorModel) => {
+      setStep(
+        project.id,
+        { toolId: 'pixel-color', params: {}, enabled: true, model },
+        applyScope.batchId,
+      );
       preview.warm(slideFrames.map((f) => f.path));
-    } catch (e) {
-      setCmError(e instanceof Error ? e.message : 'למידת הצבע נכשלה');
-    } finally {
-      setCmLearning(false);
-    }
-  }, [currentFrame, cmEdited, project.id, at, preview, slideFrames]);
+    },
+    [project.id, applyScope.batchId, preview, slideFrames],
+  );
 
   const hasCustomEdits = Boolean(currentFrame && frameSteps(project.id, currentFrame.name).length > 0);
   const displayImage = showOriginal ? (rawSrc || thumbUrl(currentFrame?.path ?? '', 1200)) : (renderedSrc || thumbUrl(currentFrame?.path ?? '', 1200));
@@ -962,61 +1006,21 @@ export default function GalleryEditV2({
               />
             ) : (
               /* ColorMatch Tab */
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 14, padding: 16, overflowY: 'auto', minHeight: 0 }}>
-                <p style={{ margin: 0, fontSize: 13, color: '#52525b', lineHeight: 1.45 }}>
-                  העלה את הגרסה הערוכה של תמונה זו מ-Lightroom/Photoshop, והמנוע ילמד את הצבע ויחיל אותו על כל המקבץ.
-                </p>
-
-                <label
-                  htmlFor="tz-ge-cm-upload"
-                  className={`tz-ge-slot-well ${cmEdited ? 'filled' : ''}`}
-                  style={{ height: 160 }}
-                >
-                  {cmEdited ? (
-                    <img className="tz-ge-slot-img" src={cmEdited.data} alt="ערוך" />
-                  ) : (
-                    <div className="tz-ge-slot-empty-content" style={{ padding: 10 }}>
-                      <TzIconUpload size={20} />
-                      <span style={{ fontSize: 12, fontWeight: 600 }}>העלה קובץ ערוך מהמחשב</span>
-                    </div>
-                  )}
-                  <input
-                    id="tz-ge-cm-upload"
-                    type="file"
-                    accept="image/*"
-                    hidden
-                    onChange={async (e) => {
-                      const file = e.target.files?.[0];
-                      if (file) {
-                        const data = await readAsDataUrl(file);
-                        setCmEdited({ name: file.name, data });
-                      }
-                    }}
-                  />
-                </label>
-
-                {cmError && (
-                  <div style={{ background: '#fef2f2', color: '#ef4444', padding: 8, borderRadius: 8, fontSize: 12 }}>
-                    {cmError}
-                  </div>
-                )}
-
-                <button
-                  type="button"
-                  className="tz-ge-sync-batch-btn"
-                  disabled={!cmEdited || cmLearning}
-                  onClick={handleLearnColorMatch}
-                >
-                  <TzIconSparkle size={16} />
-                  {cmLearning ? 'לומד צבע...' : 'למד והחל על כל המקבץ'}
-                </button>
-
-                {cmLearned && (
-                  <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', color: '#166534', padding: 10, borderRadius: 10, fontSize: 12 }}>
-                    המראה נלמד והוחל בהצלחה על כל {slideFrames.length} התמונות במקבץ!
-                  </div>
-                )}
-              </div>
+              <ColorMatchPanel
+                projectId={project.id}
+                batchId={typeof at === 'string' && at !== '__all__' ? at : null}
+                frame={currentFrame ? { path: currentFrame.path, name: currentFrame.name } : null}
+                target={
+                  applyScope.blocked
+                    ? { kind: 'blocked', why: applyScope.blocked }
+                    : {
+                      kind: applyScope.batchId ? 'batch' : 'base',
+                      label: applyScope.label,
+                      count: applyScope.count,
+                    }
+                }
+                onApply={applyColorModel}
+              />
             )}
           </div>
 
@@ -1026,15 +1030,16 @@ export default function GalleryEditV2({
               type="button"
               className="tz-ge-sync-batch-btn"
               onClick={handleSyncToBatch}
-              disabled={!currentFrame || slideFrames.length === 0}
+              disabled={!currentFrame || slideFrames.length === 0 || Boolean(applyScope.blocked)}
+              title={applyScope.blocked ?? applyScope.label}
             >
               <TzIconCheckCircle size={16} />
-              {at === '__all__'
-                ? `החל עריכה על כל ${slideFrames.length} התמונות`
-                : at === null
-                  ? `החל עריכה על כל התמונות ללא מקבץ (${slideFrames.length})`
-                  : `החל עריכה על כל המקבץ (${slideFrames.length} תמונות)`}
+              {`החל עריכה על ${slideFrames.length.toLocaleString('he-IL')} תמונות · ${applyScope.label}`}
             </button>
+
+            {applyScope.blocked && (
+              <p className="tz-ge-held">{applyScope.blocked}</p>
+            )}
 
             {heldBack.length > 0 && (
               <p className="tz-ge-held">
