@@ -75,7 +75,11 @@ import albumdesk_export
 import gallery
 import gallery_store
 
-PORT = 8756
+# The port the interface talks to. Overridable, and the override exists for one
+# concrete reason: testing the PACKAGED engine on a development machine, where
+# 8756 is already held by the engine the photographer is working against. The
+# default is what src/api.ts and src/db.ts address, and it does not move.
+PORT = int(os.environ.get("TEZA_PORT") or 8756)
 
 # Every request arrives on a NEW thread (ThreadingHTTPServer), and MediaPipe's
 # task objects are not thread-safe: masks.py locks their CREATION but the

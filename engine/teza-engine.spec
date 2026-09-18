@@ -76,10 +76,14 @@ a = Analysis(
     runtime_hooks=[],
     excludes=[
         "onnx",          # export only
-        "matplotlib",    # nothing in the engine draws a chart
         "tkinter",
         "pytest",
         "IPython",
+        # matplotlib WAS excluded here — nothing in the engine draws a chart —
+        # and the build then died on the first launch: mediapipe's own
+        # `tasks.python.vision` package imports `drawing_utils`, which imports
+        # pyplot at module level. Nothing we call ever draws, but the import
+        # happens before anything is called, so it ships.
     ],
     noarchive=False,
     optimize=0,

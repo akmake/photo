@@ -37,9 +37,15 @@ const path = require('node:path');
 
 const DEV = !app.isPackaged;
 
-/** The engine's address. Hard-coded in engine/server.py (PORT = 8756). */
+/** The engine's address. Production stays on 8756. The override lets a
+ * packaged build be tested beside the development engine without attaching to
+ * the wrong process; the spawned engine inherits the same variable. */
 const ENGINE_HOST = '127.0.0.1';
-const ENGINE_PORT = 8756;
+const requestedEnginePort = Number(process.env.TEZA_PORT);
+const ENGINE_PORT = Number.isInteger(requestedEnginePort) &&
+  requestedEnginePort > 0 && requestedEnginePort < 65536
+  ? requestedEnginePort
+  : 8756;
 const ENGINE_ORIGIN = `http://${ENGINE_HOST}:${ENGINE_PORT}`;
 
 /* The window controls are drawn over the app's own top bar, so the strip is
@@ -97,9 +103,9 @@ function engineAnswers(timeoutMs = 1500) {
  * the checkout's own virtual environment — so this shell runs against the
  * working tree with no build step, which is the only way it gets used daily.
  *
- * The frozen build is not wired yet (see docs: the freeze is the next step), so
- * the packaged branch is written and unverified; it is deliberately a plain
- * file-exists check rather than a guess about the final layout. */
+ * electron-builder places the frozen folder under resources/engine. Keep the
+ * file-exists check: a damaged installation must report a missing engine
+ * instead of failing with a cryptic child-process error. */
 function engineCommand() {
   if (!DEV) {
     const frozen = path.join(process.resourcesPath, 'engine', 'teza-engine.exe');

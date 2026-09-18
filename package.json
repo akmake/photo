@@ -9,6 +9,10 @@
     "dev": "vite",
     "shell": "electron .",
     "build": "tsc && vite build",
+    "build:engine": "cd engine && .venv\\Scripts\\python.exe -m PyInstaller teza-engine.spec --noconfirm",
+    "package:win:dir": "npm run build && electron-builder --win --x64 --dir",
+    "package:win": "npm run build && set ELECTRON_BUILDER_7Z_FILTER=BCJ&& electron-builder --win --x64",
+    "package:win:full": "npm run build:engine && npm run package:win",
     "preview": "vite preview",
     "test": "node --test \"tests/*.test.ts\""
   },
@@ -48,7 +52,67 @@
     "@types/react-dom": "^18.3.1",
     "@vitejs/plugin-react": "^4.3.4",
     "electron": "^44.4.2",
+    "electron-builder": "^26.0.12",
     "typescript": "^5.6.3",
     "vite": "^5.4.11"
+  },
+  "build": {
+    "appId": "com.teza.studio",
+    "productName": "TEZA",
+    "asar": true,
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "electron/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "engine/.dist/teza-engine",
+        "to": "engine",
+        "filter": ["**/*"]
+      },
+      {
+        "from": "engine/models",
+        "to": "models",
+        "filter": [
+          "abpn_unet.onnx",
+          "pytorch_model.pt",
+          "birefnet_lite.onnx",
+          "birefnet_lite_fast.onnx",
+          "birefnet_preproc.json",
+          "midas_small.onnx",
+          "dinov2_vits14.onnx",
+          "segformer_B5_ce.onnx",
+          "big-lama.pt",
+          "lama-LICENSE.txt",
+          "face_landmarker.task",
+          "selfie_multiclass_256x256.tflite",
+          "mobile_sam.pt",
+          "joint_20210926.pth"
+        ]
+      }
+    ],
+    "win": {
+      "signAndEditExecutable": false,
+      "target": [
+        {
+          "target": "nsis",
+          "arch": ["x64"]
+        }
+      ],
+      "executableName": "TEZA"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "TEZA",
+      "deleteAppDataOnUninstall": false,
+      "artifactName": "TEZA-Setup-${version}.${ext}"
+    }
   }
 }

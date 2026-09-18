@@ -3,6 +3,10 @@ import react from '@vitejs/plugin-react';
 import { resolve } from 'node:path';
 
 export default defineConfig({
+  // The installed desktop app opens dist/index.html through file://. Absolute
+  // /assets URLs point at the drive root there; relative URLs stay beside the
+  // document in both the packaged app and the development build.
+  base: './',
   plugins: [react()],
   build: {
     rollupOptions: {

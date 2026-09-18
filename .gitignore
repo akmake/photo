@@ -7,6 +7,7 @@ server/node_modules/
 # Build outputs
 dist/
 build/
+release/
 client/dist/
 server/dist/
 test-results/
