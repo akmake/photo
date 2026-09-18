@@ -1,0 +1,93 @@
+<!doctype html>
+<!--
+  The opening screen, and it exists because of a measurement: the engine's
+  imports alone cost ~3.8s warm on this machine, and a first start after a
+  reboot is slower. From the click on the icon until the studio can answer,
+  there are seconds. A window that appears empty or frozen in those seconds
+  reads as broken software, so this says what is happening instead — and it says
+  it honestly: no fake percentage, no progress bar that claims to know.
+
+  It carries NO external font and NO network request of any kind. It is the
+  first thing the photographer sees, and it must be identical on a machine with
+  no internet.
+-->
+<html lang="he" dir="rtl">
+  <head>
+    <meta charset="UTF-8" />
+    <title>TEZA</title>
+    <style>
+      :root {
+        --surface: #fcfcfd;
+        --ink: #23262c;
+        --ink-3: #6b7280;
+        --brand: #b95c2a;
+        --line: #e7e5e2;
+      }
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      html, body { height: 100%; }
+      body {
+        background: var(--surface);
+        color: var(--ink);
+        font-family: "Segoe UI", Tahoma, Arial, sans-serif;
+        -webkit-user-select: none;
+        user-select: none;
+        cursor: default;
+        /* The whole panel is the drag handle: it has no title bar of its own. */
+        -webkit-app-region: drag;
+        border: 1px solid var(--line);
+        display: grid;
+        place-content: center;
+        justify-items: center;
+        gap: 22px;
+        text-align: center;
+      }
+      .mark {
+        font-size: 40px;
+        font-weight: 700;
+        letter-spacing: 0.22em;
+        /* letter-spacing pushes the last letter off-centre; this puts it back */
+        text-indent: 0.22em;
+      }
+      .status {
+        font-size: 14px;
+        color: var(--ink-3);
+        min-height: 1.2em;
+      }
+      .track {
+        width: 180px;
+        height: 2px;
+        background: var(--line);
+        overflow: hidden;
+        border-radius: 2px;
+      }
+      .track i {
+        display: block;
+        width: 40%;
+        height: 100%;
+        background: var(--brand);
+        border-radius: 2px;
+        animation: slide 1.15s ease-in-out infinite;
+      }
+      /* Indeterminate on purpose: it shows that something is happening without
+         claiming to know how much is left, which we do not. */
+      @keyframes slide {
+        0%   { transform: translateX(-120%); }
+        100% { transform: translateX(370%); }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .track i { animation: none; width: 100%; opacity: 0.45; }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="mark">TEZA</div>
+    <div class="track"><i></i></div>
+    <div class="status" id="status">מתחיל</div>
+    <script>
+      // main.cjs calls this through executeJavaScript as the start progresses.
+      window.say = function (text) {
+        document.getElementById('status').textContent = text;
+      };
+    </script>
+  </body>
+</html>

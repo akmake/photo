@@ -63,11 +63,12 @@ import abpn
 import abpn_local
 import common
 import masks
+import paths
 
 # The networks' documented lower bound, the same one `face-retouch` used.
 MIN_FACE_PX = abpn.MIN_FACE_PX
 
-JOINT_WEIGHTS = os.path.join(os.path.dirname(__file__), "models", "joint_20210926.pth")
+JOINT_WEIGHTS = paths.model_path("joint_20210926.pth")
 
 # Framing — measured against upstream RetinaFace crops, see module docstring.
 CROP_SIDE_PER_OVAL = 1.72

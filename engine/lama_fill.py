@@ -33,7 +33,9 @@ import threading
 import cv2
 import numpy as np
 
-MODEL = os.path.join(os.path.dirname(__file__), "models", "big-lama.pt")
+import paths
+
+MODEL = paths.model_path("big-lama.pt")
 CONTEXT = 3.0      # window = mark size x (1 + 2 * CONTEXT)
 MIN_WINDOW = 96    # px — enough skin around a tiny speck to read its texture
 

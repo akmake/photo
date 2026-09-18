@@ -24,9 +24,10 @@ import torch
 
 import common
 import masks
+import paths
 import skin_retouch
 
-MODEL_DIR = os.path.join(os.path.dirname(__file__), "models", "damo_skin_official")
+MODEL_DIR = paths.model_path("damo_skin_official")
 IMAGE = os.environ.get("SKIN_RETOUCH_IMAGE") or (
     r"C:\Users\yosef dahan\Downloads\17072026\istockphoto-971105428-2048x2048.jpg"
 )

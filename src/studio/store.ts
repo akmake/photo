@@ -61,11 +61,20 @@ export const STATE_LABEL: Record<ProjectState, string> = {
 export interface Project {
   id: string;
   client: string;
+  /** How to reach them. A photographer chases a client by phone, not by
+   *  project id, and the number lived nowhere until now — so every follow-up
+   *  meant leaving this program to look it up. Optional on purpose: a job can
+   *  be opened from a name alone. */
+  phone?: string;
+  email?: string;
   event: string;
   /** dd.mm — the shoot date, not the creation date. */
   date: string;
   location?: string;
   price?: number;
+  /** What has actually come in. `price - paid` is the open balance the
+   *  business is run on, so a deposit taken at booking belongs here from the
+   *  moment the job is opened. */
   paid?: number;
   thumb: string;
   /** THE COVER: the path of one of this project's own frames.
@@ -149,6 +158,38 @@ export function stagesOf(_p: Project) {
  *  can recover from. */
 const LEGACY_KEY = 'teza.projects.v2';
 
+/** That this origin's browser copy has already been dealt with.
+ *
+ *  THIS FLAG IS WHY DELETING A PROJECT NOW STICKS. The migration below used to
+ *  run on EVERY read: it compared the browser copy against the database and
+ *  imported anything the database was missing. A deleted project is, by
+ *  definition, a project the database is missing — so the next reload handed it
+ *  straight back, and the photographer watched a job he had deleted return with
+ *  no explanation and no way to get rid of it.
+ *
+ *  A migration is a ONE-TIME move, not a continuous sync, and this records that
+ *  it happened. The browser copy itself is still never written and never
+ *  deleted: it stays exactly where it is as the safety net it was meant to be.
+ */
+const MIGRATED_KEY = 'teza.projects.v2.migrated';
+
+function migrationDone(): boolean {
+  try {
+    return localStorage.getItem(MIGRATED_KEY) === '1';
+  } catch {
+    // No storage at all means nothing to migrate FROM, so nothing to do.
+    return true;
+  }
+}
+
+function markMigrated(): void {
+  try {
+    localStorage.setItem(MIGRATED_KEY, '1');
+  } catch {
+    /* A studio that cannot write this flag still works; it merely re-checks. */
+  }
+}
+
 export type StudioStatus = 'loading' | 'ready' | 'down';
 
 let projects: Project[] = [];
@@ -199,20 +240,33 @@ function legacyProjects(): Project[] {
   }
 }
 
-/** Fill the mirror from the database, migrating anything this origin's browser
- *  store still holds that the database has never seen.
+/** Fill the mirror from the database, moving this origin's browser copy in the
+ *  FIRST time it is read and never again.
  *
- *  The migration is per-document and never overwrites, which is what makes it
- *  safe to run from EVERY origin: opening the app once at each old address
- *  merges those stranded projects in, instead of one bucket fighting another. */
+ *  Two conditions, and both matter:
+ *
+ *  ONCE — see MIGRATED_KEY. A migration that repeats is a sync, and a sync
+ *  against a copy nothing ever writes to resurrects everything deleted since.
+ *
+ *  ONLY INTO AN EMPTY DATABASE. A database that already holds projects has
+ *  already been lived in: whatever the browser copy still carries that is not
+ *  there was either migrated once and deleted since, or was never wanted. The
+ *  browser copy is the older one by definition, and replaying it over a studio
+ *  in use is how deleted work comes back. A genuinely fresh installation reads
+ *  an empty database, and that is the one case the move is for.
+ *
+ *  Nothing is deleted from the browser either way — the old copy stays as the
+ *  safety net, and `teza.projects.v2` can always be read back by hand. */
 async function refresh(): Promise<void> {
   try {
     let docs = await dbFind<Project>('projects');
-    const known = new Set(docs.map((p) => p.id));
-    const stranded = legacyProjects().filter((p) => !known.has(p.id));
-    if (stranded.length) {
-      await dbImport({ projects: stranded });
-      docs = await dbFind<Project>('projects');
+    if (!migrationDone()) {
+      const stranded = docs.length ? [] : legacyProjects();
+      if (stranded.length) {
+        await dbImport({ projects: stranded });
+        docs = await dbFind<Project>('projects');
+      }
+      markMigrated();
     }
     projects = docs;
     status = 'ready';
@@ -332,10 +386,13 @@ export async function removeProject(id: string): Promise<void> {
 
 export interface NewProjectInput {
   client: string;
+  phone?: string;
+  email?: string;
   event: string;
   date: string;
   location?: string;
   price?: number;
+  paid?: number;
   hasGallery: boolean;
   hasAlbum: boolean;
   albumPlan?: Project['albumPlan'];
@@ -361,11 +418,13 @@ export function createProject(input: NewProjectInput): Project {
   const project: Project = {
     id: `p${Date.now().toString(36)}`,
     client: input.client.trim(),
+    phone: input.phone?.trim() || undefined,
+    email: input.email?.trim() || undefined,
     event: input.event.trim() || 'צילום',
     date: input.date,
     location: input.location?.trim() || undefined,
     price: input.price,
-    paid: 0,
+    paid: input.paid ?? 0,
     thumb: '',
     pos: '50% 50%',
     at: 0,
@@ -398,6 +457,24 @@ export function knownClients(): string[] {
   return [...new Set(projects.map((p) => p.client))].sort((a, b) => a.localeCompare(b, 'he'));
 }
 
+/** The phone and mail already on file for a name, newest project first.
+ *
+ *  Typing a returning client's number again is how one client's history quietly
+ *  becomes two — and how the number in one job stays right while the number in
+ *  the other goes stale. Returns nothing rather than a guess when the name is
+ *  new. */
+export function clientContact(name: string): { phone?: string; email?: string } {
+  const key = name.trim();
+  if (!key) return {};
+  const theirs = projects
+    .filter((p) => p.client.trim() === key)
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  return {
+    phone: theirs.find((p) => p.phone)?.phone,
+    email: theirs.find((p) => p.email)?.email,
+  };
+}
+
 /** One client, rolled up from every project that carries their name. This is
  *  DERIVED, never stored: the client screen used to run on a separate demo
  *  array, which is how the same client could read one way in לקוחות and another
@@ -405,6 +482,11 @@ export function knownClients(): string[] {
  *  what you get when you group them. */
 export interface ClientSummary {
   name: string;
+  /** Whatever was filled in on any of their jobs, newest first. Absent means
+   *  it was never entered — the screen says so instead of showing a blank that
+   *  reads like a number nobody answers. */
+  phone?: string;
+  email?: string;
   count: number;
   /** Non-done projects — the ones still needing the photographer. */
   active: number;
@@ -434,6 +516,8 @@ export function clientSummaries(list: Project[] = projects): ClientSummary[] {
     const paid = ps.reduce((n, p) => n + (p.paid ?? 0), 0);
     out.push({
       name,
+      phone: recent.find((p) => p.phone)?.phone,
+      email: recent.find((p) => p.email)?.email,
       count: ps.length,
       active: ps.filter((p) => p.state !== 'done').length,
       scope,

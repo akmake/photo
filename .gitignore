@@ -56,3 +56,8 @@ TEZA/gallery-db/
 # Temporary and generated output
 tmp/
 output/
+
+# The packaged engine: PyInstaller's work and output folders. Gigabytes of
+# rebuildable binaries — the recipe is engine/teza-engine.spec.
+engine/.build/
+engine/.dist/

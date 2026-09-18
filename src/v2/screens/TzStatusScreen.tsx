@@ -256,11 +256,16 @@ export default function TzStatusScreen({
               )}
               <div className="tz-client-meta">
                 <h3>{clientName || 'ללא שם'}</h3>
-                {/* There is no email or phone on the project record, so there
-                    is none to show. A plausible-looking address built from the
-                    client's name is worse than an empty line: it is dialled. */}
-                <p className="tz-muted">לא הוזן דוא״ל</p>
-                <p className="tz-muted">לא הוזן טלפון</p>
+                {/* The record carries these now — filled in when the job is
+                    opened. Still never invented: a plausible-looking address
+                    built from the client's name is worse than an empty line,
+                    because an empty line does not get dialled. */}
+                {project?.email
+                  ? <p><a href={`mailto:${project.email}`} dir="ltr">{project.email}</a></p>
+                  : <p className="tz-muted">לא הוזן דוא״ל</p>}
+                {project?.phone
+                  ? <p><a href={`tel:${project.phone.replace(/[^\d+]/g, '')}`} dir="ltr">{project.phone}</a></p>
+                  : <p className="tz-muted">לא הוזן טלפון</p>}
               </div>
             </div>
 

@@ -293,10 +293,25 @@ def _prep_process():
     log_dir = _cache_root()
     os.makedirs(log_dir, exist_ok=True)
     log = open(os.path.join(log_dir, "prep.log"), "ab")
+    # PACKAGED, THERE IS NO INTERPRETER AND NO prep.py TO POINT AT.
+    #
+    # `sys.executable` is python.exe here and teza-engine.exe there, and a frozen
+    # build has no loose scripts beside it — so the executable starts a second
+    # copy of ITSELF with a flag, and launch.py sends that copy to prep. Written
+    # out because the failure is invisible: preparing is an optimisation and
+    # `prepare()` never raises, so a shipped app that got this wrong would simply
+    # be slow at every photograph, with nothing in the log and nothing on screen.
+    if getattr(sys, "frozen", False):
+        argv = [sys.executable, "--prep"]
+        cwd = os.path.dirname(os.path.abspath(sys.executable))
+    else:
+        here = os.path.dirname(os.path.abspath(__file__))
+        argv = [sys.executable, os.path.join(here, "prep.py")]
+        cwd = here
     _PREP = subprocess.Popen(
-        [sys.executable, os.path.join(os.path.dirname(os.path.abspath(__file__)), "prep.py")],
+        argv,
         stdin=subprocess.PIPE, stdout=log, stderr=log, creationflags=flags,
-        cwd=os.path.dirname(os.path.abspath(__file__)),
+        cwd=cwd,
     )
     return _PREP
 

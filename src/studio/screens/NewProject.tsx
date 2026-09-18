@@ -11,10 +11,18 @@
  *
  * This is one of the few dialogs the product allows (docs/DESIGN-DIRECTION.md
  * §17): it interrupts to take a single decision, and it is dismissible.
+ *
+ * WHAT THE FORM ASKS FOR is the other half of it. A job is not only a folder of
+ * photographs — it is a person to call, a price agreed, and money already
+ * taken. The phone and the mail had nowhere to live at all, so following up on
+ * a shoot meant leaving this program; the deposit had nowhere to live either,
+ * which is why "יתרה לגבייה" on the projects screen could only ever equal the
+ * full price. Both are here now, and both are optional: the name is still the
+ * only thing this asks for before it will open the job.
  */
 
 import { useEffect, useRef, useState } from 'react';
-import { createProject, knownClients } from '../store';
+import { clientContact, createProject, knownClients } from '../store';
 import type { Project } from '../store';
 import { ALBUM_STYLES } from '../../album/styleEngine';
 
@@ -39,10 +47,13 @@ export default function NewProject({
 }) {
   const [step, setStep] = useState<1 | 2>(1);
   const [client, setClient] = useState('');
+  const [phone, setPhone] = useState('');
+  const [email, setEmail] = useState('');
   const [event, setEvent] = useState('');
   const [date, setDate] = useState(today());
   const [location, setLocation] = useState('');
   const [price, setPrice] = useState('');
+  const [paid, setPaid] = useState('');
   const [hasGallery, setGallery] = useState(true);
   const [hasAlbum, setAlbum] = useState(false);
   const [albumWidth, setAlbumWidth] = useState('30');
@@ -68,6 +79,18 @@ export default function NewProject({
 
   const clients = knownClients();
   const ready = client.trim().length > 0;
+  const balance = Math.max(0, (Number(price) || 0) - (Number(paid) || 0));
+
+  /* A name already on file brings its number and its mail with it — but only
+   * into a field the photographer has not touched. Overwriting what he just
+   * typed because the name matched an old job would be the form arguing with
+   * him. */
+  function onClientName(name: string) {
+    setClient(name);
+    const known = clientContact(name);
+    if (known.phone && !phone) setPhone(known.phone);
+    if (known.email && !email) setEmail(known.email);
+  }
 
   function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -80,10 +103,13 @@ export default function NewProject({
       onCreated(
         createProject({
           client,
+          phone,
+          email,
           event,
           date,
           location,
           price: price ? Number(price) : undefined,
+          paid: paid ? Number(paid) : 0,
           hasGallery,
           hasAlbum,
           albumPlan: hasAlbum ? {
@@ -135,9 +161,17 @@ export default function NewProject({
                 <>
                   <label className="project-create-field is-wide">
                     <span>שם הלקוח</span>
-                    <input ref={first} value={client} list="known-clients" onChange={(e) => setClient(e.target.value)} placeholder="לקוח קיים או חדש" autoComplete="off" />
+                    <input ref={first} value={client} list="known-clients" onChange={(e) => onClientName(e.target.value)} placeholder="לקוח קיים או חדש" autoComplete="off" />
                     <small>לקוח חדש ייווצר אוטומטית יחד עם הפרויקט</small>
                     <datalist id="known-clients">{clients.map((name) => <option key={name} value={name} />)}</datalist>
+                  </label>
+                  <label className="project-create-field">
+                    <span>טלפון</span>
+                    <input value={phone} type="tel" inputMode="tel" dir="ltr" onChange={(e) => setPhone(e.target.value)} placeholder="050-0000000" autoComplete="off" />
+                  </label>
+                  <label className="project-create-field">
+                    <span>אימייל</span>
+                    <input value={email} type="email" dir="ltr" onChange={(e) => setEmail(e.target.value)} placeholder="name@example.com" autoComplete="off" />
                   </label>
                   <label className="project-create-field is-wide">
                     <span>סוג הצילום</span>
@@ -155,10 +189,22 @@ export default function NewProject({
                 </>
               ) : (
                 <>
-                  <label className="project-create-field is-wide">
+                  <label className="project-create-field">
                     <span>מחיר מוסכם</span>
                     <input value={price} inputMode="numeric" onChange={(e) => setPrice(e.target.value.replace(/\D/g, ''))} placeholder="₪ 0" />
                   </label>
+                  <label className="project-create-field">
+                    <span>מקדמה ששולמה</span>
+                    <input value={paid} inputMode="numeric" onChange={(e) => setPaid(e.target.value.replace(/\D/g, ''))} placeholder="₪ 0" />
+                  </label>
+                  {/* The one number the business is actually run on. Shown the
+                      moment there is a price, so nobody has to do the sum. */}
+                  {Boolean(Number(price)) && (
+                    <div className="project-create-balance is-wide">
+                      <span>יתרה לגבייה</span>
+                      <strong>₪{balance.toLocaleString('he-IL')}</strong>
+                    </div>
+                  )}
                   <fieldset className="project-create-deliverables">
                     <legend>מה מוסרים ללקוח?</legend>
                     <label className={hasGallery ? 'is-selected' : ''}>

@@ -25,10 +25,11 @@ import numpy as np
 import mediapipe as mp
 
 import common
+import paths
 from mediapipe.tasks import python as mp_python
 from mediapipe.tasks.python import vision
 
-MODELS_DIR = os.path.join(os.path.dirname(__file__), "models")
+MODELS_DIR = paths.models_dir()
 
 # selfie_multiclass_256x256 class ids
 CLS_BACKGROUND = 0

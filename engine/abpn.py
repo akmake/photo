@@ -27,11 +27,12 @@ import numpy as np
 
 import common
 import masks
+import paths
 
-WEIGHTS = os.path.join(os.path.dirname(__file__), "models", "abpn_unet.onnx")
+WEIGHTS = paths.model_path("abpn_unet.onnx")
 # The PyTorch checkpoint this was exported from. Kept only so the parity
 # harness and a re-export can find it; the engine never loads it.
-TORCH_WEIGHTS = os.path.join(os.path.dirname(__file__), "models", "pytorch_model.pt")
+TORCH_WEIGHTS = paths.model_path("pytorch_model.pt")
 TILE = 512  # the resolution the network was trained at
 MIN_FACE_PX = 100  # the model's documented lower bound
 

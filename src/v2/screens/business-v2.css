@@ -1,0 +1,480 @@
+/* ==========================================================================
+   לקוחות · יומן · הגדרות
+   The three business screens the dashboard links to. Same language as היום and
+   פרויקטים — same card, same head row, same badge — so moving between them is
+   one product and not three.
+   ========================================================================== */
+
+.tz-biz-container {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  max-width: 1400px;
+  margin: 0 auto;
+}
+
+/* ------------------------------------------------------------------ header */
+
+.tz-biz-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 24px;
+  flex-wrap: wrap;
+  background: var(--tz-card-bg);
+  border: 1px solid var(--tz-border);
+  border-radius: 14px;
+  padding: 22px 26px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, .02);
+}
+
+.tz-biz-eyebrow {
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: .04em;
+  color: var(--tz-brand);
+  margin-bottom: 6px;
+}
+
+.tz-biz-head h1 {
+  margin: 0;
+  font-family: var(--tz-font-display);
+  font-size: 22px;
+  font-weight: 800;
+  color: var(--tz-text-main);
+}
+
+.tz-biz-head p {
+  margin: 6px 0 0;
+  font-size: 13px;
+  color: var(--tz-text-muted);
+}
+
+.tz-biz-head-figures {
+  display: flex;
+  gap: 28px;
+}
+
+.tz-biz-head-figures > div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  text-align: start;
+}
+
+.tz-biz-head-figures small {
+  font-size: 11.5px;
+  color: var(--tz-text-muted);
+}
+
+.tz-biz-head-figures strong {
+  font-family: var(--tz-font-display);
+  font-size: 22px;
+  font-weight: 800;
+  color: var(--tz-text-main);
+}
+
+.tz-biz-head-figures .is-due strong { color: #d97706; }
+
+/* ----------------------------------------------------------------- toolbar */
+
+.tz-biz-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+/* ------------------------------------------------- empty, fault and notices
+ *
+ * "לא ניתן לקרוא" and "אין כאן כלום" are two different sentences and they get
+ * two different blocks. A studio that says it is empty when it merely failed
+ * to read tells a photographer his work is gone (CLAUDE.md §5). */
+
+.tz-biz-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 52px 24px;
+  background: var(--tz-card-bg);
+  border: 1px solid var(--tz-border);
+  border-radius: 14px;
+  text-align: center;
+}
+
+.tz-biz-empty.is-inline {
+  padding: 26px 16px;
+  border: 0;
+  background: transparent;
+}
+
+.tz-biz-empty-icon {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  background: var(--tz-btn-peach);
+  color: var(--tz-brand);
+}
+
+.tz-biz-empty h3 {
+  margin: 4px 0 0;
+  font-family: var(--tz-font-display);
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.tz-biz-empty p {
+  margin: 0;
+  font-size: 13px;
+  color: var(--tz-text-muted);
+}
+
+.tz-biz-fault {
+  padding: 40px 28px;
+  background: #fff6f5;
+  border: 1px solid #f7d2cc;
+  border-radius: 14px;
+}
+
+.tz-biz-fault h2 {
+  margin: 0;
+  font-family: var(--tz-font-display);
+  font-size: 18px;
+  color: #a33b30;
+}
+
+.tz-biz-fault p { margin: 8px 0 0; font-size: 13.5px; color: #7a3c34; }
+.tz-biz-fault small { display: block; margin-top: 10px; font-size: 12px; color: #97655d; }
+
+.tz-biz-note,
+.tz-biz-problem {
+  padding: 11px 16px;
+  border-radius: 10px;
+  font-size: 13px;
+}
+
+.tz-biz-note { background: var(--tz-green-bg); border: 1px solid var(--tz-green-border); color: #0f7a43; }
+.tz-biz-problem { background: #fff0ee; border: 1px solid #f7d2cc; color: #a33b30; }
+
+/* =========================================================== לקוחות: the list */
+
+.tz-client-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.tz-client-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 16px;
+  background: var(--tz-card-bg);
+  border: 1px solid var(--tz-border);
+  border-radius: 12px;
+  padding: 12px 16px;
+  transition: border-color .14s, box-shadow .14s;
+}
+
+.tz-client-row:hover {
+  border-color: var(--tz-border-darker);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, .04);
+}
+
+.tz-client-open {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  background: transparent;
+  border: 0;
+  padding: 0;
+  text-align: start;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+}
+
+.tz-client-avatar {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 11px;
+  background: var(--tz-brand-light);
+  border: 1px solid var(--tz-brand-stroke);
+  color: var(--tz-brand);
+  font-weight: 800;
+  font-size: 15px;
+}
+
+.tz-client-main {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.tz-client-main strong {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14.5px;
+  font-weight: 700;
+}
+
+.tz-client-tag {
+  font-style: normal;
+  font-size: 10.5px;
+  font-weight: 700;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: var(--tz-green-bg);
+  border: 1px solid var(--tz-green-border);
+  color: #0f7a43;
+}
+
+.tz-client-main small {
+  font-size: 12px;
+  color: var(--tz-text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tz-client-main small b { color: var(--tz-brand); font-weight: 700; }
+
+.tz-client-contact {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  min-width: 0;
+}
+
+.tz-client-chip {
+  max-width: 100%;
+  padding: 3px 9px;
+  border-radius: 7px;
+  border: 1px solid var(--tz-border-darker);
+  background: #fafafa;
+  color: var(--tz-text-sub);
+  font-size: 12px;
+  text-decoration: none;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+a.tz-client-chip:hover { border-color: var(--tz-brand); color: var(--tz-brand); }
+
+/* Never entered — said plainly, not left as an empty box that reads like a
+   number nobody answers. */
+.tz-client-chip.is-missing {
+  border-style: dashed;
+  background: transparent;
+  color: #b4b4bb;
+}
+
+.tz-client-money {
+  display: flex;
+  gap: 22px;
+  text-align: center;
+}
+
+.tz-client-money span {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.tz-client-money b { font-size: 15px; font-weight: 700; }
+.tz-client-money small { font-size: 11px; color: var(--tz-text-muted); }
+.tz-client-money .is-due b { color: #d97706; }
+
+/* ================================================================ יומן: month */
+
+.tz-cal-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.6fr) minmax(280px, .9fr);
+  gap: 20px;
+  align-items: start;
+}
+
+.tz-cal-today-btn {
+  width: 100%;
+  margin-bottom: 12px;
+  padding: 7px 0;
+  border: 1px solid var(--tz-border-darker);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--tz-text-sub);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.tz-cal-today-btn:hover { border-color: var(--tz-brand); color: var(--tz-brand); }
+
+/* The month grid on this screen is a full page, not a side widget, so the
+   cells are large enough to carry a mark and be hit with a mouse. */
+.tz-cal-grid-days.is-large { gap: 5px; }
+
+.tz-cal-grid-days.is-large .tz-cal-day-cell {
+  position: relative;
+  flex-direction: column;
+  gap: 2px;
+  height: 62px;
+  padding-top: 8px;
+  align-items: center;
+  justify-content: flex-start;
+  border: 1px solid transparent;
+  background: transparent;
+  font: inherit;
+  font-size: 13px;
+  color: #27272a;
+}
+
+.tz-cal-grid-days.is-large .tz-cal-day-cell.muted { color: #d4d4d8; }
+.tz-cal-grid-days.is-large .tz-cal-day-cell.today { background: var(--tz-brand); color: #fff; font-weight: 700; }
+
+.tz-cal-grid-days.is-large .tz-cal-day-cell.has-shoot {
+  border-color: var(--tz-brand-stroke);
+  background: var(--tz-brand-light);
+  font-weight: 700;
+}
+
+.tz-cal-grid-days.is-large .tz-cal-day-cell.picked {
+  border-color: var(--tz-brand);
+  box-shadow: 0 0 0 2px var(--tz-brand-light);
+}
+
+.tz-cal-dot {
+  display: grid;
+  place-items: center;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: var(--tz-brand);
+  color: #fff;
+  font-style: normal;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.tz-cal-day-cell.today .tz-cal-dot { background: #fff; color: var(--tz-brand); }
+
+.tz-cal-side {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.tz-cal-none {
+  margin: 0 0 8px;
+  font-size: 12.5px;
+  color: var(--tz-text-muted);
+}
+
+.tz-cal-entry {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--tz-border);
+  border-radius: 10px;
+  background: #fff;
+  text-align: start;
+  font: inherit;
+  cursor: pointer;
+}
+
+.tz-cal-entry + .tz-cal-entry { margin-top: 6px; }
+.tz-cal-entry:hover { border-color: var(--tz-brand-stroke); background: var(--tz-brand-light); }
+.tz-cal-entry strong { font-size: 13.5px; font-weight: 700; }
+.tz-cal-entry small { font-size: 12px; color: var(--tz-text-muted); }
+
+.tz-cal-entry.is-row { flex-direction: row; align-items: center; gap: 12px; }
+
+.tz-cal-datebox {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 42px;
+  padding: 4px 0;
+  border-radius: 9px;
+  background: var(--tz-btn-peach);
+  color: var(--tz-brand);
+}
+
+.tz-cal-datebox small { font-size: 10.5px; font-weight: 600; }
+.tz-cal-datebox b { font-size: 16px; font-weight: 800; line-height: 1.1; }
+
+.tz-cal-entry-copy { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+
+/* ============================================================ הגדרות: blocks */
+
+.tz-set-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 20px;
+  align-items: start;
+}
+
+.tz-set-block h2 {
+  margin: 0;
+  font-family: var(--tz-font-display);
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.tz-set-block > p {
+  margin: 6px 0 14px;
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--tz-text-muted);
+}
+
+.tz-set-value {
+  padding: 10px 12px;
+  margin-bottom: 14px;
+  border: 1px solid var(--tz-border-darker);
+  border-radius: 9px;
+  background: #fafafa;
+  font-size: 12.5px;
+  color: var(--tz-text-sub);
+  word-break: break-all;
+}
+
+.tz-set-rows { display: flex; flex-direction: column; gap: 8px; margin-bottom: 14px; }
+
+.tz-set-rows > div {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 12.5px;
+}
+
+.tz-set-rows span { color: var(--tz-text-muted); }
+.tz-set-rows strong { font-weight: 700; color: var(--tz-text-main); }
+.tz-set-rows .is-good { color: #0f7a43; }
+.tz-set-rows .is-bad { color: #a33b30; }
+
+@media (max-width: 1080px) {
+  .tz-cal-layout { grid-template-columns: 1fr; }
+  .tz-client-row { grid-template-columns: 1fr; }
+  .tz-client-money { justify-content: flex-start; }
+}

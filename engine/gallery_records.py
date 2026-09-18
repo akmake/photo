@@ -28,7 +28,7 @@ import json
 import os
 import threading
 
-_HERE = os.path.dirname(os.path.abspath(__file__))
+import paths
 
 
 class RecordsUnavailable(RuntimeError):
@@ -44,9 +44,7 @@ class JsonRecords:
     """
 
     def __init__(self, root=None):
-        self.root = os.path.abspath(
-            root or os.path.join(_HERE, "..", "TEZA", "gallery-db")
-        )
+        self.root = os.path.abspath(root or paths.data_dir("gallery-db"))
         self._lock = threading.RLock()
 
     def _path(self, collection):

@@ -26,8 +26,9 @@ import cv2
 import numpy as np
 
 import common
+import paths
 
-MODELS_DIR = os.path.join(os.path.dirname(__file__), "models")
+MODELS_DIR = paths.models_dir()
 
 # Matches pixel_color.WORK_MAX: the encoder resizes to a fixed internal
 # resolution regardless of what we hand it, so there is little speed to gain

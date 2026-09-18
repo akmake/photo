@@ -16,7 +16,9 @@ Two kinds of file live in models/:
 import os
 import urllib.request
 
-MODELS_DIR = os.path.join(os.path.dirname(__file__), "models")
+import paths
+
+MODELS_DIR = paths.models_dir()
 
 MODELS = {
     # multiclass selfie segmenter: background / hair / body-skin / face-skin / clothes

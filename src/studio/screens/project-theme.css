@@ -618,15 +618,39 @@
 .shell-section-project .bat-drop { padding: 7px 11px; border-radius: 8px; color: #a6352c; font-size: 13px; }
 .shell-section-project .bat-drop:hover { background: #fff1f0; }
 
-/* New project: a two-step product flow, not the old utility form. */
+/* New project: a two-step product flow, not the old utility form.
+ *
+ * THE DIALOG CARRIES ITS OWN COLOURS. Every --px-* below is also declared on
+ * .shell-section-projects at the top of this sheet, and for a while that was
+ * the ONLY place it was declared — which was fine while the dialog could only
+ * be opened from inside that container, and stopped being fine the moment the
+ * new design opened it from its own shell. There the variables resolve to
+ * nothing, so `background: var(--px-green)` on the confirm button became no
+ * background at all: white text on white, and two invisible buttons along the
+ * bottom edge that the photographer had to hunt for with the mouse.
+ *
+ * A dialog renders wherever it is mounted. It therefore has to be complete on
+ * its own, and not inherit its palette from a neighbour. */
 .project-create-overlay {
+  --px-ink: #18211e;
+  --px-muted: #63706b;
+  --px-green: var(--tz-brand, #e86338);
+  --px-green-dark: #c94f2a;
+  --px-mint: var(--tz-brand-stroke, #fcd5c7);
+  --px-mint-soft: var(--tz-brand-light, #fef1ec);
+  --px-ground: #fbfaf9;
+  --px-line: #eee7e2;
+  --px-white: #fff;
+
   position: fixed;
   z-index: 100;
   inset: 0;
   display: grid;
   place-items: center;
   padding: 16px;
-  background: rgba(25, 40, 35, .38);
+  color: var(--px-ink);
+  font-family: Assistant, "Segoe UI", system-ui, sans-serif;
+  background: rgba(31, 25, 22, .42);
   backdrop-filter: blur(6px);
 }
 .project-create {
@@ -635,7 +659,7 @@
   overflow: hidden;
   border-radius: 28px;
   background: #fff;
-  box-shadow: 0 36px 100px rgba(19, 34, 29, .28);
+  box-shadow: 0 36px 100px rgba(43, 29, 22, .28);
 }
 .project-create form { display: grid; height: 100%; grid-template-rows: 70px minmax(0,1fr) 72px; }
 .project-create-header {
@@ -661,7 +685,7 @@
 .project-create-body > aside > span { color: var(--px-green); font-size: 14px; font-weight: 650; }
 .project-create-body > aside h2 { max-width: 8ch; margin-top: 12px; font-size: 42px; line-height: 1.05; letter-spacing: -.045em; }
 .project-create-body > aside p { max-width: 35ch; margin-top: 16px; color: var(--px-muted); font-size: 14px; line-height: 1.6; }
-.project-create-summary { display: grid; gap: 5px; margin-top: 30px; padding-top: 18px; border-top: 1px solid #ccddd8; }
+.project-create-summary { display: grid; gap: 5px; margin-top: 30px; padding-top: 18px; border-top: 1px solid var(--px-mint); }
 .project-create-summary small { color: var(--px-muted); }
 .project-create-summary strong { font-size: 22px; }
 .project-create-summary span { color: var(--px-muted); font-size: 13px; }
@@ -677,19 +701,46 @@
 .project-create-deliverables { grid-column: 1 / -1; display: grid; gap: 12px; border: 0; }
 .project-create-deliverables legend { margin-bottom: 10px; }
 .project-create-deliverables > label { display: grid; grid-template-columns: 20px minmax(0,1fr); align-items: center; gap: 14px; min-height: 62px; padding: 10px 16px; border: 1px solid var(--px-line); border-radius: 14px; cursor: pointer; }
-.project-create-deliverables > label.is-selected { border-color: #abc9c2; background: var(--px-mint-soft); }
+.project-create-deliverables > label.is-selected { border-color: var(--px-mint); background: var(--px-mint-soft); }
 .project-create-deliverables > label.is-fixed { cursor: default; opacity: .72; }
 .project-create-deliverables input { accent-color: var(--px-green); }
 .project-create-deliverables span { display: grid; gap: 3px; }
 .project-create-deliverables strong { font-size: 15px; }
 .project-create-deliverables small { color: var(--px-muted); font-size: 12px; }
 .project-create-fault { margin: 0 30px; padding: 12px 16px; border-radius: 10px; background: #fff0ee; color: #a33b30; }
-.project-create-footer { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 12px 30px; border-top: 1px solid var(--px-line); }
-.project-create-footer button { min-height: 48px; padding: 0 23px; border-radius: 24px; font-size: 14px; font-weight: 600; }
-.project-create-footer .is-quiet { border: 1px solid var(--px-line); color: var(--px-muted); }
-.project-create-footer .is-primary { margin-inline-start: auto; background: var(--px-green); color: #fff; }
+
+/* The open balance, stated rather than left to be worked out. */
+.project-create-balance {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 18px;
+  border: 1px solid var(--px-mint);
+  border-radius: 12px;
+  background: var(--px-mint-soft);
+}
+.project-create-balance.is-wide { grid-column: 1 / -1; }
+.project-create-balance span { color: var(--px-muted); font-size: 13px; font-weight: 600; }
+.project-create-balance strong { color: var(--px-green-dark); font-size: 22px; font-weight: 700; }
+
+/* The bar the job is actually opened from. Both buttons carry their own fill
+ * and their own edge — neither may rely on the page behind it to be seen. */
+.project-create-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 30px;
+  border-top: 1px solid var(--px-line);
+  background: var(--px-ground);
+}
+.project-create-footer button { min-height: 48px; padding: 0 26px; border-radius: 24px; font-size: 14px; font-weight: 600; cursor: pointer; }
+.project-create-footer .is-quiet { border: 1px solid #c3cfcb; background: #fff; color: var(--px-ink); }
+.project-create-footer .is-quiet:hover { border-color: var(--px-green); color: var(--px-green-dark); }
+.project-create-footer .is-primary { margin-inline-start: auto; border: 1px solid var(--px-green-dark); background: var(--px-green); color: #fff; box-shadow: 0 6px 16px rgba(232, 99, 56, .24); }
 .project-create-footer .is-primary:hover { background: var(--px-green-dark); }
-.project-create-footer .is-primary:disabled { opacity: .38; cursor: not-allowed; }
+.project-create-footer .is-primary:disabled { background: #cfd8d5; border-color: #bcc7c3; color: #7c8783; box-shadow: none; cursor: not-allowed; }
 
 @media (max-width: 1180px) {
   .project-index-line { grid-template-columns: 150px minmax(180px,1fr) minmax(190px,.8fr) 130px; }
@@ -1047,9 +1098,9 @@
   display: grid;
   gap: 12px;
   padding: 14px;
-  border: 1px solid #cbded8;
+  border: 1px solid var(--px-mint);
   border-radius: 8px;
-  background: #f7fbf9;
+  background: var(--px-mint-soft);
 }
 
 .project-create-size-grid {

@@ -21,11 +21,13 @@ from concurrent.futures import ThreadPoolExecutor
 import cv2
 import numpy as np
 
-MODEL = os.path.join(os.path.dirname(__file__), "models", "birefnet_lite.onnx")
+import paths
+
+MODEL = paths.model_path("birefnet_lite.onnx")
 # The same network with its deformable convolutions run as GridSample — ~1.9x
 # faster, alpha within 1e-4 (birefnet_fast.py). Used whenever setup_models.py
 # has derived it; the original stays the fallback and the source of truth.
-FAST_MODEL = os.path.join(os.path.dirname(__file__), "models", "birefnet_lite_fast.onnx")
+FAST_MODEL = paths.model_path("birefnet_lite_fast.onnx")
 SIZE = 1024
 
 # ImageNet normalisation — from the model's own preprocessor_config.json.

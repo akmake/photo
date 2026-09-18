@@ -421,6 +421,35 @@
   font-weight: 700;
 }
 
+/* A day with a shoot on it. Marked with a ring rather than a fill, so the
+   month still reads as a month and today stays the one solid square. */
+button.tz-cal-day-cell {
+  border: 1px solid transparent;
+  background: transparent;
+  font: inherit;
+  font-size: 12px;
+}
+
+.tz-cal-day-cell.shoot {
+  border-color: var(--tz-brand-stroke);
+  background: var(--tz-brand-light);
+  color: var(--tz-brand);
+  font-weight: 700;
+}
+
+.tz-cal-day-cell.shoot.today {
+  border-color: var(--tz-brand);
+  background: var(--tz-brand);
+  color: #ffffff;
+}
+
+.tz-cal-all {
+  display: block;
+  width: 100%;
+  margin-top: 12px;
+  text-align: center;
+}
+
 /* Activity Items */
 .tz-act-item {
   display: flex;

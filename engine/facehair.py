@@ -31,7 +31,9 @@ import threading
 import cv2
 import numpy as np
 
-MODEL = os.path.join(os.path.dirname(__file__), "models", "segformer_B5_ce.onnx")
+import paths
+
+MODEL = paths.model_path("segformer_B5_ce.onnx")
 SIZE = 512
 BEARD = 14
 # The authors' own normalisation (ghost-2.0 preprocess_image.py), RGB order.

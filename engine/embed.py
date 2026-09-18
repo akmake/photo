@@ -28,8 +28,9 @@ import threading
 import numpy as np
 
 import common
+import paths
 
-MODEL_PATH = os.path.join(os.path.dirname(__file__), "models", "dinov2_vits14.onnx")
+MODEL_PATH = paths.model_path("dinov2_vits14.onnx")
 MODEL_ID = "dinov2_vits14"
 # Bump when anything about how a vector is produced changes — preprocessing, the
 # model, the crop. Old cached vectors under the old key are then simply ignored.

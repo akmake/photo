@@ -1,0 +1,89 @@
+/* Desktop behaviour: the difference between a window and a web page.
+ *
+ * EVERY rule here is scoped to html[data-desktop], which electron/preload.cjs
+ * sets on the document inside the installed app and which is never present in a
+ * browser tab. Importing this file therefore changes NOTHING about how the app
+ * behaves in development — deliberately, because the browser is where the app is
+ * worked on and a "desktop" rule that also fires there would be a daily
+ * nuisance rather than a product decision.
+ *
+ * The window frame is hidden (electron/main.cjs: titleBarStyle 'hidden'), so the
+ * app's own top bar IS the title bar. Two things follow, and both are handled
+ * below: the bar has to be draggable, and it has to keep out of the way of the
+ * minimise/maximise/close buttons that Windows draws over it.
+ */
+
+html[data-desktop] {
+  /* The strip Windows reserves for its buttons. Set by the platform; the
+   * fallback matches TITLEBAR_HEIGHT in electron/main.cjs. */
+  --tz-titlebar-h: env(titlebar-area-height, 56px);
+}
+
+/* ------------------------------------------------------------------ pointing
+ *
+ * In a desktop tool, text is not loose. Dragging across a screen must not paint
+ * half the interface blue, and a label must not put a text caret under the
+ * cursor — that caret is the single most web-like thing on an otherwise
+ * finished screen. Real text (fields, notes, anything a photographer may want
+ * to copy) opts back in. */
+
+html[data-desktop] body {
+  cursor: default;
+  -webkit-user-select: none;
+  user-select: none;
+  /* No rubber-band at the ends of a list, no pull-to-refresh on a trackpad. */
+  overscroll-behavior: none;
+}
+
+html[data-desktop] input,
+html[data-desktop] textarea,
+html[data-desktop] [contenteditable="true"],
+html[data-desktop] .tz-selectable,
+html[data-desktop] [data-selectable] {
+  -webkit-user-select: text;
+  user-select: text;
+  cursor: auto;
+}
+
+/* Dragging a photograph out of the grid shows the browser's translucent ghost
+ * and can drop it into another program. Thumbnails are chosen by clicking. */
+html[data-desktop] img,
+html[data-desktop] a {
+  -webkit-user-drag: none;
+}
+
+/* ---------------------------------------------------------------- title bar
+ *
+ * The bar is the drag handle: pulling anywhere on its empty space moves the
+ * window, exactly as a native title bar does. Its children are excluded, or the
+ * bell and the back button would become undraggable dead spots — a click inside
+ * a drag region is swallowed by the window manager.
+ *
+ * The padding is the important part. Windows draws its three buttons INSIDE the
+ * window, at one end of the strip, and which end depends on the system's
+ * direction. `titlebar-area-x` and `titlebar-area-width` describe the space that
+ * is actually free, so the two physical paddings below reserve exactly the room
+ * the buttons take on whichever side they landed, and nothing on the other — no
+ * guess about RTL, and no hard-coded 138px that breaks when Windows changes. */
+
+html[data-desktop] .tz-topbar,
+html[data-desktop] .site-topbar {
+  -webkit-app-region: drag;
+  padding-left: max(32px, env(titlebar-area-x, 0px));
+  padding-right: max(32px, calc(100vw - env(titlebar-area-x, 0px) - env(titlebar-area-width, 100vw)));
+}
+
+html[data-desktop] .tz-topbar > *,
+html[data-desktop] .site-topbar > * {
+  -webkit-app-region: no-drag;
+}
+
+/* An escape hatch for anything that needs to move the window from elsewhere
+ * (an empty header on a screen that has no top bar yet). */
+html[data-desktop] .tz-drag {
+  -webkit-app-region: drag;
+}
+
+html[data-desktop] .tz-no-drag {
+  -webkit-app-region: no-drag;
+}

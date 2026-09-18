@@ -5,11 +5,12 @@ actual lens simulation: blur grows with distance from the subject's plane,
 so the ground at their feet stays sharp while the far trees melt away.
 """
 
-import os
 import threading
 
 import cv2
 import numpy as np
+
+import paths
 
 # onnxruntime is NOT imported at module load: its native DLL takes ~20s to load
 # on this machine (Defender/Authenticode on every load), and depth is only ever
@@ -18,7 +19,7 @@ import numpy as np
 # lazily, inside `_session_instance`, so the server starts immediately and the
 # cost is paid on first depth use (or by the background warm-up in server.py).
 
-MODEL_PATH = os.path.join(os.path.dirname(__file__), "models", "midas_small.onnx")
+MODEL_PATH = paths.model_path("midas_small.onnx")
 
 _IMAGENET_MEAN = np.array([0.485, 0.456, 0.406], dtype=np.float32)
 _IMAGENET_STD = np.array([0.229, 0.224, 0.225], dtype=np.float32)

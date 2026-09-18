@@ -28,7 +28,9 @@ import sys
 
 import numpy as np
 
-MODELS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "models")
+import paths
+
+MODELS = paths.models_dir()
 
 # The network is only ever called on a TILE x TILE crop — abpn._infer resizes to
 # 512 before the call and back afterwards — so the graph is exported at a fixed

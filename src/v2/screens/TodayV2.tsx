@@ -7,6 +7,9 @@ import {
   TzIconSparkle, TzIconUpload, TzIconUsers,
 } from '../TzIcons';
 import { getProjectCover } from '../projectCovers';
+/* One derivation of "which real day is this shoot on", shared with the full
+ * יומן — two answers to that question is two calendars that disagree. */
+import { shootDay } from './CalendarV2';
 import './today-redesign.css';
 
 function clamp(value: number, min: number, max: number) {
@@ -83,9 +86,13 @@ function monthGrid(view: Date) {
 export default function TodayV2({
   onNavigate,
   onOpenProject,
+  onNewProject,
 }: {
   onNavigate: (section: string) => void;
   onOpenProject?: (id: string, stage?: string) => void;
+  /** Opens the new-project form. The button used to walk the photographer to
+   *  the projects screen and leave him to find the same button again. */
+  onNewProject?: () => void;
 }) {
   const { projects, status, fault } = useStudio();
   const [calendarView, setCalendarView] = useState(() => new Date());
@@ -94,9 +101,14 @@ export default function TodayV2({
     const active = projects.filter((project) => project.state !== 'done');
     const visible = active;
     const waiting = projects.filter((project) => project.state === 'waiting');
+    /* Ordered by the real day, not by the text of `dd.mm`. As a string "05.01"
+     * sorts before "18.09", so a January shoot booked for next year climbed to
+     * the top of "צילומים קרובים" every time. */
     const shoots = projects
       .filter((project) => project.state === 'shoot')
-      .sort((a, b) => a.date.localeCompare(b.date, undefined, { numeric: true }));
+      .map((project) => ({ project, when: shootDay(project) }))
+      .sort((a, b) => (a.when?.getTime() ?? Infinity) - (b.when?.getTime() ?? Infinity))
+      .map((item) => item.project);
     const imported = projects.reduce((sum, project) => sum + (project.imported || 0), 0);
     const kept = projects.reduce((sum, project) => sum + (project.kept || 0), 0);
     const picked = projects.reduce((sum, project) => sum + (project.picked || 0), 0);
@@ -110,11 +122,24 @@ export default function TodayV2({
       .filter((project, index, list) => list.findIndex((candidate) => candidate.id === project.id) === index)
       .slice(0, 4);
 
+    /* Which projects fall on which day, so the month below marks real shoots
+     * instead of printing numbers. */
+    const byDay = new Map<string, Project[]>();
+    for (const project of projects) {
+      const when = shootDay(project);
+      if (!when) continue;
+      const key = `${when.getFullYear()}-${when.getMonth()}-${when.getDate()}`;
+      const bucket = byDay.get(key);
+      if (bucket) bucket.push(project);
+      else byDay.set(key, [project]);
+    }
+
     return {
       active,
       visible,
       waiting,
       shoots,
+      byDay,
       imported,
       kept,
       picked,
@@ -138,33 +163,60 @@ export default function TodayV2({
   return (
     <div className="tz-today-container">
       {/* 1. Hero Block */}
+      {/* The greeting no longer carries a name. There is no account in this
+          product and nobody ever typed one, so "יוסי" was a literal in the
+          markup that would have greeted anyone who opened the program. */}
       <section className="tz-today-hero">
         <div className="tz-today-hero-title">
-          <h1>{greeting}, יוסי 👋</h1>
+          <h1>{greeting} 👋</h1>
           <p>זה מה שקורה היום בעסק הצילום שלך — תמונת מצב מדויקת בזמן אמת.</p>
         </div>
         <div className="tz-today-hero-actions">
-          <button className="tz-btn-hero-primary" type="button" onClick={() => onNavigate('projects')}>
+          <button
+            className="tz-btn-hero-primary"
+            type="button"
+            onClick={() => (onNewProject ? onNewProject() : onNavigate('projects'))}
+          >
             <span>＋</span> פרויקט חדש
           </button>
+
+          {/* The three below act ON a project. With no project open, each one
+              opens the form that creates one instead of dropping the
+              photographer on a list to work out what went wrong. */}
           <button
             className="tz-btn-hero-sec"
             type="button"
             onClick={() => {
               const target = data.visible[0] || projects[0];
-              if (target && onOpenProject) {
-                onOpenProject(target.id, 'gallery-upload');
-              } else {
-                onNavigate('projects');
-              }
+              if (target && onOpenProject) onOpenProject(target.id, 'gallery-upload');
+              else if (onNewProject) onNewProject();
+              else onNavigate('projects');
             }}
           >
             <TzIconUpload size={15} /> ייבוא תמונות
           </button>
-          <button className="tz-btn-hero-sec" type="button" onClick={() => onNavigate('albums')}>
+          <button
+            className="tz-btn-hero-sec"
+            type="button"
+            onClick={() => {
+              const target = data.visible.find((p) => p.hasAlbum) || data.visible[0] || projects[0];
+              if (target && onOpenProject) onOpenProject(target.id, 'album-design');
+              else if (onNewProject) onNewProject();
+              else onNavigate('albums');
+            }}
+          >
             <TzIconBook size={15} /> יצירת אלבום
           </button>
-          <button className="tz-btn-hero-sec" type="button" onClick={() => onNavigate('projects')}>
+          <button
+            className="tz-btn-hero-sec"
+            type="button"
+            onClick={() => {
+              const target = data.visible.find((p) => p.hasGallery) || data.visible[0] || projects[0];
+              if (target && onOpenProject) onOpenProject(target.id, 'send-to-client');
+              else if (onNewProject) onNewProject();
+              else onNavigate('projects');
+            }}
+          >
             <TzIconGallery size={15} /> שיתוף גלריה
           </button>
         </div>
@@ -328,20 +380,39 @@ export default function TodayV2({
                 ))}
               </div>
 
+              {/* Marked days are shoots that exist in the studio. The month
+                  used to be pure decoration: forty-two numbers with nothing
+                  behind any of them. */}
               <div className="tz-cal-grid-days">
                 {calendar.map(({ date, current }) => {
                   const key = `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`;
                   const isToday = key === todayKey;
+                  const shoots = data.byDay.get(key) ?? [];
+                  const cls = `tz-cal-day-cell ${current ? '' : 'muted'} ${isToday ? 'today' : ''} ${shoots.length ? 'shoot' : ''}`;
+                  if (!shoots.length) {
+                    return <div key={key} className={cls}>{date.getDate()}</div>;
+                  }
                   return (
-                    <div
+                    <button
                       key={key}
-                      className={`tz-cal-day-cell ${current ? '' : 'muted'} ${isToday ? 'today' : ''}`}
+                      type="button"
+                      className={cls}
+                      title={shoots.map((p) => `${p.client} · ${p.event}`).join('\n')}
+                      onClick={() => handleOpenProject(shoots[0])}
                     >
                       {date.getDate()}
-                    </div>
+                    </button>
                   );
                 })}
               </div>
+
+              <button
+                className="tz-panel-link-btn tz-cal-all"
+                type="button"
+                onClick={() => onNavigate('calendar')}
+              >
+                ליומן המלא ←
+              </button>
             </div>
 
             {/* Recent Activity */}
@@ -423,9 +494,9 @@ export default function TodayV2({
               className="tz-btn-peach"
               style={{ marginTop: '12px' }}
               type="button"
-              onClick={() => onNavigate('projects')}
+              onClick={() => (onNewProject ? onNewProject() : onNavigate('projects'))}
             >
-              ＋ פתיחת פרויקטים
+              ＋ פרויקט חדש
             </button>
           </div>
 

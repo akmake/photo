@@ -28,6 +28,8 @@ import os
 import shutil
 import threading
 
+import paths
+
 _CONFIG_NAME = "gallery_config.json"
 _HERE = os.path.dirname(os.path.abspath(__file__))
 
@@ -87,7 +89,7 @@ class LocalStore:
     supports_presign = False
 
     def __init__(self, root=None, public_base="/gallery-files"):
-        self.root = root or os.path.join(_HERE, "..", "TEZA", "gallery")
+        self.root = root or paths.data_dir("gallery")
         self.root = os.path.abspath(self.root)
         self.public_base = public_base.rstrip("/")
 
