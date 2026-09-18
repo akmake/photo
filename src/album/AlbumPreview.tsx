@@ -1,5 +1,6 @@
 import { useEffect } from 'react';
 import SpreadThumb from './SpreadThumb';
+import { coverSheetOf, coverTemplateOf } from './coverSheet';
 import type { AlbumPhoto, AlbumProject, PrintProductProfile } from './model';
 
 interface Props {
@@ -28,6 +29,22 @@ export default function AlbumPreview({ project, photos, profile, onClose }: Prop
         <button onClick={onClose}>חזרה לעריכה</button>
       </header>
       <div className="album-preview-list">
+        {/* The cover first, because that is what is opened first. */}
+        <section className="album-preview-item">
+          <SpreadThumb
+            spread={coverSheetOf(project, profile)}
+            photos={photos}
+            profile={profile}
+            template={coverTemplateOf(
+              coverSheetOf(project, profile), profile, project.openingDirection ?? 'rtl',
+            )}
+            widthMm={profile.coverSpec.totalWidthMm}
+            heightMm={profile.coverSpec.totalHeightMm}
+            showPageNumbers={false}
+            showGutter={false}
+          />
+          <small>כריכה</small>
+        </section>
         {project.spreads.map((spread) => (
           <section key={spread.id} className="album-preview-item">
             <SpreadThumb spread={spread} photos={photos} profile={profile} styleName={project.styleName} />

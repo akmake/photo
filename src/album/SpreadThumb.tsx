@@ -2,6 +2,7 @@ import { assessCrop } from './cropEngine';
 import { buildAlbumLayoutCandidates, EMPTY_GENERATED_LAYOUT } from './layoutEngine';
 import { spreadTemplate, templateBackground } from './templates/library';
 import { TemplatePage } from './templates/TemplateLayers';
+import type { AlbumTemplate } from './templates/types';
 import type {
   AlbumPhoto, AlbumSpread, PhotoFrameSettings, PrintProductProfile,
 } from './model';
@@ -20,6 +21,15 @@ interface Props {
   styleName?: string;
   /** Draw the page numbers over the sheet. */
   showPageNumbers?: boolean;
+  /** The page to draw, when it is not one of the library's — the cover's is
+   *  built from the product's spine and size. `undefined` looks it up as
+   *  usual; `null` means this sheet has no design. */
+  template?: AlbumTemplate | null;
+  /** The sheet's own size, when it is not a spread. The cover is wider. */
+  widthMm?: number;
+  heightMm?: number;
+  /** A cover has a spine, not a fold. */
+  showGutter?: boolean;
 }
 
 /* One spread drawn small and read-only.
@@ -30,24 +40,28 @@ interface Props {
  * crop engine, one place. */
 export default function SpreadThumb({
   spread, photos, profile, styleName, showPageNumbers = true,
+  template: given, widthMm, heightMm, showGutter = true,
 }: Props) {
-  const template = spreadTemplate(spread, profile.spreadWidthMm / profile.spreadHeightMm);
+  const sheetWidthMm = widthMm ?? profile.spreadWidthMm;
+  const sheetHeightMm = heightMm ?? profile.spreadHeightMm;
+  const sheetAspect = sheetWidthMm / Math.max(1, sheetHeightMm);
+  const template = given !== undefined ? given : spreadTemplate(spread, sheetAspect);
   if (template && spread.templateInstance) {
     return (
       <div
         className="album-preview-spread"
         style={{
           background: templateBackground(template, spread.templateInstance),
-          aspectRatio: `${profile.spreadWidthMm} / ${profile.spreadHeightMm}`,
+          aspectRatio: `${sheetWidthMm} / ${sheetHeightMm}`,
         }}
       >
-        <div className="album-preview-gutter" />
+        {showGutter && <div className="album-preview-gutter" />}
         <TemplatePage
           template={template}
           instance={spread.templateInstance}
           spread={spread}
           photos={photos}
-          spreadAspect={profile.spreadWidthMm / profile.spreadHeightMm}
+          spreadAspect={sheetAspect}
         />
         {showPageNumbers && (
           <>
@@ -77,16 +91,16 @@ export default function SpreadThumb({
       className="album-preview-spread"
       style={{
         background: spread.background,
-        aspectRatio: `${profile.spreadWidthMm} / ${profile.spreadHeightMm}`,
+        aspectRatio: `${sheetWidthMm} / ${sheetHeightMm}`,
       }}
     >
-      <div className="album-preview-gutter" />
+      {showGutter && <div className="album-preview-gutter" />}
       {slots.map((slot, index) => {
         const photo = photos.find((item) => item.id === photoIds[index]);
         if (!photo) return null;
         const settings = spread.frameSettings?.[slot.id] ?? DEFAULT_SETTINGS;
         const crop = assessCrop(
-          photo, slot, settings, profile.spreadWidthMm / profile.spreadHeightMm,
+          photo, slot, settings, sheetAspect,
         );
         return (
           <div

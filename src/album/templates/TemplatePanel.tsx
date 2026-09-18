@@ -158,7 +158,7 @@ export default function TemplatePanel({
   const standIn = texts.some((layer) => layer.sourceFont && !usesSourceLettering(instance, layer));
   return (
     <section className="tpl-panel" aria-label="צבעי העמוד">
-      <small>הצבעים של הכפולה הזאת בלבד. כפולות אחרות לא משתנות.</small>
+      <small>הצבעים של הגיליון הזה בלבד. שאר האלבום לא משתנה.</small>
       <div className="tpl-colors">
         {template.colors.map((color) => (
           <label key={color.id}>

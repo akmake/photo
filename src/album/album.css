@@ -4524,3 +4524,25 @@
     height: 66px;
   }
 }
+
+/* The spine on the cover sheet. Not a fold — a strip of board, as wide as the
+ * product says, which is why it is drawn to scale and labelled. */
+.album-spine-band {
+  position: absolute;
+  z-index: 6;
+  top: 0;
+  bottom: 0;
+  border-inline: 1px dashed rgba(80, 72, 61, 0.45);
+  background: rgba(80, 72, 61, 0.05);
+  pointer-events: none;
+  display: grid;
+  place-items: center;
+}
+
+.album-spine-band span {
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  color: rgba(80, 72, 61, 0.6);
+  writing-mode: vertical-rl;
+  text-orientation: mixed;
+}

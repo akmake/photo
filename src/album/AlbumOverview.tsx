@@ -3,6 +3,7 @@ import { IcGallery } from '../design/Icons';
 import { groupsFromCuts } from './albumFlow';
 import type { AlbumPhoto, AlbumProject, PrintProductProfile } from './model';
 import type { PreflightIssue } from './preflightEngine';
+import { coverSheetOf, coverTemplateOf } from './coverSheet';
 import SpreadThumb from './SpreadThumb';
 
 interface Props {
@@ -63,22 +64,22 @@ export default function AlbumOverview({
     const spec = profile.coverSpec;
     const side = Math.max(1, (spec.totalWidthMm - spec.spineWidthMm) / 2);
     const total = side * 2 + spec.spineWidthMm;
-    const byId = new Map(photos.map((photo) => [photo.id, photo]));
-    const front = {
-      kind: 'front' as const,
-      share: (side / total) * 100,
-      photo: project.cover?.frontPhotoId ? byId.get(project.cover.frontPhotoId) : undefined,
-    };
-    const back = {
-      kind: 'back' as const,
-      share: (side / total) * 100,
-      photo: project.cover?.backPhotoId ? byId.get(project.cover.backPhotoId) : undefined,
-    };
-    const spine = { kind: 'spine' as const, share: (spec.spineWidthMm / total) * 100, photo: undefined };
+    const front = { kind: 'front' as const, share: (side / total) * 100 };
+    const back = { kind: 'back' as const, share: (side / total) * 100 };
+    const spine = { kind: 'spine' as const, share: (spec.spineWidthMm / total) * 100 };
     return (project.openingDirection ?? 'rtl') === 'rtl'
       ? [back, spine, front]
       : [front, spine, back];
-  }, [profile.coverSpec, photos, project.cover, project.openingDirection]);
+  }, [profile.coverSpec, project.openingDirection]);
+  /* The card shows the cover as it is DESIGNED — the same page, the same
+   * renderer, the same crops as the sheet in the designer. The zones over it
+   * are there to drop a photograph onto, nothing more. */
+  const coverSheet = useMemo(() => coverSheetOf(project, profile), [project, profile]);
+  const coverDesign = useMemo(
+    () => coverTemplateOf(coverSheet, profile, project.openingDirection ?? 'rtl'),
+    [coverSheet, profile, project.openingDirection],
+  );
+  const coverHasPhotos = coverSheet.photoIds.some(Boolean);
   const cuts = useMemo(() => {
     const result = new Set<number>();
     let cursor = 0;
@@ -170,46 +171,46 @@ export default function AlbumOverview({
                 background: project.cover?.background ?? '#f8f6f1',
               }}
             >
-              {coverZones.map((zone) => (zone.kind === 'spine' ? (
-                <div className="album-cover-spine" key="spine" style={{ width: `${zone.share}%` }}>
-                  {project.cover?.spineText && <span>{project.cover.spineText}</span>}
-                </div>
-              ) : (
-                <button
-                  key={zone.kind}
-                  className={`album-cover-zone${overCover === zone.kind ? ' over' : ''}`}
-                  style={{ width: `${zone.share}%` }}
-                  onClick={onOpenCover}
-                  onDragOver={(event) => { if (dragPhoto) { event.preventDefault(); setOverCover(zone.kind); } }}
-                  onDragLeave={() => setOverCover((current) => (current === zone.kind ? null : current))}
-                  onDrop={(event) => {
-                    event.preventDefault();
-                    if (dragPhoto) onSetCoverPhoto(dragPhoto, zone.kind);
-                    setDragPhoto(null);
-                    setOverCover(null);
-                  }}
-                  aria-label={zone.kind === 'front'
-                    ? 'חזית הכריכה. גרור לכאן תמונה, או לחץ לפתיחת מסך הכריכה'
-                    : 'גב הכריכה. גרור לכאן תמונה, או לחץ לפתיחת מסך הכריכה'}
-                >
-                  {zone.photo ? (
-                    <img
-                      src={zone.photo.url}
-                      alt=""
-                      draggable={false}
-                      style={{ objectPosition: `${(zone.photo.focalPoint?.x ?? 0.5) * 100}% ${(zone.photo.focalPoint?.y ?? 0.5) * 100}%` }}
-                    />
-                  ) : (
-                    <span className="album-cover-empty">
-                      <strong>{zone.kind === 'front' ? 'חזית' : 'גב'}</strong>
-                      <small>{dragPhoto ? 'שחרר כאן' : 'גרור תמונה'}</small>
-                    </span>
-                  )}
-                  {zone.kind === 'front' && project.cover?.title && (
-                    <span className="album-cover-title">{project.cover.title}</span>
-                  )}
-                </button>
-              )))}
+              <SpreadThumb
+                spread={coverSheet}
+                photos={photos}
+                profile={profile}
+                template={coverDesign}
+                widthMm={profile.coverSpec.totalWidthMm}
+                heightMm={profile.coverSpec.totalHeightMm}
+                showPageNumbers={false}
+                showGutter={false}
+              />
+              <div className="album-cover-zones">
+                {coverZones.map((zone) => (zone.kind === 'spine' ? (
+                  <div className="album-cover-spine" key="spine" style={{ width: `${zone.share}%` }} />
+                ) : (
+                  <button
+                    key={zone.kind}
+                    className={`album-cover-zone${overCover === zone.kind ? ' over' : ''}`}
+                    style={{ width: `${zone.share}%` }}
+                    onClick={onOpenCover}
+                    onDragOver={(event) => { if (dragPhoto) { event.preventDefault(); setOverCover(zone.kind); } }}
+                    onDragLeave={() => setOverCover((current) => (current === zone.kind ? null : current))}
+                    onDrop={(event) => {
+                      event.preventDefault();
+                      if (dragPhoto) onSetCoverPhoto(dragPhoto, zone.kind);
+                      setDragPhoto(null);
+                      setOverCover(null);
+                    }}
+                    aria-label={zone.kind === 'front'
+                      ? 'חזית הכריכה. גרור לכאן תמונה, או לחץ לעיצוב הכריכה'
+                      : 'גב הכריכה. גרור לכאן תמונה, או לחץ לעיצוב הכריכה'}
+                  >
+                    {!coverHasPhotos && (
+                      <span className="album-cover-empty">
+                        <strong>{zone.kind === 'front' ? 'חזית' : 'גב'}</strong>
+                        <small>{dragPhoto ? 'שחרר כאן' : 'גרור תמונה'}</small>
+                      </span>
+                    )}
+                  </button>
+                )))}
+              </div>
             </div>
           </article>
           {project.spreads.map((spread, index) => {

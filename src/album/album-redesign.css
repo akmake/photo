@@ -402,9 +402,16 @@
 .album-book-cover > header strong { color: var(--ink); font: 650 12px var(--font-display); }
 .album-book-cover:hover .album-spread-hover-actions,
 .album-book-cover .album-spread-hover-actions:focus-within { opacity: 1; }
-.album-cover-strip { display: flex; direction: ltr; width: 100%; box-shadow: 0 13px 38px rgb(0 0 0 / .34); }
+/* The card shows the cover AS DESIGNED — one drawn sheet — and the zones are a
+ * transparent layer over it, so a photograph can still be dropped on a side
+ * without the card owning a second copy of how a cover looks. */
+.album-cover-strip { position: relative; width: 100%; box-shadow: 0 13px 38px rgb(0 0 0 / .34); }
+.album-cover-strip > .album-preview-spread { width: 100%; height: 100%; }
+.album-cover-zones { position: absolute; inset: 0; z-index: 2; display: flex; direction: ltr; }
+/* The designer numbers an empty place so it can be talked about. On the card
+ * the two places are the back and the front, and they say so. */
+.album-cover-strip .tpl-place-number { display: none; }
 .album-cover-zone { position: relative; flex: 0 0 auto; padding: 0; border: 0; background: transparent; cursor: pointer; overflow: hidden; }
-.album-cover-zone img { display: block; width: 100%; height: 100%; object-fit: cover; }
 .album-cover-zone.over { box-shadow: inset 0 0 0 2px var(--album-copper); }
 .album-cover-empty { position: absolute; inset: 0; display: grid; place-content: center; gap: 3px; color: var(--ink-3); }
 .album-cover-empty strong { color: var(--ink-3); font-size: 12px; }

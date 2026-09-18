@@ -36,38 +36,46 @@ interface Props {
   onImportElements(files: FileList): void;
   onRemoveMine(element: ElementDef): void;
   onImportFonts(files: FileList): void;
+  /** What this sheet is called in the panel's own words. The cover is designed
+   *  in this panel too, and being told it is a "spread" is how a screen tells
+   *  the photographer it was not meant for what he is doing. */
+  sheetLabel?: 'כפולה' | 'כריכה';
 }
 
-const TAB_INFO: Record<Tab, { label: string; title: string; hint: string; icon: ReactNode }> = {
+const tabInfo = (sheet: 'כפולה' | 'כריכה'): Record<Tab, {
+  label: string; title: string; hint: string; icon: ReactNode;
+}> => ({
   page: {
-    label: 'עמוד', title: 'עמוד מהכספת', hint: 'בוחרים כמה תמונות בכפולה ואיזה עיצוב מהכספת.',
+    label: 'עמוד', title: 'עמוד מהכספת', hint: `בוחרים כמה תמונות ב${sheet} ואיזה עיצוב מהכספת.`,
     icon: <svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="1.5" /><path d="M12 5v14M6 9h4M6 12h4" /></svg>,
   },
   colors: {
-    label: 'צבעים', title: 'צבעי הכפולה', hint: 'רקע, פסים, קווים וכיתוב — לכפולה הזאת בלבד.',
+    label: 'צבעים', title: `צבעי ה${sheet}`, hint: `רקע, פסים, קווים וכיתוב — ל${sheet} הזאת בלבד.`,
     icon: <svg viewBox="0 0 24 24"><path d="M12 3a9 9 0 1 0 0 18c1.2 0 2-.8 2-1.8 0-1.2-1-1.6-1-2.7 0-1 .8-1.5 1.8-1.5H17a4 4 0 0 0 4-4C21 6.3 17 3 12 3Z" /><circle cx="7.5" cy="11" r="1" /><circle cx="10" cy="7.5" r="1" /><circle cx="14.5" cy="7.5" r="1" /></svg>,
   },
   text: {
-    label: 'טקסט', title: 'הוספת טקסט', hint: 'לחיצה מוסיפה טקסט לכפולה. אחר כך לוחצים עליו כדי לשנות מילים, גופן וצבע.',
+    label: 'טקסט', title: 'הוספת טקסט', hint: `לחיצה מוסיפה טקסט ל${sheet}. אחר כך לוחצים עליו כדי לשנות מילים, גופן וצבע.`,
     icon: <svg viewBox="0 0 24 24"><path d="M5 6V4h14v2M12 4v16M9 20h6" /></svg>,
   },
   elements: {
-    label: 'אלמנטים', title: 'אלמנטים', hint: 'צורות, קישוטים ואייקונים. לחיצה מוסיפה לכפולה.',
+    label: 'אלמנטים', title: 'אלמנטים', hint: `צורות, קישוטים ואייקונים. לחיצה מוסיפה ל${sheet}.`,
     icon: <svg viewBox="0 0 24 24"><circle cx="7.5" cy="7.5" r="3.5" /><rect x="13" y="4" width="7" height="7" rx="1" /><path d="M7.5 13 12 20H3Z" /><path d="m16.5 13 1.2 2.5 2.8.4-2 2 .5 2.8-2.5-1.3-2.5 1.3.5-2.8-2-2 2.8-.4Z" /></svg>,
   },
   uploads: {
     label: 'העלאות', title: 'האלמנטים והגופנים שלך', hint: 'קבצים שלך נשמרים במחשב וזמינים בכל אלבום.',
     icon: <svg viewBox="0 0 24 24"><path d="M12 16V4M7 9l5-5 5 5M4 16v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3" /></svg>,
   },
-};
+});
 
 export default function SpreadPanel(props: Props) {
   const [tab, setTab] = useState<Tab>(props.template ? 'colors' : 'page');
+  const sheet = props.sheetLabel ?? 'כפולה';
+  const TAB_INFO = tabInfo(sheet);
   const info = TAB_INFO[tab];
 
   return (
     <div className="sp-panel">
-      <nav className="sp-rail" aria-label="כלים לכפולה">
+      <nav className="sp-rail" aria-label={`כלים ל${sheet}`}>
         {(Object.keys(TAB_INFO) as Tab[]).map((key) => (
           <button
             key={key}
@@ -109,7 +117,7 @@ export default function SpreadPanel(props: Props) {
 }
 
 function NeedsPage({ template }: { template: AlbumTemplate | null }) {
-  return template ? null : <p className="sp-note">כדי להוסיף לכפולה, בחר קודם עמוד בלשונית "עמוד".</p>;
+  return template ? null : <p className="sp-note">כדי להוסיף, בחר קודם עמוד בלשונית "עמוד".</p>;
 }
 
 function TextTab({ template, onAddElement, userFonts }: Props) {

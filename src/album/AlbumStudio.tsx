@@ -34,6 +34,9 @@ import type {
 import { analyzeAlbumPhoto } from '../api';
 import { exportAlbumForPrint, exportAlbumProof } from './exportEngine';
 import {
+  COVER_SHEET_ID, coverSheetOf, coverTemplateOf, coverZonePlace, spineBand,
+} from './coverSheet';
+import {
   buildAlbumFromGroups, buildAutomaticAlbum, constrainGroupsToSessions,
 } from './albumFlow';
 import { ALBUM_STYLES } from './styleEngine';
@@ -44,7 +47,6 @@ import {
 } from './albumStorage';
 import AlbumPreview from './AlbumPreview';
 import ReviewWorkspace from './ReviewWorkspace';
-import CoverEditor from './CoverEditor';
 import PreflightPanel from './PreflightPanel';
 import AlbumOverview from './AlbumOverview';
 import AlbumLibrary, { type AlbumCreateInput } from './AlbumLibrary';
@@ -205,7 +207,6 @@ export default function AlbumStudio({ job, onBack }: {
   const [showAlbumSettings, setShowAlbumSettings] = useState(false);
   const [settingsWidthCm, setSettingsWidthCm] = useState(30);
   const [settingsHeightCm, setSettingsHeightCm] = useState(30);
-  const [showCover, setShowCover] = useState(false);
   const [showPreflight, setShowPreflight] = useState(false);
   const [confirmAutoBuild, setConfirmAutoBuild] = useState(false);
   /** An element the photographer added to the spread (text, shape, artwork, import). */
@@ -438,7 +439,7 @@ export default function AlbumStudio({ job, onBack }: {
         return;
       }
       if (event.altKey || mod) return;
-      if (showPhotoPicker || showDelivery || showPreview || showReview || showCover || showPreflight) return;
+      if (showPhotoPicker || showDelivery || showPreview || showReview || showPreflight) return;
 
       switch (event.key) {
         case 'ArrowUp':   event.preventDefault(); cycleLayout(-1); break;
@@ -466,10 +467,21 @@ export default function AlbumStudio({ job, onBack }: {
     return () => window.removeEventListener('keydown', onKey);
   });
 
-  const spreadIndex = project.spreads.findIndex((spread) => spread.id === project.activeSpreadId);
-  const spread = project.spreads[spreadIndex] ?? project.spreads[0];
   const profile = printProfiles.find((item) => item.id === project.productProfileId)
     ?? FIRST_PRINT_PROFILE;
+  /* THE SHEET BEING DESIGNED is a spread — or the cover, which is a designed
+   * sheet of its own shape: back, spine and front on one piece of paper. It
+   * holds a template instance exactly as a spread does, so everything below
+   * this line works on it unchanged. See coverSheet.ts. */
+  const editingCover = project.activeSpreadId === COVER_SHEET_ID;
+  const coverSheet = coverSheetOf(project, profile);
+  const spreadIndex = editingCover
+    ? -1
+    : project.spreads.findIndex((item) => item.id === project.activeSpreadId);
+  const spread = editingCover ? coverSheet : (project.spreads[spreadIndex] ?? project.spreads[0]);
+  const sheetWidthMm = editingCover ? profile.coverSpec.totalWidthMm : profile.spreadWidthMm;
+  const sheetHeightMm = editingCover ? profile.coverSpec.totalHeightMm : profile.spreadHeightMm;
+  const sheetAspect = sheetWidthMm / Math.max(1, sheetHeightMm);
   const layoutCandidates = useMemo(
     () => buildAlbumLayoutCandidates(
       spread.photoIds,
@@ -496,7 +508,9 @@ export default function AlbumStudio({ job, onBack }: {
   /* A Vault page decides where the photos sit. Its photo places are handed to
    * the editor as ordinary slots, so placing, swapping and cropping a photo
    * work exactly as on any other spread. */
-  const activeTemplate = spreadTemplate(spread, profile.spreadWidthMm / profile.spreadHeightMm);
+  const activeTemplate = editingCover
+    ? coverTemplateOf(spread, profile, project.openingDirection ?? 'rtl')
+    : spreadTemplate(spread, sheetAspect);
   const templatePlaces = activeTemplate ? templateSlots(activeTemplate) : [];
   const templatePhotoLayers = activeTemplate ? photoLayers(activeTemplate) : [];
   const templateZOrder = activeTemplate ? templateZ(activeTemplate) : new Map<string, number>();
@@ -526,7 +540,10 @@ export default function AlbumStudio({ job, onBack }: {
     const chosen = new Set(project.photoSelection);
     return photos.filter((photo) => chosen.has(photo.id));
   }, [photos, project.photoSelection]);
-  const usedIds = useMemo(() => new Set(project.spreads.flatMap((item) => item.photoIds).filter(Boolean)), [project.spreads]);
+  const usedIds = useMemo(() => new Set([
+    ...project.spreads.flatMap((item) => item.photoIds),
+    ...coverSheet.photoIds,
+  ].filter(Boolean)), [project.spreads, coverSheet.photoIds]);
   const currentSpreadIds = useMemo(() => new Set(spread.photoIds), [spread.photoIds]);
   const filteredPhotos = useMemo(() => albumPhotos.filter((photo) => {
     if (photoFilter === 'current') return currentSpreadIds.has(photo.id);
@@ -550,7 +567,7 @@ export default function AlbumStudio({ job, onBack }: {
       selectedFramePhoto,
       selectedSlot,
       selectedFrameSettings,
-      profile.spreadWidthMm / profile.spreadHeightMm,
+      sheetAspect,
     )
     : null;
   const preflightIssues = useMemo(
@@ -644,11 +661,39 @@ export default function AlbumStudio({ job, onBack }: {
     setNotice('השינוי הוחזר');
   }
 
-  function updateSpread(patch: Partial<AlbumSpread>) {
-    commitProject((current) => ({
+  /* WHERE THE SHEET BEING DESIGNED LIVES: a spread inside the album, or the
+   * cover's own sheet. Every write goes through here — the ones that push an
+   * undo step (`updateSpread`) and the live ones a drag makes on every mouse
+   * move, which must not. Missing one of them is an edit that lands nowhere,
+   * silently: typing on the cover with the colours and the words written into
+   * `spreads` simply never arrived, because no spread has the cover's id. */
+  function sheetWritten(
+    current: AlbumProject,
+    patch: (sheet: AlbumSpread) => AlbumSpread,
+  ): AlbumProject {
+    if (!editingCover) {
+      return {
+        ...current,
+        spreads: current.spreads.map((item) => (item.id === spread.id ? patch(item) : item)),
+      };
+    }
+    const sheet = coverSheetOf(current, profile);
+    return {
       ...current,
-      spreads: current.spreads.map((item) => item.id === spread.id ? { ...item, ...patch } : item),
-    }));
+      cover: {
+        ...(current.cover ?? {
+          background: sheet.background, title: '', subtitle: '', spineText: '',
+        }),
+        sheet: patch(sheet),
+      },
+    };
+  }
+
+  /* Every change to the sheet on screen goes through here — twenty-seven
+   * callers — which is what lets the cover be edited by the same designer
+   * without a second copy of any of them. */
+  function updateSpread(patch: Partial<AlbumSpread>) {
+    commitProject((current) => sheetWritten(current, (sheet) => ({ ...sheet, ...patch })));
     setNotice('השינויים נשמרו');
   }
 
@@ -671,10 +716,23 @@ export default function AlbumStudio({ job, onBack }: {
     setNotice('פרופיל הדפוס נשמר במחשב');
   }
 
+  /** `-1` is the cover, which sits before the first spread exactly as it does
+   *  in the book. Opening it writes its sheet into the album if it was made
+   *  before the cover could be designed — a translation, not an edit, so it
+   *  does not land in the undo history. */
   function setActiveSpread(index: number) {
-    const next = project.spreads[index];
-    if (!next) return;
-    setProject((current) => ({ ...current, activeSpreadId: next.id }));
+    const nextId = index < 0 ? COVER_SHEET_ID : project.spreads[index]?.id;
+    if (!nextId) return;
+    setProject((current) => (index < 0
+      ? {
+        ...current,
+        cover: {
+          ...(current.cover ?? { background: '#eee6db', title: '', subtitle: '', spineText: '' }),
+          sheet: coverSheetOf(current, profile),
+        },
+        activeSpreadId: COVER_SHEET_ID,
+      }
+      : { ...current, activeSpreadId: nextId }));
     setSelectedPhotoId(null);
     setSelectedSlotIndex(null);
     setPhotoFilter('current');
@@ -1043,20 +1101,32 @@ export default function AlbumStudio({ job, onBack }: {
   /** Put a photograph on the cover. The same assignment the cover screen makes,
    *  so a frame dragged onto the first card and a frame chosen inside that
    *  screen are one thing. */
+  /** The cover, opened in the designer — the same room every other page of
+   *  the album is designed in. */
+  function openCoverDesigner() {
+    setActiveSpread(-1);
+    setMode('design');
+    setShowMoreMenu(false);
+    setNotice('הכריכה · גב, שדרה וחזית על גיליון אחד');
+  }
+
   function setCoverPhoto(photoId: string, zone: 'front' | 'back') {
     if (!photos.some((photo) => photo.id === photoId)) {
       setNotice('התמונה הזאת אינה באלבום');
       return;
     }
     commitProject((album) => {
-      const cover = album.cover ?? {
-        background: '#f8f6f1', title: album.name, subtitle: '', spineText: album.name,
-      };
+      const sheet = coverSheetOf(album, profile);
+      const place = coverZonePlace(sheet, zone);
+      if (place === null) return album;
+      const photoIds = [...sheet.photoIds];
+      photoIds[place] = photoId;
       return {
         ...album,
-        cover: zone === 'front'
-          ? { ...cover, frontPhotoId: photoId, frontSettings: cover.frontSettings ?? DEFAULT_FRAME_SETTINGS }
-          : { ...cover, backPhotoId: photoId, backSettings: cover.backSettings ?? DEFAULT_FRAME_SETTINGS },
+        cover: {
+          ...(album.cover ?? { background: sheet.background, title: '', subtitle: '', spineText: '' }),
+          sheet: { ...sheet, photoIds },
+        },
       };
     });
     setNotice(zone === 'front' ? 'התמונה הוגדרה כחזית הכריכה' : 'התמונה הוגדרה כגב הכריכה');
@@ -1104,7 +1174,7 @@ export default function AlbumStudio({ job, onBack }: {
       return;
     }
     if (issue.target === 'cover') {
-      setShowCover(true);
+      openCoverDesigner();
       return;
     }
     if (issue.target === 'profile') {
@@ -1227,12 +1297,7 @@ export default function AlbumStudio({ job, onBack }: {
     if (!spread.templateInstance) return;
     if (!templateEditBase.current) templateEditBase.current = project;
     const next = change(spread.templateInstance);
-    setProject((current) => ({
-      ...current,
-      spreads: current.spreads.map((item) => (
-        item.id === spread.id ? { ...item, templateInstance: next } : item
-      )),
-    }));
+    setProject((current) => sheetWritten(current, (sheet) => ({ ...sheet, templateInstance: next })));
   }
 
   function endTemplateEdit() {
@@ -1322,7 +1387,7 @@ export default function AlbumStudio({ job, onBack }: {
       return;
     }
     const topZ = Math.max(...activeTemplate.layers.map((layer) => layer.zIndex), 0);
-    const layer = elementToLayer(element, profile.spreadWidthMm / profile.spreadHeightMm, topZ, Date.now());
+    const layer = elementToLayer(element, sheetAspect, topZ, Date.now());
     updateSpread({
       templateInstance: { ...spread.templateInstance, addedLayers: [...addedElements, layer] },
     });
@@ -1453,8 +1518,8 @@ export default function AlbumStudio({ job, onBack }: {
       }
     }
     const guided = smartGuides(g.box, { x, y, width, height }, g.mode, {
-      aspect: profile.spreadWidthMm / profile.spreadHeightMm,
-      heightMm: profile.spreadHeightMm,
+      aspect: sheetAspect,
+      heightMm: sheetHeightMm,
       safeMarginMm: profile.safeMarginMm,
       tolerancePx: 7,
       screenHeightPx: g.rect.height,
@@ -1749,21 +1814,18 @@ export default function AlbumStudio({ job, onBack }: {
       spill(bounds.height, session.cropHeight),
     );
     session.moved = true;
-    setProject((current) => ({
-      ...current,
-      spreads: current.spreads.map((item) => item.id === spread.id ? {
-        ...item,
-        frameSettings: {
-          ...item.frameSettings,
-          [slotId]: {
-            ...(item.frameSettings?.[slotId] ?? DEFAULT_FRAME_SETTINGS),
-            fit: 'cover',
-            positionX,
-            positionY,
-          },
+    setProject((current) => sheetWritten(current, (sheet) => ({
+      ...sheet,
+      frameSettings: {
+        ...sheet.frameSettings,
+        [slotId]: {
+          ...(sheet.frameSettings?.[slotId] ?? DEFAULT_FRAME_SETTINGS),
+          fit: 'cover',
+          positionX,
+          positionY,
         },
-      } : item),
-    }));
+      },
+    })));
   }
 
   function endPan() {
@@ -1852,8 +1914,8 @@ export default function AlbumStudio({ job, onBack }: {
         .map((layer) => layer.box)
       : g.baseSlots.filter((_, index) => index !== g.index);
     const guided = smartGuides(g.slot, { x, y, width, height }, g.mode, {
-      aspect: profile.spreadWidthMm / profile.spreadHeightMm,
-      heightMm: profile.spreadHeightMm,
+      aspect: sheetAspect,
+      heightMm: sheetHeightMm,
       safeMarginMm: profile.safeMarginMm,
       tolerancePx: 7,
       screenHeightPx: g.rect.height,
@@ -1871,29 +1933,19 @@ export default function AlbumStudio({ job, onBack }: {
       /* On a Vault page the move is kept as this spread's own change to one
        * photo place; the design itself stays untouched. */
       const placeId = g.baseSlots[g.index].id;
-      setProject((current) => ({
-        ...current,
-        spreads: current.spreads.map((item) => (
-          item.id === spread.id && item.templateInstance
-            ? {
-              ...item,
-              templateInstance: {
-                ...item.templateInstance,
-                places: { ...item.templateInstance.places, [placeId]: { x, y, width, height } },
-              },
-            }
-            : item
-        )),
-      }));
+      setProject((current) => sheetWritten(current, (sheet) => (sheet.templateInstance
+        ? {
+          ...sheet,
+          templateInstance: {
+            ...sheet.templateInstance,
+            places: { ...sheet.templateInstance.places, [placeId]: { x, y, width, height } },
+          },
+        }
+        : sheet)));
       return;
     }
     const nextSlots = g.baseSlots.map((s, i) => (i === g.index ? { ...s, x, y, width, height } : s));
-    setProject((current) => ({
-      ...current,
-      spreads: current.spreads.map((item) => (
-        item.id === spread.id ? { ...item, customSlots: nextSlots } : item
-      )),
-    }));
+    setProject((current) => sheetWritten(current, (sheet) => ({ ...sheet, customSlots: nextSlots })));
   }
 
   function endFrameGesture() {
@@ -1984,10 +2036,14 @@ export default function AlbumStudio({ job, onBack }: {
         updateSpread({ photoIds: currentIds });
         setNotice('התמונה שובצה בעמוד');
       } else {
+        if (editingCover) {
+          setNotice('אין מקום פנוי בכריכה · בחר מקום קיים או הוסף מקום לתמונה');
+          return;
+        }
         const choice = rankTemplates(
           [...currentIds.filter(Boolean), selectedPhotoId],
           photos,
-          profile.spreadWidthMm / profile.spreadHeightMm,
+          sheetAspect,
         )[0];
         if (!choice) {
           setNotice('אין בכספת עמוד לכל כך הרבה תמונות בכפולה אחת');
@@ -2174,7 +2230,7 @@ export default function AlbumStudio({ job, onBack }: {
   async function handleExportProof() {
     if (isExporting) return;
     setIsExporting(true);
-    setNotice('מכין את קבצי ההגהה…');
+    setNotice('מכין את ההגהה…');
     try {
       const result = await exportAlbumProof(
         project,
@@ -2184,7 +2240,8 @@ export default function AlbumStudio({ job, onBack }: {
         (current, total) => setNotice(`מרנדר כפולה ${current} מתוך ${total}…`),
       );
       setNotice(
-        `חבילת ההגהה מוכנה · ${result.files} קבצים · ${result.pixelSize.width}×${result.pixelSize.height}px`,
+        `ההגהה מוכנה · קובץ PDF אחד · ${project.spreads.length + (project.cover ? 1 : 0)} עמודים`
+        + `${result.destination === 'downloads' ? ' · בתיקיית ההורדות' : ''}`,
       );
     } catch (error) {
       if (error instanceof DOMException && error.name === 'AbortError') {
@@ -2279,19 +2336,6 @@ export default function AlbumStudio({ job, onBack }: {
     );
   }
 
-  if (showCover) {
-    return (
-      <CoverEditor
-        project={project}
-        photos={photos}
-        profile={profile}
-        onUpdateProject={(next) => commitProject(next)}
-        onUpdateProfile={(next) => updatePrintProfile(next)}
-        onClose={() => setShowCover(false)}
-      />
-    );
-  }
-
   if (showPreflight) {
     return (
       <PreflightPanel
@@ -2311,8 +2355,12 @@ export default function AlbumStudio({ job, onBack }: {
             {mode === 'design' ? 'האלבום' : 'האלבומים'}
           </button>
           <div>
-            <h1>{mode === 'design' ? `כפולה ${spreadIndex + 1}` : project.name}</h1>
-            <span>{mode === 'design' ? `עמודים ${spread.pageStart}–${spread.pageStart + 1}` : `${project.spreads.length} כפולות · ${usedIds.size} תמונות`}</span>
+            <h1>{mode !== 'design' ? project.name : editingCover ? 'כריכה' : `כפולה ${spreadIndex + 1}`}</h1>
+            <span>{mode !== 'design'
+              ? `${project.spreads.length} כפולות · ${usedIds.size} תמונות`
+              : editingCover
+                ? 'גב · שדרה · חזית'
+                : `עמודים ${spread.pageStart}–${spread.pageStart + 1}`}</span>
           </div>
           <span className="album-save-copy"><IcCheck size={11} /> {notice}</span>
         </div>
@@ -2325,9 +2373,9 @@ export default function AlbumStudio({ job, onBack }: {
           )}
           {mode === 'design' && (
             <div className="album-designer-nav">
-              <button className="album-icon-button" onClick={() => setActiveSpread(spreadIndex - 1)} disabled={spreadIndex === 0} aria-label="כפולה קודמת">‹</button>
-              <span>{spreadIndex + 1} / {project.spreads.length}</span>
-              <button className="album-icon-button" onClick={() => setActiveSpread(spreadIndex + 1)} disabled={spreadIndex === project.spreads.length - 1} aria-label="כפולה הבאה">›</button>
+              <button className="album-icon-button" onClick={() => setActiveSpread(spreadIndex - 1)} disabled={editingCover} aria-label="הקודם">‹</button>
+              <span>{editingCover ? 'כריכה' : `${spreadIndex + 1} / ${project.spreads.length}`}</span>
+              <button className="album-icon-button" onClick={() => setActiveSpread(spreadIndex + 1)} disabled={spreadIndex === project.spreads.length - 1} aria-label="הבא">›</button>
             </div>
           )}
           <button className="album-icon-button" aria-label="ביטול" title="ביטול · Ctrl+Z" onClick={undoProject} disabled={!historyPast.length}><IcUndo size={18} /></button>
@@ -2340,7 +2388,7 @@ export default function AlbumStudio({ job, onBack }: {
               <div className="album-context-menu album-topbar-menu" role="menu">
                 {mode === 'design' && <button role="menuitem" onClick={() => { setShowGuides((value) => !value); setShowMoreMenu(false); }}>{showGuides ? 'הסתר אזורי דפוס' : 'הצג אזורי דפוס'} · G</button>}
                 <button role="menuitem" onClick={() => { openAlbumSettings(); setShowMoreMenu(false); }}>הגדרות אלבום</button>
-                <button role="menuitem" onClick={() => { setShowCover(true); setShowMoreMenu(false); }}>כריכה ושדרה</button>
+                <button role="menuitem" onClick={openCoverDesigner}>עיצוב הכריכה</button>
                 <button role="menuitem" onClick={() => { setShowPreflight(true); setShowMoreMenu(false); }}>בדיקת דפוס</button>
               </div>
             )}
@@ -2569,6 +2617,56 @@ export default function AlbumStudio({ job, onBack }: {
                   })}
                 />
               </label>
+              {/* The cover is printed on its own sheet, to measurements the
+                * bindery states: the spine is the thickness of the finished
+                * book, not a proportion of the design. They used to live on
+                * the cover screen; the cover is designed like any other page
+                * now, so its MEASUREMENTS belong here, with the rest of the
+                * product's. */}
+              <div className="profile-grid">
+                <label>
+                  <span>רוחב השדרה (מ״מ)</span>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.5"
+                    value={profile.coverSpec.spineWidthMm}
+                    onChange={(event) => updatePrintProfile({
+                      coverSpec: {
+                        ...profile.coverSpec,
+                        spineWidthMm: Number(event.target.value),
+                        verified: false,
+                      },
+                    })}
+                  />
+                </label>
+                <label>
+                  <span>גלישה בכריכה (מ״מ)</span>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.5"
+                    value={profile.coverSpec.bleedMm}
+                    onChange={(event) => updatePrintProfile({
+                      coverSpec: {
+                        ...profile.coverSpec,
+                        bleedMm: Number(event.target.value),
+                        verified: false,
+                      },
+                    })}
+                  />
+                </label>
+              </div>
+              <label className="profile-verify-check">
+                <input
+                  type="checkbox"
+                  checked={profile.coverSpec.verified}
+                  onChange={(event) => updatePrintProfile({
+                    coverSpec: { ...profile.coverSpec, verified: event.target.checked },
+                  })}
+                />
+                <span>מידות הכריכה נלקחו מתבנית בית הדפוס</span>
+              </label>
               <label className="profile-verify-check">
                 <input
                   type="checkbox"
@@ -2615,7 +2713,7 @@ export default function AlbumStudio({ job, onBack }: {
             onAddSpread={addSpread}
             onRemoveSpread={removeSpreadAt}
             onAddPhotos={() => setShowPhotoPicker(true)}
-            onOpenCover={() => setShowCover(true)}
+            onOpenCover={openCoverDesigner}
             onSetCoverPhoto={setCoverPhoto}
           />
         ) : (
@@ -2628,16 +2726,33 @@ export default function AlbumStudio({ job, onBack }: {
             }}
           >
             <div
-              className={`album-spread ${showGuides ? 'show-guides' : ''} ${activeTemplate ? 'tpl-mode' : ''}`}
+              className={`album-spread ${showGuides ? 'show-guides' : ''} ${activeTemplate ? 'tpl-mode' : ''} ${editingCover ? 'cover-sheet' : ''}`}
               style={{
                 background: spreadPaper,
-                aspectRatio: `${profile.spreadWidthMm} / ${profile.spreadHeightMm}`,
-                '--spread-aspect': profile.spreadWidthMm / profile.spreadHeightMm,
+                aspectRatio: `${sheetWidthMm} / ${sheetHeightMm}`,
+                '--spread-aspect': sheetAspect,
               } as React.CSSProperties}
             >
-              <div className="album-page album-page-left" />
-              <div className="album-page album-page-right" />
-              <div className="album-gutter" />
+              {editingCover ? (
+                /* A cover has no fold. It has a SPINE — a strip of board whose
+                 * width comes from the product, not from the design — and a
+                 * face across it is a face bent around the edge of a book. */
+                <div
+                  className="album-spine-band"
+                  style={{
+                    left: `${spineBand(profile).start * 100}%`,
+                    width: `${spineBand(profile).width * 100}%`,
+                  }}
+                >
+                  <span>שדרה</span>
+                </div>
+              ) : (
+                <>
+                  <div className="album-page album-page-left" />
+                  <div className="album-page album-page-right" />
+                  <div className="album-gutter" />
+                </>
+              )}
               {showGuides && <><div className="album-bleed-guide" /><div className="album-safe-guide" /></>}
               {frameGuides && <SmartGuideOverlay guides={frameGuides} />}
 
@@ -2657,7 +2772,7 @@ export default function AlbumStudio({ job, onBack }: {
                     photo,
                     slot,
                     frameSettings,
-                    profile.spreadWidthMm / profile.spreadHeightMm,
+                    sheetAspect,
                   )
                   : null;
                 return (
@@ -2675,7 +2790,7 @@ export default function AlbumStudio({ job, onBack }: {
                       ...(crop?.letterboxed ? { background: spreadPaper } : null),
                       ...(activeTemplate ? {
                         zIndex: templateZOrder.get(templatePhotoLayers[slotIndex].id),
-                        ...photoFrameStyle(templatePhotoLayers[slotIndex], profile.spreadWidthMm / profile.spreadHeightMm),
+                        ...photoFrameStyle(templatePhotoLayers[slotIndex], sheetAspect),
                       } : null),
                     }}
                     onClick={() => assignPhoto(slotIndex)}
@@ -2865,8 +2980,13 @@ export default function AlbumStudio({ job, onBack }: {
                 </div>
               )}
 
-              <div className="album-page-number left">{spread.pageStart}</div>
-              <div className="album-page-number right">{spread.pageStart + 1}</div>
+              {/* A cover carries no page numbers: the book starts inside it. */}
+              {!editingCover && (
+                <>
+                  <div className="album-page-number left">{spread.pageStart}</div>
+                  <div className="album-page-number right">{spread.pageStart + 1}</div>
+                </>
+              )}
             </div>
           </div>
 
@@ -2878,7 +2998,7 @@ export default function AlbumStudio({ job, onBack }: {
               </div>
               <div className="album-photo-filters" role="group" aria-label="סינון תמונות">
                 {([
-                  ['current', 'לכפולה'],
+                  ['current', editingCover ? 'לכריכה' : 'לכפולה'],
                   ['unused', 'לא שובצו'],
                   ['all', 'הכול'],
                 ] as const).map(([value, label]) => (
@@ -3323,7 +3443,8 @@ export default function AlbumStudio({ job, onBack }: {
             key={spread.id}
             spread={spread}
             photos={photos}
-            spreadAspect={profile.spreadWidthMm / profile.spreadHeightMm}
+            spreadAspect={sheetAspect}
+            sheetLabel={editingCover ? 'כריכה' : 'כפולה'}
             template={activeTemplate}
             onApply={placeTemplate}
             onCycle={(direction) => cycleLayout(direction)}
@@ -3385,11 +3506,21 @@ export default function AlbumStudio({ job, onBack }: {
                 <IcCheck size={22} /><strong>שליחה לאישור</strong><span>סבב הערות ואישור לקוח</span>
               </button>
               <button disabled={isExporting} onClick={() => { setShowDelivery(false); void handleExportProof(); }}>
-                <IcDownload size={22} /><strong>קבצי הגהה</strong><span>תמונות מוקטנות לשיתוף</span>
+                <IcDownload size={22} /><strong>הגהה ללקוח</strong><span>קובץ PDF אחד · הכריכה וכל הכפולות</span>
               </button>
-              <button disabled={isExporting || preflight.blockers > 0} onClick={() => { setShowDelivery(false); void handlePrintExport(); }}>
-                <IcDownload size={22} /><strong>חבילת דפוס</strong><span>{preflight.blockers ? 'זמין לאחר תיקון הבעיות' : 'קבצים לפי מפרט בית הדפוס'}</span>
-              </button>
+              {profile.verified ? (
+                <button disabled={isExporting || preflight.blockers > 0} onClick={() => { setShowDelivery(false); void handlePrintExport(); }}>
+                  <IcDownload size={22} /><strong>חבילת דפוס</strong><span>{preflight.blockers ? 'זמין לאחר תיקון הבעיות' : `קבצים מלאים עם בליד · ${profile.targetPpi}dpi`}</span>
+                </button>
+              ) : (
+                /* A blocked button that says nothing is the most expensive bug
+                 * there is. The package is not withheld arbitrarily: the sizes
+                 * have to be checked against the lab's own written spec, and
+                 * that is a door, not a wall. */
+                <button onClick={() => { setShowDelivery(false); openAlbumSettings(); setShowProfileEditor(true); }}>
+                  <IcDownload size={22} /><strong>חבילת דפוס</strong><span>דורש אימות מול בית הדפוס ←</span>
+                </button>
+              )}
             </div>
           </section>
         </div>
