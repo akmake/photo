@@ -33,7 +33,7 @@ if (-not (Test-Path $serverPy)) {
     Write-Host "server.py not found next to this script ($engineDir)" -ForegroundColor Red
     exit 1
 }
-$portLine = Select-String -Path $serverPy -Pattern '^PORT\s*=\s*(\d+)' | Select-Object -First 1
+$portLine = Select-String -Path $serverPy -Pattern '^PORT\s*=.*?(\d{2,5})' | Select-Object -First 1
 if (-not $portLine) {
     Write-Host "could not read PORT from server.py" -ForegroundColor Red
     exit 1
