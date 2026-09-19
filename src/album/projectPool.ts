@@ -34,7 +34,10 @@ export function frameToPhoto(frame: Frame): AlbumPhoto {
   return {
     id: frameKey(frame.name),
     name: frame.name,
-    url: thumbUrl(frame.shown, POOL_THUMB_WIDTH),
+    /* The version makes a re-edited photograph a new address — the file is
+     * replaced under the same path, and the browser may keep a thumbnail for a
+     * day, so without it the album showed the previous edit. */
+    url: thumbUrl(frame.shown, POOL_THUMB_WIDTH, frame.version),
     sourcePath: frame.path,
     /* The export draws `shown`, not `path`: an album whose photographs were
      * edited must print the edit. */

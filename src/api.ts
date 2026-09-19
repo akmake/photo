@@ -786,9 +786,14 @@ export async function exportColorFiles(
  *
  * The renderer cannot read `D:\Shoots\...` — and it must not have to: the whole
  * product rests on the files staying where the photographer put them. The
- * engine has disk access, so the engine serves the pixels. */
-export function thumbUrl(path: string, width = 320): string {
-  return `${ENGINE}/thumb?path=${encodeURIComponent(path)}&w=${width}`;
+ * engine has disk access, so the engine serves the pixels.
+ *
+ * `version` (a frame's `version`) makes each replacement of the file a new
+ * address. The engine ignores it; the browser is what needs it, because /thumb
+ * may be kept for a day and an edit rewrites the file under the same path. */
+export function thumbUrl(path: string, width = 320, version?: string): string {
+  const v = version ? `&v=${encodeURIComponent(version)}` : '';
+  return `${ENGINE}/thumb?path=${encodeURIComponent(path)}&w=${width}${v}`;
 }
 
 /** The pixels an album EXPORT draws with: the real file, decoded properly and
@@ -979,6 +984,10 @@ export interface Frame {
   edited: boolean;
   /** the file to SHOW: the edited copy when there is one, else the raw */
   shown: string;
+  /** Changes whenever `shown` is replaced. Pass it to `thumbUrl`: an edit
+   *  rewrites the same path, and without this the browser keeps showing the
+   *  previous version for a day. Absent from an engine older than this field. */
+  version?: string;
 }
 
 export interface ProjectPaths {

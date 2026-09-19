@@ -25,7 +25,8 @@
 import { useCallback, useRef, useState } from 'react';
 import { applyToFrame } from '../../api';
 import {
-  framesInBatch, getProject, reloadFrames, batchRecipe, unassignedFrames,
+  activeSteps, editedDirOf, framesInBatch, getProject, reloadFrames, batchRecipe,
+  unassignedFrames,
 } from '../store';
 import type { Frame } from '../store';
 import { IcCheckCircle, IcSparkle } from '../../design/Icons';
@@ -65,14 +66,20 @@ export default function ApplySet({
     setTotal(frames.length);
     cancelled.current = false;
 
-    const editedDir = `${home}\\תמונות`;
+    const editedDir = editedDirOf(home);
     let written = 0;
     for (const frame of frames) {
       if (cancelled.current) break;
       try {
         // From `frame.path` — the RAW — and not from `frame.shown`, which is
         // the previous output. This is the whole no-stacking rule, in one line.
-        await applyToFrame(frame.path, editedDir, steps);
+        //
+        // And through THIS frame's full recipe, not the set's look alone. The
+        // set's look is shared, but a photograph may carry its own exceptions,
+        // and rendering the look without them overwrote the file with a
+        // version missing the photograph's own edits — which the album then
+        // showed and printed as if it were the finished frame.
+        await applyToFrame(frame.path, editedDir, activeSteps(projectId, frame.path));
         written += 1;
         setWrote(written);
       } catch (e) {
@@ -85,7 +92,7 @@ export default function ApplySet({
     }
     await reloadFrames(projectId);
     setRunning(false);
-  }, [frames, projectId, steps]);
+  }, [frames, projectId]);
 
   if (!frames.length) {
     return (

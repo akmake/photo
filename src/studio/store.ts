@@ -25,8 +25,10 @@
 
 import { useEffect, useMemo, useState, useSyncExternalStore } from 'react';
 import {
-  initProject, projectFrames, projectState, workspaceRoot,
+  applyToFrame, initProject, projectFrames, projectState, workspaceRoot,
 } from '../api';
+import { createEditSync } from './editSync';
+import type { SyncStatus } from './editSync';
 import type { Frame, GalleryLink, ProjectMemory, StoryMoment } from '../api';
 import { dbDelete, dbFind, dbImport, dbSaveMany } from '../db';
 import * as G from './groups';
@@ -1237,6 +1239,7 @@ export function setFrameStep(projectId: string, frame: string, step: ToolInstanc
   const current = stateOf(projectId);
   const recipe = current.recipe as ProjectRecipe;
   const key = frameKey(frame);
+  const before = renderedAs(projectId, frame);
   write(projectId, {
     ...current,
     recipe: {
@@ -1244,6 +1247,7 @@ export function setFrameStep(projectId: string, frame: string, step: ToolInstanc
       perFrame: { ...recipe.perFrame, [key]: upsert(recipe.perFrame[key] ?? [], step) },
     },
   });
+  afterFrameEdit(projectId, frame, before);
 }
 
 /** Copy one or more shareable steps to a precise list of photographs in a
@@ -1255,6 +1259,7 @@ export function setFrameSteps(projectId: string, frames: string[], steps: ToolIn
   const recipe = current.recipe as ProjectRecipe;
   const perFrame = { ...recipe.perFrame };
   const clean = steps.map(shareable);
+  const before = new Map(frames.map((frame) => [frame, renderedAs(projectId, frame)]));
   for (const frame of frames) {
     const key = frameKey(frame);
     let next = perFrame[key] ?? [];
@@ -1262,12 +1267,14 @@ export function setFrameSteps(projectId: string, frames: string[], steps: ToolIn
     perFrame[key] = next;
   }
   write(projectId, { ...current, recipe: { ...recipe, perFrame } });
+  for (const frame of frames) afterFrameEdit(projectId, frame, before.get(frame) ?? '');
 }
 
 export function removeFrameStep(projectId: string, frame: string, toolId: string) {
   const current = stateOf(projectId);
   const recipe = current.recipe as ProjectRecipe;
   const key = frameKey(frame);
+  const before = renderedAs(projectId, frame);
   const left = (recipe.perFrame[key] ?? []).filter((t) => t.toolId !== toolId);
   const perFrame = { ...recipe.perFrame };
   // An empty exception list is not an exception. Leaving `{}` behind would make
@@ -1275,6 +1282,7 @@ export function removeFrameStep(projectId: string, frame: string, toolId: string
   if (left.length) perFrame[key] = left;
   else delete perFrame[key];
   write(projectId, { ...current, recipe: { ...recipe, perFrame } });
+  afterFrameEdit(projectId, frame, before);
 }
 
 /** What this ONE frame carries of its own, ignoring what it inherits. */
@@ -1318,6 +1326,74 @@ export function batchRecipe(projectId: string, batchId?: string | null): ToolIns
  *  all-disabled recipe is the raw frame, and must produce the raw frame's key. */
 export function activeSteps(projectId: string, frame?: string): ToolInstance[] {
   return effectiveRecipe(projectId, frame).filter((t) => t.enabled);
+}
+
+/* ---- the frame's file follows the frame's recipe ----
+ *
+ * The recipe is the truth, and the edit screen rightly writes no file. But the
+ * album lays out and PRINTS `frame.shown` — the file in `תמונות` — so a photo
+ * edited on its own used to reach the album unedited. When a frame's own
+ * recipe really changes, its file is re-rendered from the raw through the full
+ * layered recipe. See editSync.ts and docs/EDIT-TO-ALBUM.md.
+ *
+ * Only the FRAME layer triggers this. A change to a batch's look reaches its
+ * files through "apply to set", explicitly: re-rendering every photograph in a
+ * batch on each move of its look would hold the processor for tens of minutes
+ * at a time. */
+
+/** Where a project's rendered files live. One place, so the folder name cannot
+ *  drift between the screens that write there. Matches workspace.EDITED_DIR. */
+export function editedDirOf(home: string): string {
+  return `${home}\\תמונות`;
+}
+
+function rawPathOf(projectId: string, frame: string): string | undefined {
+  const name = frameKey(frame);
+  return (framesByProject[projectId] ?? []).find((f) => f.name === name)?.path;
+}
+
+const frameSync = createEditSync({
+  async render(projectId, frame) {
+    const home = getProject(projectId)?.home;
+    if (!home) throw new Error('לפרויקט אין עדיין תיקייה על הדיסק');
+    const raw = rawPathOf(projectId, frame);
+    if (!raw) throw new Error(`התמונה ${frameKey(frame)} לא נמצאה בתיקיית הפרויקט`);
+    // Read NOW, not when scheduled: the latest recipe is the one that renders.
+    await applyToFrame(raw, editedDirOf(home), activeSteps(projectId, raw));
+  },
+  reload: reloadFrames,
+  onError(projectId, frame, error) {
+    // Reported, never swallowed: a silent failure here is the original bug.
+    console.error(`[עדכון קובץ ערוך] ${projectId} ${frame}:`, error);
+  },
+});
+
+/** What is happening to a frame's file right now: undefined when it is up to
+ *  date, else waiting / rendering / error (with the engine's message). */
+export function frameSyncStatus(projectId: string, frame: string): SyncStatus | undefined {
+  return frameSync.statusOf(projectId, frameKey(frame));
+}
+
+export function subscribeFrameSync(fn: () => void): () => void {
+  return frameSync.subscribe(fn);
+}
+
+/** Resolves once every pending frame file has been written and re-read. */
+export function frameSyncIdle(): Promise<void> {
+  return frameSync.whenIdle();
+}
+
+/** The recipe a frame renders through, as a comparable value. Used to tell a
+ *  real edit from a save that changed nothing — the edit screen saves on every
+ *  action, and merely opening a photograph must not render it. */
+function renderedAs(projectId: string, frame: string): string {
+  return JSON.stringify(activeSteps(projectId, frame));
+}
+
+function afterFrameEdit(projectId: string, frame: string, before: string) {
+  if (renderedAs(projectId, frame) !== before) {
+    frameSync.schedule(projectId, frameKey(frame));
+  }
 }
 
 /** The learned colour look on a batch — or on the project when no batch

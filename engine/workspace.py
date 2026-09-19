@@ -272,6 +272,27 @@ def edited_path(edited_dir, raw_name):
     return os.path.join(edited_dir, stem + ".jpg")
 
 
+def _file_version(path):
+    """Changes whenever the file's bytes are replaced — for the address it is
+    served at, not for identity.
+
+    An edit REPLACES `תמונות/<name>.jpg` in place, so the path never changes,
+    and /thumb tells the browser it may keep a thumbnail for a day. Keyed on the
+    path alone, a re-edited photograph therefore went on showing its previous
+    version in the album for up to 24 hours. Screens append this to the address
+    so every new version is a new URL.
+
+    A string, not a number: nanosecond mtimes are ~1.7e18, past the 2**53 a
+    JavaScript number can hold exactly, and two versions that round to the same
+    float would be the same address again.
+    """
+    try:
+        st = os.stat(path)
+    except OSError:
+        return ""
+    return f"{st.st_mtime_ns}-{st.st_size}"
+
+
 def list_frames(raw_dir, edited_dir=None):
     """Every frame in the set, in capture order, with the file to SHOW.
 
@@ -290,12 +311,14 @@ def list_frames(raw_dir, edited_dir=None):
         path = os.path.join(raw_dir, name)
         edited = edited_path(edited_dir, name) if edited_dir else None
         has_edit = bool(edited and os.path.isfile(edited))
+        shown = edited if has_edit else path
         out.append({
             "path": path,
             "name": name,
             "shot": _shot_time(path),
             "edited": has_edit,
-            "shown": edited if has_edit else path,
+            "shown": shown,
+            "version": _file_version(shown),
         })
     out.sort(key=lambda f: (f["shot"], f["name"]))
     return out
