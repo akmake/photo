@@ -48,6 +48,7 @@
 | מתי | קובץ |
 |---|---|
 | מנוע, כלים, מודל נתונים, כללי מוצר | `docs/ARCHITECTURE.md` |
+| רישוי, מנוי, חשבון, נעילה, שרת רישיונות | `docs/LICENSING.md` |
 | באג ידוע / מדידה קיימת | `docs/BUGS.md` |
 | מה מצבו של כלי מסוים | `docs/TOOLS-STATUS.md` |
 | UX, מסכים, שלד המוצר | `docs/PRODUCT-UX.md` · `UX-SKELETON.md` · `SCREEN-EDITING.md` |
