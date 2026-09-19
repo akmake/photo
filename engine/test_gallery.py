@@ -95,7 +95,11 @@ def main():
 
         print("\npublish")
         for n, (path, dv) in enumerate(zip(paths, derived)):
-            gallery.ingest(gid, f"frame-{n}", os.path.basename(path), dv, order=n)
+            gallery.ingest(
+                gid, f"frame-{n}", os.path.basename(path), dv, order=n,
+                group_id="ceremony" if n < 3 else "party",
+                group_name="חופה" if n < 3 else "ריקודים",
+            )
         stored = os.path.join(root, "objects", "gal", gid)
         files = sum(len(f) for _, _, f in os.walk(stored))
         check("two objects written per frame", files == 10, f"{files} files")
@@ -118,6 +122,13 @@ def main():
         check("each frame carries an aspect ratio", first["aspect"] > 1)
         check("thumb and preview are both addressable",
               bool(first["thumb"]) and bool(first["preview"]))
+        check("the original editing group reaches the client",
+              first["groupId"] == "ceremony" and first["groupName"] == "חופה",
+              str(first))
+        check("later groups keep their own heading",
+              man["items"][-1]["groupId"] == "party" and
+              man["items"][-1]["groupName"] == "ריקודים",
+              str(man["items"][-1]))
         check("nothing is chosen yet", all(not i["albumIds"] for i in man["items"]))
 
         print("\nchoosing")
@@ -176,6 +187,12 @@ def main():
               {s["frameId"] for s in st["selection"]} ==
               {"frame-0", "frame-1", "frame-3"},
               str(sorted(s["frameId"] for s in st["selection"])))
+        check("the original group comes back with the selection",
+              {s["frameId"]: s["groupId"] for s in st["selection"]} == {
+                  "frame-0": "ceremony",
+                  "frame-1": "ceremony",
+                  "frame-3": "party",
+              }, str(st["selection"]))
         check("the counts match what was chosen",
               st["counts"][all_albums[0]] == 3, str(st["counts"]))
         late = [c for c in st["comments"] if c["id"] == posted["id"]]
@@ -206,6 +223,10 @@ def main():
               sorted(plan["albums"][all_albums[0]]["frames"]) ==
               ["frame-0", "frame-1", "frame-3"],
               str(plan["albums"][all_albums[0]]["frames"]))
+        check("the editing split comes with it",
+              plan["groups"]["frame-0"]["id"] == "ceremony" and
+              plan["groups"]["frame-3"]["id"] == "party",
+              str(plan["groups"]))
         check("an empty folder matches nothing and loses nothing",
               gallery.import_plan(gid, [])["missing"] == [
                   "frame-0", "frame-1", "frame-3"])

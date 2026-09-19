@@ -1053,9 +1053,8 @@ export interface ProjectMemory {
     perFrame: Record<string, ToolInstance[]>;
   };
   /** The client gallery this folder was published to. Null until there is one.
-   *  Lives here rather than on the business record so that the batch a client's
-   *  choice creates and the note saying it was already created cannot part
-   *  company — see workspace.py EMPTY_STATE. */
+   *  Lives here rather than on the business record so the saved selection and
+   *  the note saying it was imported cannot part company. */
   gallery: GalleryLink | null;
   /** רצפים — the story of the day. Independent of `batches`: a batch is a light
    *  and carries a recipe, a moment is a chapter and carries only membership.
@@ -1081,12 +1080,24 @@ export interface GalleryLink {
   galleryId: string;
   slug: string;
   username: string;
+  /** Kept on the photographer's own project so both credentials can be copied
+   * after creation. The server stores only the hash. Optional for galleries
+   * created before this field existed. */
+  password?: string;
   createdAt: number;
   /** how many frames were published, so the screen can say so without asking */
   published: number;
-  /** set once the locked choice has been turned into a batch. Its presence is
-   *  what stops a second import on the next poll. */
+  /** Set once the locked choice has been brought back into the project. Its
+   *  presence stops a second import on the next poll. The choice is a filter
+   *  over the original batches — it must never replace their membership. */
   importedAt?: number;
+  /** File names selected by the client. Kept separately from batch membership
+   *  so the editor can show the choice inside the original shoot groups. */
+  selectedFrames?: string[];
+  /** Original editing group for each selected frame at publish time. This also
+   *  lets projects imported by an older build recover their original split. */
+  selectionGroups?: Record<string, { id: string | null; name: string | null }>;
+  /** Legacy field from builds that turned the choice into one synthetic batch. */
   batchId?: string;
   /** Frames the client chose that are NOT in this folder any more — renamed,
    *  moved, deleted. NEVER swallowed: handing the photographer forty photographs
@@ -1132,6 +1143,8 @@ export interface GalleryState {
     albumIds: string[];
     clientDone: boolean;
     versions: number;
+    groupId?: string | null;
+    groupName?: string | null;
   }[];
   comments: GalleryComment[];
   serverTime: number;
@@ -1143,6 +1156,7 @@ export interface ImportPlan {
   matched: string[];
   missing: string[];
   albums: Record<string, { name: string; quota: number; frames: string[] }>;
+  groups?: Record<string, { id: string | null; name: string | null }>;
   openComments: number;
 }
 
@@ -1165,7 +1179,13 @@ export async function createGallery(
  *  rest still land — a 600-frame publish must not die on one bad JPEG. */
 export async function publishFrames(
   galleryId: string,
-  frames: { path: string; frameId: string; name: string }[],
+  frames: {
+    path: string;
+    frameId: string;
+    name: string;
+    groupId?: string;
+    groupName?: string;
+  }[],
 ): Promise<{
   published: { id: string; frameId: string }[];
   failed: { name: string; error: string }[];

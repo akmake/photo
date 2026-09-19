@@ -13,6 +13,7 @@ import {
   createGallery,
 } from '../../api';
 import {
+  batchOfFrame,
   framesOf,
   framesInBatch,
   setGalleryLink,
@@ -21,6 +22,7 @@ import {
 } from '../../studio/store';
 import type { Frame } from '../../api';
 import { publishAll, unlinkGallery, useGalleryWatch, type PublishProgress } from '../../studio/galleryLink';
+import { galleryPublicUrl, galleryShareText, openClientGallery } from '../../studio/galleryShare';
 import NoteViewer from '../../studio/NoteViewer';
 import {
   TzIconSend,
@@ -165,18 +167,19 @@ function CreateGalleryFlow({
 
     try {
       const made = await createGallery(projectId, clientName || 'גלריה', clean);
-      setGalleryLink(projectId, {
-        galleryId: made.id,
-        slug: made.slug,
-        username: made.username,
-        createdAt: Date.now(),
-        published: 0,
-      });
       setOneTimePassword(made.password);
 
       const out = await publishAll(
         made.id,
-        chosenFrames.map((f) => ({ path: f.path, name: f.name })),
+        chosenFrames.map((f) => {
+          const groupId = batchOfFrame(projectId, f.name);
+          return {
+            path: f.path,
+            name: f.name,
+            groupId,
+            groupName: batches.find((batch) => batch.id === groupId)?.name,
+          };
+        }),
         setProgress,
       );
 
@@ -184,13 +187,14 @@ function CreateGalleryFlow({
         galleryId: made.id,
         slug: made.slug,
         username: made.username,
+        password: made.password,
         createdAt: Date.now(),
         published: out.done,
       });
     } catch (e) {
       setError(e instanceof Error ? e.message : 'יצירת הגלריה נכשלה');
     }
-  }, [albums, chosenFrames, clientName, projectId]);
+  }, [albums, batches, chosenFrames, clientName, projectId]);
 
   if (progress) {
     const pct = progress.total ? Math.round((progress.done / progress.total) * 100) : 0;
@@ -423,30 +427,31 @@ function LiveGalleryFlow({
   state: ReturnType<typeof useGalleryWatch>['state'];
   link: NonNullable<ReturnType<typeof useGalleryWatch>['link']>;
 }) {
-  const [password, setPassword] = useState<string | null>(null);
+  const [password, setPassword] = useState<string | null>(link.password ?? null);
   const [busy, setBusy] = useState(false);
   const [copied, setCopied] = useState(false);
 
-  const url = `${location.origin}/gallery.html?g=${link.slug}`;
+  const url = galleryPublicUrl(link.slug);
+  const accessPassword = password || link.password || '';
 
   const copyLink = () => {
-    const text = `היי ${clientName}, הגלריה שלכם מוכנה לצפייה ובחירת תמונות!\n${url}\nשם משתמש: ${link.username}`;
+    if (!url || !accessPassword) return;
+    const text = galleryShareText(clientName, url, link.username, accessPassword);
     void navigator.clipboard.writeText(text).then(() => {
       setCopied(true);
       setTimeout(() => setCopied(false), 2200);
     });
   };
 
-  const whatsappMessage = encodeURIComponent(
-    `היי ${clientName}, שמחים לעדכן שהתמונות שלכם מוכנות לבחירה לאלבומים! 📸✨\n\nקישור ישיר לגלריה:\n${url}\n\nשם משתמש: ${link.username}\n\nבחירה מהנה!`,
-  );
-  const whatsappUrl = `https://api.whatsapp.com/send?text=${whatsappMessage}`;
+  const whatsappUrl = url && accessPassword
+    ? `https://api.whatsapp.com/send?text=${encodeURIComponent(galleryShareText(clientName, url, link.username, accessPassword))}`
+    : null;
 
   const reissue = async () => {
     setBusy(true);
     try {
       const out = await galleryCredentials(link.galleryId);
-      setGalleryLink(projectId, { ...link, username: out.username });
+      setGalleryLink(projectId, { ...link, username: out.username, password: out.password });
       setPassword(out.password);
     } finally {
       setBusy(false);
@@ -556,40 +561,49 @@ function LiveGalleryFlow({
             </div>
 
             <div className="tz-sc-link-row">
-              <span className="tz-sc-url-text">{url}</span>
+              <span className="tz-sc-url-text">
+                {url || 'קישור ציבורי יחובר בעת פרסום שרת הגלריות'}
+              </span>
               <button
                 type="button"
                 className={`tz-sc-copy-btn ${copied ? 'copied' : ''}`}
                 onClick={copyLink}
+                disabled={!url || !accessPassword}
               >
                 {copied ? <TzIconCheckCircle size={15} /> : <TzIconCopy size={15} />}
                 {copied ? 'הועתק!' : 'העתק קישור'}
               </button>
-              <a
-                href={url}
-                target="_blank"
-                rel="noreferrer"
+              <button
+                type="button"
                 className="tz-sc-subtle-btn"
-                title="פתח גלריה בחלון חדש"
+                title="ראה בדיוק מה הלקוח רואה"
+                onClick={() => openClientGallery(link.slug, url)}
               >
                 <TzIconExternal size={14} />
-              </a>
+                ראה כלקוח
+              </button>
             </div>
 
-            <a
-              href={whatsappUrl}
-              target="_blank"
-              rel="noreferrer"
-              className="tz-sc-whatsapp-btn"
-            >
-              <TzIconWhatsApp size={20} />
-              שלח קישור ישיר בוואטסאפ ל{clientName}
-            </a>
+            {whatsappUrl ? (
+              <a
+                href={whatsappUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="tz-sc-whatsapp-btn"
+              >
+                <TzIconWhatsApp size={20} />
+                שלח קישור ופרטי כניסה בוואטסאפ ל{clientName}
+              </a>
+            ) : (
+              <p className="tz-sc-card-desc">
+                התצוגה המקומית זמינה לבדיקה. שליחה ללקוח תופעל לאחר חיבור כתובת הגלריה הציבורית.
+              </p>
+            )}
 
             <div className="tz-sc-creds-row">
               <div className="tz-sc-creds-values">
                 <span>משתמש: <code>{link.username}</code></span>
-                {password && <span>סיסמה: <code>{password}</code></span>}
+                {accessPassword && <span>סיסמה: <code>{accessPassword}</code></span>}
               </div>
               <button
                 type="button"
@@ -645,7 +659,7 @@ function LiveGalleryFlow({
               <div className="tz-sc-imported-copy">
                 <TzIconCheckCircle size={22} />
                 <span>
-                  הבחירה נכנסה בהצלחה לפרויקט כמקבץ <strong>בחירת הלקוח</strong>!
+                  הבחירה נשמרה בהצלחה ותופיע בעריכה לפי <strong>המקבצים המקוריים</strong>!
                 </span>
               </div>
             </div>

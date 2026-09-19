@@ -208,7 +208,8 @@ def reissue_credentials(gallery_id):
     return {"username": gallery["username"], "password": password}
 
 
-def ingest(gallery_id, frame_id, name, derived, order=0):
+def ingest(gallery_id, frame_id, name, derived, order=0,
+           group_id=None, group_name=None):
     """Publish one derived frame into a gallery, in process.
 
     The path for a store that lives on this machine: the engine already holds
@@ -229,6 +230,8 @@ def ingest(gallery_id, frame_id, name, derived, order=0):
         "frameId": frame_id,       # the stable identity. NEVER the filename.
         "name": name,
         "order": order,
+        "groupId": group_id,
+        "groupName": group_name,
         "thumbKey": f"{base}/thumb.jpg",
         "color": derived.get("color") or "#d8d3cc",
         "aspect": derived.get("aspect") or 1.5,
@@ -270,7 +273,11 @@ def publish(gallery_id, frames):
             continue
         try:
             derived = gallery_derive.derive(path)
-            done.append(ingest(gallery_id, frame_id, name, derived, order=start + n))
+            done.append(ingest(
+                gallery_id, frame_id, name, derived, order=start + n,
+                group_id=frame.get("groupId"),
+                group_name=frame.get("groupName"),
+            ))
         except Exception as e:  # noqa: BLE001
             failed.append({"name": name, "error": str(e)})
     return {"published": done, "failed": failed}
@@ -301,6 +308,8 @@ def upload_targets(gallery_id, frames):
             "frameId": frame.get("frameId"),
             "name": frame.get("name"),
             "order": frame.get("order", n),
+            "groupId": frame.get("groupId"),
+            "groupName": frame.get("groupName"),
             "thumbKey": f"{base}/thumb.jpg",
             "color": frame.get("color") or "#d8d3cc",
             "aspect": frame.get("aspect") or 1.5,
@@ -413,6 +422,8 @@ def state(gallery_id):
                 "albumIds": i.get("albumIds") or [],
                 "clientDone": bool(i.get("clientDone")),
                 "versions": len(i.get("versions") or []),
+                "groupId": i.get("groupId"),
+                "groupName": i.get("groupName"),
             }
             for i in items
             if i.get("albumIds")
@@ -541,6 +552,15 @@ def import_plan(gallery_id, frame_names):
             if album_id in albums:
                 albums[album_id]["frames"].append(item["frameId"])
 
+    groups = {
+        item["frameId"]: {
+            "id": item.get("groupId"),
+            "name": item.get("groupName"),
+        }
+        for item in chosen
+        if item.get("groupId") or item.get("groupName")
+    }
+
     comments = _r().find("galleryComments", {"galleryId": gallery_id})
     return {
         "name": gallery["name"],
@@ -548,6 +568,7 @@ def import_plan(gallery_id, frame_names):
         "matched": matched,
         "missing": missing,
         "albums": albums,
+        "groups": groups,
         "openComments": len([c for c in comments if not c.get("resolvedAt")]),
     }
 
@@ -704,6 +725,8 @@ def manifest(token):
         "items": [
             {
                 "id": i["id"],
+                "groupId": i.get("groupId"),
+                "groupName": i.get("groupName"),
                 "color": i.get("color"),
                 "aspect": i.get("aspect"),
                 "thumb": store.url(i["thumbKey"]),

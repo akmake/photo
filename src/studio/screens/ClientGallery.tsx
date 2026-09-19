@@ -27,6 +27,7 @@ import {
   createGallery,
 } from '../../api';
 import {
+  batchOfFrame,
   framesOf,
   framesInBatch,
   setGalleryLink,
@@ -36,6 +37,7 @@ import {
 } from '../store';
 import type { Frame } from '../../api';
 import { publishAll, unlinkGallery, useGalleryWatch, type PublishProgress } from '../galleryLink';
+import { galleryPublicUrl, galleryShareText, openClientGallery } from '../galleryShare';
 import NoteViewer from '../NoteViewer';
 import { IcCheckCircle, IcLink } from '../../design/Icons';
 import './client-gallery.css';
@@ -76,7 +78,7 @@ export default function ClientGallery({
       {!link ? (
         <Create projectId={projectId} clientName={clientName} frames={frames} />
       ) : (
-        <Live projectId={projectId} watch={watch} state={state} link={link} />
+        <Live projectId={projectId} clientName={clientName} watch={watch} state={state} link={link} />
       )}
       <Brand />
     </>
@@ -212,34 +214,33 @@ function Create({
 
     try {
       const made = await createGallery(projectId, clientName || 'גלריה', clean);
-      /* Written BEFORE the upload starts. A publish that dies halfway with no
-       * link saved leaves a gallery on the server that the studio has no way
-       * to find, and no way to delete. */
-      setGalleryLink(projectId, {
-        galleryId: made.id,
-        slug: made.slug,
-        username: made.username,
-        createdAt: Date.now(),
-        published: 0,
-      });
       setPassword(made.password);
 
       const out = await publishAll(
         made.id,
-        chosen.map((f) => ({ path: f.path, name: f.name })),
+        chosen.map((f) => {
+          const groupId = batchOfFrame(projectId, f.name);
+          return {
+            path: f.path,
+            name: f.name,
+            groupId,
+            groupName: batches.find((batch) => batch.id === groupId)?.name,
+          };
+        }),
         setProgress,
       );
       setGalleryLink(projectId, {
         galleryId: made.id,
         slug: made.slug,
         username: made.username,
+        password: made.password,
         createdAt: Date.now(),
         published: out.done,
       });
     } catch (e) {
       setError(e instanceof Error ? e.message : 'לא ניתן ליצור את הגלריה');
     }
-  }, [albums, chosen, clientName, projectId]);
+  }, [albums, batches, chosen, clientName, projectId]);
 
   if (progress) {
     return (
@@ -365,23 +366,27 @@ function Progress({ progress }: { progress: PublishProgress }) {
 
 function Live({
   projectId,
+  clientName,
   watch,
   state,
   link,
 }: {
   projectId: string;
+  clientName: string;
   watch: ReturnType<typeof useGalleryWatch>;
   state: ReturnType<typeof useGalleryWatch>['state'];
   link: NonNullable<ReturnType<typeof useGalleryWatch>['link']>;
 }) {
-  const [password, setPassword] = useState<string | null>(null);
+  const [password, setPassword] = useState<string | null>(link.password ?? null);
   const [busy, setBusy] = useState(false);
   const [copied, setCopied] = useState(false);
-  const url = `${location.origin}/gallery.html?g=${link.slug}`;
+  const url = galleryPublicUrl(link.slug);
+  const accessPassword = password || link.password || '';
 
   const copy = () => {
+    if (!url || !accessPassword) return;
     void navigator.clipboard
-      .writeText(`הגלריה שלכם:\n${url}\nשם משתמש: ${link.username}`)
+      .writeText(galleryShareText(clientName, url, link.username, accessPassword))
       .then(() => {
         setCopied(true);
         setTimeout(() => setCopied(false), 2000);
@@ -392,7 +397,7 @@ function Live({
     setBusy(true);
     try {
       const out = await galleryCredentials(link.galleryId);
-      setGalleryLink(projectId, { ...link, username: out.username });
+      setGalleryLink(projectId, { ...link, username: out.username, password: out.password });
       setPassword(out.password);
     } finally {
       setBusy(false);
@@ -429,21 +434,24 @@ function Live({
       )}
 
       <div className="cg-link">
-        <code className="cg-url">{url}</code>
+        <code className="cg-url">{url || 'קישור ציבורי טרם הוגדר'}</code>
         <div className="cg-creds">
           <span>משתמש: <code>{link.username}</code></span>
-          {password && <span>סיסמה: <code>{password}</code></span>}
+          {accessPassword && <span>סיסמה: <code>{accessPassword}</code></span>}
         </div>
         <div className="cg-link-actions">
-          <button className="btn" onClick={copy}>
+          <button className="btn" onClick={copy} disabled={!url || !accessPassword}>
             {copied ? <IcCheckCircle size={16} /> : <IcLink size={16} />}
             {copied ? 'הועתק' : 'העתק קישור'}
+          </button>
+          <button className="btn" onClick={() => openClientGallery(link.slug, url)}>
+            ראה כלקוח
           </button>
           <button className="btn" onClick={reissue} disabled={busy}>
             הנפק פרטים מחדש
           </button>
         </div>
-        {!password && (
+        {!accessPassword && (
           <p className="cg-hint">
             הסיסמה מוצגת פעם אחת בלבד. שכחת? הנפק פרטים מחדש — הקודמים יפסיקו
             לעבוד.
@@ -565,14 +573,14 @@ function Imported({
     <div className="cg-imported">
       <p>
         <IcCheckCircle size={16} />
-        הבחירה נכנסה כמקבץ <strong>בחירת הלקוח</strong>
+        הבחירה נשמרה ותופיע בעריכה בתוך <strong>המקבצים המקוריים</strong>
         {count ? ` · ${count} תמונות באלבום הגדול` : ''}
       </p>
       {missing.length > 0 && (
         <div className="cg-missing">
           <strong>{missing.length} תמונות שהלקוח בחר אינן בתיקייה.</strong>
           <p className="cg-hint">
-            כנראה שונה שמן או הועברו אחרי הפרסום. הן לא נכנסו למקבץ, ולא נמחקו
+            כנראה שונה שמן או הועברו אחרי הפרסום. הן לא נכנסו לבחירה, ולא נמחקו
             משום מקום.
           </p>
           <ul>

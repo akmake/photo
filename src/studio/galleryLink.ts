@@ -58,7 +58,7 @@ export interface PublishProgress {
  *  unreadable JPEG in six hundred must not cost the other 599. */
 export async function publishAll(
   galleryId: string,
-  frames: { path: string; name: string }[],
+  frames: { path: string; name: string; groupId?: string; groupName?: string }[],
   onProgress: (p: PublishProgress) => void,
   shouldStop: () => boolean = () => false,
 ): Promise<PublishProgress> {
@@ -72,7 +72,13 @@ export async function publishAll(
         // frameId is the FILE NAME: project.json is keyed by name so the folder
         // can move or arrive under another drive letter. A gallery answering in
         // paths would answer in a language the project cannot read.
-        chunk.map((f) => ({ path: f.path, frameId: f.name, name: f.name })),
+        chunk.map((f) => ({
+          path: f.path,
+          frameId: f.name,
+          name: f.name,
+          groupId: f.groupId,
+          groupName: f.groupName,
+        })),
       );
       progress.done += out.published.length;
       progress.failed.push(...out.failed);
@@ -95,9 +101,9 @@ export interface GalleryWatch {
   /** 'down' is not 'nothing yet': a gallery that cannot be reached says so. */
   status: 'none' | 'reading' | 'ready' | 'down';
   fault: string | null;
-  /** Set on the poll that turned a locked choice into a batch, so the screen
-   *  can say what just happened instead of quietly growing a batch. */
-  imported: { batchId: string; count: number; missing: string[] } | null;
+  /** Set on the poll that saved a locked choice, so the screen can say what
+   *  just happened instead of changing its editing view silently. */
+  imported: { count: number; missing: string[] } | null;
   refresh: () => void;
 }
 
@@ -119,15 +125,14 @@ export function useGalleryWatch(projectId: string): GalleryWatch {
       setFault(null);
       setStatus('ready');
 
-      /* The whole point of the mechanism: a locked choice becomes a set. Once
-       * only — importedAt is written in the same move as the batch. */
+      /* A locked choice becomes a saved filter over the original batches.
+       * Once only — importedAt is written in the same move as the selection. */
       const current = link;
       if (next.gallery.lockedAt && current && !current.importedAt) {
         const names = framesOf(projectId).map((f) => f.name);
         const plan = await galleryImportPlan(galleryId, names);
         const out = importClientChoice(projectId, current, plan);
         setImported({
-          batchId: out.batchId,
           count: plan.matched.length,
           missing: out.missing,
         });

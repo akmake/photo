@@ -76,6 +76,7 @@ const LOG_DIR = path.join(DATA_ROOT, 'logs');
 
 let mainWindow = null;
 let splashWindow = null;
+const galleryPreviewWindows = new Set();
 let engine = null;          // the child process, when WE started it
 let engineAttached = false; // true when an engine was already running
 let quitting = false;
@@ -378,6 +379,31 @@ ipcMain.on('menu:context-edit', (event) => {
 
 ipcMain.on('shell:open-external', (_event, url) => {
   if (typeof url === 'string' && /^https?:\/\//.test(url)) shell.openExternal(url);
+});
+
+ipcMain.on('gallery:open-preview', (_event, slug) => {
+  if (typeof slug !== 'string' || !/^[A-Za-z0-9]+$/.test(slug)) return;
+  const preview = new BrowserWindow({
+    width: 430,
+    height: 820,
+    minWidth: 360,
+    minHeight: 600,
+    title: 'תצוגת הלקוח · TEZA',
+    autoHideMenuBar: true,
+    backgroundColor: SURFACE,
+    webPreferences: {
+      contextIsolation: true,
+      nodeIntegration: false,
+      devTools: DEV,
+    },
+  });
+  galleryPreviewWindows.add(preview);
+  preview.on('closed', () => galleryPreviewWindows.delete(preview));
+  if (DEV) {
+    preview.loadURL(`http://localhost:5173/gallery.html?g=${encodeURIComponent(slug)}`);
+  } else {
+    preview.loadFile(path.join(REPO_ROOT, 'dist', 'gallery.html'), { query: { g: slug } });
+  }
 });
 
 /** The menu bar is not shown (the window is frameless), but the application

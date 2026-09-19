@@ -31,6 +31,8 @@ import type { Frame, GalleryLink, ProjectMemory, StoryMoment } from '../api';
 import { dbDelete, dbFind, dbImport, dbSaveMany } from '../db';
 import * as G from './groups';
 import type { GroupKind, GroupSlice } from './groups';
+import { withClientChoice } from './clientChoice';
+import type { ClientChoicePlan } from './clientChoice';
 import type { LearnedColorModel, ProjectRecipe, Batch, ToolInstance } from '../types';
 
 /** The stages a job moves through. Every project carries all of them — a shoot
@@ -806,10 +808,11 @@ export function addBatch(projectId: string, name: string, frames: string[] = [])
 
 /* ── the client gallery's thread back into the project ─────────────────────
  *
- * The link is kept in project.json beside the batches on purpose: the batch a
- * client's choice creates and the note saying it was already created have to
- * be written in the same move, or a crash between them either imports twice or
- * never imports at all.
+ * The link is kept in project.json beside the batches on purpose: the client's
+ * choice and the note saying it was already imported have to be written in the
+ * same move, or a crash between them either imports twice or never imports at
+ * all. The choice is deliberately NOT a batch. It is a filter laid over the
+ * shoot's original batches, which remain the useful units for editing.
  */
 
 export function galleryOf(projectId: string): GalleryLink | null {
@@ -829,8 +832,8 @@ export function setGalleryLink(projectId: string, link: GalleryLink | null) {
   write(projectId, { ...stateOf(projectId), gallery: link });
 }
 
-/** The client's locked choice, as a batch — in ONE write with the note that
- *  says it happened.
+/** Save the client's locked choice — in ONE write with the note that says it
+ *  happened — without changing any original batch assignment.
  *
  *  Returns the frames the client chose that are not in this folder. The caller
  *  must show them: fewer photographs than the couple picked, with nothing said,
@@ -839,31 +842,11 @@ export function setGalleryLink(projectId: string, link: GalleryLink | null) {
 export function importClientChoice(
   projectId: string,
   link: GalleryLink,
-  plan: { matched: string[]; missing: string[]; albums: GalleryLink['albums'] },
-  batchName = 'בחירת הלקוח',
-): { batchId: string; missing: string[] } {
+  plan: ClientChoicePlan,
+): { count: number; missing: string[] } {
   const current = stateOf(projectId);
-  const batch: Batch = {
-    id: `s${Date.now().toString(36)}`,
-    name: batchName,
-    order: current.batches.length,
-  };
-  const assign = { ...current.assign };
-  for (const frame of plan.matched) assign[frameKey(frame)] = batch.id;
-
-  write(projectId, {
-    ...current,
-    batches: [...current.batches, batch],
-    assign,
-    gallery: {
-      ...link,
-      importedAt: Date.now(),
-      batchId: batch.id,
-      missing: plan.missing,
-      albums: plan.albums,
-    },
-  });
-  return { batchId: batch.id, missing: plan.missing };
+  write(projectId, withClientChoice(current, link, plan));
+  return { count: plan.matched.length, missing: plan.missing };
 }
 
 export function renameBatch(projectId: string, id: string, name: string) {
@@ -1261,6 +1244,24 @@ export function setFrameStep(projectId: string, frame: string, step: ToolInstanc
       perFrame: { ...recipe.perFrame, [key]: upsert(recipe.perFrame[key] ?? [], step) },
     },
   });
+}
+
+/** Copy one or more shareable steps to a precise list of photographs in a
+ * single project write. This is what lets "apply to the client's choice" stay
+ * honest: hidden, unselected photographs in the same batch are untouched. */
+export function setFrameSteps(projectId: string, frames: string[], steps: ToolInstance[]) {
+  if (!frames.length || !steps.length) return;
+  const current = stateOf(projectId);
+  const recipe = current.recipe as ProjectRecipe;
+  const perFrame = { ...recipe.perFrame };
+  const clean = steps.map(shareable);
+  for (const frame of frames) {
+    const key = frameKey(frame);
+    let next = perFrame[key] ?? [];
+    for (const step of clean) next = upsert(next, step);
+    perFrame[key] = next;
+  }
+  write(projectId, { ...current, recipe: { ...recipe, perFrame } });
 }
 
 export function removeFrameStep(projectId: string, frame: string, toolId: string) {

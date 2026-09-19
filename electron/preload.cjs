@@ -140,4 +140,10 @@ contextBridge.exposeInMainWorld('teza', {
   openExternal(url) {
     if (/^https?:\/\//.test(url)) ipcRenderer.send('shell:open-external', url);
   },
+
+  /** Show the photographer the exact app their client will use. This is a
+   * local preview, not a pretend public URL. */
+  openClientGallery(slug) {
+    ipcRenderer.send('gallery:open-preview', slug);
+  },
 });

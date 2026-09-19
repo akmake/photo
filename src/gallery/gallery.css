@@ -147,6 +147,36 @@
 
 /* ── the grid ─────────────────────────────────────────────────────────── */
 
+.gal-groups {
+  display: grid;
+  gap: 14px;
+  padding-block: 8px;
+}
+
+.gal-group {
+  min-width: 0;
+}
+
+.gal-group-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 14px 7px;
+}
+
+.gal-group-head h2 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.gal-group-head span {
+  color: var(--ink-3);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
 .gal-grid { padding: 3px; }
 
 .gal-row {

@@ -45,7 +45,13 @@ export default function Grid({
   const measure = useCallback(() => {
     const el = host.current;
     if (!el) return;
-    setWidth(el.clientWidth);
+    /* clientWidth includes the grid's inline padding. Measuring that padded
+     * width made every row a few pixels wider than its actual content box and
+     * produced a horizontal scrollbar on phones. */
+    const style = window.getComputedStyle(el);
+    const inlinePadding =
+      Number.parseFloat(style.paddingLeft) + Number.parseFloat(style.paddingRight);
+    setWidth(Math.max(0, el.clientWidth - inlinePadding));
     setTop(el.getBoundingClientRect().top + window.scrollY);
     setViewport(window.innerHeight);
   }, []);

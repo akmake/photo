@@ -10,6 +10,7 @@ import * as api from './api';
 import type { Album, Item, Manifest } from './api';
 import Grid from './Grid';
 import Lightbox from './Lightbox';
+import { groupGalleryItems } from './groups';
 import './gallery.css';
 
 type Phase = 'loading' | 'login' | 'ready' | 'dead';
@@ -154,6 +155,7 @@ export default function App() {
     () => (locked ? items.filter((i) => i.albumIds.length) : items),
     [locked, items],
   );
+  const groups = useMemo(() => groupGalleryItems(visible), [visible]);
 
   const addNote = useCallback(
     async (item: Item, x: number, y: number, text: string) => {
@@ -256,7 +258,25 @@ export default function App() {
 
       {notice && <div className="gal-toast">{notice}</div>}
 
-      <Grid items={visible} onOpen={setOpen} onToggle={toggleHeart} locked={locked} />
+      <main className="gal-groups">
+        {groups.map((group) => (
+          <section className="gal-group" key={group.id}>
+            <div className="gal-group-head">
+              <h2>{group.name}</h2>
+              <span>{group.items.length} תמונות</span>
+            </div>
+            <Grid
+              items={group.items}
+              onOpen={(groupIndex) => {
+                const item = group.items[groupIndex];
+                setOpen(visible.findIndex((candidate) => candidate.id === item.id));
+              }}
+              onToggle={toggleHeart}
+              locked={locked}
+            />
+          </section>
+        ))}
+      </main>
 
       {locked ? (
         <footer className="gal-foot is-quiet">

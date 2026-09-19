@@ -25,6 +25,10 @@ export interface Note {
 
 export interface Item {
   id: string;
+  /** The photographer's original editing group. The client sees the same
+   * chapters instead of one undifferentiated wall of photographs. */
+  groupId?: string;
+  groupName?: string;
   /* The average colour of the frame. Held in the cell until the image lands,
    * so a grid of 600 never jumps while it loads. Seven characters instead of
    * a blurred base64 thumbnail, which would be ~120KB of manifest before a
@@ -74,7 +78,11 @@ export interface AlbumFull {
 
 /* In development the gallery is served by Vite and the API is the engine on
  * its own port. Deployed, both come from the same origin and this is empty. */
-const API = import.meta.env.DEV ? 'http://127.0.0.1:8756' : '';
+const LOCAL_ENGINE = String(import.meta.env.VITE_ENGINE_ORIGIN || 'http://127.0.0.1:8756')
+  .replace(/\/$/, '');
+const API = import.meta.env.DEV || location.protocol === 'file:'
+  ? LOCAL_ENGINE
+  : '';
 
 /** Object URLs arrive RELATIVE when the store is a local disk — they are served
  *  by the API, and in development that is a different origin from this page.

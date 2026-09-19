@@ -32,6 +32,41 @@
   max-width: 70%;
 }
 
+.tz-ge-top-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+.tz-ge-choice-toggle {
+  min-height: 36px;
+  padding: 7px 12px;
+  border: 1px solid rgba(232, 99, 56, 0.34);
+  border-radius: 10px;
+  background: #fff8f3;
+  color: #b74623;
+  font-family: inherit;
+  font-size: 12.5px;
+  font-weight: 700;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  white-space: nowrap;
+}
+
+.tz-ge-choice-toggle:hover {
+  background: #fef0e7;
+  border-color: var(--tz-brand);
+}
+
+.tz-ge-choice-toggle.showing-all {
+  border-color: #d4d4d8;
+  background: #fafafa;
+  color: #52525b;
+}
+
 .tz-ge-batch-tab {
   background: #fbfbf9;
   border: 1px solid #e7e5df;
@@ -354,21 +389,106 @@
 
 .tz-ge-canvas-viewport {
   flex: 1;
-  display: flex;
-  align-items: center;
-  justify-content: center;
   position: relative;
-  overflow: hidden;
-  padding: 16px;
+  overflow: auto;
+  direction: ltr;
+  scrollbar-color: #52525b #18181b;
+  scrollbar-width: thin;
+}
+
+.tz-ge-canvas-viewport.is-pannable {
+  cursor: grab;
+  touch-action: none;
+}
+
+.tz-ge-canvas-viewport.is-panning {
+  cursor: grabbing;
+  user-select: none;
+}
+
+.tz-ge-canvas-surface {
+  position: relative;
+  display: grid;
+  place-items: center;
+  min-width: 100%;
+  min-height: 100%;
+  direction: ltr;
 }
 
 .tz-ge-canvas-img {
+  display: block;
   max-width: 100%;
   max-height: 100%;
   object-fit: contain;
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
   border-radius: 6px;
   user-select: none;
+}
+
+/* Always visible above the photograph, in the same lower corner where image
+ * applications put view controls. It is deliberately compact but every hit
+ * target is at least 32px, so zooming never turns into precision clicking. */
+.tz-ge-zoom {
+  position: absolute;
+  inset-inline-end: 16px;
+  inset-block-end: 16px;
+  z-index: 6;
+  display: flex;
+  align-items: center;
+  direction: ltr;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 10px;
+  background: rgba(24, 24, 27, 0.9);
+  box-shadow: 0 6px 22px rgba(0, 0, 0, 0.34);
+  backdrop-filter: blur(8px);
+}
+
+.tz-ge-zoom button {
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-inline-end: 1px solid rgba(255, 255, 255, 0.1);
+  background: transparent;
+  color: #f4f4f5;
+  font: 700 18px/1 var(--tz-font, sans-serif);
+  cursor: pointer;
+}
+
+.tz-ge-zoom button:hover:not(:disabled) {
+  background: var(--tz-brand);
+}
+
+.tz-ge-zoom button:focus-visible {
+  position: relative;
+  outline: 2px solid #ffffff;
+  outline-offset: -3px;
+}
+
+.tz-ge-zoom button:disabled {
+  color: #71717a;
+  cursor: default;
+}
+
+.tz-ge-zoom output {
+  min-width: 62px;
+  padding-inline: 8px;
+  color: #e4e4e7;
+  font-family: var(--tz-font-mono, monospace);
+  font-size: 11px;
+  font-weight: 700;
+  text-align: center;
+}
+
+.tz-ge-zoom .tz-ge-zoom-fit {
+  width: auto;
+  min-width: 52px;
+  padding-inline: 10px;
+  border-inline-end: 0;
+  color: #d4d4d8;
+  font-size: 11px;
 }
 
 .tz-ge-canvas-badge-original {
