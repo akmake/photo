@@ -16,7 +16,18 @@
 | הנפקת רישיונות (פתקים חתומים) | `app/routers/licenses.py` · `app/services/licensing.py` | Ed25519 אמיתי |
 | גלריות לקוח | `app/routers/galleries.py` · `app/services/storage/` | בבנייה |
 | אזור ניהול | `app/routers/admin.py` | בסיסי |
-| האתר הציבורי + הפורטל | `web/` | בבנייה |
+| האתר: נחיתה + כניסה + פורטל + עמוד לקוח | `web/` | ✅ נבנה ואומת בדפדפן |
+
+## הרצת האתר (פיתוח)
+
+```bash
+cd server/web
+npm install
+npm run dev     # http://localhost:5174 (מדלג ל-5175 אם תפוס)
+```
+
+האתר מדבר עם ה-backend דרך פרוקסי `/api` (ראה `web/vite.config.ts`), אז ה-backend
+חייב לרוץ במקביל על 8790. השם המסחרי מוגדר במקום אחד: `web/src/brand.ts`.
 
 ## הרצה בפיתוח
 

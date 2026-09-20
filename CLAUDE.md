@@ -51,10 +51,11 @@
 | רישוי, מנוי, חשבון, נעילה, שרת רישיונות | `docs/LICENSING.md` |
 | באג ידוע / מדידה קיימת | `docs/BUGS.md` |
 | מה מצבו של כלי מסוים | `docs/TOOLS-STATUS.md` |
-| UX, מסכים, שלד המוצר | `docs/PRODUCT-UX.md` · `UX-SKELETON.md` · `SCREEN-EDITING.md` |
+| UX, מסכים, שלד המוצר | `docs/PRODUCT-UX.md` · `UX-SKELETON.md` |
 | Lab מול שולחן העבודה | `docs/LAB-VS-WORKBENCH.md` |
-| ביצועים ואיטיות | `docs/SLOW.md` |
-| אלבום חכם | `docs/ALBUM-MACHINE.md` · `RESEARCH-album-ai.md` · `RESEARCH-album-ui.md` |
+| ביצועים ואיטיות | `docs/SLOW.md` · `opo/machine-scaling.md` |
+| אלבום חכם | `alb.md` · `docs/ALBUM-MACHINE.md` · `docs/RESEARCH-album-ai.md` · `docs/new/album-visual-language.md` |
+| גלריית לקוח, בחירה והערות | `docs/CLIENT-GALLERY.md` |
 
 ### קוד
 
