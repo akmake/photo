@@ -200,4 +200,3 @@ FLUX/BeautyGRPO (רישיון וכוח חישוב); Retouch4me (עלות לכל 
 - [BeautyGRPO — arXiv](https://arxiv.org/html/2603.01163v1) · [GitHub](https://github.com/vivoCameraResearch/BeautyGRPO)
 - [FLUX.1 Kontext dev — Hugging Face (license)](https://huggingface.co/black-forest-labs/FLUX.1-Kontext-dev)
 - [Face Retouching with Diffusion Data Generation and Spectral Restorement — ICCV 2025](https://openaccess.thecvf.com/content/ICCV2025/html/Xu_Face_Retouching_with_Diffusion_Data_Generation_and_Spectral_Restorement_ICCV_2025_paper.html)
-- מחקר קודם בפרויקט: `docs/CLEANUP-IMPLEMENTATION-STATUS.md`, `tmp/pdfs/report-source.md`
