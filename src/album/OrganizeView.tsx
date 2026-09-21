@@ -59,7 +59,7 @@ export default function OrganizeView({
         <div className="organize-blank">
           <IcGallery size={30} />
           <strong>האלבום עוד ריק</strong>
-          <span>בחרי את התמונות שייכנסו לאלבום — אפשר תמיד להוסיף ולהחליף אחר כך</span>
+          <span>בחר את התמונות שייכנסו לאלבום — אפשר תמיד להוסיף ולהחליף אחר כך</span>
           <button className="organize-import" onClick={onAddPhotos}>הוספת תמונות</button>
         </div>
       </div>
@@ -129,13 +129,13 @@ export default function OrganizeView({
         <div className="organize-blank">
           <IcGallery size={26} />
           <strong>אין עדיין כפולות</strong>
-          <span>הוסיפי כפולה כדי להתחיל לבנות את האלבום</span>
+          <span>הוסף כפולה כדי להתחיל לבנות את האלבום</span>
         </div>
       )}
 
       <p className="organize-hint">
         <IcSparkle size={15} />
-        לחיצה על כפולה פותחת אותה לעריכה · גררי כפולה כדי לשנות את סדר הסיפור
+        לחיצה על כפולה פותחת אותה לעריכה · גרור כפולה כדי לשנות את סדר הסיפור
       </p>
     </div>
   );

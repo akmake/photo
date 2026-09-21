@@ -321,7 +321,7 @@ export default function V2App({ onSwitchToV1, onOpenProjectV1 }: V2AppProps) {
             <span>TEZA</span>
             <span className="tz-logo-ai">AI</span>
           </div>
-          <div className="tz-logo-subtitle">מערכת ההפעלה של הצלמת</div>
+          <div className="tz-logo-subtitle">מערכת ההפעלה של הצלם</div>
         </div>
 
         {/* Business Navigation items */}

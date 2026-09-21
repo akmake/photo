@@ -1040,5 +1040,5 @@ export const EMPTY_GENERATED_LAYOUT: GeneratedAlbumLayout = {
   photoIds: [],
   score: 0,
   warnings: [],
-  explanation: 'בחרי תמונות מהמגש כדי ליצור פריסות שמתאימות אליהן',
+  explanation: 'בחר תמונות מהמגש כדי ליצור פריסות שמתאימות אליהן',
 };

@@ -76,7 +76,7 @@ export default function SendToClientV2({
           <div className="tz-stage-tag">שלב 3 · שלח ללקוח</div>
           <h1>גלריית בחירה אישית ללקוח</h1>
           <p>
-            יצירת קישור מעוצב ומאובטח עבור <strong>{project.client}</strong>. הלקוחה מסמנת את התמונות לאלבומים השונים ומעירה הערות ישירות מהנייד או המחשב,
+            יצירת קישור מעוצב ומאובטח עבור <strong>{project.client}</strong>. הלקוח מסמן את התמונות לאלבומים השונים ומעיר הערות ישירות מהנייד או המחשב,
             והבחירה מסתנכרנת ישירות לכאן.
           </p>
         </div>
@@ -206,7 +206,7 @@ function CreateGalleryFlow({
           <div className="tz-sc-card-title-wrap">
             <h3 className="tz-sc-card-title">
               <TzIconUpload size={20} />
-              מפרסם תמונות לגלריית הלקוחה
+              מפרסם תמונות לגלריית הלקוח
             </h3>
             <p className="tz-sc-card-desc">
               התמונות מומרות לתצוגה קלה ומאובטחת ועולות לשרת הגלריה...
@@ -694,7 +694,7 @@ function LiveGalleryFlow({
                 <div className="tz-sc-card-title-wrap">
                   <h3 className="tz-sc-card-title">התקדמות בחירת האלבומים</h3>
                   <p className="tz-sc-card-desc">
-                    מעקב חי אחר כמות התמונות שסומנו על ידי הלקוחה בכל אלבום.
+                    מעקב חי אחר כמות התמונות שסומנו על ידי הלקוח בכל אלבום.
                   </p>
                 </div>
               </div>
@@ -799,7 +799,7 @@ function ClientFeedbackQueue({
             <span className="tz-sc-pill-badge">{openComments.length} פתוחות</span>
           </h3>
           <p className="tz-sc-card-desc">
-            הלקוחה סימנה נקודות ספציפיות על התמונות וצירפה הערות לעריכה.
+            הלקוח סימן נקודות ספציפיות על התמונות וצירף הערות לעריכה.
           </p>
         </div>
       </div>
