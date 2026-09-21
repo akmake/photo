@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { useBatches, useGalleryOf } from '../../studio/store';
+import { useBatches, useCull, useGalleryOf } from '../../studio/store';
 import type { Project } from '../../studio/store';
 import { galleryPublicUrl, galleryShareText } from '../../studio/galleryShare';
 import {
@@ -31,6 +31,7 @@ export default function TzStatusScreen({
   const [message, setMessage] = useState('');
   const batches = useBatches(project?.id ?? '');
   const link = useGalleryOf(project?.id ?? '');
+  const cull = useCull(project?.id ?? '');
 
   // NOTHING on this screen is invented. It used to open on "מלי כץ · בת
   // מצווה" with 1,842 photographs uploaded on 11.05.2024, and a real project
@@ -116,6 +117,10 @@ export default function TzStatusScreen({
   const chose = Boolean(link?.importedAt) || pickedPhotos > 0;
   const edited = pickedPhotos > 0 && renderedPhotos >= pickedPhotos;
   const closed = project.state === 'done';
+  // The work stage's own record: the photographer's keep/out decisions.
+  const decisions = Object.values(cull);
+  const decided = decisions.length;
+  const rejected = decisions.filter((d) => d === 'reject').length;
 
   const steps: {
     id: string; label: string; icon: React.ReactNode; state: StepState; detail: string;
@@ -132,6 +137,14 @@ export default function TzStatusScreen({
       state: grouped ? 'done' : imported ? 'active' : 'pending',
       detail: grouped ? `${batches.length.toLocaleString('he-IL')} מקבצים` : 'טרם חולק',
       title: 'מעבר ליצירת מקבצים', counts: true,
+    },
+    {
+      id: 'work', label: 'שלב העבודה', icon: <TzIconGallery size={18} />,
+      state: link || chose ? 'done' : decided > 0 || grouped ? 'active' : 'pending',
+      detail: rejected > 0
+        ? `${rejected.toLocaleString('he-IL')} הוצאו מהסט`
+        : decided > 0 ? `${decided.toLocaleString('he-IL')} נבדקו` : 'טרם נבדק',
+      title: 'מעבר לשלב העבודה', counts: true,
     },
     {
       id: 'send-to-client', label: 'שלח ללקוח', icon: <TzIconHeart size={18} />,
