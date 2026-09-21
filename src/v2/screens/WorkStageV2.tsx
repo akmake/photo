@@ -163,6 +163,10 @@ export default function WorkStageV2({
 
   const flat = useMemo(() => moments.flatMap((m) => m.names), [moments]);
 
+  // Going through the suggestions is judging each against its twin, so that
+  // view opens side by side; everywhere else the picture gets the room.
+  useEffect(() => { setCompare(filter === 'remove' || filter === 'duplicate'); }, [filter]);
+
   // Keep a selection that still exists in the current view.
   useEffect(() => {
     if (!flat.length) { setSel(null); return; }
@@ -417,7 +421,9 @@ export default function WorkStageV2({
         <aside className="tz-ws-view">
           {selFrame ? (
             <>
-              <div className={`tz-ws-stage${compare && twinFrame ? ' is-compare' : ''}`}>
+              {/* Two landscapes side by side would each be a third of the panel —
+                  too small to judge focus — so they stack; portraits sit side by side. */}
+              <div className={`tz-ws-stage${compare && twinFrame ? (aspect > 1.05 ? ' is-compare-stack' : ' is-compare') : ''}`}>
                 <figure>
                   <div className="tz-ws-imgbox">
                     <img
