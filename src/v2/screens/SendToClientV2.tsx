@@ -49,11 +49,21 @@ interface DraftAlbum {
   quota: number;
 }
 
-const DEFAULT_ALBUMS: DraftAlbum[] = [
-  { name: 'האלבום הראשי (הזוג)', quota: 80 },
-  { name: 'אלבום הורי החתן', quota: 40 },
-  { name: 'אלבום הורי הכלה', quota: 40 },
-];
+/* What the client is asked to choose for, before the photographer edits it.
+ * A wedding sells the couple's album and one per family, so it opens with
+ * three; every other shoot opens with one album and the photographer adds
+ * more if he sold them. Offering "הורי החתן" at a newborn session was the
+ * program not knowing what job it was looking at. */
+function defaultAlbums(event: string): DraftAlbum[] {
+  if (event.includes('חתונה')) {
+    return [
+      { name: 'האלבום הראשי (הזוג)', quota: 80 },
+      { name: 'אלבום הורי החתן', quota: 40 },
+      { name: 'אלבום הורי הכלה', quota: 40 },
+    ];
+  }
+  return [{ name: 'האלבום הראשי', quota: 80 }];
+}
 
 export default function SendToClientV2({
   project,
@@ -111,6 +121,7 @@ export default function SendToClientV2({
         <CreateGalleryFlow
           projectId={project.id}
           clientName={project.client}
+          event={project.event}
           frames={frames}
         />
       ) : (
@@ -134,15 +145,17 @@ export default function SendToClientV2({
 function CreateGalleryFlow({
   projectId,
   clientName,
+  event,
   frames,
 }: {
   projectId: string;
   clientName: string;
+  event: string;
   frames: Frame[];
 }) {
   const batches = useBatches(projectId);
   const [source, setSource] = useState<string>('all');
-  const [albums, setAlbums] = useState<DraftAlbum[]>(DEFAULT_ALBUMS);
+  const [albums, setAlbums] = useState<DraftAlbum[]>(() => defaultAlbums(event ?? ''));
   const [progress, setProgress] = useState<PublishProgress | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [oneTimePassword, setOneTimePassword] = useState<string | null>(null);
