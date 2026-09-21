@@ -347,6 +347,10 @@ EMPTY_STATE = {
     # Suggested cuts the photographer turned down, by the frame the cut would
     # follow — so the same analysis does not offer them again.
     "rejectedBoundaries": [],
+    # שלב העבודה — the photographer's decision per frame name, 'keep' or
+    # 'reject'. The engine's suggestions are NOT stored here: they are
+    # recomputed from the cache, and must never overwrite what he decided.
+    "cull": {},
 }
 
 

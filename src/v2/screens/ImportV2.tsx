@@ -1,11 +1,11 @@
 ﻿import React, { useCallback, useEffect, useState } from 'react';
 import {
   EDIT_WIDTH, importCloudFrame, importFrame, initProject, listImages, pickFolder,
-  prepareFrames,
+  prepareFrames, triageSet,
 } from '../../api';
 import type { CloudEntry, CloudProvider } from '../../api';
 import {
-  PHOTO_STATUS, folderNameOf, getWorkspaceRoot, reloadFrames, setPhotoStatus,
+  PHOTO_STATUS, folderNameOf, framesOf, getWorkspaceRoot, reloadFrames, setPhotoStatus,
   setWorkspaceRoot, updateProject, useProjectFiles, useStatuses,
 } from '../../studio/store';
 import type { Project, PhotoStatus } from '../../studio/store';
@@ -15,6 +15,15 @@ import {
 } from '../TzIcons';
 import CloudImportDialog from '../../studio/screens/CloudImportDialog';
 import './import-redesign.css';
+
+/** The work stage's analysis starts the moment the set is in, in the engine's
+ *  low-priority background process — so by the time the photographer reaches
+ *  שלב העבודה the suggestions are there. Failing here is not an error to show:
+ *  the work stage asks again and says so itself if the engine cannot answer. */
+function startTriage(projectId: string) {
+  const paths = framesOf(projectId).map((f) => f.path);
+  if (paths.length) void triageSet(paths, true).catch(() => undefined);
+}
 
 export default function ImportV2({
   project,
@@ -100,6 +109,7 @@ export default function ImportV2({
       }
       setFailed(lost);
       await reloadFrames(projectId);
+      startTriage(projectId);
       if (project.at < 1) updateProject(projectId, { at: 1, state: 'work' });
     } catch (e) {
       setError(e instanceof Error ? e.message : 'הייבוא נכשל');
@@ -148,6 +158,7 @@ export default function ImportV2({
         setSkipped(already);
       }
       await reloadFrames(projectId);
+      startTriage(projectId);
       if (project.at < 1) updateProject(projectId, { at: 1, state: 'work' });
       if (failed) {
         throw new Error(`${failed.toLocaleString('he-IL')} קבצים לא ירדו. אפשר לנסות שוב; קבצים שכבר הועתקו ידולגו.`);

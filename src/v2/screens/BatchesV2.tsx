@@ -30,7 +30,7 @@ export default function BatchesV2({
               type="button"
               onClick={onNext}
             >
-              המשך לשליחה ללקוח ←
+              המשך לשלב העבודה ←
             </button>
           )}
         </div>

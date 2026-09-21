@@ -925,6 +925,46 @@ export const EDIT_WIDTH = 1400;
  *  `ahead` are rendered in full by the engine itself whenever nobody is
  *  waiting on it, so stepping to one of them shows a finished frame. Most
  *  important first in both lists. Fire and forget. */
+/* ------------------------------------------------------------ the work stage
+ *
+ * engine/triage.py: which frames the tool would remove, and why — always
+ * against a twin (the same pose shot again), never a frame judged alone. The
+ * engine answers from what it has measured so far; `pending` names the rest,
+ * and `run` asks it to measure them in the background.
+ */
+
+export interface TriageReason {
+  code: 'eyes-shut' | 'soft' | 'duplicate' | 'blown' | 'dark' | 'unread';
+  label: string;
+  /** The twin that is better — the frame the suggestion is made against. */
+  ref?: string;
+  /** Which face in `faces` the reason is about. */
+  face?: number;
+}
+
+export interface TriageFrame {
+  file: string;
+  moment: number;
+  /** Twin group id, or null when the frame has no near-identical twin. */
+  twins: number | null;
+  /** The recommended frame of its twin group. */
+  star: boolean;
+  suggestion: 'remove' | 'duplicate' | 'unread' | null;
+  reasons: TriageReason[];
+  faces: { box: { x: number; y: number; width: number; height: number }; blink?: number }[];
+}
+
+export interface TriageResult {
+  frames: TriageFrame[];
+  pending: string[];
+  moments: number;
+  queued?: boolean;
+}
+
+export async function triageSet(paths: string[], run = false): Promise<TriageResult> {
+  return post('/triage', { paths, run });
+}
+
 export async function prepareFrames(req: {
   paths: string[];
   w: number;
@@ -1073,6 +1113,10 @@ export interface ProjectMemory {
   momentAssign?: Record<string, string>;
   /** Suggested cuts turned down, keyed by the frame name the cut would follow. */
   rejectedBoundaries?: string[];
+  /** שלב העבודה — the PHOTOGRAPHER'S decision per frame name. Kept apart from
+   *  the engine's suggestion on purpose: re-analysing a set can change what is
+   *  suggested, and must never change what he decided. Absent = undecided. */
+  cull?: Record<string, 'keep' | 'reject'>;
 }
 
 export interface StoryMoment {

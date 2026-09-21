@@ -578,6 +578,7 @@ const EMPTY_STATE: ProjectMemory = {
   moments: [],
   momentAssign: {},
   rejectedBoundaries: [],
+  cull: {},
 };
 
 const states: Record<string, ProjectMemory> = {};
@@ -1098,6 +1099,44 @@ export function setPhotoStatus(projectId: string, frame: string, status: PhotoSt
   if (status === 'raw') delete statuses[frameKey(frame)];
   else statuses[frameKey(frame)] = status;
   write(projectId, { ...current, statuses });
+}
+
+/* ------------------------------------------------------- the work stage */
+
+export type CullDecision = 'keep' | 'reject';
+
+/** The photographer's own decisions — never the engine's suggestions. */
+export function cullOf(projectId: string): Record<string, CullDecision> {
+  return stateOf(projectId).cull ?? {};
+}
+
+export function useCull(projectId: string): Record<string, CullDecision> {
+  const state = useSyncExternalStore(
+    subscribe,
+    () => stateOf(projectId),
+    () => stateOf(projectId),
+  );
+  return state.cull ?? {};
+}
+
+/** Decide several frames in ONE write (accepting forty suggestions is one
+ *  thought). `null` returns them to undecided. */
+export function setCull(projectId: string, frames: string[], decision: CullDecision | null) {
+  const current = stateOf(projectId);
+  const cull = { ...(current.cull ?? {}) };
+  for (const f of frames) {
+    const key = frameKey(f);
+    if (decision) cull[key] = decision;
+    else delete cull[key];
+  }
+  write(projectId, { ...current, cull });
+}
+
+/** What goes on to the client: every frame the photographer did not take out.
+ *  Undecided frames go — a suggestion is not a decision. */
+export function notRejected<T extends { name: string }>(projectId: string, frames: T[]): T[] {
+  const cull = cullOf(projectId);
+  return frames.filter((f) => cull[frameKey(f.name)] !== 'reject');
 }
 
 export function useStatuses(projectId: string): Record<string, string> {

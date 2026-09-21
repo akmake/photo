@@ -7,6 +7,7 @@ import ProjectsV2 from './screens/ProjectsV2';
 import ImportV2 from './screens/ImportV2';
 import BatchesV2 from './screens/BatchesV2';
 import SendToClientV2 from './screens/SendToClientV2';
+import WorkStageV2 from './screens/WorkStageV2';
 import GalleryEditV2 from './screens/GalleryEditV2';
 import { shootDay } from './screens/CalendarV2';
 import {
@@ -70,8 +71,10 @@ export default function V2App({ onSwitchToV1, onOpenProjectV1 }: V2AppProps) {
 
   const isEditing = activeNav === 'project-detail' && activeStage === 'gallery-edit';
   const isGrouping = activeNav === 'project-detail' && activeStage === 'batches';
+  // שלב העבודה wants every pixel for pictures, but scrolls like a page.
+  const isWorking = activeNav === 'project-detail' && activeStage === 'work';
   const isAlbumMode = activeNav === 'project-detail' && activeStage === 'album-design';
-  const isSidebarCollapsed = sidebarCollapsed || isEditing || isGrouping || isAlbumMode;
+  const isSidebarCollapsed = sidebarCollapsed || isEditing || isGrouping || isWorking || isAlbumMode;
 
   // Active project selection
   const selectedProject = studio.projects.find((p) => p.id === selectedProjectId) || studio.projects[0];
@@ -121,6 +124,7 @@ export default function V2App({ onSwitchToV1, onOpenProjectV1 }: V2AppProps) {
     { id: 'client-status', label: 'סטטוס לקוח', icon: TzIconUsers },
     { id: 'gallery-upload', label: 'ייבוא תמונות', icon: TzIconUpload },
     { id: 'batches', label: 'מקבצים', icon: TzIconLayers },
+    { id: 'work', label: 'שלב העבודה', icon: TzIconFilter },
     { id: 'send-to-client', label: 'שלח ללקוח', icon: TzIconSend },
     { id: 'gallery-edit', label: 'עריכה', icon: TzIconSliders },
     { id: 'album-design', label: 'אלבום', icon: TzIconBook },
@@ -223,8 +227,18 @@ export default function V2App({ onSwitchToV1, onOpenProjectV1 }: V2AppProps) {
         return (
           <BatchesV2
             project={proj}
-            onNext={() => setActiveStage('send-to-client')}
+            onNext={() => setActiveStage('work')}
             onBack={() => setActiveStage('gallery-upload')}
+          />
+        );
+      }
+
+      if (activeStage === 'work' && proj) {
+        return (
+          <WorkStageV2
+            project={proj}
+            onNext={() => setActiveStage('send-to-client')}
+            onBack={() => setActiveStage('batches')}
           />
         );
       }
@@ -234,7 +248,7 @@ export default function V2App({ onSwitchToV1, onOpenProjectV1 }: V2AppProps) {
           <SendToClientV2
             project={proj}
             onNext={() => setActiveStage('gallery-edit')}
-            onBack={() => setActiveStage('batches')}
+            onBack={() => setActiveStage('work')}
           />
         );
       }

@@ -15,6 +15,8 @@ import {
 import {
   batchOfFrame,
   framesOf,
+  notRejected,
+  useCull,
   framesInBatch,
   setGalleryLink,
   useBatches,
@@ -83,7 +85,7 @@ export default function SendToClientV2({
       {/* Top Stage Header */}
       <section className="tz-stage-header">
         <div className="tz-stage-header-copy">
-          <div className="tz-stage-tag">שלב 3 · שלח ללקוח</div>
+          <div className="tz-stage-tag">שלב 4 · שלח ללקוח</div>
           <h1>גלריית בחירה אישית ללקוח</h1>
           <p>
             יצירת קישור מעוצב ומאובטח עבור <strong>{project.client}</strong>. הלקוח מסמן את התמונות לאלבומים השונים ומעיר הערות ישירות מהנייד או המחשב,
@@ -160,9 +162,14 @@ function CreateGalleryFlow({
   const [error, setError] = useState<string | null>(null);
   const [oneTimePassword, setOneTimePassword] = useState<string | null>(null);
 
+  /* What the photographer took out in שלב העבודה never reaches the client.
+   * Undecided frames go: a suggestion is not a decision. */
+  const cull = useCull(projectId);
+  const going = useMemo(() => notRejected(projectId, frames), [projectId, frames, cull]);
+  const takenOut = frames.length - going.length;
   const chosenFrames = useMemo(
-    () => (source === 'all' ? frames : framesInBatch(projectId, source)),
-    [source, frames, projectId],
+    () => notRejected(projectId, source === 'all' ? frames : framesInBatch(projectId, source)),
+    [source, frames, projectId, cull],
   );
 
   const totalQuota = useMemo(
@@ -271,6 +278,12 @@ function CreateGalleryFlow({
               </div>
             </div>
 
+            {takenOut > 0 && (
+              <p className="tz-sc-card-desc">
+                {takenOut.toLocaleString('he-IL')} תמונות שהוצאו בשלב העבודה לא יעלו לגלריה.
+              </p>
+            )}
+
             <div className="tz-sc-source-pills">
               <button
                 type="button"
@@ -278,11 +291,11 @@ function CreateGalleryFlow({
                 onClick={() => setSource('all')}
               >
                 כל תמונות הפרויקט
-                <span className="tz-sc-pill-badge">{frames.length}</span>
+                <span className="tz-sc-pill-badge">{going.length}</span>
               </button>
 
               {batches.map((b) => {
-                const count = framesInBatch(projectId, b.id).length;
+                const count = notRejected(projectId, framesInBatch(projectId, b.id)).length;
                 return (
                   <button
                     key={b.id}
