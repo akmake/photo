@@ -418,6 +418,9 @@ export default function WorkStageV2({
       {viewer && sel && frameByName.get(sel) && (
         <Viewer
           frame={frameByName.get(sel)!}
+          neighbors={[flat[flat.indexOf(sel) + 1], flat[flat.indexOf(sel) - 1], flat[flat.indexOf(sel) + 2]]
+            .map((n) => (n ? frameByName.get(n)?.path : undefined))
+            .filter((p): p is string => Boolean(p))}
           name={sel}
           position={flat.indexOf(sel)}
           total={flat.length}
@@ -533,10 +536,27 @@ function Card({
  * the bottom with a slider and a percentage, the wheel zooms, a drag pans,
  * a double-click jumps between fit and actual size. */
 
+/* Large previews already decoded, by URL — so moving back and forth is instant
+ * and the screen never shows a half-loaded or stretched picture. */
+const decoded = new Map<string, { w: number; h: number }>();
+function preload(src: string): Promise<{ w: number; h: number }> {
+  const known = decoded.get(src);
+  if (known) return Promise.resolve(known);
+  const im = new Image();
+  im.src = src;
+  return im.decode().then(() => {
+    const size = { w: im.naturalWidth, h: im.naturalHeight };
+    decoded.set(src, size);
+    if (decoded.size > 40) decoded.delete(decoded.keys().next().value as string);
+    return size;
+  });
+}
+
 function Viewer({
-  frame, name, position, total, decision, onClose, onStep, onDecide,
+  frame, neighbors, name, position, total, decision, onClose, onStep, onDecide,
 }: {
   frame: Frame;
+  neighbors: string[];
   name: string;
   position: number;
   total: number;
@@ -547,7 +567,10 @@ function Viewer({
 }) {
   const stageRef = useRef<HTMLDivElement | null>(null);
   const [box, setBox] = useState({ w: 1200, h: 800 });
-  const [natural, setNatural] = useState<{ w: number; h: number } | null>(null);
+  // What is ON SCREEN: the previous photograph stays until the next one is
+  // fully decoded, then the two swap in one frame.
+  const [shown, setShown] = useState<{ src: string; w: number; h: number } | null>(null);
+  const natural = shown;
   const [zoom, setZoom] = useState(1); // 1 = fit
   const drag = useRef<{ x: number; y: number; l: number; t: number } | null>(null);
 
@@ -559,7 +582,17 @@ function Viewer({
     return () => ro.disconnect();
   }, []);
 
-  useEffect(() => { setZoom(1); setNatural(null); }, [name]);
+  useEffect(() => {
+    let alive = true;
+    const src = thumbUrl(frame.path, 2400);
+    preload(src)
+      .then((size) => { if (alive) { setZoom(1); setShown({ src, ...size }); } })
+      .catch(() => { if (alive) { setZoom(1); setShown({ src, w: 1500, h: 1000 }); } });
+    // The frames either side, ready before he gets there.
+    for (const p of neighbors) void preload(thumbUrl(p, 2400)).catch(() => undefined);
+    return () => { alive = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [frame.path]);
 
   const aspect = natural ? natural.w / natural.h : 1.5;
   const pad = 32;
@@ -630,14 +663,15 @@ function Viewer({
         onMouseLeave={() => { drag.current = null; }}
       >
         <div className="tz-ws-v-canvas" style={{ width: Math.max(w + pad * 2, box.w), height: Math.max(h + pad * 2, box.h) }}>
-          <img
-            src={thumbUrl(frame.path, 2400)}
-            alt={name}
-            draggable={false}
-            style={{ width: w, height: h }}
-            onLoad={(e) => setNatural({ w: e.currentTarget.naturalWidth, h: e.currentTarget.naturalHeight })}
-            onDoubleClick={(e) => zoomTo(zoom > 1 ? 1 : actual, e.clientX, e.clientY)}
-          />
+          {shown && (
+            <img
+              src={shown.src}
+              alt={name}
+              draggable={false}
+              style={{ width: w, height: h }}
+              onDoubleClick={(e) => zoomTo(zoom > 1 ? 1 : actual, e.clientX, e.clientY)}
+            />
+          )}
         </div>
       </div>
 
