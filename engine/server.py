@@ -62,6 +62,7 @@ import album_analysis
 import album_export
 import album_render
 import cull
+import triage
 import embed
 import identity
 import workspace
@@ -320,15 +321,15 @@ def _prep_process():
     return _PREP
 
 
-def prepare(paths, width=0, thumbs=(), recipe=None):
+def prepare(paths, width=0, thumbs=(), recipe=None, triage_paths=()):
     """Queue frames for background preparation. Never raises: preparing is an
     optimisation, and a screen must not fail because it could not happen."""
     global _PREP
-    if not paths:
+    if not paths and not triage_paths:
         return False
     line = json.dumps(
         {"paths": list(paths), "w": int(width or 0), "thumbs": [int(t) for t in thumbs],
-         "recipe": recipe or []},
+         "recipe": recipe or [], "triage": list(triage_paths)},
         ensure_ascii=False,
     )
     with _PREP_LOCK:
@@ -1091,6 +1092,9 @@ class Handler(BaseHTTPRequestHandler):
             return
         if self.path == "/export":
             self._export()
+            return
+        if self.path == "/triage":
+            self._triage()
             return
         if self.path.startswith("/db/"):
             self._db(self.path[len("/db/"):])
@@ -1934,6 +1938,28 @@ if ($path) {
             self._json(
                 200, {"written": written, "errors": errors, "count": len(written)}
             )
+        except Exception as e:  # noqa: BLE001
+            self._json(500, {"error": str(e)})
+
+    def _triage(self):
+        """The work stage. { paths:[...], run?: bool } -> triage.triage(paths).
+
+        Reads only what the background preparer has already measured, so it
+        answers in well under a second and can be asked again while the set is
+        still being read: `pending` names what is not measured yet. With `run`,
+        the frames not yet measured are handed to the preparer first — at low
+        priority, in its own process, never on the worker a person waits on.
+        """
+        try:
+            body = self._body()
+            paths = [p for p in (body.get("paths") or []) if isinstance(p, str)]
+            queued = False
+            if body.get("run"):
+                todo = [p for p in paths if triage.cached(p) is None]
+                queued = prepare([], 0, (), None, todo) if todo else False
+            out = triage.triage(paths)
+            out["queued"] = bool(queued)
+            self._json(200, out)
         except Exception as e:  # noqa: BLE001
             self._json(500, {"error": str(e)})
 

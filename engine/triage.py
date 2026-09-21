@@ -268,6 +268,14 @@ def analyze(path):
     return payload
 
 
+def store_failure(path, error):
+    """A frame that could not be read is ANSWERED, not left pending forever:
+    the screen says "could not read" instead of "still reading" (CLAUDE.md §6 —
+    a failure must never look like waiting, or like a clean result)."""
+    _store(path, {"file": os.path.basename(path), "error": str(error)[:300],
+                  "faces": [], "version": TRIAGE_VERSION})
+
+
 # ------------------------------------------------------------ the set's answer
 
 def _same_person(a, b):
@@ -353,6 +361,7 @@ def triage(paths):
             feats[os.path.basename(p)] = f
     by_name = {os.path.basename(p): p for p in paths}
 
+    unread = {n for n, f in feats.items() if f.get("error")}
     times = {n: f.get("shotTime") for n, f in feats.items()}
     order = sorted(feats, key=lambda n: (times.get(n) or 0, n))
     vecs = {}
@@ -367,6 +376,9 @@ def triage(paths):
     # Ruined exposure needs no twin.
     for n in order:
         f = feats[n]
+        if n in unread:
+            reasons[n].append({"code": "unread", "label": "לא ניתן לקרוא את הקובץ"})
+            continue
         if f["blown"] >= FRAME_BLOWN or f["exposure"] >= FRAME_MEAN_HIGH:
             reasons[n].append({"code": "blown", "label": "הפריים שרוף"})
         elif f["crushed"] >= FRAME_CRUSHED or f["exposure"] <= FRAME_MEAN_LOW:
@@ -425,7 +437,9 @@ def triage(paths):
     for n in order:
         g = twin_of.get(n)
         suggestion = None
-        if reasons[n]:
+        if n in unread:
+            suggestion = "unread"
+        elif reasons[n]:
             suggestion = "remove"
         elif g is not None and n not in star:
             suggestion = "duplicate"

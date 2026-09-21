@@ -24,7 +24,11 @@ CPU first whenever both want it — so preparation can never be the thing the
 photographer's slider waits for, on a 4-core laptop or a 24-core desktop.
 
 Protocol: the engine writes one JSON object per line to stdin —
-    {"paths": [...], "w": 1400, "thumbs": [320, 1200], "recipe": [...]}
+    {"paths": [...], "w": 1400, "thumbs": [320, 1200], "recipe": [...],
+     "triage": [...]}
+
+`triage` names frames for the work stage's analysis (triage.analyze), which
+runs before the masks: it is cheap and it is the next thing a screen shows.
 
 With a `recipe`, preparing a frame means RENDERING it with that recipe, exactly
 as the engine will — which fills every cache the tools read, including the
@@ -49,6 +53,7 @@ import common  # noqa: E402
 import masks  # noqa: E402
 import previews  # noqa: E402
 import render  # noqa: E402
+import triage  # noqa: E402
 
 # The kinds the edit screen's tools read from the whole frame. `face-skin`
 # brings `body-skin` and `hair` with it — they share one segmentation.
@@ -75,6 +80,11 @@ def _push(request):
     for p in paths:
         for t in thumbs:
             jobs.append(("thumb", p, t))
+    # The work stage's analysis: ~1s a frame against ~15s for masks, and it is
+    # what the very next screen after import shows — so it goes before them.
+    for p in request.get("triage") or []:
+        if isinstance(p, str):
+            jobs.append(("triage", p, 0))
     if width > 0:
         for p in paths:
             jobs.append(("masks", p, (width, tools)))
@@ -103,6 +113,13 @@ def _do(job):
         return
     if kind == "thumb":
         previews.cached_thumb(path, arg)
+        return
+    if kind == "triage":
+        if triage.cached(path) is None:
+            try:
+                triage.analyze(path)
+            except Exception as e:  # noqa: BLE001 — answered as unread, not pending forever
+                triage.store_failure(path, e)
         return
     width, tools = arg
     with _lock:
