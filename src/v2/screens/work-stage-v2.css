@@ -1,146 +1,111 @@
-/* שלב העבודה — a loupe, like every professional culling tool: the picture is
- * the screen, the set runs along the bottom, and what the tool thinks about
- * this frame is said in one line above it. Every mark sits UNDER a picture or
- * as a hairline around a face — never on top of what is being judged. */
+/* שלב העבודה is built from the EDITING screen's own parts (gallery-edit-v2.css:
+ * top bar, slide deck, dark canvas, white side panel), so the two workspaces
+ * read as one product. Only what the decision needs is added here. Every mark
+ * sits on the slide's corner or as a hairline round a face — never over the
+ * part of the picture being judged. */
 
-.tz-ws {
-  display: flex; flex-direction: column; gap: 8px;
-  /* The whole stage fits the window: nothing to scroll past to reach the
-   * picture. --tz-ws-top is set from the element's own position by the
-   * screen, with a sane fallback for the first paint. */
-  height: calc(100vh - var(--tz-ws-top, 140px) - 44px);
-  min-height: 420px;
-}
-.tz-ws-muted { color: var(--tz-text-sub, #71717a); }
+.tz-ws-muted { color: #71717a; }
 .tz-ws-fault { color: #b91c1c; }
-
-/* ---- the header line */
-.tz-ws-head { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
-.tz-ws-title { display: flex; align-items: baseline; gap: 10px; }
-.tz-ws-title strong { font-size: 17px; font-weight: 800; color: #18181b; }
-.tz-ws-title .tz-ws-muted { font-size: 12.5px; }
-.tz-ws-filters { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
-.tz-ws-filter {
-  border: 1px solid #e4e1db; background: #fff; color: #3f3f46;
-  border-radius: 99px; padding: 4px 11px; font-size: 12.5px; cursor: pointer;
-  display: inline-flex; align-items: center; gap: 4px;
-}
-.tz-ws-filter.is-on { border-color: #18181b; color: #18181b; font-weight: 600; }
-.tz-ws-num { color: #a1a1aa; font-variant-numeric: tabular-nums; }
-.tz-ws-filter.is-on .tz-ws-num { color: #52525b; }
-.tz-ws-batch { border: 1px solid #e4e1db; border-radius: 8px; padding: 4px 8px; font-size: 12.5px; background: #fff; }
-.tz-ws-way { display: flex; gap: 8px; margin-inline-start: auto; }
-
 .tz-ws kbd {
   font: 10.5px/1 ui-monospace, monospace; color: #71717a; border: 1px solid #e4e1db;
   border-radius: 4px; padding: 2px 4px; background: #fafaf9;
 }
 
-/* ---- the tool, said out loud */
-.tz-ws-advice {
-  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
-  background: #fff7ed; border: 1px solid #fed7aa; border-radius: 10px;
-  padding: 8px 12px; font-size: 13.5px; color: #27272a;
+/* ---- top bar */
+.tz-ws-bar-title { font-size: 14px; font-weight: 800; color: #18181b; margin-inline-end: 8px; white-space: nowrap; }
+.tz-ws-batch {
+  border: 1px solid #e7e5df; border-radius: 10px; padding: 6px 10px;
+  font-size: 13px; background: #fbfbf9; color: #3f3f46;
 }
-.tz-ws-advice b { font-size: 15px; }
-.tz-ws-advice-text { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; }
-.tz-ws-bar { display: inline-block; width: 120px; height: 4px; background: #fde7d4; border-radius: 99px; overflow: hidden; }
-.tz-ws-bar i { display: block; height: 100%; background: var(--tz-brand, #e86338); transition: width 300ms ease-out; }
-.tz-ws-go {
-  border: 0; background: var(--tz-brand, #e86338); color: #fff; font-weight: 600;
-  border-radius: 8px; padding: 6px 12px; font-size: 13px; cursor: pointer;
-}
-.tz-ws-go.is-soft { background: #fff; color: #9a3412; border: 1px solid #fdba74; }
 
-/* ---- the loupe */
-.tz-ws-loupe-wrap { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 8px; }
-.tz-ws-verdict {
-  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
-  min-height: 40px; padding: 4px 2px; font-size: 14px; color: #27272a;
+/* ---- the deck, by moment */
+.tz-ws-deck-moment { display: flex; flex-direction: column; gap: 8px; }
+.tz-ws-deck-moment + .tz-ws-deck-moment { border-top: 1px solid #efede8; padding-top: 8px; }
+.tz-ws-deck-label { font-size: 11px; font-weight: 600; color: #a1a1aa; }
+.tz-ws-deck-empty { padding: 20px; text-align: center; color: #a1a1aa; font-size: 12px; }
+.tz-ws-out .tz-ge-slide-thumb { opacity: 0.35; }
+.tz-ws-badge {
+  position: absolute; inset-block-start: 6px; inset-inline-start: 6px;
+  padding: 1px 7px; border-radius: 6px; font-size: 10.5px; font-weight: 700; color: #fff;
+  background: rgba(24, 24, 27, 0.62);
 }
-.tz-ws-verdict.is-remove b { color: #b91c1c; }
-.tz-ws-decide { display: inline-flex; gap: 6px; margin-inline-start: auto; }
-.tz-ws-btn {
-  border: 1px solid #d4d4d8; background: #fff; color: #18181b; border-radius: 8px;
-  padding: 6px 12px; font-size: 13.5px; cursor: pointer; display: inline-flex; align-items: center; gap: 8px;
+.tz-ws-badge.is-suggest { background: #dc2626; }
+.tz-ws-badge.is-kept { background: #059669; }
+.tz-ws-star {
+  position: absolute; inset-block-end: 6px; inset-inline-end: 6px;
+  width: 18px; height: 18px; border-radius: 99px; display: grid; place-items: center;
+  background: rgba(24, 24, 27, 0.62); color: #fbbf24; font-size: 11px;
 }
-.tz-ws-btn.is-keep.is-on { border-color: #047857; color: #047857; background: #ecfdf5; }
-.tz-ws-btn.is-out.is-on { border-color: #b91c1c; color: #b91c1c; background: #fef2f2; }
-.tz-ws-btn.is-on:not(.is-keep):not(.is-out) { border-color: #18181b; }
 
-.tz-ws-loupe { flex: 1; min-height: 0; display: flex; gap: 10px; }
-.tz-ws-stage {
-  flex: 1; min-width: 0; min-height: 0;
-  display: flex; gap: 12px; align-items: center; justify-content: center;
-  background: #1c1b1a; border-radius: 8px; padding: 8px;
+/* ---- the canvas */
+.tz-ws-canvas {
+  flex: 1; min-height: 0; padding: 16px;
+  display: flex; gap: 16px; align-items: center; justify-content: center;
 }
-.tz-ws-stage.is-stack { flex-direction: column; }
-.tz-ws-stage figure { margin: 0; display: grid; gap: 4px; justify-items: center; }
-.tz-ws-stage figcaption { font-size: 11.5px; color: #a8a29e; }
-.tz-ws-stage figcaption .tz-ws-link { color: #fdba74; }
-/* Sized in pixels by the screen, so the face outline's percentages land on
- * the photograph itself. */
+.tz-ws-canvas.is-stack { flex-direction: column; }
+.tz-ws-canvas figure { margin: 0; display: grid; gap: 6px; justify-items: center; }
+.tz-ws-canvas figcaption { font-size: 12px; color: #a1a1aa; }
+.tz-ws-canvas-empty { color: #a1a1aa; font-size: 13px; }
 .tz-ws-imgbox { position: relative; line-height: 0; }
-.tz-ws-imgbox img { width: 100%; height: 100%; display: block; border-radius: 2px; }
+.tz-ws-imgbox img { width: 100%; height: 100%; display: block; border-radius: 4px; }
 .tz-ws-facebox {
   position: absolute; border: 1px solid #f87171; box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.35);
   pointer-events: none;
 }
 
-.tz-ws-faces { display: flex; flex-direction: column; gap: 6px; overflow: auto; flex: 0 0 auto; }
+/* ---- the decision panel */
+.tz-ws-panel { flex: 1; min-height: 0; overflow-y: auto; padding: 14px; display: flex; flex-direction: column; gap: 18px; }
+.tz-ws-sect { display: flex; flex-direction: column; gap: 10px; }
+.tz-ws-sect h3 { margin: 0; font-size: 12px; font-weight: 700; color: #71717a; }
+.tz-ws-sect p { margin: 0; font-size: 13.5px; line-height: 1.5; color: #27272a; }
+.tz-ws-progress { display: flex; align-items: center; gap: 8px; font-size: 12.5px !important; }
+.tz-ws-bar { display: inline-block; flex: 1; height: 4px; background: #f1efeb; border-radius: 99px; overflow: hidden; }
+.tz-ws-bar i { display: block; height: 100%; background: var(--tz-brand, #e86338); transition: width 300ms ease-out; }
+
+.tz-ws-stats { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.tz-ws-stat {
+  all: unset; box-sizing: border-box; cursor: pointer;
+  display: grid; gap: 2px; padding: 12px; border: 1px solid #e7e5df; border-radius: 12px; background: #fbfbf9;
+}
+.tz-ws-stat b { font-size: 24px; font-weight: 800; color: #18181b; font-variant-numeric: tabular-nums; }
+.tz-ws-stat span { font-size: 13px; font-weight: 700; color: #27272a; }
+.tz-ws-stat small { font-size: 11.5px; color: #71717a; }
+.tz-ws-stat.is-remove b { color: #b91c1c; }
+.tz-ws-stat.is-on { border-color: #18181b; background: #fff; }
+
+.tz-ws-bulk {
+  border: 1px solid #e7e5df; background: #fff; color: #18181b; border-radius: 10px;
+  padding: 9px 12px; font-size: 13px; font-weight: 600; cursor: pointer;
+}
+
+.tz-ws-verdict { padding: 12px; border-radius: 12px; background: #fbfbf9; border: 1px solid #efede8; display: grid; gap: 4px; }
+.tz-ws-verdict.is-remove { background: #fef2f2; border-color: #fecaca; }
+.tz-ws-verdict.is-remove b { color: #b91c1c; }
+
+.tz-ws-decide { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.tz-ws-btn {
+  border: 1px solid #d4d4d8; background: #fff; color: #18181b; border-radius: 10px;
+  padding: 11px 12px; font-size: 14.5px; font-weight: 700; cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+}
+.tz-ws-btn.is-out:hover { border-color: #b91c1c; color: #b91c1c; }
+.tz-ws-btn.is-keep:hover { border-color: #047857; color: #047857; }
+.tz-ws-btn.is-out.is-on { border-color: #b91c1c; color: #fff; background: #b91c1c; }
+.tz-ws-btn.is-keep.is-on { border-color: #047857; color: #fff; background: #047857; }
+.tz-ws-btn.is-on kbd { background: transparent; color: inherit; border-color: rgba(255, 255, 255, 0.5); }
+
+.tz-ws-faces { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
 .tz-ws-face {
-  width: 96px; height: 96px; border-radius: 6px; background-color: #1c1b1a;
-  background-repeat: no-repeat; outline: 1px solid #e4e1db; flex: 0 0 auto;
+  aspect-ratio: 1; border-radius: 8px; background-color: #f1efeb;
+  background-repeat: no-repeat; outline: 1px solid #e7e5df;
 }
 .tz-ws-face.is-flagged { outline: 2px solid #dc2626; }
 
-/* ---- the filmstrip */
-.tz-ws-strip {
-  flex: 0 0 auto; display: flex; gap: 14px; overflow-x: auto; overflow-y: hidden;
-  padding: 4px 2px 8px; scroll-padding-inline: 40px;
-}
-.tz-ws-strip-moment {
-  display: flex; gap: 3px; flex: 0 0 auto;
-  padding-top: 4px; border-top: 2px solid #e4e1db;
-}
-
-.tz-ws-tile {
-  all: unset; box-sizing: border-box; cursor: pointer; position: relative;
-  display: grid; gap: 3px; flex: 0 0 auto;
-}
-.tz-ws-tile img {
-  height: 76px; width: auto; max-width: 118px; display: block; border-radius: 2px;
-  background: #f1efeb; outline: 2px solid transparent; outline-offset: 1px;
-}
-.tz-ws-tile.is-big { width: 150px; }
-.tz-ws-tile.is-big img { height: 150px; width: 150px; max-width: none; object-fit: contain; }
-.tz-ws-tile.is-sel img { outline-color: #18181b; }
-.tz-ws-tile.is-out img { opacity: 0.3; }
-.tz-ws-mark { display: block; height: 3px; border-radius: 2px; background: transparent; }
-.tz-ws-tile.is-suggest .tz-ws-mark { background: #dc2626; }
-.tz-ws-tile.is-dup .tz-ws-mark { background: #d6d3d1; }
-.tz-ws-tile.is-out .tz-ws-mark { background: #52525b; }
-.tz-ws-tile.is-kept .tz-ws-mark { background: #059669; }
-.tz-ws-star {
-  position: absolute; bottom: -1px; inset-inline-end: 0; font-size: 11px; line-height: 1;
-  color: #d97706; font-weight: 400;
-}
-
-/* ---- the grid overview */
-.tz-ws-gridview {
-  flex: 1; min-height: 0; overflow: auto;
-  display: flex; flex-wrap: wrap; align-content: flex-start; gap: 14px 18px;
-}
-.tz-ws-moment { display: grid; gap: 4px; max-width: 100%; border-top: 2px solid #e4e1db; padding-top: 4px; }
-.tz-ws-moment h3 { margin: 0; font-size: 11px; font-weight: 600; color: #52525b; }
-.tz-ws-tiles { display: flex; flex-wrap: wrap; gap: 8px 6px; }
-.tz-ws-empty { padding: 24px 0; }
-
 .tz-ws-link {
   all: unset; cursor: pointer; color: var(--tz-brand, #e86338); font-size: 12.5px;
-  text-decoration: underline; text-underline-offset: 2px;
+  text-decoration: underline; text-underline-offset: 2px; align-self: flex-start;
 }
-.tz-ws-keys { margin: 0; font-size: 11.5px; }
+.tz-ws-keys { margin: auto 0 0 !important; font-size: 11.5px !important; color: #a1a1aa !important; }
 
 .tz-ws-toast {
   position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
@@ -149,3 +114,10 @@
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
 }
 .tz-ws-toast .tz-ws-link { color: #fdba74; }
+
+/* The editing screen hides the app's stage bar and sizes itself for that;
+ * this screen keeps it, so it sizes from where it actually starts. */
+.tz-ge-studio-root.tz-ws {
+  height: calc(100vh - var(--tz-ws-top, 140px) - 40px);
+  min-height: 520px;
+}
