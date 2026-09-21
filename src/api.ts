@@ -1096,6 +1096,10 @@ export interface GalleryLink {
   createdAt: number;
   /** how many frames were published, so the screen can say so without asking */
   published: number;
+  /** File names that did NOT reach the gallery — the client cannot see them.
+   *  Kept on the link so the screen still says so after the upload ends, and
+   *  so they can be sent again on their own. */
+  unpublished?: string[];
   /** Set once the locked choice has been brought back into the project. Its
    *  presence stops a second import on the next poll. The choice is a filter
    *  over the original batches — it must never replace their membership. */

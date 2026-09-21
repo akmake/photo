@@ -117,6 +117,7 @@ export default function SendToClientV2({
         <LiveGalleryFlow
           projectId={project.id}
           clientName={project.client}
+          frames={frames}
           watch={watch}
           state={state}
           link={link}
@@ -190,6 +191,7 @@ function CreateGalleryFlow({
         password: made.password,
         createdAt: Date.now(),
         published: out.done,
+        unpublished: out.failed.map((f) => f.name),
       });
     } catch (e) {
       setError(e instanceof Error ? e.message : 'יצירת הגלריה נכשלה');
@@ -417,12 +419,14 @@ function CreateGalleryFlow({
 function LiveGalleryFlow({
   projectId,
   clientName,
+  frames,
   watch,
   state,
   link,
 }: {
   projectId: string;
   clientName: string;
+  frames: Frame[];
   watch: ReturnType<typeof useGalleryWatch>;
   state: ReturnType<typeof useGalleryWatch>['state'];
   link: NonNullable<ReturnType<typeof useGalleryWatch>['link']>;
@@ -430,6 +434,41 @@ function LiveGalleryFlow({
   const [password, setPassword] = useState<string | null>(link.password ?? null);
   const [busy, setBusy] = useState(false);
   const [copied, setCopied] = useState(false);
+  const batches = useBatches(projectId);
+  const [resending, setResending] = useState<PublishProgress | null>(null);
+  const unpublished = link.unpublished ?? [];
+
+  /* Send again only what did not arrive. What is still failing afterwards
+   * stays on the link, named; what arrived is counted in. */
+  const resend = async () => {
+    const wanted = new Set(unpublished);
+    const retry = frames.filter((f) => wanted.has(f.name));
+    const gone = unpublished.filter((name) => !retry.some((f) => f.name === name));
+    setResending({ done: 0, total: retry.length, failed: [] });
+    try {
+      const out = await publishAll(
+        link.galleryId,
+        retry.map((f) => {
+          const groupId = batchOfFrame(projectId, f.name);
+          return {
+            path: f.path,
+            name: f.name,
+            groupId,
+            groupName: batches.find((batch) => batch.id === groupId)?.name,
+          };
+        }),
+        setResending,
+      );
+      setGalleryLink(projectId, {
+        ...link,
+        published: link.published + out.done,
+        // A file no longer in the folder cannot be sent; it stays named.
+        unpublished: [...out.failed.map((f) => f.name), ...gone],
+      });
+    } finally {
+      setResending(null);
+    }
+  };
 
   const url = galleryPublicUrl(link.slug);
   const accessPassword = password || link.password || '';
@@ -545,6 +584,37 @@ function LiveGalleryFlow({
           </button>
         </div>
       </div>
+
+      {/* Frames that never reached the gallery. The client cannot see them,
+          and until now nothing said so once the upload screen had gone. */}
+      {(unpublished.length > 0 || resending) && (
+        <div className="tz-sc-unpublished" aria-live="polite">
+          {resending ? (
+            <span>
+              שולח שוב {resending.done.toLocaleString('he-IL')} מתוך {resending.total.toLocaleString('he-IL')}…
+            </span>
+          ) : (
+            <>
+              <div className="tz-sc-unpublished-head">
+                <span>
+                  <b>{unpublished.length.toLocaleString('he-IL')} תמונות לא עלו לגלריה</b> — הלקוח לא רואה אותן.
+                </span>
+                <button type="button" className="tz-btn-projects-primary" onClick={resend}>
+                  שלח שוב את {unpublished.length.toLocaleString('he-IL')} שלא עלו
+                </button>
+              </div>
+              <ul>
+                {unpublished.map((name) => (
+                  <li key={name} dir="ltr">
+                    {name}
+                    {!frames.some((f) => f.name === name) && <span> · לא נמצא בתיקייה</span>}
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
+        </div>
+      )}
 
       <div className="tz-sc-grid-2col">
         {/* Left Column: Share Card & Meters */}
