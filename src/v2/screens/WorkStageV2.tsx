@@ -81,6 +81,8 @@ export default function WorkStageV2({
   const [compare, setCompare] = useState(true);
   const [undo, setUndo] = useState<Undo | null>(null);
   const [aspect, setAspect] = useState(1.5);
+  const [focusOpen, setFocusOpen] = useState(false);
+  const [focusZoom, setFocusZoom] = useState<'fit' | number>('fit');
   const tileRefs = useRef<Record<string, HTMLButtonElement | null>>({});
 
   /* The stage fills the window below wherever the app's chrome ends, measured
@@ -189,17 +191,18 @@ export default function WorkStageV2({
 
   /* ---- counts, for the filters and the way forward */
   const counts = useMemo(() => {
-    let remove = 0; let duplicate = 0; let rejected = 0; let unread = 0;
+    let remove = 0; let duplicate = 0; let rejected = 0; let kept = 0; let unread = 0;
     for (const f of frames) {
       const n = frameKey(f.name);
       const t = byName.get(n);
       const d = cull[n];
       if (d === 'reject') rejected += 1;
+      if (d === 'keep') kept += 1;
       if (t?.suggestion === 'remove' && d !== 'keep' && d !== 'reject') remove += 1;
       if (t?.suggestion === 'duplicate' && d !== 'keep' && d !== 'reject') duplicate += 1;
       if (t?.suggestion === 'unread') unread += 1;
     }
-    return { remove, duplicate, rejected, unread, going: frames.length - rejected };
+    return { remove, duplicate, rejected, kept, unread, going: frames.length - rejected };
   }, [frames, byName, cull]);
 
   /* ---- deciding, with one level of undo that says what it undoes */
@@ -248,10 +251,34 @@ export default function WorkStageV2({
       if ((e.ctrlKey || e.metaKey) && code === 'KeyZ') { e.preventDefault(); undoLast(); return; }
       if (e.ctrlKey || e.metaKey || e.altKey) return;
       switch (code) {
+        case 'Escape':
+          if (focusOpen) { e.preventDefault(); setFocusOpen(false); }
+          break;
+        case 'Equal': case 'NumpadAdd':
+          if (focusOpen) {
+            e.preventDefault();
+            setFocusZoom((z) => (z === 'fit' ? 1 : Math.min(1.75, Math.round((z + 0.25) * 100) / 100)));
+          }
+          break;
+        case 'Minus': case 'NumpadSubtract':
+          if (focusOpen) {
+            e.preventDefault();
+            setFocusZoom((z) => (z === 'fit' || z <= 1 ? 'fit' : Math.max(1, Math.round((z - 0.25) * 100) / 100)));
+          }
+          break;
+        case 'Digit0': case 'Numpad0':
+          if (focusOpen) { e.preventDefault(); setFocusZoom('fit'); }
+          break;
+        case 'Space': case 'KeyZ':
+          if (focusOpen) {
+            e.preventDefault();
+            setFocusZoom((z) => (z === 'fit' ? 1 : 'fit'));
+          }
+          break;
         case 'ArrowLeft': case 'ArrowDown': e.preventDefault(); step(1); break;
         case 'ArrowRight': case 'ArrowUp': e.preventDefault(); step(-1); break;
         case 'KeyX': case 'Delete': e.preventDefault(); decideAndAdvance('reject'); break;
-        case 'KeyK': case 'Enter': e.preventDefault(); decideAndAdvance('keep'); break;
+        case 'KeyK': case 'KeyP': case 'Enter': e.preventDefault(); decideAndAdvance('keep'); break;
         case 'KeyU': case 'Backspace': e.preventDefault(); decideAndAdvance(null); break;
         case 'KeyC': e.preventDefault(); setCompare((v) => !v); break;
         default:
@@ -259,7 +286,7 @@ export default function WorkStageV2({
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [decideAndAdvance, step, undoLast]);
+  }, [decideAndAdvance, focusOpen, step, undoLast]);
 
   const selT = sel ? byName.get(sel) : undefined;
   const selFrame = sel ? frameByName.get(sel) : undefined;
@@ -301,6 +328,10 @@ export default function WorkStageV2({
     if (sel) tileRefs.current[sel]?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
   }, [sel]);
 
+  useEffect(() => {
+    setFocusZoom('fit');
+  }, [sel, focusOpen]);
+
   if (!ready) {
     return <div className="tz-ge-studio-root"><p className="tz-ws-muted">טוען את תיקיית הפרויקט…</p></div>;
   }
@@ -309,9 +340,28 @@ export default function WorkStageV2({
     ? selT : null;
   const mainReason = selT?.reasons.find((r) => r.code !== 'duplicate') ?? selT?.reasons[0];
   const position = sel ? flat.indexOf(sel) : -1;
+  const selDecision = sel ? cull[sel] : undefined;
+  const frameState = selDecision === 'reject' ? 'is-rejected'
+    : selDecision === 'keep' ? 'is-kept'
+    : suggestion?.suggestion === 'remove' ? 'is-suggested-remove'
+    : suggestion?.suggestion === 'duplicate' ? 'is-suggested-duplicate'
+    : selT?.star ? 'is-recommended'
+    : 'is-neutral';
+  const frameStateLabel = selDecision === 'reject' ? 'הוצאה מהסט'
+    : selDecision === 'keep' ? 'נשארת בסט'
+    : suggestion?.suggestion === 'remove' ? 'מוצע להסיר'
+    : suggestion?.suggestion === 'duplicate' ? 'כפולה לבדיקה'
+    : selT?.star ? 'מומלצת מהרצף'
+    : selT ? 'אין הערה'
+    : 'ממתינה לניתוח';
+  const frameReason = suggestion && mainReason
+    ? (REASON_WORDS[mainReason.code] ?? mainReason.label)
+    : selT?.star ? 'התמונה הטובה ברצף הזה'
+    : selT?.suggestion === 'unread' ? 'לא ניתן לקרוא את הקובץ'
+    : 'החלטה ידנית של הצלם';
 
   return (
-    <div className="tz-ge-studio-root tz-ws" ref={rootRef}>
+    <div className={`tz-ge-studio-root tz-ws ${frameState}`} ref={rootRef}>
       {/* 1. TOP BAR — the editing screen's own bar: views on one side, the way on */}
       <header className="tz-ge-top-bar">
         <div className="tz-ge-batch-tabs" role="tablist">
@@ -408,10 +458,14 @@ export default function WorkStageV2({
             <div className="tz-ge-canvas-nav">
               <button type="button" className="tz-ge-canvas-nav-btn" disabled={position <= 0} onClick={() => step(-1)} title="הקודמת (חץ ימינה)">›</button>
               <button type="button" className="tz-ge-canvas-nav-btn" disabled={position >= flat.length - 1} onClick={() => step(1)} title="הבאה (חץ שמאלה)">‹</button>
-              <span style={{ fontWeight: 600, color: '#e4e4e7', fontFamily: 'monospace' }}>
+              <span className="tz-ws-counter">
                 {position >= 0 ? `${position + 1} / ${flat.length}` : ''}
               </span>
-              <span style={{ color: '#71717a', fontSize: 11, marginRight: 8 }} dir="ltr">{sel ?? ''}</span>
+              <span className="tz-ws-file" dir="ltr">{sel ?? ''}</span>
+            </div>
+            <div className={`tz-ws-frame-state ${frameState}`}>
+              <b>{frameStateLabel}</b>
+              <span>{frameReason}</span>
             </div>
             {twinFrame && (
               <button type="button" className={`tz-ge-brush-btn ${showTwin ? 'active' : ''}`} onClick={() => setCompare((v) => !v)}>
@@ -429,6 +483,7 @@ export default function WorkStageV2({
                       src={thumbUrl(selFrame.path, 1600)}
                       alt=""
                       draggable={false}
+                      onDoubleClick={() => setFocusOpen(true)}
                       onLoad={(e) => {
                         const im = e.currentTarget;
                         if (im.naturalWidth && im.naturalHeight) setAspect(im.naturalWidth / im.naturalHeight);
@@ -462,13 +517,31 @@ export default function WorkStageV2({
               <p className="tz-ws-canvas-empty">{emptyLine(filter, pending)}</p>
             )}
           </div>
+
+          <div className="tz-ws-decision-dock" aria-label="החלטת תמונה">
+            <button type="button" className={`tz-ws-dock-btn is-out${selDecision === 'reject' ? ' is-on' : ''}`} disabled={!selFrame} onClick={() => decideAndAdvance('reject')}>
+              <span>×</span>
+              <b>הוצא</b>
+              <kbd>X</kbd>
+            </button>
+            <button type="button" className={`tz-ws-dock-btn is-keep${selDecision === 'keep' ? ' is-on' : ''}`} disabled={!selFrame} onClick={() => decideAndAdvance('keep')}>
+              <span>✓</span>
+              <b>השאר</b>
+              <kbd>K</kbd>
+            </button>
+            <button type="button" className="tz-ws-dock-btn is-clear" disabled={!selFrame || !selDecision} onClick={() => decideAndAdvance(null)}>
+              <span>↺</span>
+              <b>בטל</b>
+              <kbd>U</kbd>
+            </button>
+          </div>
         </main>
 
         {/* 3. THE DECISION — where the editing screen keeps its tools */}
         <aside className="tz-ge-tools-panel">
           <div className="tz-ge-panel-head">
-            <h2 className="tz-ge-panel-title">החלטה</h2>
-            <span style={{ fontSize: 11.5, color: '#71717a' }}>שום דבר לא יוצא בלי שתחליט</span>
+            <h2 className="tz-ge-panel-title">בקרת בחירה</h2>
+            <span style={{ fontSize: 11.5, color: '#71717a' }}>המערכת מציעה, אתה מחליט</span>
           </div>
           <div className="tz-ws-panel">
             {/* What the tool proposes for the whole set */}
@@ -561,6 +634,72 @@ export default function WorkStageV2({
           <span>{undo.label}</span>
           <button type="button" className="tz-ws-link" onClick={undoLast}>בטל</button>
           <button type="button" className="tz-ws-link" onClick={() => setUndo(null)} aria-label="סגור">✕</button>
+        </div>
+      )}
+
+      {focusOpen && selFrame && (
+        <div className={`tz-ws-focus ${frameState}`} role="dialog" aria-modal="true" aria-label="תצוגת תמונה">
+          <header className="tz-ws-focus-top">
+            <div className="tz-ws-focus-meta">
+              <b>{position >= 0 ? `${position + 1} / ${flat.length}` : ''}</b>
+              <span dir="ltr">{sel}</span>
+            </div>
+            <div className={`tz-ws-frame-state ${frameState}`}>
+              <b>{frameStateLabel}</b>
+              <span>{frameReason}</span>
+            </div>
+            <div className="tz-ws-focus-tools">
+              <button
+                type="button"
+                onClick={() => setFocusZoom((z) => (z === 'fit' || z <= 1 ? 'fit' : Math.max(1, Math.round((z - 0.25) * 100) / 100)))}
+                aria-label="הקטן"
+              >−</button>
+              <output>{focusZoom === 'fit' ? 'התאם' : `${Math.round(focusZoom * 100)}%`}</output>
+              <button
+                type="button"
+                onClick={() => setFocusZoom((z) => (z === 'fit' ? 1 : Math.min(1.75, Math.round((z + 0.25) * 100) / 100)))}
+                aria-label="הגדל"
+              >＋</button>
+              <button type="button" onClick={() => setFocusZoom(1)} aria-label="מאה אחוז">100%</button>
+              <button type="button" onClick={() => setFocusZoom('fit')} aria-label="התאם למסך">התאם</button>
+              <button type="button" onClick={() => setFocusOpen(false)} aria-label="סגור">×</button>
+            </div>
+          </header>
+
+          <div className="tz-ws-focus-stage">
+            <button type="button" className="tz-ws-focus-nav prev" disabled={position <= 0} onClick={() => step(-1)} aria-label="תמונה קודמת">›</button>
+            <div className="tz-ws-focus-scroll">
+              <img
+                src={thumbUrl(selFrame.path, 2400)}
+                alt=""
+                draggable={false}
+                className={focusZoom === 'fit' ? 'is-fit' : 'is-zoomed'}
+                onDoubleClick={() => setFocusZoom((z) => (z === 'fit' ? 1 : 'fit'))}
+                style={{
+                  width: focusZoom === 'fit' ? undefined : `min(${Math.round(92 * focusZoom)}vw, ${Math.round(1560 * focusZoom)}px)`,
+                }}
+              />
+            </div>
+            <button type="button" className="tz-ws-focus-nav next" disabled={position >= flat.length - 1} onClick={() => step(1)} aria-label="תמונה הבאה">‹</button>
+          </div>
+
+          <footer className="tz-ws-focus-actions">
+            <button type="button" className={`tz-ws-dock-btn is-out${selDecision === 'reject' ? ' is-on' : ''}`} onClick={() => decideAndAdvance('reject')}>
+              <span>×</span>
+              <b>הוצא</b>
+              <kbd>X</kbd>
+            </button>
+            <button type="button" className={`tz-ws-dock-btn is-keep${selDecision === 'keep' ? ' is-on' : ''}`} onClick={() => decideAndAdvance('keep')}>
+              <span>✓</span>
+              <b>השאר</b>
+              <kbd>P/K</kbd>
+            </button>
+            <button type="button" className="tz-ws-dock-btn is-clear" disabled={!selDecision} onClick={() => decideAndAdvance(null)}>
+              <span>↺</span>
+              <b>בטל</b>
+              <kbd>U</kbd>
+            </button>
+          </footer>
         </div>
       )}
     </div>
