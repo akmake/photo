@@ -1108,7 +1108,8 @@ export function setPhotoStatus(projectId: string, frame: string, status: PhotoSt
 
 /* ------------------------------------------------------- the work stage */
 
-export type CullDecision = 'keep' | 'reject';
+/** keep · maybe (the photographer is not sure yet — still goes on) · reject */
+export type CullDecision = 'keep' | 'maybe' | 'reject';
 
 /** The photographer's own decisions — never the engine's suggestions. */
 export function cullOf(projectId: string): Record<string, CullDecision> {

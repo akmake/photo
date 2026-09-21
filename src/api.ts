@@ -1116,7 +1116,7 @@ export interface ProjectMemory {
   /** שלב העבודה — the PHOTOGRAPHER'S decision per frame name. Kept apart from
    *  the engine's suggestion on purpose: re-analysing a set can change what is
    *  suggested, and must never change what he decided. Absent = undecided. */
-  cull?: Record<string, 'keep' | 'reject'>;
+  cull?: Record<string, 'keep' | 'maybe' | 'reject'>;
 }
 
 export interface StoryMoment {

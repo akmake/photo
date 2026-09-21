@@ -1,15 +1,14 @@
 /* שלב העבודה — the photographer decides what stays and what goes to the client.
  *
- * The engine (engine/triage.py) only SUGGESTS, and only against a twin: a frame
- * is proposed for removal when the same pose, shot again, is better — eyes open
- * where these are shut, sharp where this is soft. Flawless repeats are offered
- * as duplicates of the recommended frame. Nothing leaves the set until the
- * photographer says so, and his decision (project.json `cull`) is never
- * overwritten by a new analysis.
+ * The whole window, light. Every photograph large, one under the other, in the
+ * batches made in the step before; under each one three quick decisions —
+ * keep, not sure, remove — with a key for each. A double-click opens the frame
+ * in a viewer the way the Windows Photos app does: fit, zoom, pan, next.
  *
- * Built for speed the way professional culling tools are judged: the picture
- * is on screen instantly, one key decides, the next frame follows, and every
- * suggestion shows its twin so the reason is visible, not asserted.
+ * The engine (engine/triage.py) only SUGGESTS, and only against a twin: a frame
+ * is proposed for removal when the same pose, shot again, is better. The
+ * suggestion is a small tag on the photograph, never a decision; his decision
+ * (project.json `cull`) is never overwritten by a new analysis.
  */
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -19,10 +18,9 @@ import {
   batchOfFrame, frameKey, setCull, useBatches, useCull, useProjectFiles,
 } from '../../studio/store';
 import type { CullDecision, Project } from '../../studio/store';
-import './stages-v2.css';
 import './work-stage-v2.css';
 
-type Filter = 'all' | 'remove' | 'duplicate' | 'rejected' | 'unread';
+type Filter = 'all' | 'open' | 'keep' | 'maybe' | 'reject' | 'suggested';
 
 const POLL_MS = 3000;
 const REASON_WORDS: Record<string, string> = {
@@ -34,24 +32,24 @@ const REASON_WORDS: Record<string, string> = {
   unread: 'לא ניתן לקרוא',
 };
 
-/** When a keyboard event carries no physical key (some input paths leave
- *  `code` empty), the letter decides — in English and on the Hebrew layout,
- *  where the same keys type ס ל ו ב ז. */
+/** When a keyboard event carries no physical key, the letter decides — in
+ *  English and on the Hebrew layout. */
 const KEY_TO_CODE: Record<string, string> = {
   x: 'KeyX', X: 'KeyX', 'ס': 'KeyX',
   k: 'KeyK', K: 'KeyK', 'ל': 'KeyK',
+  p: 'KeyP', P: 'KeyP', 'פ': 'KeyP',
+  m: 'KeyM', M: 'KeyM', 'צ': 'KeyM',
   u: 'KeyU', U: 'KeyU', 'ו': 'KeyU',
-  c: 'KeyC', C: 'KeyC', 'ב': 'KeyC',
   z: 'KeyZ', Z: 'KeyZ', 'ז': 'KeyZ',
 };
 
-/** What the reason says about the twin, in the photographer's words. */
-function twinLine(code: string): string {
-  if (code === 'eyes-shut') return 'באותה תנוחה העיניים פתוחות';
-  if (code === 'soft') return 'באותה תנוחה התמונה חדה יותר';
-  if (code === 'duplicate') return 'התמונה המומלצת מהרצף';
-  return '';
-}
+const DECISIONS: { id: CullDecision; label: string; key: string; mark: string }[] = [
+  { id: 'keep', label: 'שמור', key: 'K', mark: '✓' },
+  { id: 'maybe', label: 'מתלבט', key: 'M', mark: '?' },
+  { id: 'reject', label: 'הסר', key: 'X', mark: '✕' },
+];
+
+const WORD: Record<CullDecision, string> = { keep: 'נשמרה', maybe: 'מתלבט', reject: 'הוסרה' };
 
 interface Undo {
   frames: string[];
@@ -78,35 +76,11 @@ export default function WorkStageV2({
   const [filter, setFilter] = useState<Filter>('all');
   const [batch, setBatch] = useState<string>('all');
   const [sel, setSel] = useState<string | null>(null);
-  const [compare, setCompare] = useState(true);
   const [undo, setUndo] = useState<Undo | null>(null);
-  const [aspect, setAspect] = useState(1.5);
-  const [focusOpen, setFocusOpen] = useState(false);
-  const [focusZoom, setFocusZoom] = useState<'fit' | number>('fit');
-  const tileRefs = useRef<Record<string, HTMLButtonElement | null>>({});
+  const [viewer, setViewer] = useState(false);
 
-  /* The stage fills the window below wherever the app's chrome ends, measured
-   * rather than assumed: the top bar's height is not this screen's to know. */
-  const rootRef = useRef<HTMLDivElement | null>(null);
-  useEffect(() => {
-    const place = () => {
-      const el = rootRef.current;
-      if (!el) return;
-      // Where it starts in the PAGE, not on screen: measured while scrolled,
-      // the on-screen top is smaller and the stage came out too tall.
-      const scroller = el.closest('.tz-content-scroll') as HTMLElement | null;
-      const top = el.getBoundingClientRect().top + (scroller?.scrollTop ?? 0);
-      el.style.setProperty('--tz-ws-top', `${Math.max(0, Math.round(top))}px`);
-    };
-    place();
-    window.addEventListener('resize', place);
-    return () => window.removeEventListener('resize', place);
-  });
-
-  /* ---- the engine's answer: asked once with `run`, then polled while the
-   * background preparer is still measuring. A failed call is said as such —
-   * the screen stays usable without suggestions, and never pretends the set
-   * came back clean. */
+  /* ---- the engine's suggestions: asked once, then polled while it measures.
+   * A failed call is said as such; the screen stays fully usable without it. */
   const paths = useMemo(() => frames.map((f) => f.path), [frames]);
   useEffect(() => {
     if (!ready || !paths.length) return;
@@ -140,48 +114,61 @@ export default function WorkStageV2({
     return m;
   }, [frames]);
 
-  /* ---- the order the story happened in: analysed frames in capture order,
-   * grouped by moment; frames still being read follow, as their own group. */
-  const ordered = useMemo(() => {
-    const known = (result?.frames ?? []).filter((t) => frameByName.has(t.file));
-    const rest = frames
-      .map((f) => frameKey(f.name))
-      .filter((n) => !byName.has(n));
-    return { known, rest };
-  }, [result, frames, frameByName, byName]);
+  const suggested = useCallback((n: string) => {
+    const s = byName.get(n)?.suggestion;
+    return (s === 'remove' || s === 'duplicate') && !cull[n];
+  }, [byName, cull]);
 
-  const decisionOf = useCallback((name: string) => cull[name], [cull]);
-
-  const matches = useCallback((name: string) => {
-    if (batch !== 'all' && batchOfFrame(projectId, name) !== batch) return false;
-    const t = byName.get(name);
-    const d = decisionOf(name);
+  const matches = useCallback((n: string) => {
+    const d = cull[n];
     switch (filter) {
-      case 'remove': return t?.suggestion === 'remove' && d !== 'keep';
-      case 'duplicate': return t?.suggestion === 'duplicate' && d !== 'keep';
-      case 'rejected': return d === 'reject';
-      case 'unread': return t?.suggestion === 'unread';
+      case 'open': return !d;
+      case 'keep': case 'maybe': case 'reject': return d === filter;
+      case 'suggested': return suggested(n);
       default: return true;
     }
-  }, [batch, byName, decisionOf, filter, projectId]);
+  }, [cull, filter, suggested]);
 
-  const moments = useMemo(() => {
-    const groups: { key: string; title: string; names: string[] }[] = [];
-    let cur: { key: string; title: string; names: string[] } | null = null;
-    for (const t of ordered.known) {
-      if (!matches(t.file)) continue;
-      if (!cur || cur.key !== `m${t.moment}`) {
-        cur = { key: `m${t.moment}`, title: `רגע ${t.moment + 1}`, names: [] };
-        groups.push(cur);
-      }
-      cur.names.push(t.file);
+  /* ---- the order: the batches as he arranged them, capture order inside;
+   * frames he did not put in any batch follow, as their own group. */
+  const groups = useMemo(() => {
+    const names = frames.map((f) => frameKey(f.name));
+    const of = new Map(names.map((n) => [n, batchOfFrame(projectId, n)]));
+    const out: { id: string; title: string; names: string[] }[] = [];
+    for (const b of batches) {
+      if (batch !== 'all' && batch !== b.id) continue;
+      const inB = names.filter((n) => of.get(n) === b.id && matches(n));
+      if (inB.length) out.push({ id: b.id, title: b.name, names: inB });
     }
-    const waiting = ordered.rest.filter(matches);
-    if (waiting.length) groups.push({ key: 'pending', title: 'עדיין בניתוח', names: waiting });
-    return groups;
-  }, [ordered, matches]);
+    if (batch === 'all' || batch === 'none') {
+      const loose = names.filter((n) => !of.get(n) && matches(n));
+      if (loose.length) out.push({ id: 'none', title: batches.length ? 'ללא מקבץ' : '', names: loose });
+    }
+    return out;
+    // `cull` changes the filtered views; batchOfFrame reads the same store.
+  }, [frames, batches, batch, matches, projectId]);
 
-  const flat = useMemo(() => moments.flatMap((m) => m.names), [moments]);
+  const flat = useMemo(() => groups.flatMap((g) => g.names), [groups]);
+
+  const batchCounts = useMemo(() => {
+    const m: Record<string, number> = { none: 0 };
+    for (const f of frames) {
+      const b = batchOfFrame(projectId, f.name) ?? 'none';
+      m[b] = (m[b] ?? 0) + 1;
+    }
+    return m;
+  }, [frames, projectId]);
+
+  const counts = useMemo(() => {
+    const c = { keep: 0, maybe: 0, reject: 0, open: 0, suggested: 0 };
+    for (const f of frames) {
+      const n = frameKey(f.name);
+      const d = cull[n];
+      if (d) c[d] += 1; else c.open += 1;
+      if (suggested(n)) c.suggested += 1;
+    }
+    return c;
+  }, [frames, cull, suggested]);
 
   // Keep a selection that still exists in the current view.
   useEffect(() => {
@@ -189,21 +176,46 @@ export default function WorkStageV2({
     if (!sel || !flat.includes(sel)) setSel(flat[0]);
   }, [flat, sel]);
 
-  /* ---- counts, for the filters and the way forward */
-  const counts = useMemo(() => {
-    let remove = 0; let duplicate = 0; let rejected = 0; let kept = 0; let unread = 0;
-    for (const f of frames) {
-      const n = frameKey(f.name);
-      const t = byName.get(n);
-      const d = cull[n];
-      if (d === 'reject') rejected += 1;
-      if (d === 'keep') kept += 1;
-      if (t?.suggestion === 'remove' && d !== 'keep' && d !== 'reject') remove += 1;
-      if (t?.suggestion === 'duplicate' && d !== 'keep' && d !== 'reject') duplicate += 1;
-      if (t?.suggestion === 'unread') unread += 1;
-    }
-    return { remove, duplicate, rejected, kept, unread, going: frames.length - rejected };
-  }, [frames, byName, cull]);
+  /* ---- the feed scrolls; the photograph nearest the middle is the one the
+   * keys act on, so he never has to click before he decides. */
+  const feedRef = useRef<HTMLDivElement | null>(null);
+  const cardRefs = useRef<Record<string, HTMLElement | null>>({});
+  const scrollingTo = useRef<string | null>(null);
+  useEffect(() => {
+    const feed = feedRef.current;
+    if (!feed) return undefined;
+    let raf = 0;
+    const onScroll = () => {
+      cancelAnimationFrame(raf);
+      raf = requestAnimationFrame(() => {
+        if (scrollingTo.current) return;
+        const box = feed.getBoundingClientRect();
+        const mid = box.top + box.height * 0.45;
+        let best: string | null = null;
+        let bestD = Infinity;
+        for (const n of flat) {
+          const el = cardRefs.current[n];
+          if (!el) continue;
+          const r = el.getBoundingClientRect();
+          if (r.bottom < box.top || r.top > box.bottom) continue;
+          const d = r.top <= mid && r.bottom >= mid ? 0 : Math.min(Math.abs(r.top - mid), Math.abs(r.bottom - mid));
+          if (d < bestD) { bestD = d; best = n; }
+        }
+        if (best) setSel(best);
+      });
+    };
+    feed.addEventListener('scroll', onScroll, { passive: true });
+    return () => { feed.removeEventListener('scroll', onScroll); cancelAnimationFrame(raf); };
+  }, [flat]);
+
+  const bring = useCallback((n: string, smooth = true) => {
+    setSel(n);
+    const el = cardRefs.current[n];
+    if (!el) return;
+    scrollingTo.current = n;
+    el.scrollIntoView({ block: 'center', behavior: smooth ? 'smooth' : 'auto' });
+    window.setTimeout(() => { if (scrollingTo.current === n) scrollingTo.current = null; }, smooth ? 450 : 50);
+  }, []);
 
   /* ---- deciding, with one level of undo that says what it undoes */
   const decide = useCallback((names: string[], decision: CullDecision | null, label: string) => {
@@ -216,9 +228,10 @@ export default function WorkStageV2({
 
   const undoLast = useCallback(() => {
     if (!undo) return;
-    const back: Record<string, string[]> = { keep: [], reject: [], none: [] };
+    const back: Record<string, string[]> = { keep: [], maybe: [], reject: [], none: [] };
     for (const n of undo.frames) back[undo.before[n] ?? 'none'].push(n);
     setCull(projectId, back.keep, 'keep');
+    setCull(projectId, back.maybe, 'maybe');
     setCull(projectId, back.reject, 'reject');
     setCull(projectId, back.none, null);
     setUndo(null);
@@ -227,22 +240,22 @@ export default function WorkStageV2({
   const step = useCallback((delta: number) => {
     if (!flat.length) return;
     const i = sel ? flat.indexOf(sel) : -1;
-    setSel(flat[Math.max(0, Math.min(flat.length - 1, i + delta))]);
-  }, [flat, sel]);
+    const next = flat[Math.max(0, Math.min(flat.length - 1, i + delta))];
+    if (viewer) setSel(next); else bring(next);
+  }, [bring, flat, sel, viewer]);
 
-  const decideAndAdvance = useCallback((decision: CullDecision | null) => {
-    if (!sel) return;
-    const words = decision === 'reject' ? 'הוצאה' : decision === 'keep' ? 'נשארת' : 'ההחלטה בוטלה';
-    decide([sel], decision, `${sel} · ${words}`);
-    // In a filtered view the frame may leave the list; step to what follows it.
-    const i = flat.indexOf(sel);
-    const next = flat[i + 1] ?? flat[i - 1] ?? null;
-    if (decision !== null && next) setSel(next);
-  }, [decide, flat, sel]);
+  /** Decide the frame, then move on — pressing the same decision again clears it. */
+  const decideOne = useCallback((name: string, decision: CullDecision) => {
+    const again = cull[name] === decision;
+    decide([name], again ? null : decision, `${name} · ${again ? 'ההחלטה בוטלה' : WORD[decision]}`);
+    if (again) return;
+    const i = flat.indexOf(name);
+    const next = flat[i + 1];
+    if (!next) return;
+    if (viewer) setSel(next); else bring(next);
+  }, [bring, cull, decide, flat, viewer]);
 
-  /* ---- the keyboard. By key POSITION (e.code), so the Hebrew layout works
-   * the same as the English one. Arrow keys follow the page: in RTL the next
-   * frame is to the LEFT. */
+  /* ---- the keyboard, by key POSITION so the Hebrew layout works the same. */
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement | null;
@@ -251,506 +264,422 @@ export default function WorkStageV2({
       if ((e.ctrlKey || e.metaKey) && code === 'KeyZ') { e.preventDefault(); undoLast(); return; }
       if (e.ctrlKey || e.metaKey || e.altKey) return;
       switch (code) {
-        case 'Escape':
-          if (focusOpen) { e.preventDefault(); setFocusOpen(false); }
+        case 'Escape': if (viewer) { e.preventDefault(); setViewer(false); } break;
+        case 'Enter': if (sel && !viewer) { e.preventDefault(); setViewer(true); } break;
+        case 'ArrowDown': case 'ArrowLeft': e.preventDefault(); step(1); break;
+        case 'ArrowUp': case 'ArrowRight': e.preventDefault(); step(-1); break;
+        case 'KeyK': case 'KeyP': case 'Digit1': if (sel) { e.preventDefault(); decideOne(sel, 'keep'); } break;
+        case 'KeyM': case 'Digit2': if (sel) { e.preventDefault(); decideOne(sel, 'maybe'); } break;
+        case 'KeyX': case 'Delete': case 'Digit3': if (sel) { e.preventDefault(); decideOne(sel, 'reject'); } break;
+        case 'KeyU': case 'Backspace':
+          if (sel && cull[sel]) { e.preventDefault(); decide([sel], null, `${sel} · ההחלטה בוטלה`); }
           break;
-        case 'Equal': case 'NumpadAdd':
-          if (focusOpen) {
-            e.preventDefault();
-            setFocusZoom((z) => (z === 'fit' ? 1 : Math.min(1.75, Math.round((z + 0.25) * 100) / 100)));
-          }
-          break;
-        case 'Minus': case 'NumpadSubtract':
-          if (focusOpen) {
-            e.preventDefault();
-            setFocusZoom((z) => (z === 'fit' || z <= 1 ? 'fit' : Math.max(1, Math.round((z - 0.25) * 100) / 100)));
-          }
-          break;
-        case 'Digit0': case 'Numpad0':
-          if (focusOpen) { e.preventDefault(); setFocusZoom('fit'); }
-          break;
-        case 'Space': case 'KeyZ':
-          if (focusOpen) {
-            e.preventDefault();
-            setFocusZoom((z) => (z === 'fit' ? 1 : 'fit'));
-          }
-          break;
-        case 'ArrowLeft': case 'ArrowDown': e.preventDefault(); step(1); break;
-        case 'ArrowRight': case 'ArrowUp': e.preventDefault(); step(-1); break;
-        case 'KeyX': case 'Delete': e.preventDefault(); decideAndAdvance('reject'); break;
-        case 'KeyK': case 'KeyP': case 'Enter': e.preventDefault(); decideAndAdvance('keep'); break;
-        case 'KeyU': case 'Backspace': e.preventDefault(); decideAndAdvance(null); break;
-        case 'KeyC': e.preventDefault(); setCompare((v) => !v); break;
         default:
       }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [decideAndAdvance, focusOpen, step, undoLast]);
+  }, [cull, decide, decideOne, sel, step, undoLast, viewer]);
 
-  const selT = sel ? byName.get(sel) : undefined;
-  const selFrame = sel ? frameByName.get(sel) : undefined;
-  const twinRef = selT?.reasons.find((r) => r.ref)?.ref;
-  const twinFrame = twinRef ? frameByName.get(twinRef) : undefined;
-  const flaggedFace = selT?.reasons.find((r) => typeof r.face === 'number')?.face;
-  const showTwin = Boolean(compare && twinFrame);
+  // Returning from the viewer: the feed is where the viewer ended.
+  const wasViewer = useRef(false);
+  useEffect(() => {
+    if (wasViewer.current && !viewer && sel) bring(sel, false);
+    wasViewer.current = viewer;
+  }, [viewer, sel, bring]);
 
-  const bulk = filter === 'remove' || filter === 'duplicate'
-    ? flat.filter((n) => cull[n] !== 'reject' && cull[n] !== 'keep')
-    : [];
+  useEffect(() => {
+    if (!undo) return undefined;
+    const t = window.setTimeout(() => setUndo(null), 6000);
+    return () => window.clearTimeout(t);
+  }, [undo]);
 
   const analysed = result ? result.frames.length : 0;
   const pending = result ? result.pending.length : frames.length;
+  const going = frames.length - counts.reject;
+  const bulk = filter === 'suggested' ? flat.filter((n) => suggested(n)) : [];
 
-  // The canvas is sized in pixels from its own box, like the editing screen's.
-  const loupeRef = useRef<HTMLDivElement | null>(null);
-  const [box, setBox] = useState({ w: 800, h: 500 });
-  useEffect(() => {
-    const el = loupeRef.current;
-    if (!el) return undefined;
-    const ro = new ResizeObserver(([entry]) => {
-      const r = entry.contentRect;
-      setBox({ w: Math.max(200, r.width), h: Math.max(160, r.height) });
-    });
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, [ready]);
-  // Two pictures go side by side or one above the other — whichever lets each
-  // be LARGER in this box.
-  const fit = (w: number, h: number) => Math.max(40, Math.floor(Math.min(w, (h - 20) * aspect)));
-  const sideW = fit((box.w - 16) / 2, box.h);
-  const stackW = fit(box.w, (box.h - 16) / 2);
-  const stack = showTwin && stackW > sideW;
-  const imgW = showTwin ? Math.max(sideW, stackW) : fit(box.w, box.h);
-  const imgH = Math.floor(imgW / aspect);
-
-  useEffect(() => {
-    if (sel) tileRefs.current[sel]?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
-  }, [sel]);
-
-  useEffect(() => {
-    setFocusZoom('fit');
-  }, [sel, focusOpen]);
-
-  if (!ready) {
-    return <div className="tz-ge-studio-root"><p className="tz-ws-muted">טוען את תיקיית הפרויקט…</p></div>;
-  }
-
-  const suggestion = selT && sel && !cull[sel] && (selT.suggestion === 'remove' || selT.suggestion === 'duplicate')
-    ? selT : null;
-  const mainReason = selT?.reasons.find((r) => r.code !== 'duplicate') ?? selT?.reasons[0];
-  const position = sel ? flat.indexOf(sel) : -1;
-  const selDecision = sel ? cull[sel] : undefined;
-  const frameState = selDecision === 'reject' ? 'is-rejected'
-    : selDecision === 'keep' ? 'is-kept'
-    : suggestion?.suggestion === 'remove' ? 'is-suggested-remove'
-    : suggestion?.suggestion === 'duplicate' ? 'is-suggested-duplicate'
-    : selT?.star ? 'is-recommended'
-    : 'is-neutral';
-  const frameStateLabel = selDecision === 'reject' ? 'הוצאה מהסט'
-    : selDecision === 'keep' ? 'נשארת בסט'
-    : suggestion?.suggestion === 'remove' ? 'מוצע להסיר'
-    : suggestion?.suggestion === 'duplicate' ? 'כפולה לבדיקה'
-    : selT?.star ? 'מומלצת מהרצף'
-    : selT ? 'אין הערה'
-    : 'ממתינה לניתוח';
-  const frameReason = suggestion && mainReason
-    ? (REASON_WORDS[mainReason.code] ?? mainReason.label)
-    : selT?.star ? 'התמונה הטובה ברצף הזה'
-    : selT?.suggestion === 'unread' ? 'לא ניתן לקרוא את הקובץ'
-    : 'החלטה ידנית של הצלם';
+  const FILTERS: [Filter, string, number][] = [
+    ['all', 'הכל', frames.length],
+    ['open', 'לא הוחלט', counts.open],
+    ['keep', 'נשמרו', counts.keep],
+    ['maybe', 'מתלבט', counts.maybe],
+    ['reject', 'הוסרו', counts.reject],
+    ...(counts.suggested ? [['suggested', 'הצעות המערכת', counts.suggested] as [Filter, string, number]] : []),
+  ];
 
   return (
-    <div className={`tz-ge-studio-root tz-ws ${frameState}`} ref={rootRef}>
-      {/* 1. TOP BAR — the editing screen's own bar: views on one side, the way on */}
-      <header className="tz-ge-top-bar">
-        <div className="tz-ge-batch-tabs" role="tablist">
-          <span className="tz-ws-bar-title">שלב העבודה</span>
-          {([
-            ['all', 'כל התמונות', frames.length],
-            ['remove', 'מוצע להסיר', counts.remove],
-            ['duplicate', 'כפולות', counts.duplicate],
-            ['rejected', 'הוצאו', counts.rejected],
-            ...(counts.unread ? [['unread', 'לא נקראו', counts.unread] as const] : []),
-          ] as [Filter, string, number][]).map(([id, label, n]) => (
+    <div className="tz-ws" dir="rtl">
+      <header className="tz-ws-top">
+        <div className="tz-ws-top-side">
+          {onBack && (
+            <button type="button" className="tz-ws-back" onClick={onBack} title="חזרה למקבצים">
+              <span aria-hidden>→</span> מקבצים
+            </button>
+          )}
+          <div className="tz-ws-title">
+            <b>שלב העבודה</b>
+            <span>{[project.client, project.event].filter(Boolean).join(' · ')}</span>
+          </div>
+        </div>
+
+        <nav className="tz-ws-filters" aria-label="תצוגה">
+          {FILTERS.map(([id, label, n]) => (
             <button
               key={id}
               type="button"
-              role="tab"
-              aria-selected={filter === id}
-              className={`tz-ge-batch-tab ${filter === id ? 'active' : ''}`}
-              onClick={() => setFilter(id)}
+              className={`tz-ws-filter is-${id}${filter === id ? ' is-on' : ''}`}
+              onClick={() => { setFilter(id); feedRef.current?.scrollTo({ top: 0 }); }}
             >
-              <span>{label}</span>
-              <span className="tz-ge-batch-pill-badge">{n.toLocaleString('he-IL')}</span>
+              {label}<i>{n.toLocaleString('he-IL')}</i>
             </button>
           ))}
-          {batches.length > 0 && (
-            <select className="tz-ws-batch" value={batch} onChange={(e) => setBatch(e.target.value)} aria-label="מקבץ">
-              <option value="all">כל המקבצים</option>
-              {batches.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
-            </select>
-          )}
-        </div>
-        <div className="tz-ge-top-actions">
-          {onBack && (
-            <button type="button" className="tz-sc-subtle-btn" onClick={onBack}>← מקבצים</button>
-          )}
+        </nav>
+
+        <div className="tz-ws-top-side is-end">
+          {fault ? (
+            <span className="tz-ws-note is-fault" title={fault}>אין הצעות מהמנוע — אפשר להחליט ידנית</span>
+          ) : pending > 0 && frames.length > 0 ? (
+            <span className="tz-ws-note">
+              מנתח {analysed.toLocaleString('he-IL')}/{frames.length.toLocaleString('he-IL')}
+              <span className="tz-ws-meter"><i style={{ width: `${(analysed / frames.length) * 100}%` }} /></span>
+            </span>
+          ) : null}
           {onNext && (
-            <button
-              type="button"
-              className="tz-btn-projects-primary"
-              style={{ padding: '7px 16px', fontSize: 13 }}
-              onClick={onNext}
-            >
-              לשליחה ללקוח · {counts.going.toLocaleString('he-IL')} תמונות ←
+            <button type="button" className="tz-ws-next" onClick={onNext}>
+              לשליחה ללקוח · {going.toLocaleString('he-IL')} ←
             </button>
           )}
         </div>
       </header>
 
-      {/* 2. THE WORKSPACE — deck | canvas | decision, as in editing */}
-      <div className="tz-ge-studio-workspace">
-        <aside className="tz-ge-slide-deck">
-          <div className="tz-ge-deck-header">
-            <span>תמונות ({flat.length.toLocaleString('he-IL')})</span>
-            <span style={{ fontSize: 11.5, color: '#71717a' }}>לפי רגעים</span>
-          </div>
-          <div className="tz-ge-deck-scroll">
-            {moments.length === 0 && (
-              <div className="tz-ws-deck-empty">{emptyLine(filter, pending)}</div>
+      {batches.length > 0 && (
+        <div className="tz-ws-batches" role="tablist" aria-label="מקבץ">
+          <button type="button" role="tab" aria-selected={batch === 'all'} className={batch === 'all' ? 'is-on' : ''} onClick={() => { setBatch('all'); feedRef.current?.scrollTo({ top: 0 }); }}>
+            כל המקבצים<i>{frames.length.toLocaleString('he-IL')}</i>
+          </button>
+          {batches.map((b) => (
+            <button key={b.id} type="button" role="tab" aria-selected={batch === b.id} className={batch === b.id ? 'is-on' : ''} onClick={() => { setBatch(b.id); feedRef.current?.scrollTo({ top: 0 }); }}>
+              {b.name}<i>{(batchCounts[b.id] ?? 0).toLocaleString('he-IL')}</i>
+            </button>
+          ))}
+          {batchCounts.none > 0 && (
+            <button type="button" role="tab" aria-selected={batch === 'none'} className={batch === 'none' ? 'is-on' : ''} onClick={() => { setBatch('none'); feedRef.current?.scrollTo({ top: 0 }); }}>
+              ללא מקבץ<i>{batchCounts.none.toLocaleString('he-IL')}</i>
+            </button>
+          )}
+        </div>
+      )}
+
+      <div className="tz-ws-feed" ref={feedRef}>
+        {!ready ? (
+          <p className="tz-ws-empty">טוען את תיקיית הפרויקט…</p>
+        ) : flat.length === 0 ? (
+          <p className="tz-ws-empty">{emptyLine(filter, pending)}</p>
+        ) : (
+          <>
+            {bulk.length > 0 && (
+              <div className="tz-ws-bulkbar">
+                <span>המערכת מציעה להסיר {bulk.length.toLocaleString('he-IL')} תמונות שיש להן תאומה טובה יותר.</span>
+                <button type="button" onClick={() => decide(bulk, 'reject', `${bulk.length} תמונות הוסרו`)}>הסר את כולן</button>
+              </div>
             )}
-            {moments.map((m) => (
-              <div key={m.key} className="tz-ws-deck-moment">
-                <span className="tz-ws-deck-label">{m.title}</span>
-                {m.names.map((n) => {
+            {groups.map((g) => (
+              <section key={g.id} className="tz-ws-group">
+                {g.title && (
+                  <h2 className="tz-ws-group-title">{g.title}<span>{g.names.length.toLocaleString('he-IL')} תמונות</span></h2>
+                )}
+                {g.names.map((n) => {
                   const f = frameByName.get(n);
                   if (!f) return null;
-                  const t = byName.get(n);
-                  const d = cull[n];
-                  const badge = d === 'reject' ? ['הוצאה', 'is-out']
-                    : d === 'keep' ? ['נשארת', 'is-kept']
-                    : t?.suggestion === 'remove' ? ['מוצע להסיר', 'is-suggest']
-                    : t?.suggestion === 'duplicate' ? ['כפולה', 'is-dup']
-                    : null;
                   return (
-                    <div
+                    <Card
                       key={n}
-                      ref={(el) => { tileRefs.current[n] = el as unknown as HTMLButtonElement; }}
-                      className={`tz-ge-slide-item ${n === sel ? 'active' : ''}${d === 'reject' ? ' tz-ws-out' : ''}`}
-                      onClick={() => setSel(n)}
-                      role="option"
-                      aria-selected={n === sel}
-                    >
-                      <img className="tz-ge-slide-thumb" src={thumbUrl(f.path, 320)} alt={n} title={n} loading="lazy" />
-                      {badge && <span className={`tz-ws-badge ${badge[1]}`}>{badge[0]}</span>}
-                      {t?.star && !d && <span className="tz-ws-star" title="התמונה המומלצת מהרצף">★</span>}
-                    </div>
+                      name={n}
+                      frame={f}
+                      triage={byName.get(n)}
+                      decision={cull[n]}
+                      current={n === sel}
+                      twin={twinOf(byName.get(n), frameByName)}
+                      cardRef={(el) => { cardRefs.current[n] = el; }}
+                      onSelect={() => setSel(n)}
+                      onOpen={() => { setSel(n); setViewer(true); }}
+                      onDecide={(d) => decideOne(n, d)}
+                      onTwin={(t) => bring(t)}
+                    />
                   );
                 })}
-              </div>
+              </section>
             ))}
-          </div>
-        </aside>
-
-        <main className="tz-ge-canvas-stage">
-          <div className="tz-ge-canvas-toolbar">
-            <div className="tz-ge-canvas-nav">
-              <button type="button" className="tz-ge-canvas-nav-btn" disabled={position <= 0} onClick={() => step(-1)} title="הקודמת (חץ ימינה)">›</button>
-              <button type="button" className="tz-ge-canvas-nav-btn" disabled={position >= flat.length - 1} onClick={() => step(1)} title="הבאה (חץ שמאלה)">‹</button>
-              <span className="tz-ws-counter">
-                {position >= 0 ? `${position + 1} / ${flat.length}` : ''}
-              </span>
-              <span className="tz-ws-file" dir="ltr">{sel ?? ''}</span>
-            </div>
-            <div className={`tz-ws-frame-state ${frameState}`}>
-              <b>{frameStateLabel}</b>
-              <span>{frameReason}</span>
-            </div>
-            {twinFrame && (
-              <button type="button" className={`tz-ge-brush-btn ${showTwin ? 'active' : ''}`} onClick={() => setCompare((v) => !v)}>
-                {showTwin ? 'הסתר תאומה' : 'השווה לתאומה'} · C
-              </button>
-            )}
-          </div>
-
-          <div className={`tz-ws-canvas${stack ? ' is-stack' : ''}`} ref={loupeRef}>
-            {selFrame ? (
-              <>
-                <figure>
-                  <div className="tz-ws-imgbox" style={{ width: imgW, height: imgH }}>
-                    <img
-                      src={thumbUrl(selFrame.path, 1600)}
-                      alt=""
-                      draggable={false}
-                      onDoubleClick={() => setFocusOpen(true)}
-                      onLoad={(e) => {
-                        const im = e.currentTarget;
-                        if (im.naturalWidth && im.naturalHeight) setAspect(im.naturalWidth / im.naturalHeight);
-                      }}
-                    />
-                    {/* The face the suggestion is about: a hairline, never a fill. */}
-                    {typeof flaggedFace === 'number' && selT?.faces[flaggedFace] && (
-                      <i
-                        className="tz-ws-facebox"
-                        style={{
-                          left: `${selT.faces[flaggedFace].box.x * 100}%`,
-                          top: `${selT.faces[flaggedFace].box.y * 100}%`,
-                          width: `${selT.faces[flaggedFace].box.width * 100}%`,
-                          height: `${selT.faces[flaggedFace].box.height * 100}%`,
-                        }}
-                      />
-                    )}
-                  </div>
-                  {showTwin && <figcaption>התמונה הזו</figcaption>}
-                </figure>
-                {showTwin && twinFrame && (
-                  <figure>
-                    <div className="tz-ws-imgbox" style={{ width: imgW, height: imgH }}>
-                      <img src={thumbUrl(twinFrame.path, 1600)} alt="" draggable={false} />
-                    </div>
-                    <figcaption>התאומה הטובה יותר · <span dir="ltr">{twinRef}</span></figcaption>
-                  </figure>
-                )}
-              </>
-            ) : (
-              <p className="tz-ws-canvas-empty">{emptyLine(filter, pending)}</p>
-            )}
-          </div>
-
-          <div className="tz-ws-decision-dock" aria-label="החלטת תמונה">
-            <button type="button" className={`tz-ws-dock-btn is-out${selDecision === 'reject' ? ' is-on' : ''}`} disabled={!selFrame} onClick={() => decideAndAdvance('reject')}>
-              <span>×</span>
-              <b>הוצא</b>
-              <kbd>X</kbd>
-            </button>
-            <button type="button" className={`tz-ws-dock-btn is-keep${selDecision === 'keep' ? ' is-on' : ''}`} disabled={!selFrame} onClick={() => decideAndAdvance('keep')}>
-              <span>✓</span>
-              <b>השאר</b>
-              <kbd>K</kbd>
-            </button>
-            <button type="button" className="tz-ws-dock-btn is-clear" disabled={!selFrame || !selDecision} onClick={() => decideAndAdvance(null)}>
-              <span>↺</span>
-              <b>בטל</b>
-              <kbd>U</kbd>
-            </button>
-          </div>
-        </main>
-
-        {/* 3. THE DECISION — where the editing screen keeps its tools */}
-        <aside className="tz-ge-tools-panel">
-          <div className="tz-ge-panel-head">
-            <h2 className="tz-ge-panel-title">בקרת בחירה</h2>
-            <span style={{ fontSize: 11.5, color: '#71717a' }}>המערכת מציעה, אתה מחליט</span>
-          </div>
-          <div className="tz-ws-panel">
-            {/* What the tool proposes for the whole set */}
-            <section className="tz-ws-sect">
-              <h3>המערכת מציעה</h3>
-              {fault ? (
-                <p className="tz-ws-fault">לא ניתן לקבל הצעות מהמנוע: {fault}. אפשר להחליט ידנית.</p>
-              ) : !result ? (
-                <p className="tz-ws-muted">פונה למנוע…</p>
-              ) : (
-                <>
-                  {pending > 0 && (
-                    <p className="tz-ws-muted tz-ws-progress">
-                      מנתח את הצילום · {analysed.toLocaleString('he-IL')} מתוך {frames.length.toLocaleString('he-IL')}
-                      <span className="tz-ws-bar"><i style={{ width: `${(analysed / frames.length) * 100}%` }} /></span>
-                    </p>
-                  )}
-                  <div className="tz-ws-stats">
-                    <button type="button" className={`tz-ws-stat is-remove${filter === 'remove' ? ' is-on' : ''}`} onClick={() => setFilter('remove')}>
-                      <b>{counts.remove.toLocaleString('he-IL')}</b>
-                      <span>להסרה</span>
-                      <small>יש להן תאומה טובה יותר</small>
-                    </button>
-                    <button type="button" className={`tz-ws-stat${filter === 'duplicate' ? ' is-on' : ''}`} onClick={() => setFilter('duplicate')}>
-                      <b>{counts.duplicate.toLocaleString('he-IL')}</b>
-                      <span>כפולות</span>
-                      <small>של תמונה מומלצת ★</small>
-                    </button>
-                  </div>
-                  {bulk.length > 0 && (
-                    <button type="button" className="tz-ws-bulk" onClick={() => decide(bulk, 'reject', `${bulk.length} הצעות התקבלו`)}>
-                      הוצא את כל {bulk.length.toLocaleString('he-IL')} ההצעות שבתצוגה
-                    </button>
-                  )}
-                </>
-              )}
-            </section>
-
-            {/* What it says about THIS frame, and the decision */}
-            {selFrame && (
-              <section className="tz-ws-sect">
-                <h3>התמונה הזו</h3>
-                <div className={`tz-ws-verdict${suggestion?.suggestion === 'remove' ? ' is-remove' : ''}`}>
-                  {cull[sel!] ? (
-                    <p><b>{cull[sel!] === 'reject' ? 'הוצאה מהסט' : 'נשארת בסט'}</b></p>
-                  ) : !selT ? (
-                    <p className="tz-ws-muted">עוד לא נותחה.</p>
-                  ) : suggestion && mainReason ? (
-                    <>
-                      <p><b>{suggestion.suggestion === 'remove' ? 'מוצע להסיר' : 'כפולה'} — {REASON_WORDS[mainReason.code] ?? mainReason.label}</b></p>
-                      {mainReason.ref && <p className="tz-ws-muted">{twinLine(mainReason.code)}.</p>}
-                    </>
-                  ) : selT.suggestion === 'unread' ? (
-                    <p className="tz-ws-fault">לא ניתן לקרוא את הקובץ.</p>
-                  ) : (
-                    <p className="tz-ws-muted">{selT.star ? '★ התמונה המומלצת מהרצף שלה.' : 'אין הצעה לתמונה הזו.'}</p>
-                  )}
-                </div>
-
-                <div className="tz-ws-decide">
-                  <button type="button" className={`tz-ws-btn is-out${cull[sel!] === 'reject' ? ' is-on' : ''}`} onClick={() => decideAndAdvance('reject')}>
-                    הוצא <kbd>X</kbd>
-                  </button>
-                  <button type="button" className={`tz-ws-btn is-keep${cull[sel!] === 'keep' ? ' is-on' : ''}`} onClick={() => decideAndAdvance('keep')}>
-                    השאר <kbd>K</kbd>
-                  </button>
-                </div>
-                {cull[sel!] && (
-                  <button type="button" className="tz-ws-link" onClick={() => decideAndAdvance(null)}>בטל החלטה (U)</button>
-                )}
-              </section>
-            )}
-
-            {selT && selT.faces.length > 0 && selFrame && (
-              <section className="tz-ws-sect">
-                <h3>הפנים בתמונה</h3>
-                <FaceStrip src={thumbUrl(selFrame.path, 1600)} aspect={aspect} faces={selT.faces} flagged={flaggedFace} />
-              </section>
-            )}
-
-            <p className="tz-ws-keys tz-ws-muted">
-              חצים — הבאה/קודמת · X הוצא · K השאר · U בטל · C תאומה · Ctrl+Z ביטול
+            <p className="tz-ws-end">
+              {flat.length.toLocaleString('he-IL')} תמונות בתצוגה · חצים לתמונה הבאה · K שמור · M מתלבט · X הסר · לחיצה כפולה לתצוגה מלאה
             </p>
-          </div>
-        </aside>
+          </>
+        )}
       </div>
 
       {undo && (
         <div className="tz-ws-toast" role="status">
           <span>{undo.label}</span>
-          <button type="button" className="tz-ws-link" onClick={undoLast}>בטל</button>
-          <button type="button" className="tz-ws-link" onClick={() => setUndo(null)} aria-label="סגור">✕</button>
+          <button type="button" onClick={undoLast}>בטל</button>
         </div>
       )}
 
-      {focusOpen && selFrame && (
-        <div className={`tz-ws-focus ${frameState}`} role="dialog" aria-modal="true" aria-label="תצוגת תמונה">
-          <header className="tz-ws-focus-top">
-            <div className="tz-ws-focus-meta">
-              <b>{position >= 0 ? `${position + 1} / ${flat.length}` : ''}</b>
-              <span dir="ltr">{sel}</span>
-            </div>
-            <div className={`tz-ws-frame-state ${frameState}`}>
-              <b>{frameStateLabel}</b>
-              <span>{frameReason}</span>
-            </div>
-            <div className="tz-ws-focus-tools">
-              <button
-                type="button"
-                onClick={() => setFocusZoom((z) => (z === 'fit' || z <= 1 ? 'fit' : Math.max(1, Math.round((z - 0.25) * 100) / 100)))}
-                aria-label="הקטן"
-              >−</button>
-              <output>{focusZoom === 'fit' ? 'התאם' : `${Math.round(focusZoom * 100)}%`}</output>
-              <button
-                type="button"
-                onClick={() => setFocusZoom((z) => (z === 'fit' ? 1 : Math.min(1.75, Math.round((z + 0.25) * 100) / 100)))}
-                aria-label="הגדל"
-              >＋</button>
-              <button type="button" onClick={() => setFocusZoom(1)} aria-label="מאה אחוז">100%</button>
-              <button type="button" onClick={() => setFocusZoom('fit')} aria-label="התאם למסך">התאם</button>
-              <button type="button" onClick={() => setFocusOpen(false)} aria-label="סגור">×</button>
-            </div>
-          </header>
-
-          <div className="tz-ws-focus-stage">
-            <button type="button" className="tz-ws-focus-nav prev" disabled={position <= 0} onClick={() => step(-1)} aria-label="תמונה קודמת">›</button>
-            <div className="tz-ws-focus-scroll">
-              <img
-                src={thumbUrl(selFrame.path, 2400)}
-                alt=""
-                draggable={false}
-                className={focusZoom === 'fit' ? 'is-fit' : 'is-zoomed'}
-                onDoubleClick={() => setFocusZoom((z) => (z === 'fit' ? 1 : 'fit'))}
-                style={{
-                  width: focusZoom === 'fit' ? undefined : `min(${Math.round(92 * focusZoom)}vw, ${Math.round(1560 * focusZoom)}px)`,
-                }}
-              />
-            </div>
-            <button type="button" className="tz-ws-focus-nav next" disabled={position >= flat.length - 1} onClick={() => step(1)} aria-label="תמונה הבאה">‹</button>
-          </div>
-
-          <footer className="tz-ws-focus-actions">
-            <button type="button" className={`tz-ws-dock-btn is-out${selDecision === 'reject' ? ' is-on' : ''}`} onClick={() => decideAndAdvance('reject')}>
-              <span>×</span>
-              <b>הוצא</b>
-              <kbd>X</kbd>
-            </button>
-            <button type="button" className={`tz-ws-dock-btn is-keep${selDecision === 'keep' ? ' is-on' : ''}`} onClick={() => decideAndAdvance('keep')}>
-              <span>✓</span>
-              <b>השאר</b>
-              <kbd>P/K</kbd>
-            </button>
-            <button type="button" className="tz-ws-dock-btn is-clear" disabled={!selDecision} onClick={() => decideAndAdvance(null)}>
-              <span>↺</span>
-              <b>בטל</b>
-              <kbd>U</kbd>
-            </button>
-          </footer>
-        </div>
+      {viewer && sel && frameByName.get(sel) && (
+        <Viewer
+          frame={frameByName.get(sel)!}
+          name={sel}
+          position={flat.indexOf(sel)}
+          total={flat.length}
+          decision={cull[sel]}
+          onClose={() => setViewer(false)}
+          onStep={step}
+          onDecide={(d) => decideOne(sel, d)}
+        />
       )}
     </div>
   );
 }
 
+function twinOf(t: TriageFrame | undefined, frames: Map<string, Frame>) {
+  const ref = t?.reasons.find((r) => r.ref)?.ref;
+  return ref && frames.has(ref) ? { name: ref, frame: frames.get(ref)! } : null;
+}
+
 function emptyLine(filter: Filter, pending: number): string {
-  if (filter === 'remove') return pending > 0 ? 'הניתוח עוד רץ — ההצעות יופיעו כאן.' : 'אין הצעות להסרה בתצוגה הזו.';
-  if (filter === 'duplicate') return pending > 0 ? 'הניתוח עוד רץ — הכפולות יופיעו כאן.' : 'אין כפולות בתצוגה הזו.';
-  if (filter === 'rejected') return 'עוד לא הוצאה אף תמונה.';
+  if (filter === 'suggested') return pending > 0 ? 'הניתוח עוד רץ — ההצעות יופיעו כאן.' : 'אין הצעות בתצוגה הזו.';
+  if (filter === 'open') return 'החלטת על כל התמונות בתצוגה הזו.';
+  if (filter === 'keep') return 'עוד לא נשמרה אף תמונה.';
+  if (filter === 'maybe') return 'אין תמונות שאתה מתלבט עליהן.';
+  if (filter === 'reject') return 'עוד לא הוסרה אף תמונה.';
   return 'אין תמונות בתצוגה הזו.';
 }
 
-/** Every face in the frame, enlarged side by side — the view a photographer
- *  otherwise builds by zooming into each face in turn. Cropped from the same
- *  preview the large view shows, so nothing new is fetched. */
-function FaceStrip({
-  src, aspect, faces, flagged,
-}: {
-  src: string;
-  aspect: number;
-  faces: TriageFrame['faces'];
-  flagged?: number;
-}) {
-  const shown = faces
-    .map((f, i) => ({ ...f, i }))
-    .sort((a, b) => b.box.width * b.box.height - a.box.width * a.box.height)
-    .slice(0, 8);
+/* ------------------------------------------------------------ one photograph */
+
+function Decide({ decision, onDecide }: { decision?: CullDecision; onDecide: (d: CullDecision) => void }) {
   return (
-    <div className="tz-ws-faces" aria-label="הפנים בתמונה">
-      {shown.map((f) => {
-        // A square window around the face, in the image's own proportions.
-        const side = Math.max(f.box.width, f.box.height / aspect) * 1.5;
-        const w = Math.min(1, side);
-        const h = Math.min(1, side * aspect);
-        const cx = f.box.x + f.box.width / 2;
-        const cy = f.box.y + f.box.height / 2;
-        const x = Math.max(0, Math.min(1 - w, cx - w / 2));
-        const y = Math.max(0, Math.min(1 - h, cy - h / 2));
-        return (
-          <span
-            key={f.i}
-            className={`tz-ws-face${f.i === flagged ? ' is-flagged' : ''}`}
+    <div className="tz-ws-decide" role="group" aria-label="החלטה">
+      {DECISIONS.map((d) => (
+        <button
+          key={d.id}
+          type="button"
+          className={`is-${d.id}${decision === d.id ? ' is-on' : ''}`}
+          aria-pressed={decision === d.id}
+          onClick={(e) => { e.stopPropagation(); onDecide(d.id); }}
+          title={`${d.label} (${d.key})`}
+        >
+          <span aria-hidden>{d.mark}</span>{d.label}<kbd>{d.key}</kbd>
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function Card({
+  name, frame, triage, decision, current, twin, cardRef, onSelect, onOpen, onDecide, onTwin,
+}: {
+  name: string;
+  frame: Frame;
+  triage?: TriageFrame;
+  decision?: CullDecision;
+  current: boolean;
+  twin: { name: string; frame: Frame } | null;
+  cardRef: (el: HTMLElement | null) => void;
+  onSelect: () => void;
+  onOpen: () => void;
+  onDecide: (d: CullDecision) => void;
+  onTwin: (name: string) => void;
+}) {
+  const [loaded, setLoaded] = useState(false);
+  const suggestion = !decision && (triage?.suggestion === 'remove' || triage?.suggestion === 'duplicate') ? triage : null;
+  const reason = suggestion?.reasons.find((r) => r.code !== 'duplicate') ?? suggestion?.reasons[0];
+  const face = suggestion?.reasons.find((r) => typeof r.face === 'number')?.face;
+  const faceBox = typeof face === 'number' ? triage?.faces[face]?.box : undefined;
+
+  return (
+    <article
+      ref={cardRef}
+      className={`tz-ws-card${current ? ' is-current' : ''}${decision ? ` is-${decision}` : ''}`}
+      onClick={onSelect}
+    >
+      <div className={`tz-ws-photo${loaded ? ' is-loaded' : ''}`} onDoubleClick={onOpen} title="לחיצה כפולה לתצוגה מלאה">
+        <img
+          src={thumbUrl(frame.path, 1600)}
+          alt={name}
+          loading="lazy"
+          decoding="async"
+          draggable={false}
+          onLoad={() => setLoaded(true)}
+        />
+        {faceBox && (
+          <i
+            className="tz-ws-facebox"
             style={{
-              backgroundImage: `url("${src}")`,
-              backgroundSize: `${100 / w}% ${100 / h}%`,
-              backgroundPosition: `${w < 1 ? (x / (1 - w)) * 100 : 0}% ${h < 1 ? (y / (1 - h)) * 100 : 0}%`,
+              left: `${faceBox.x * 100}%`,
+              top: `${faceBox.y * 100}%`,
+              width: `${faceBox.width * 100}%`,
+              height: `${faceBox.height * 100}%`,
             }}
           />
-        );
-      })}
+        )}
+        {decision && <span className={`tz-ws-stamp is-${decision}`}>{WORD[decision]}</span>}
+      </div>
+
+      <footer className="tz-ws-card-bar">
+        <span className="tz-ws-file" dir="ltr">{name}</span>
+        <Decide decision={decision} onDecide={onDecide} />
+        <span className="tz-ws-hint">
+          {suggestion && reason ? (
+            <button type="button" className={`tz-ws-suggest is-${suggestion.suggestion}`} onClick={(e) => { e.stopPropagation(); if (twin) onTwin(twin.name); }} title={twin ? 'עבור לתאומה' : undefined}>
+              {suggestion.suggestion === 'remove' ? 'מוצע להסיר' : 'כפולה'} · {REASON_WORDS[reason.code] ?? reason.label}
+              {twin && <img src={thumbUrl(twin.frame.path, 160)} alt="" />}
+            </button>
+          ) : triage?.star && !decision ? (
+            <span className="tz-ws-star">★ המומלצת מהרצף</span>
+          ) : null}
+        </span>
+      </footer>
+    </article>
+  );
+}
+
+/* ------------------------------------------------------------------ the viewer
+ * The Windows Photos grammar: the name on top, the picture fitted, zoom along
+ * the bottom with a slider and a percentage, the wheel zooms, a drag pans,
+ * a double-click jumps between fit and actual size. */
+
+function Viewer({
+  frame, name, position, total, decision, onClose, onStep, onDecide,
+}: {
+  frame: Frame;
+  name: string;
+  position: number;
+  total: number;
+  decision?: CullDecision;
+  onClose: () => void;
+  onStep: (delta: number) => void;
+  onDecide: (d: CullDecision) => void;
+}) {
+  const stageRef = useRef<HTMLDivElement | null>(null);
+  const [box, setBox] = useState({ w: 1200, h: 800 });
+  const [natural, setNatural] = useState<{ w: number; h: number } | null>(null);
+  const [zoom, setZoom] = useState(1); // 1 = fit
+  const drag = useRef<{ x: number; y: number; l: number; t: number } | null>(null);
+
+  useEffect(() => {
+    const el = stageRef.current;
+    if (!el) return undefined;
+    const ro = new ResizeObserver(([e]) => setBox({ w: e.contentRect.width, h: e.contentRect.height }));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
+  useEffect(() => { setZoom(1); setNatural(null); }, [name]);
+
+  const aspect = natural ? natural.w / natural.h : 1.5;
+  const pad = 32;
+  const fitW = Math.max(40, Math.min(box.w - pad * 2, (box.h - pad * 2) * aspect));
+  const fitH = fitW / aspect;
+  // Percentages the way Photos shows them: of the file's own pixels.
+  const actual = natural ? natural.w / fitW : 2.5;
+  const maxZoom = Math.max(4, actual * 2);
+  const w = fitW * zoom;
+  const h = fitH * zoom;
+  const percent = natural ? Math.round((w / natural.w) * 100) : Math.round(zoom * 100);
+
+  // Zoom around a point on screen, so what is under the cursor stays there.
+  const zoomTo = useCallback((next: number, cx?: number, cy?: number) => {
+    const el = stageRef.current;
+    const z = Math.max(1, Math.min(maxZoom, next));
+    if (!el) { setZoom(z); return; }
+    const r = el.getBoundingClientRect();
+    const px = (cx ?? r.left + r.width / 2) - r.left;
+    const py = (cy ?? r.top + r.height / 2) - r.top;
+    const ox = (el.scrollLeft + px) / Math.max(1, el.scrollWidth);
+    const oy = (el.scrollTop + py) / Math.max(1, el.scrollHeight);
+    setZoom(z);
+    requestAnimationFrame(() => {
+      el.scrollLeft = ox * el.scrollWidth - px;
+      el.scrollTop = oy * el.scrollHeight - py;
+    });
+  }, [maxZoom]);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.ctrlKey || e.metaKey) return;
+      if (e.key === '+' || e.code === 'Equal' || e.code === 'NumpadAdd') { e.preventDefault(); zoomTo(zoom * 1.25); }
+      if (e.key === '-' || e.code === 'Minus' || e.code === 'NumpadSubtract') { e.preventDefault(); zoomTo(zoom / 1.25); }
+      if (e.code === 'Digit0' || e.code === 'Numpad0') { e.preventDefault(); zoomTo(1); }
+      if (e.code === 'Space') { e.preventDefault(); zoomTo(zoom > 1 ? 1 : actual); }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [actual, zoom, zoomTo]);
+
+  return (
+    <div className={`tz-ws-viewer${decision ? ` is-${decision}` : ''}`} role="dialog" aria-modal="true" aria-label="תצוגה מלאה">
+      <header className="tz-ws-v-top">
+        <button type="button" className="tz-ws-v-icon" onClick={onClose} aria-label="סגור (Esc)" title="סגור (Esc)">✕</button>
+        <div className="tz-ws-v-name">
+          <b dir="ltr">{name}</b>
+          <span>{(position + 1).toLocaleString('he-IL')} מתוך {total.toLocaleString('he-IL')}</span>
+        </div>
+        <span className="tz-ws-v-spacer" />
+      </header>
+
+      <div
+        className={`tz-ws-v-stage${zoom > 1 ? ' is-zoomed' : ''}`}
+        ref={stageRef}
+        onWheel={(e) => { e.preventDefault(); zoomTo(zoom * (e.deltaY < 0 ? 1.15 : 1 / 1.15), e.clientX, e.clientY); }}
+        onMouseDown={(e) => {
+          if (zoom <= 1 || !stageRef.current) return;
+          drag.current = { x: e.clientX, y: e.clientY, l: stageRef.current.scrollLeft, t: stageRef.current.scrollTop };
+        }}
+        onMouseMove={(e) => {
+          const d = drag.current; const el = stageRef.current;
+          if (!d || !el) return;
+          el.scrollLeft = d.l - (e.clientX - d.x);
+          el.scrollTop = d.t - (e.clientY - d.y);
+        }}
+        onMouseUp={() => { drag.current = null; }}
+        onMouseLeave={() => { drag.current = null; }}
+      >
+        <div className="tz-ws-v-canvas" style={{ width: Math.max(w + pad * 2, box.w), height: Math.max(h + pad * 2, box.h) }}>
+          <img
+            src={thumbUrl(frame.path, 2400)}
+            alt={name}
+            draggable={false}
+            style={{ width: w, height: h }}
+            onLoad={(e) => setNatural({ w: e.currentTarget.naturalWidth, h: e.currentTarget.naturalHeight })}
+            onDoubleClick={(e) => zoomTo(zoom > 1 ? 1 : actual, e.clientX, e.clientY)}
+          />
+        </div>
+      </div>
+
+      <button type="button" className="tz-ws-v-nav is-prev" disabled={position <= 0} onClick={() => onStep(-1)} aria-label="הקודמת">›</button>
+      <button type="button" className="tz-ws-v-nav is-next" disabled={position >= total - 1} onClick={() => onStep(1)} aria-label="הבאה">‹</button>
+
+      <footer className="tz-ws-v-bottom">
+        <div className="tz-ws-v-zoom" dir="ltr">
+          <button type="button" onClick={() => zoomTo(zoom / 1.25)} aria-label="הקטן" title="הקטן (-)">−</button>
+          <input
+            type="range"
+            min={1}
+            max={maxZoom}
+            step={0.01}
+            value={zoom}
+            onChange={(e) => zoomTo(Number(e.target.value))}
+            aria-label="הגדלה"
+          />
+          <button type="button" onClick={() => zoomTo(zoom * 1.25)} aria-label="הגדל" title="הגדל (+)">+</button>
+          <output>{percent}%</output>
+          <button type="button" className={zoom === 1 ? 'is-on' : ''} onClick={() => zoomTo(1)} title="התאם לחלון (0)">התאם</button>
+          <button type="button" onClick={() => zoomTo(actual)} title="גודל אמיתי (רווח)">100%</button>
+        </div>
+        <Decide decision={decision} onDecide={onDecide} />
+        <span className="tz-ws-v-spacer" />
+      </footer>
     </div>
   );
 }
