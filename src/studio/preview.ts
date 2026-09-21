@@ -17,7 +17,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { previewReady, previewUrl, registerRecipe, warmPreviews } from '../api';
-import { batchOfFrame, batchRecipe, useRecipe, useBatches } from './store';
+import { batchOfFrame, batchRecipe, effectiveRecipe, useRecipe, useBatches } from './store';
 
 export interface SetPreview {
   /** A frame as the set currently looks — through ITS batch's recipe. */
@@ -173,5 +173,111 @@ export function useSetPreview(projectId: string): SetPreview {
     stale,
     warm,
     pending: (path: string) => Boolean(keyFor(path)) && !ready[path],
+  };
+}
+
+/* ------------------------------------------------------ one frame, fully edited
+ *
+ * The set preview above shows each frame through its BATCH's look — right for
+ * a grid of hundreds, and wrong for the question "is this photograph
+ * finished?", because a frame's own retouch lives on the frame. This one keys
+ * every frame on its EFFECTIVE recipe (base → batch → frame), registering each
+ * distinct recipe once: frames with no steps of their own share their batch's
+ * key, so the number of registrations is the number of distinct results.
+ *
+ * Same contract as useSetPreview: `url` may serve the raw file while the
+ * edited render is queued, and `pending` says so — a caller that shows one
+ * shows the other.
+ */
+export interface FramePreview {
+  url: (path: string, name: string, width?: number) => string;
+  pending: (path: string, name: string) => boolean;
+  /** Ask for these frames' keys and renders ahead of being looked at. */
+  want: (frames: { path: string; name: string }[]) => void;
+  /** False when nothing at all applies to this frame — it IS its raw file. */
+  edited: (name: string) => boolean;
+  stale: boolean;
+}
+
+export function useFramePreview(projectId: string): FramePreview {
+  const recipe = useRecipe(projectId);
+  const [keys, setKeys] = useState<Record<string, string>>({});   // recipe text -> key
+  const [ready, setReady] = useState<Record<string, boolean>>({});  // `${key}|${path}` -> true
+  const [stale, setStale] = useState(false);
+  const asked = useRef<Set<string>>(new Set());
+  const watching = useRef<Map<string, { key: string; path: string }>>(new Map());
+
+  // Any edit anywhere can change any frame's effective recipe.
+  useEffect(() => { asked.current.clear(); }, [recipe]);
+
+  const textOf = useCallback(
+    (name: string) => JSON.stringify(effectiveRecipe(projectId, name).filter((t) => t.enabled)),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [projectId, recipe],
+  );
+
+  const want = useCallback((frames: { path: string; name: string }[]) => {
+    const fresh = new Map<string, string[]>();
+    for (const f of frames) {
+      const text = textOf(f.name);
+      if (text === '[]') continue;
+      if (!keys[text] && !asked.current.has(text)) {
+        asked.current.add(text);
+        fresh.set(text, []);
+      }
+    }
+    for (const text of fresh.keys()) {
+      registerRecipe(JSON.parse(text))
+        .then((k) => { setKeys((m) => ({ ...m, [text]: k })); setStale(false); })
+        .catch(() => { asked.current.delete(text); setStale(true); });
+    }
+    const byKey = new Map<string, string[]>();
+    for (const f of frames) {
+      const k = keys[textOf(f.name)];
+      if (!k) continue;
+      watching.current.set(`${k}|${f.path}`, { key: k, path: f.path });
+      byKey.set(k, [...(byKey.get(k) ?? []), f.path]);
+    }
+    for (const [k, ps] of byKey) warmPreviews(k, ps);
+  }, [keys, textOf]);
+
+  useEffect(() => {
+    let alive = true;
+    let timer: number | undefined;
+    const tick = async () => {
+      const outstanding = [...watching.current.entries()].filter(([id]) => !ready[id]);
+      if (!outstanding.length) return;
+      const byKey = new Map<string, string[]>();
+      for (const [, v] of outstanding) byKey.set(v.key, [...(byKey.get(v.key) ?? []), v.path]);
+      try {
+        const answers = await Promise.all([...byKey].map(([k, ps]) => previewReady(k, ps).then((a) => [k, a] as const)));
+        if (!alive) return;
+        const merged: Record<string, boolean> = {};
+        for (const [k, a] of answers) for (const [p, ok] of Object.entries(a.ready)) if (ok) merged[`${k}|${p}`] = true;
+        if (Object.keys(merged).length) setReady((r) => ({ ...r, ...merged }));
+      } catch { /* asked again next tick */ }
+      if (alive) timer = window.setTimeout(tick, 1500);
+    };
+    timer = window.setTimeout(tick, 500);
+    return () => { alive = false; window.clearTimeout(timer); };
+  }, [keys, ready]);
+
+  return {
+    url: (path, name, width = 1600) => {
+      const text = textOf(name);
+      if (text === '[]') return previewUrl(path, width, '');
+      const k = keys[text];
+      if (!k) return previewUrl(path, width, '');
+      return previewUrl(path, width, k, !ready[`${k}|${path}`]);
+    },
+    pending: (path, name) => {
+      const text = textOf(name);
+      if (text === '[]') return false;
+      const k = keys[text];
+      return !k || !ready[`${k}|${path}`];
+    },
+    want,
+    edited: (name) => textOf(name) !== '[]',
+    stale,
   };
 }

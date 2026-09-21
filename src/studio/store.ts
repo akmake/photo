@@ -1099,6 +1099,11 @@ export function setPhotoStatus(projectId: string, frame: string, status: PhotoSt
   if (status === 'raw') delete statuses[frameKey(frame)];
   else statuses[frameKey(frame)] = status;
   write(projectId, { ...current, statuses });
+  // The business record's "edited" counter is the number of frames the
+  // photographer marked finished — read by the status screen and Today. It was
+  // never written by anything, so the editing step could never complete.
+  const done = Object.values(statuses).filter((v) => v === 'ready').length;
+  if (getProject(projectId)?.rendered !== done) updateProject(projectId, { rendered: done });
 }
 
 /* ------------------------------------------------------- the work stage */

@@ -15,6 +15,10 @@ import {
   useBatches,
   useProjectFiles,
   useRecipe,
+  useStatuses,
+  setPhotoStatus,
+  useDiskFault,
+  retrySave,
 } from '../../studio/store';
 import { EDIT_WIDTH, learnColorModel, prepareFrames, renderRecipeAtPath, Superseded, thumbUrl } from '../../api';
 import type { LearnColorResponse } from '../../api';
@@ -24,6 +28,7 @@ import ManualBrush, { DEFAULT_R, MAX_R, MIN_R } from './ManualBrush';
 import ToolsPanelV2 from './ToolsPanelV2';
 import ColorMatchPanel from './ColorMatchPanel';
 import ExportDialog from './ExportDialog';
+import EditedReviewV2 from './EditedReviewV2';
 import { useSetPreview } from '../../studio/preview';
 import { useGalleryWatch } from '../../studio/galleryLink';
 import BeforeAfter from '../../studio/screens/BeforeAfter';
@@ -72,6 +77,11 @@ export default function GalleryEditV2({
   const [choseBatch, setChoseBatch] = useState(false);
   const [showUnselected, setShowUnselected] = useState(false);
   const [exporting, setExporting] = useState(false);
+  /* הסט הערוך — the finished set, frame by frame, each through its own recipe. */
+  const [reviewing, setReviewing] = useState(false);
+  const statuses = useStatuses(project.id);
+  const diskFault = useDiskFault(project.id);
+  const isDone = (name: string) => statuses[frameKey(name)] === 'ready';
 
   /* The client's choice is not a new batch. It is a lens over the original
    * shoot structure, so "garden", "family" and "dance floor" remain useful
@@ -370,6 +380,38 @@ export default function GalleryEditV2({
 
   // Active frame
   const currentFrame = slideFrames[activeSlideIndex] ?? slideFrames[0] ?? null;
+
+  /* סיימתי — this photograph is finished. The edit itself is already on disk
+   * (every change is); this records the photographer's word that it is DONE,
+   * and moves on to the next frame in this view that is not. */
+  const finishCurrent = useCallback(() => {
+    if (!currentFrame) return;
+    if (isDone(currentFrame.name)) {
+      setPhotoStatus(project.id, currentFrame.name, 'working');
+      return;
+    }
+    setPhotoStatus(project.id, currentFrame.name, 'ready');
+    const after = slideFrames.findIndex((f, i) => i > activeSlideIndex && !isDone(f.name));
+    if (after >= 0) setActiveSlideIndex(after);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentFrame, slideFrames, activeSlideIndex, statuses, project.id]);
+  const finishRef = useRef(finishCurrent);
+  finishRef.current = finishCurrent;
+
+  /* From the review back to one frame: in this batch if it is here, else in
+   * the whole view, once that view has rendered. */
+  const [openAfter, setOpenAfter] = useState<string | null>(null);
+  const openFrame = useCallback((name: string) => {
+    const i = slideFrames.findIndex((f) => frameKey(f.name) === frameKey(name));
+    if (i >= 0) { setActiveSlideIndex(i); return; }
+    setAt('__all__');
+    setOpenAfter(name);
+  }, [slideFrames]);
+  useEffect(() => {
+    if (!openAfter) return;
+    const i = slideFrames.findIndex((f) => frameKey(f.name) === frameKey(openAfter));
+    if (i >= 0) { setActiveSlideIndex(i); setOpenAfter(null); }
+  }, [openAfter, slideFrames]);
 
   // Clamp index if slides change
   useEffect(() => {
@@ -740,6 +782,12 @@ export default function GalleryEditV2({
     function onKeyDown(e: KeyboardEvent) {
       const target = e.target as HTMLElement | null;
       if (target?.matches('input, textarea, select')) return;
+      if (reviewing) return;
+      if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+        e.preventDefault();
+        finishRef.current();
+        return;
+      }
 
       if (e.code === 'Space' && !e.repeat) {
         e.preventDefault();
@@ -794,7 +842,7 @@ export default function GalleryEditV2({
       window.removeEventListener('keydown', onKeyDown);
       window.removeEventListener('keyup', onKeyUp);
     };
-  }, [slideFrames.length, brushOn, undoStroke, changeCanvasZoom]);
+  }, [slideFrames.length, brushOn, undoStroke, changeCanvasZoom, reviewing]);
 
   /* Sync current photo's edits to the entire batch.
    *
@@ -997,6 +1045,25 @@ export default function GalleryEditV2({
               ← שלב קודם
             </button>
           )}
+          {/* Every change is written to the project as it is made. Said, because
+              a screen with no word about saving is a screen people distrust —
+              and when the write failed, said louder, with the way to retry. */}
+          {diskFault ? (
+            <button type="button" className="tz-ge-save is-fault" onClick={() => retrySave(project.id)} title={diskFault}>
+              השינויים לא נשמרו — נסה שוב
+            </button>
+          ) : (
+            <span className="tz-ge-save" title="כל שינוי נשמר בתיקיית הפרויקט ברגע שהוא נעשה">נשמר אוטומטית ✓</span>
+          )}
+          <button
+            type="button"
+            className="tz-sc-subtle-btn"
+            onClick={() => setReviewing(true)}
+            disabled={!visibleAll.length}
+            title="כל התמונות כפי שהן אחרי העריכה"
+          >
+            הסט הערוך · {visibleAll.filter((f) => isDone(f.name)).length}/{visibleAll.length}
+          </button>
           <button
             type="button"
             className="tz-sc-subtle-btn"
@@ -1018,6 +1085,16 @@ export default function GalleryEditV2({
           )}
         </div>
       </header>
+
+      {reviewing && (
+        <EditedReviewV2
+          projectId={project.id}
+          frames={visibleAll}
+          startAt={currentFrame?.name}
+          onClose={() => setReviewing(false)}
+          onEdit={(name) => { setReviewing(false); openFrame(name); }}
+        />
+      )}
 
       {exporting && (
         <ExportDialog
@@ -1069,6 +1146,9 @@ export default function GalleryEditV2({
                     {isCustomized && (
                       <span className="tz-ge-slide-badge">מותאם</span>
                     )}
+                    {isDone(f.name) && (
+                      <span className="tz-ge-slide-done" title="סומנה כגמורה">✓</span>
+                    )}
                   </div>
                 );
               })
@@ -1108,6 +1188,18 @@ export default function GalleryEditV2({
             </div>
 
             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              {currentFrame && (
+                <button
+                  type="button"
+                  className={`tz-ge-done-btn${isDone(currentFrame.name) ? ' is-done' : ''}`}
+                  onClick={finishCurrent}
+                  title={isDone(currentFrame.name)
+                    ? 'התמונה סומנה כגמורה — לחיצה מחזירה אותה לעריכה'
+                    : 'סיימתי לערוך את התמונה — עוברים לבאה שלא הסתיימה (Ctrl+Enter)'}
+                >
+                  {isDone(currentFrame.name) ? 'הסתיימה ✓ · החזר לעריכה' : 'סיימתי ✓'}
+                </button>
+              )}
               {/* THE BRUSH. Off by default: it takes the mouse over the
                   picture, and a screen where clicking the photograph edits it
                   without being asked is a screen that surprises people. */}
