@@ -23,6 +23,7 @@ import { defaultParams, getTool, isRawFile, isToolAtDefault } from '../../toolRe
 import ManualBrush, { DEFAULT_R, MAX_R, MIN_R } from './ManualBrush';
 import ToolsPanelV2 from './ToolsPanelV2';
 import ColorMatchPanel from './ColorMatchPanel';
+import ExportDialog from './ExportDialog';
 import { useSetPreview } from '../../studio/preview';
 import { useGalleryWatch } from '../../studio/galleryLink';
 import BeforeAfter from '../../studio/screens/BeforeAfter';
@@ -70,6 +71,7 @@ export default function GalleryEditV2({
   const [at, setAt] = useState<string | null>(null);
   const [choseBatch, setChoseBatch] = useState(false);
   const [showUnselected, setShowUnselected] = useState(false);
+  const [exporting, setExporting] = useState(false);
 
   /* The client's choice is not a new batch. It is a lens over the original
    * shoot structure, so "garden", "family" and "dance floor" remain useful
@@ -995,6 +997,15 @@ export default function GalleryEditV2({
               ← שלב קודם
             </button>
           )}
+          <button
+            type="button"
+            className="tz-sc-subtle-btn"
+            onClick={() => setExporting(true)}
+            disabled={!visibleAll.length}
+            title="כתיבת התמונות הערוכות לתיקייה"
+          >
+            ייצוא תמונות
+          </button>
           {onNext && (
             <button
               type="button"
@@ -1007,6 +1018,16 @@ export default function GalleryEditV2({
           )}
         </div>
       </header>
+
+      {exporting && (
+        <ExportDialog
+          projectId={project.id}
+          home={project.home}
+          frames={visibleAll}
+          what={selectedOnly ? 'בחירת הלקוח' : 'כל התמונות בפרויקט'}
+          onClose={() => setExporting(false)}
+        />
+      )}
 
       {/* 2. 3-COLUMN STUDIO WORKSPACE: Slide Deck (Right) | Canvas (Center) | Tools (Left) */}
       <div className="tz-ge-studio-workspace">

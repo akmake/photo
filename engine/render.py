@@ -646,16 +646,23 @@ def export(
     `render` below does not see that step and does not need to — it is not in
     TOOLS, so it is filtered out with every other id this renderer never knew.
     """
-    img = common.load_image(src_path, develop=raw.develop_of(recipe_tools))
-    out, meta = render(img, recipe_tools)
-
-    os.makedirs(dest_dir, exist_ok=True)
     stem = os.path.splitext(os.path.basename(src_path))[0]
     f = fmt.lower()
     ext = {"jpg": "jpg", "jpeg": "jpg", "png": "png", "tif": "tif", "tiff": "tif"}.get(
         f, "jpg"
     )
     dest = os.path.join(dest_dir, f"{stem}.{ext}")
+    # Exporting a JPEG into its own folder would write over the original. The
+    # original is the one thing this program promises never to touch.
+    if os.path.normcase(os.path.abspath(dest)) == os.path.normcase(
+        os.path.abspath(src_path)
+    ):
+        raise ValueError("היעד הוא התיקייה של המקור — הייצוא היה דורס את הקובץ המקורי")
+
+    img = common.load_image(src_path, develop=raw.develop_of(recipe_tools))
+    out, meta = render(img, recipe_tools)
+
+    os.makedirs(dest_dir, exist_ok=True)
 
     if ext == "jpg":
         out.save(

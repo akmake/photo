@@ -1545,3 +1545,30 @@
 .tz-ge-deck-scroll::-webkit-scrollbar-track,
 .tz-tp-modules::-webkit-scrollbar-track,
 .tz-ge-panel-scroll::-webkit-scrollbar-track { background: transparent; }
+
+/* ---- ייצוא תמונות ---- */
+.tz-export { width: min(560px, 100%); }
+.tz-export-body { display: grid; gap: 14px; padding: 18px; }
+.tz-export-what { margin: 0; display: grid; gap: 4px; font-size: 14px; }
+.tz-export-what b { font-size: 16px; }
+.tz-export-what span, .tz-export-muted { color: #71717a; font-size: 12.5px; }
+.tz-export-where { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.tz-export-label { font-size: 13px; font-weight: 600; flex: none; }
+.tz-export-where code {
+  flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: 12px; background: #f4f4f5; padding: 6px 8px; border-radius: 6px;
+}
+.tz-export-where .tz-export-muted { flex: 1; }
+.tz-export-warn, .tz-export-fail, .tz-export-ok { margin: 0; font-size: 13px; padding: 8px 10px; border-radius: 6px; }
+.tz-export-warn { background: #fef3c7; color: #92400e; }
+.tz-export-fail { background: #fee2e2; color: #991b1b; }
+.tz-export-ok { background: #dcfce7; color: #166534; }
+.tz-export-progress { display: flex; align-items: center; gap: 10px; font-size: 12.5px; }
+.tz-export-bar { flex: 1; height: 6px; background: #f4f4f5; border-radius: 99px; overflow: hidden; }
+.tz-export-bar span { display: block; height: 100%; background: #e86338; transition: width 160ms ease-out; }
+.tz-export-failed {
+  margin: 0; padding: 0; list-style: none; max-height: 160px; overflow: auto;
+  display: grid; gap: 4px; font-size: 12px;
+}
+.tz-export-failed li { display: flex; gap: 10px; justify-content: space-between; }
+.tz-export-failed li span:last-child { color: #71717a; }
