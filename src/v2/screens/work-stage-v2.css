@@ -1,120 +1,149 @@
-/* שלב העבודה. Pictures first: the chrome is thin and quiet, every mark sits
- * UNDER a picture or as a hairline around it — never on top of what the
- * photographer is judging. */
+/* שלב העבודה — a loupe, like every professional culling tool: the picture is
+ * the screen, the set runs along the bottom, and what the tool thinks about
+ * this frame is said in one line above it. Every mark sits UNDER a picture or
+ * as a hairline around a face — never on top of what is being judged. */
 
-.tz-ws { max-width: none; }
-.tz-ws-muted { color: var(--tz-text-sub, #71717a); }
-
-.tz-ws-status {
-  display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
-  font-size: 13px; color: #27272a;
+.tz-ws {
+  display: flex; flex-direction: column; gap: 8px;
+  /* The whole stage fits the window: nothing to scroll past to reach the
+   * picture. --tz-ws-top is set from the element's own position by the
+   * screen, with a sane fallback for the first paint. */
+  height: calc(100vh - var(--tz-ws-top, 140px) - 44px);
+  min-height: 420px;
 }
+.tz-ws-muted { color: var(--tz-text-sub, #71717a); }
 .tz-ws-fault { color: #b91c1c; }
-.tz-ws-bar { flex: 0 0 220px; height: 4px; background: #eeece8; border-radius: 99px; overflow: hidden; }
-.tz-ws-bar i { display: block; height: 100%; background: var(--tz-brand, #e86338); transition: width 300ms ease-out; }
 
-.tz-ws-toolbar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
-.tz-ws-filters { display: flex; gap: 4px; flex-wrap: wrap; }
+/* ---- the header line */
+.tz-ws-head { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+.tz-ws-title { display: flex; align-items: baseline; gap: 10px; }
+.tz-ws-title strong { font-size: 17px; font-weight: 800; color: #18181b; }
+.tz-ws-title .tz-ws-muted { font-size: 12.5px; }
+.tz-ws-filters { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
 .tz-ws-filter {
   border: 1px solid #e4e1db; background: #fff; color: #3f3f46;
-  border-radius: 99px; padding: 5px 12px; font-size: 12.5px; cursor: pointer;
+  border-radius: 99px; padding: 4px 11px; font-size: 12.5px; cursor: pointer;
+  display: inline-flex; align-items: center; gap: 4px;
 }
 .tz-ws-filter.is-on { border-color: #18181b; color: #18181b; font-weight: 600; }
-.tz-ws-num { color: #a1a1aa; margin-inline-start: 4px; font-variant-numeric: tabular-nums; }
+.tz-ws-num { color: #a1a1aa; font-variant-numeric: tabular-nums; }
 .tz-ws-filter.is-on .tz-ws-num { color: #52525b; }
-.tz-ws-batch { border: 1px solid #e4e1db; border-radius: 8px; padding: 5px 8px; font-size: 12.5px; background: #fff; }
-.tz-ws-bulk { margin-inline-start: auto; }
+.tz-ws-batch { border: 1px solid #e4e1db; border-radius: 8px; padding: 4px 8px; font-size: 12.5px; background: #fff; }
+.tz-ws-way { display: flex; gap: 8px; margin-inline-start: auto; }
 
-.tz-ws-body {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(360px, min(40%, 680px));
-  gap: 20px;
-  align-items: start;
+.tz-ws kbd {
+  font: 10.5px/1 ui-monospace, monospace; color: #71717a; border: 1px solid #e4e1db;
+  border-radius: 4px; padding: 2px 4px; background: #fafaf9;
 }
-@media (max-width: 1100px) { .tz-ws-body { grid-template-columns: 1fr; } }
 
-/* Moments run on one after another like words in a line — a moment of one
- * frame must not cost a whole row. A hairline over each says where it starts. */
-.tz-ws-grid {
-  display: flex; flex-wrap: wrap; align-content: flex-start; gap: 14px 18px; min-width: 0;
+/* ---- the tool, said out loud */
+.tz-ws-advice {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  background: #fff7ed; border: 1px solid #fed7aa; border-radius: 10px;
+  padding: 8px 12px; font-size: 13.5px; color: #27272a;
 }
-.tz-ws-empty { padding: 24px 0; }
-.tz-ws-moment { display: grid; gap: 4px; max-width: 100%; border-top: 1px solid #dedad3; padding-top: 4px; }
-.tz-ws-moment h3 { margin: 0; font-size: 11px; font-weight: 600; color: #52525b; }
-.tz-ws-tiles { display: flex; flex-wrap: wrap; gap: 8px 6px; }
+.tz-ws-advice b { font-size: 15px; }
+.tz-ws-advice-text { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.tz-ws-bar { display: inline-block; width: 120px; height: 4px; background: #fde7d4; border-radius: 99px; overflow: hidden; }
+.tz-ws-bar i { display: block; height: 100%; background: var(--tz-brand, #e86338); transition: width 300ms ease-out; }
+.tz-ws-go {
+  border: 0; background: var(--tz-brand, #e86338); color: #fff; font-weight: 600;
+  border-radius: 8px; padding: 6px 12px; font-size: 13px; cursor: pointer;
+}
+.tz-ws-go.is-soft { background: #fff; color: #9a3412; border: 1px solid #fdba74; }
 
-.tz-ws-tile {
-  all: unset; box-sizing: border-box; cursor: pointer; display: grid; gap: 4px; width: 124px;
+/* ---- the loupe */
+.tz-ws-loupe-wrap { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 8px; }
+.tz-ws-verdict {
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  min-height: 40px; padding: 4px 2px; font-size: 14px; color: #27272a;
 }
-.tz-ws-tile img {
-  width: 100%; aspect-ratio: 1; object-fit: contain; display: block;
-  background: #f1efeb; border-radius: 3px;
-  outline: 1px solid transparent; outline-offset: 2px;
+.tz-ws-verdict.is-remove b { color: #b91c1c; }
+.tz-ws-decide { display: inline-flex; gap: 6px; margin-inline-start: auto; }
+.tz-ws-btn {
+  border: 1px solid #d4d4d8; background: #fff; color: #18181b; border-radius: 8px;
+  padding: 6px 12px; font-size: 13.5px; cursor: pointer; display: inline-flex; align-items: center; gap: 8px;
 }
-.tz-ws-tile.is-sel img { outline: 2px solid #18181b; }
-.tz-ws-tile.is-suggest img { outline-color: #dc2626; }
-.tz-ws-tile.is-sel.is-suggest img { outline: 2px solid #dc2626; }
-.tz-ws-tile.is-out img { opacity: 0.32; }
-.tz-ws-tile:focus-visible img { outline: 2px solid var(--tz-brand, #e86338); }
+.tz-ws-btn.is-keep.is-on { border-color: #047857; color: #047857; background: #ecfdf5; }
+.tz-ws-btn.is-out.is-on { border-color: #b91c1c; color: #b91c1c; background: #fef2f2; }
+.tz-ws-btn.is-on:not(.is-keep):not(.is-out) { border-color: #18181b; }
 
-.tz-ws-cap { display: flex; align-items: center; gap: 4px; min-height: 16px; font-size: 11px; line-height: 1.2; }
-.tz-ws-star { color: #d97706; font-size: 12px; }
-.tz-ws-tag { color: #71717a; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.tz-ws-tag.is-suggest { color: #b91c1c; font-weight: 600; }
-.tz-ws-tag.is-out { color: #52525b; }
-.tz-ws-tag.is-kept { color: #047857; }
-
-.tz-ws-view {
-  position: sticky; top: 12px;
-  display: grid; gap: 12px; min-width: 0;
-  max-height: calc(100vh - 24px); overflow: auto;
+.tz-ws-loupe { flex: 1; min-height: 0; display: flex; gap: 10px; }
+.tz-ws-stage {
+  flex: 1; min-width: 0; min-height: 0;
+  display: flex; gap: 12px; align-items: center; justify-content: center;
+  background: #1c1b1a; border-radius: 8px; padding: 8px;
 }
-.tz-ws-stage { display: grid; gap: 8px; }
-.tz-ws-stage.is-compare { grid-template-columns: 1fr 1fr; }
-.tz-ws-stage figure { margin: 0; display: grid; gap: 4px; min-width: 0; }
-.tz-ws-stage figcaption { font-size: 11.5px; color: #71717a; text-align: start; }
-.tz-ws-stage figure { justify-items: center; }
-/* The box HUGS the picture (no object-fit letterbox), so the face outline's
- * percentages land on the photograph whatever its orientation. */
-.tz-ws-imgbox { position: relative; display: inline-block; max-width: 100%; line-height: 0; }
-.tz-ws-imgbox img { display: block; max-width: 100%; max-height: 62vh; width: auto; height: auto; border-radius: 4px; }
-.tz-ws-stage.is-compare .tz-ws-imgbox img { max-height: 48vh; }
-.tz-ws-stage.is-compare-stack .tz-ws-imgbox img { max-height: 34vh; }
+.tz-ws-stage.is-stack { flex-direction: column; }
+.tz-ws-stage figure { margin: 0; display: grid; gap: 4px; justify-items: center; }
+.tz-ws-stage figcaption { font-size: 11.5px; color: #a8a29e; }
+.tz-ws-stage figcaption .tz-ws-link { color: #fdba74; }
+/* Sized in pixels by the screen, so the face outline's percentages land on
+ * the photograph itself. */
+.tz-ws-imgbox { position: relative; line-height: 0; }
+.tz-ws-imgbox img { width: 100%; height: 100%; display: block; border-radius: 2px; }
 .tz-ws-facebox {
-  position: absolute; border: 1px solid #dc2626; box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.7);
+  position: absolute; border: 1px solid #f87171; box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.35);
   pointer-events: none;
 }
 
-.tz-ws-why { display: grid; gap: 4px; font-size: 13px; color: #27272a; }
-.tz-ws-why p { margin: 0; }
+.tz-ws-faces { display: flex; flex-direction: column; gap: 6px; overflow: auto; flex: 0 0 auto; }
+.tz-ws-face {
+  width: 96px; height: 96px; border-radius: 6px; background-color: #1c1b1a;
+  background-repeat: no-repeat; outline: 1px solid #e4e1db; flex: 0 0 auto;
+}
+.tz-ws-face.is-flagged { outline: 2px solid #dc2626; }
+
+/* ---- the filmstrip */
+.tz-ws-strip {
+  flex: 0 0 auto; display: flex; gap: 14px; overflow-x: auto; overflow-y: hidden;
+  padding: 4px 2px 8px; scroll-padding-inline: 40px;
+}
+.tz-ws-strip-moment {
+  display: flex; gap: 3px; flex: 0 0 auto;
+  padding-top: 4px; border-top: 2px solid #e4e1db;
+}
+
+.tz-ws-tile {
+  all: unset; box-sizing: border-box; cursor: pointer; position: relative;
+  display: grid; gap: 3px; flex: 0 0 auto;
+}
+.tz-ws-tile img {
+  height: 76px; width: auto; max-width: 118px; display: block; border-radius: 2px;
+  background: #f1efeb; outline: 2px solid transparent; outline-offset: 1px;
+}
+.tz-ws-tile.is-big { width: 150px; }
+.tz-ws-tile.is-big img { height: 150px; width: 150px; max-width: none; object-fit: contain; }
+.tz-ws-tile.is-sel img { outline-color: #18181b; }
+.tz-ws-tile.is-out img { opacity: 0.3; }
+.tz-ws-mark { display: block; height: 3px; border-radius: 2px; background: transparent; }
+.tz-ws-tile.is-suggest .tz-ws-mark { background: #dc2626; }
+.tz-ws-tile.is-dup .tz-ws-mark { background: #d6d3d1; }
+.tz-ws-tile.is-out .tz-ws-mark { background: #52525b; }
+.tz-ws-tile.is-kept .tz-ws-mark { background: #059669; }
+.tz-ws-star {
+  position: absolute; bottom: -1px; inset-inline-end: 0; font-size: 11px; line-height: 1;
+  color: #d97706; font-weight: 400;
+}
+
+/* ---- the grid overview */
+.tz-ws-gridview {
+  flex: 1; min-height: 0; overflow: auto;
+  display: flex; flex-wrap: wrap; align-content: flex-start; gap: 14px 18px;
+}
+.tz-ws-moment { display: grid; gap: 4px; max-width: 100%; border-top: 2px solid #e4e1db; padding-top: 4px; }
+.tz-ws-moment h3 { margin: 0; font-size: 11px; font-weight: 600; color: #52525b; }
+.tz-ws-tiles { display: flex; flex-wrap: wrap; gap: 8px 6px; }
+.tz-ws-empty { padding: 24px 0; }
+
 .tz-ws-link {
   all: unset; cursor: pointer; color: var(--tz-brand, #e86338); font-size: 12.5px;
-  text-decoration: underline; text-underline-offset: 2px; justify-self: start;
+  text-decoration: underline; text-underline-offset: 2px;
 }
-
-.tz-ws-faces { display: flex; gap: 6px; flex-wrap: wrap; }
-.tz-ws-face {
-  width: 88px; height: 88px; border-radius: 4px; background-color: #f1efeb;
-  background-repeat: no-repeat; outline: 1px solid #e4e1db;
-}
-.tz-ws-face.is-flagged { outline: 1px solid #dc2626; }
-
-.tz-ws-decide { display: flex; gap: 8px; flex-wrap: wrap; }
-.tz-ws-btn {
-  border: 1px solid #d4d4d8; background: #fff; color: #18181b; border-radius: 8px;
-  padding: 8px 14px; font-size: 13.5px; cursor: pointer; display: inline-flex; align-items: center; gap: 8px;
-}
-.tz-ws-btn:disabled { opacity: 0.45; cursor: default; }
-.tz-ws-btn kbd {
-  font: 11px/1 ui-monospace, monospace; color: #71717a; border: 1px solid #e4e1db;
-  border-radius: 4px; padding: 2px 5px; background: #fafaf9;
-}
-.tz-ws-btn.is-keep.is-on { border-color: #047857; color: #047857; }
-.tz-ws-btn.is-out.is-on { border-color: #b91c1c; color: #b91c1c; }
 .tz-ws-keys { margin: 0; font-size: 11.5px; }
 
 .tz-ws-toast {
-  position: fixed; bottom: 20px; inset-inline-start: 50%; transform: translateX(50%);
+  position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
   background: #18181b; color: #fff; border-radius: 10px; padding: 10px 16px;
   display: flex; gap: 14px; align-items: center; font-size: 13px; z-index: 50;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);

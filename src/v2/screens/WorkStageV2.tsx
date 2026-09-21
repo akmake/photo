@@ -42,6 +42,7 @@ const KEY_TO_CODE: Record<string, string> = {
   k: 'KeyK', K: 'KeyK', 'ל': 'KeyK',
   u: 'KeyU', U: 'KeyU', 'ו': 'KeyU',
   c: 'KeyC', C: 'KeyC', 'ב': 'KeyC',
+  g: 'KeyG', G: 'KeyG', 'ע': 'KeyG',
   z: 'KeyZ', Z: 'KeyZ', 'ז': 'KeyZ',
 };
 
@@ -78,10 +79,24 @@ export default function WorkStageV2({
   const [filter, setFilter] = useState<Filter>('all');
   const [batch, setBatch] = useState<string>('all');
   const [sel, setSel] = useState<string | null>(null);
-  const [compare, setCompare] = useState(false);
+  const [compare, setCompare] = useState(true);
+  const [view, setView] = useState<'loupe' | 'grid'>('loupe');
   const [undo, setUndo] = useState<Undo | null>(null);
   const [aspect, setAspect] = useState(1.5);
   const tileRefs = useRef<Record<string, HTMLButtonElement | null>>({});
+
+  /* The stage fills the window below wherever the app's chrome ends, measured
+   * rather than assumed: the top bar's height is not this screen's to know. */
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    const place = () => {
+      const el = rootRef.current;
+      if (el) el.style.setProperty('--tz-ws-top', `${Math.max(0, Math.round(el.getBoundingClientRect().top))}px`);
+    };
+    place();
+    window.addEventListener('resize', place);
+    return () => window.removeEventListener('resize', place);
+  });
 
   /* ---- the engine's answer: asked once with `run`, then polled while the
    * background preparer is still measuring. A failed call is said as such —
@@ -163,19 +178,11 @@ export default function WorkStageV2({
 
   const flat = useMemo(() => moments.flatMap((m) => m.names), [moments]);
 
-  // Going through the suggestions is judging each against its twin, so that
-  // view opens side by side; everywhere else the picture gets the room.
-  useEffect(() => { setCompare(filter === 'remove' || filter === 'duplicate'); }, [filter]);
-
   // Keep a selection that still exists in the current view.
   useEffect(() => {
     if (!flat.length) { setSel(null); return; }
     if (!sel || !flat.includes(sel)) setSel(flat[0]);
   }, [flat, sel]);
-
-  useEffect(() => {
-    if (sel) tileRefs.current[sel]?.scrollIntoView({ block: 'nearest' });
-  }, [sel]);
 
   /* ---- counts, for the filters and the way forward */
   const counts = useMemo(() => {
@@ -244,6 +251,7 @@ export default function WorkStageV2({
         case 'KeyK': case 'Enter': e.preventDefault(); decideAndAdvance('keep'); break;
         case 'KeyU': case 'Backspace': e.preventDefault(); decideAndAdvance(null); break;
         case 'KeyC': e.preventDefault(); setCompare((v) => !v); break;
+        case 'KeyG': e.preventDefault(); setView((v) => (v === 'loupe' ? 'grid' : 'loupe')); break;
         default:
       }
     };
@@ -256,6 +264,7 @@ export default function WorkStageV2({
   const twinRef = selT?.reasons.find((r) => r.ref)?.ref;
   const twinFrame = twinRef ? frameByName.get(twinRef) : undefined;
   const flaggedFace = selT?.reasons.find((r) => typeof r.face === 'number')?.face;
+  const showTwin = Boolean(compare && twinFrame);
 
   const bulk = filter === 'remove' || filter === 'duplicate'
     ? flat.filter((n) => cull[n] !== 'reject' && cull[n] !== 'keep')
@@ -264,62 +273,81 @@ export default function WorkStageV2({
   const analysed = result ? result.frames.length : 0;
   const pending = result ? result.pending.length : frames.length;
 
+  // The loupe is sized in pixels from its own box: a picture that must fit a
+  // height cannot be sized by percentages of a box whose height is its own.
+  const loupeRef = useRef<HTMLDivElement | null>(null);
+  const [box, setBox] = useState({ w: 800, h: 500 });
+  useEffect(() => {
+    const el = loupeRef.current;
+    if (!el) return undefined;
+    const ro = new ResizeObserver(([entry]) => {
+      const r = entry.contentRect;
+      setBox({ w: Math.max(200, r.width), h: Math.max(160, r.height) });
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [view, ready]);
+  // Two pictures go side by side or one above the other — whichever lets each
+  // be LARGER in this box. A fixed rule by orientation lost half the screen.
+  const fit = (w: number, h: number) => Math.max(40, Math.floor(Math.min(w, (h - 22) * aspect)));
+  const sideW = fit((box.w - 12) / 2, box.h);
+  const stackW = fit(box.w, (box.h - 12) / 2);
+  const stack = showTwin && stackW > sideW;
+  const imgW = showTwin ? Math.max(sideW, stackW) : fit(box.w, box.h);
+  const imgH = Math.floor(imgW / aspect);
+
+  // The filmstrip keeps the selected frame in view.
+  useEffect(() => {
+    if (sel) tileRefs.current[sel]?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  }, [sel, view]);
+
   if (!ready) {
-    return <div className="tz-stage-container"><p className="tz-ws-muted">טוען את תיקיית הפרויקט…</p></div>;
+    return <div className="tz-ws"><p className="tz-ws-muted">טוען את תיקיית הפרויקט…</p></div>;
   }
 
+  const suggestion = selT && sel && !cull[sel] && (selT.suggestion === 'remove' || selT.suggestion === 'duplicate')
+    ? selT : null;
+  const mainReason = selT?.reasons.find((r) => r.code !== 'duplicate') ?? selT?.reasons[0];
+
+  const tile = (n: string, big: boolean) => {
+    const f = frameByName.get(n);
+    if (!f) return null;
+    const t = byName.get(n);
+    const d = cull[n];
+    const cls = [
+      'tz-ws-tile', big ? 'is-big' : '',
+      n === sel ? 'is-sel' : '',
+      d === 'reject' ? 'is-out' : '',
+      d === 'keep' ? 'is-kept' : '',
+      !d && t?.suggestion === 'remove' ? 'is-suggest' : '',
+      !d && t?.suggestion === 'duplicate' ? 'is-dup' : '',
+    ].filter(Boolean).join(' ');
+    return (
+      <button
+        key={n}
+        ref={(el) => { tileRefs.current[n] = el; }}
+        type="button"
+        className={cls}
+        onClick={() => setSel(n)}
+        onDoubleClick={() => { setSel(n); setView('loupe'); }}
+        title={n}
+      >
+        <img src={thumbUrl(f.path, 320)} alt="" loading="lazy" draggable={false} />
+        {/* The mark sits UNDER the picture: a bar, never a badge on a face. */}
+        <i className="tz-ws-mark" />
+        {t?.star && <b className="tz-ws-star" title="התמונה המומלצת מהרצף">★</b>}
+      </button>
+    );
+  };
+
   return (
-    <div className="tz-stage-container tz-ws">
-      <section className="tz-stage-header">
-        <div className="tz-stage-header-copy">
-          <div className="tz-stage-tag">שלב 3 · שלב העבודה</div>
-          <h1>שלב העבודה</h1>
-          <p>
-            מחליטים מה עולה ל<strong>{project.client || 'לקוח'}</strong> ומה יוצא. המערכת מציעה רק מה
-            שיש לו תאומה טובה יותר מאותה תנוחה — שום דבר לא יוצא בלי ההחלטה שלך.
-          </p>
+    <div className="tz-ws" ref={rootRef}>
+      {/* ---- one line: where we are, the views, the way on */}
+      <header className="tz-ws-head">
+        <div className="tz-ws-title">
+          <strong>שלב העבודה</strong>
+          <span className="tz-ws-muted">מה עולה ל{project.client || 'לקוח'} ומה יוצא</span>
         </div>
-        <div className="tz-stage-actions">
-          {onBack && (
-            <button className="tz-btn-projects-secondary" type="button" onClick={onBack}>
-              ← מקבצים
-            </button>
-          )}
-          {onNext && (
-            <button className="tz-btn-projects-primary" type="button" onClick={onNext}>
-              המשך לשליחה ללקוח · {counts.going.toLocaleString('he-IL')} תמונות ←
-            </button>
-          )}
-        </div>
-      </section>
-
-      {/* ---- where the analysis stands, said plainly */}
-      <div className="tz-ws-status" aria-live="polite">
-        {fault ? (
-          <span className="tz-ws-fault">
-            לא ניתן לקבל הצעות מהמנוע: {fault}. אפשר להמשיך להחליט ידנית; ההצעות יופיעו כשהמנוע יחזור.
-          </span>
-        ) : frames.length === 0 ? (
-          <span>אין עדיין תמונות בפרויקט — מייבאים קודם, והניתוח מתחיל מעצמו.</span>
-        ) : !result ? (
-          <span className="tz-ws-muted">פונה למנוע…</span>
-        ) : pending > 0 ? (
-          <span>
-            מנתח את הצילום · {analysed.toLocaleString('he-IL')} מתוך {frames.length.toLocaleString('he-IL')}
-            <span className="tz-ws-muted"> — אפשר כבר לעבוד, ההצעות מתעדכנות תוך כדי</span>
-          </span>
-        ) : (
-          <span>
-            הניתוח הושלם · {result?.moments.toLocaleString('he-IL') ?? 0} רגעים
-          </span>
-        )}
-        {(pending > 0 && !fault) && (
-          <span className="tz-ws-bar"><i style={{ width: `${frames.length ? (analysed / frames.length) * 100 : 0}%` }} /></span>
-        )}
-      </div>
-
-      {/* ---- filters, batches, bulk */}
-      <div className="tz-ws-toolbar">
         <div className="tz-ws-filters" role="tablist">
           {([
             ['all', 'הכול', frames.length],
@@ -339,93 +367,132 @@ export default function WorkStageV2({
               {label} <span className="tz-ws-num">{n.toLocaleString('he-IL')}</span>
             </button>
           ))}
-        </div>
-
-        {batches.length > 0 && (
-          <select className="tz-ws-batch" value={batch} onChange={(e) => setBatch(e.target.value)}>
-            <option value="all">כל המקבצים</option>
-            {batches.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
-          </select>
-        )}
-
-        {bulk.length > 0 && (
+          {batches.length > 0 && (
+            <select className="tz-ws-batch" value={batch} onChange={(e) => setBatch(e.target.value)}>
+              <option value="all">כל המקבצים</option>
+              {batches.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
+            </select>
+          )}
           <button
             type="button"
-            className="tz-btn-projects-secondary tz-ws-bulk"
-            onClick={() => decide(bulk, 'reject', `${bulk.length} הצעות התקבלו`)}
+            className="tz-ws-filter"
+            onClick={() => setView((v) => (v === 'loupe' ? 'grid' : 'loupe'))}
+            title="מעבר בין תמונה גדולה לרשת"
           >
-            הוצא את כל {bulk.length.toLocaleString('he-IL')} ההצעות שבתצוגה
+            {view === 'loupe' ? 'רשת' : 'תמונה גדולה'} <kbd>G</kbd>
           </button>
+        </div>
+        <div className="tz-ws-way">
+          {onBack && <button className="tz-btn-projects-secondary" type="button" onClick={onBack}>← מקבצים</button>}
+          {onNext && (
+            <button className="tz-btn-projects-primary" type="button" onClick={onNext}>
+              לשליחה ללקוח · {counts.going.toLocaleString('he-IL')} ←
+            </button>
+          )}
+        </div>
+      </header>
+
+      {/* ---- the tool, said out loud */}
+      <div className="tz-ws-advice" aria-live="polite">
+        {fault ? (
+          <span className="tz-ws-fault">
+            לא ניתן לקבל הצעות מהמנוע: {fault}. אפשר להחליט ידנית; ההצעות יופיעו כשהמנוע יחזור.
+          </span>
+        ) : frames.length === 0 ? (
+          <span>אין עדיין תמונות בפרויקט — מייבאים קודם, והניתוח מתחיל מעצמו.</span>
+        ) : !result ? (
+          <span className="tz-ws-muted">פונה למנוע…</span>
+        ) : (
+          <>
+            <span className="tz-ws-advice-text">
+              {pending > 0 ? (
+                <>
+                  המערכת מנתחת את הצילום · {analysed.toLocaleString('he-IL')} מתוך {frames.length.toLocaleString('he-IL')}
+                  <span className="tz-ws-bar"><i style={{ width: `${(analysed / frames.length) * 100}%` }} /></span>
+                  {' '}עד עכשיו:
+                </>
+              ) : 'המערכת מציעה:'}
+              {' '}<b>{counts.remove.toLocaleString('he-IL')}</b> להסרה (יש להן תאומה טובה יותר)
+              {' · '}<b>{counts.duplicate.toLocaleString('he-IL')}</b> כפולות של תמונה מומלצת
+            </span>
+            {counts.remove > 0 && filter !== 'remove' && (
+              <button type="button" className="tz-ws-go" onClick={() => { setFilter('remove'); setView('loupe'); }}>
+                עבור על ההצעות להסרה
+              </button>
+            )}
+            {counts.duplicate > 0 && filter !== 'duplicate' && (
+              <button type="button" className="tz-ws-go is-soft" onClick={() => { setFilter('duplicate'); setView('loupe'); }}>
+                עבור על הכפולות
+              </button>
+            )}
+            {bulk.length > 0 && (
+              <button
+                type="button"
+                className="tz-ws-go is-soft"
+                onClick={() => decide(bulk, 'reject', `${bulk.length} הצעות התקבלו`)}
+              >
+                הוצא את כל {bulk.length.toLocaleString('he-IL')} שבתצוגה
+              </button>
+            )}
+          </>
         )}
       </div>
 
-      <div className="tz-ws-body">
-        {/* ---- the set, moment by moment */}
-        <div className="tz-ws-grid" role="listbox" aria-label="תמונות הצילום">
-          {moments.length === 0 && (
-            <p className="tz-ws-muted tz-ws-empty">
-              {filter === 'remove' && pending === 0 ? 'אין הצעות להסרה בתצוגה הזו.'
-                : filter === 'duplicate' && pending === 0 ? 'אין כפולות בתצוגה הזו.'
-                : filter === 'rejected' ? 'עוד לא הוצאה אף תמונה.'
-                : pending > 0 ? 'הניתוח עוד רץ — ההצעות יופיעו כאן.'
-                : 'אין תמונות בתצוגה הזו.'}
-            </p>
-          )}
+      {view === 'grid' ? (
+        <div className="tz-ws-gridview">
+          {moments.length === 0 && <p className="tz-ws-muted tz-ws-empty">{emptyLine(filter, pending)}</p>}
           {moments.map((m) => (
             <section key={m.key} className="tz-ws-moment">
               <h3>{m.title} <span className="tz-ws-muted">· {m.names.length}</span></h3>
-              <div className="tz-ws-tiles">
-                {m.names.map((n) => {
-                  const f = frameByName.get(n);
-                  if (!f) return null;
-                  const t = byName.get(n);
-                  const d = cull[n];
-                  const main = t?.reasons.find((r) => r.code !== 'duplicate') ?? t?.reasons[0];
-                  const cls = [
-                    'tz-ws-tile',
-                    n === sel ? 'is-sel' : '',
-                    d === 'reject' ? 'is-out' : '',
-                    d === 'keep' ? 'is-kept' : '',
-                    !d && t?.suggestion === 'remove' ? 'is-suggest' : '',
-                    !d && t?.suggestion === 'duplicate' ? 'is-dup' : '',
-                  ].filter(Boolean).join(' ');
-                  return (
-                    <button
-                      key={n}
-                      ref={(el) => { tileRefs.current[n] = el; }}
-                      type="button"
-                      role="option"
-                      aria-selected={n === sel}
-                      className={cls}
-                      onClick={() => setSel(n)}
-                      onDoubleClick={() => { setSel(n); decideAndAdvance(d === 'reject' ? null : 'reject'); }}
-                      title={n}
-                    >
-                      <img src={thumbUrl(f.path, 320)} alt="" loading="lazy" draggable={false} />
-                      <span className="tz-ws-cap">
-                        {t?.star && <span className="tz-ws-star" title="התמונה המומלצת מהרצף">★</span>}
-                        {d === 'reject' ? <span className="tz-ws-tag is-out">הוצאה</span>
-                          : d === 'keep' ? <span className="tz-ws-tag is-kept">נשארת</span>
-                          : main ? <span className={`tz-ws-tag ${t?.suggestion === 'remove' ? 'is-suggest' : ''}`}>{REASON_WORDS[main.code] ?? main.label}</span>
-                          : null}
-                      </span>
-                    </button>
-                  );
-                })}
-              </div>
+              <div className="tz-ws-tiles">{m.names.map((n) => tile(n, true))}</div>
             </section>
           ))}
         </div>
+      ) : (
+        <div className="tz-ws-loupe-wrap">
+          {/* ---- what the tool says about THIS frame, above the picture */}
+          <div className={`tz-ws-verdict${suggestion?.suggestion === 'remove' ? ' is-remove' : ''}`}>
+            {!sel || !selFrame ? (
+              <span className="tz-ws-muted">{emptyLine(filter, pending)}</span>
+            ) : cull[sel] ? (
+              <span>
+                <b>{cull[sel] === 'reject' ? 'הוצאה מהסט' : 'נשארת בסט'}</b>
+                {' · '}<button type="button" className="tz-ws-link" onClick={() => decideAndAdvance(null)}>בטל החלטה (U)</button>
+              </span>
+            ) : !selT ? (
+              <span className="tz-ws-muted">עוד לא נותחה</span>
+            ) : suggestion && mainReason ? (
+              <span>
+                <b>{suggestion.suggestion === 'remove' ? 'מוצע להסיר' : 'כפולה'}: {REASON_WORDS[mainReason.code] ?? mainReason.label}</b>
+                {mainReason.ref && <> — {twinLine(mainReason.code)}</>}
+              </span>
+            ) : selT.suggestion === 'unread' ? (
+              <span className="tz-ws-fault">לא ניתן לקרוא את הקובץ</span>
+            ) : (
+              <span className="tz-ws-muted">{selT.star ? '★ התמונה המומלצת מהרצף שלה' : 'אין הצעה לתמונה הזו'}</span>
+            )}
+            {selFrame && (
+              <span className="tz-ws-decide">
+                <button type="button" className={`tz-ws-btn is-out${cull[sel!] === 'reject' ? ' is-on' : ''}`} onClick={() => decideAndAdvance('reject')}>
+                  הוצא <kbd>X</kbd>
+                </button>
+                <button type="button" className={`tz-ws-btn is-keep${cull[sel!] === 'keep' ? ' is-on' : ''}`} onClick={() => decideAndAdvance('keep')}>
+                  השאר <kbd>K</kbd>
+                </button>
+                {twinFrame && (
+                  <button type="button" className={`tz-ws-btn${showTwin ? ' is-on' : ''}`} onClick={() => setCompare((v) => !v)}>
+                    השוואה <kbd>C</kbd>
+                  </button>
+                )}
+              </span>
+            )}
+          </div>
 
-        {/* ---- the frame, large, with its reason and its twin */}
-        <aside className="tz-ws-view">
-          {selFrame ? (
-            <>
-              {/* Two landscapes side by side would each be a third of the panel —
-                  too small to judge focus — so they stack; portraits sit side by side. */}
-              <div className={`tz-ws-stage${compare && twinFrame ? (aspect > 1.05 ? ' is-compare-stack' : ' is-compare') : ''}`}>
+          <div className="tz-ws-loupe">
+            <div className={`tz-ws-stage${stack ? ' is-stack' : ''}`} ref={loupeRef}>
+              {selFrame && (
                 <figure>
-                  <div className="tz-ws-imgbox">
+                  <div className="tz-ws-imgbox" style={{ width: imgW, height: imgH }}>
                     <img
                       src={thumbUrl(selFrame.path, 1600)}
                       alt=""
@@ -435,7 +502,6 @@ export default function WorkStageV2({
                         if (im.naturalWidth && im.naturalHeight) setAspect(im.naturalWidth / im.naturalHeight);
                       }}
                     />
-                    {/* The face the suggestion is about: a hairline, never a fill. */}
                     {typeof flaggedFace === 'number' && selT?.faces[flaggedFace] && (
                       <i
                         className="tz-ws-facebox"
@@ -450,79 +516,39 @@ export default function WorkStageV2({
                   </div>
                   <figcaption dir="ltr">{sel}</figcaption>
                 </figure>
-                {compare && twinFrame && (
-                  <figure>
-                    <div className="tz-ws-imgbox">
-                      <img src={thumbUrl(twinFrame.path, 1600)} alt="" draggable={false} />
-                    </div>
-                    <figcaption dir="ltr">{twinRef} · התאומה</figcaption>
-                  </figure>
-                )}
-              </div>
-
-              {selT && selT.reasons.length > 0 && (
-                <div className="tz-ws-why">
-                  {selT.reasons.map((r, i) => (
-                    <p key={i}>
-                      <b>{REASON_WORDS[r.code] ?? r.label}</b>
-                      {r.ref && (
-                        <>
-                          {' — '}{twinLine(r.code)}{' '}
-                          <button type="button" className="tz-ws-link" onClick={() => setSel(r.ref!)} dir="ltr">
-                            {r.ref}
-                          </button>
-                        </>
-                      )}
-                    </p>
-                  ))}
-                  {twinFrame && (
-                    <button type="button" className="tz-ws-link" onClick={() => setCompare((v) => !v)}>
-                      {compare ? 'הסתר השוואה' : 'השווה לתאומה (C)'}
-                    </button>
-                  )}
-                </div>
               )}
-
-              {selT && selT.faces.length > 0 && (
-                <FaceStrip
-                  src={thumbUrl(selFrame.path, 1600)}
-                  aspect={aspect}
-                  faces={selT.faces}
-                  flagged={flaggedFace}
-                />
+              {showTwin && twinFrame && (
+                <figure>
+                  <div className="tz-ws-imgbox" style={{ width: imgW, height: imgH }}>
+                    <img src={thumbUrl(twinFrame.path, 1600)} alt="" draggable={false} />
+                  </div>
+                  <figcaption>
+                    <span dir="ltr">{twinRef}</span> · התאומה הטובה יותר{' '}
+                    <button type="button" className="tz-ws-link" onClick={() => setSel(twinRef!)}>עבור אליה</button>
+                  </figcaption>
+                </figure>
               )}
+            </div>
 
-              <div className="tz-ws-decide">
-                <button
-                  type="button"
-                  className={`tz-ws-btn is-keep${cull[sel!] === 'keep' ? ' is-on' : ''}`}
-                  onClick={() => decideAndAdvance('keep')}
-                >
-                  השאר <kbd>K</kbd>
-                </button>
-                <button
-                  type="button"
-                  className={`tz-ws-btn is-out${cull[sel!] === 'reject' ? ' is-on' : ''}`}
-                  onClick={() => decideAndAdvance('reject')}
-                >
-                  הוצא <kbd>X</kbd>
-                </button>
-                <button
-                  type="button"
-                  className="tz-ws-btn"
-                  disabled={!cull[sel!]}
-                  onClick={() => decideAndAdvance(null)}
-                >
-                  בטל החלטה <kbd>U</kbd>
-                </button>
+            {selT && selT.faces.length > 0 && selFrame && (
+              <FaceStrip src={thumbUrl(selFrame.path, 1600)} aspect={aspect} faces={selT.faces} flagged={flaggedFace} />
+            )}
+          </div>
+
+          {/* ---- the whole set, moment by moment, along the bottom */}
+          <div className="tz-ws-strip" role="listbox" aria-label="תמונות הצילום">
+            {moments.map((m) => (
+              <div key={m.key} className="tz-ws-strip-moment" title={m.title}>
+                {m.names.map((n) => tile(n, false))}
               </div>
-              <p className="tz-ws-keys tz-ws-muted">חצים — תמונה הבאה/קודמת · Ctrl+Z — ביטול הפעולה האחרונה</p>
-            </>
-          ) : (
-            <p className="tz-ws-muted">בחר תמונה.</p>
-          )}
-        </aside>
-      </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <p className="tz-ws-keys tz-ws-muted">
+        חצים — הבאה/קודמת · X הוצא · K השאר · U בטל · C השוואה לתאומה · G רשת · Ctrl+Z ביטול הפעולה האחרונה
+      </p>
 
       {undo && (
         <div className="tz-ws-toast" role="status">
@@ -533,6 +559,13 @@ export default function WorkStageV2({
       )}
     </div>
   );
+}
+
+function emptyLine(filter: Filter, pending: number): string {
+  if (filter === 'remove') return pending > 0 ? 'הניתוח עוד רץ — ההצעות יופיעו כאן.' : 'אין הצעות להסרה בתצוגה הזו.';
+  if (filter === 'duplicate') return pending > 0 ? 'הניתוח עוד רץ — הכפולות יופיעו כאן.' : 'אין כפולות בתצוגה הזו.';
+  if (filter === 'rejected') return 'עוד לא הוצאה אף תמונה.';
+  return 'אין תמונות בתצוגה הזו.';
 }
 
 /** Every face in the frame, enlarged side by side — the view a photographer
