@@ -1,7 +1,8 @@
 /* שלב העבודה — the photographer decides what stays and what goes to the client.
  *
- * The whole window, light. Every photograph large, one under the other, in the
- * batches made in the step before; under each one three quick decisions —
+ * The whole window, light. A gallery of every photograph, in the batches made
+ * in the step before, each in a cell of the same size so portraits and
+ * landscapes stand in straight rows; on each cell three quick decisions —
  * keep, not sure, remove — with a key for each. A double-click opens the frame
  * in a viewer the way the Windows Photos app does: fit, zoom, pan, next.
  *
@@ -176,46 +177,25 @@ export default function WorkStageV2({
     if (!sel || !flat.includes(sel)) setSel(flat[0]);
   }, [flat, sel]);
 
-  /* ---- the feed scrolls; the photograph nearest the middle is the one the
-   * keys act on, so he never has to click before he decides. */
+  /* ---- the grid. The selected frame is the one the keys act on; the grid
+   * follows it, so the keyboard alone can walk the whole set. */
   const feedRef = useRef<HTMLDivElement | null>(null);
   const cardRefs = useRef<Record<string, HTMLElement | null>>({});
-  const scrollingTo = useRef<string | null>(null);
-  useEffect(() => {
-    const feed = feedRef.current;
-    if (!feed) return undefined;
-    let raf = 0;
-    const onScroll = () => {
-      cancelAnimationFrame(raf);
-      raf = requestAnimationFrame(() => {
-        if (scrollingTo.current) return;
-        const box = feed.getBoundingClientRect();
-        const mid = box.top + box.height * 0.45;
-        let best: string | null = null;
-        let bestD = Infinity;
-        for (const n of flat) {
-          const el = cardRefs.current[n];
-          if (!el) continue;
-          const r = el.getBoundingClientRect();
-          if (r.bottom < box.top || r.top > box.bottom) continue;
-          const d = r.top <= mid && r.bottom >= mid ? 0 : Math.min(Math.abs(r.top - mid), Math.abs(r.bottom - mid));
-          if (d < bestD) { bestD = d; best = n; }
-        }
-        if (best) setSel(best);
-      });
-    };
-    feed.addEventListener('scroll', onScroll, { passive: true });
-    return () => { feed.removeEventListener('scroll', onScroll); cancelAnimationFrame(raf); };
-  }, [flat]);
+  const [size, setSize] = useState<number>(() => {
+    try { return Number(localStorage.getItem('tz-ws-size')) || 220; } catch { return 220; }
+  });
+  useEffect(() => { try { localStorage.setItem('tz-ws-size', String(size)); } catch { /* per-viewer only */ } }, [size]);
 
-  const bring = useCallback((n: string, smooth = true) => {
+  const bring = useCallback((n: string) => {
     setSel(n);
-    const el = cardRefs.current[n];
-    if (!el) return;
-    scrollingTo.current = n;
-    el.scrollIntoView({ block: 'center', behavior: smooth ? 'smooth' : 'auto' });
-    window.setTimeout(() => { if (scrollingTo.current === n) scrollingTo.current = null; }, smooth ? 450 : 50);
+    requestAnimationFrame(() => cardRefs.current[n]?.scrollIntoView({ block: 'nearest' }));
   }, []);
+
+  /** How many cells a row holds right now — for the up and down arrows. */
+  const columns = useCallback(() => {
+    const w = feedRef.current?.clientWidth ?? 1200;
+    return Math.max(1, Math.floor((w - 32 + 12) / (size + 12)));
+  }, [size]);
 
   /* ---- deciding, with one level of undo that says what it undoes */
   const decide = useCallback((names: string[], decision: CullDecision | null, label: string) => {
@@ -266,8 +246,10 @@ export default function WorkStageV2({
       switch (code) {
         case 'Escape': if (viewer) { e.preventDefault(); setViewer(false); } break;
         case 'Enter': if (sel && !viewer) { e.preventDefault(); setViewer(true); } break;
-        case 'ArrowDown': case 'ArrowLeft': e.preventDefault(); step(1); break;
-        case 'ArrowUp': case 'ArrowRight': e.preventDefault(); step(-1); break;
+        case 'ArrowLeft': e.preventDefault(); step(1); break;
+        case 'ArrowRight': e.preventDefault(); step(-1); break;
+        case 'ArrowDown': e.preventDefault(); step(viewer ? 1 : columns()); break;
+        case 'ArrowUp': e.preventDefault(); step(viewer ? -1 : -columns()); break;
         case 'KeyK': case 'KeyP': case 'Digit1': if (sel) { e.preventDefault(); decideOne(sel, 'keep'); } break;
         case 'KeyM': case 'Digit2': if (sel) { e.preventDefault(); decideOne(sel, 'maybe'); } break;
         case 'KeyX': case 'Delete': case 'Digit3': if (sel) { e.preventDefault(); decideOne(sel, 'reject'); } break;
@@ -279,12 +261,12 @@ export default function WorkStageV2({
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [cull, decide, decideOne, sel, step, undoLast, viewer]);
+  }, [columns, cull, decide, decideOne, sel, step, undoLast, viewer]);
 
   // Returning from the viewer: the feed is where the viewer ended.
   const wasViewer = useRef(false);
   useEffect(() => {
-    if (wasViewer.current && !viewer && sel) bring(sel, false);
+    if (wasViewer.current && !viewer && sel) bring(sel);
     wasViewer.current = viewer;
   }, [viewer, sel, bring]);
 
@@ -337,6 +319,11 @@ export default function WorkStageV2({
         </nav>
 
         <div className="tz-ws-top-side is-end">
+          <label className="tz-ws-size" title="גודל התמונות בגלריה">
+            <span aria-hidden>▫</span>
+            <input type="range" min={140} max={420} step={10} value={size} onChange={(e) => setSize(Number(e.target.value))} aria-label="גודל התמונות" />
+            <span aria-hidden>◻</span>
+          </label>
           {fault ? (
             <span className="tz-ws-note is-fault" title={fault}>אין הצעות מהמנוע — אפשר להחליט ידנית</span>
           ) : pending > 0 && frames.length > 0 ? (
@@ -389,6 +376,7 @@ export default function WorkStageV2({
                 {g.title && (
                   <h2 className="tz-ws-group-title">{g.title}<span>{g.names.length.toLocaleString('he-IL')} תמונות</span></h2>
                 )}
+                <div className="tz-ws-grid" style={{ '--ws-cell': `${size}px` } as React.CSSProperties}>
                 {g.names.map((n) => {
                   const f = frameByName.get(n);
                   if (!f) return null;
@@ -406,13 +394,15 @@ export default function WorkStageV2({
                       onOpen={() => { setSel(n); setViewer(true); }}
                       onDecide={(d) => decideOne(n, d)}
                       onTwin={(t) => bring(t)}
+                      big={size > 260}
                     />
                   );
                 })}
+                </div>
               </section>
             ))}
             <p className="tz-ws-end">
-              {flat.length.toLocaleString('he-IL')} תמונות בתצוגה · חצים לתמונה הבאה · K שמור · M מתלבט · X הסר · לחיצה כפולה לתצוגה מלאה
+              {flat.length.toLocaleString('he-IL')} תמונות בתצוגה · חצים למעבר · K שמור · M מתלבט · X הסר · לחיצה כפולה או Enter לתצוגה גדולה
             </p>
           </>
         )}
@@ -457,9 +447,9 @@ function emptyLine(filter: Filter, pending: number): string {
 
 /* ------------------------------------------------------------ one photograph */
 
-function Decide({ decision, onDecide }: { decision?: CullDecision; onDecide: (d: CullDecision) => void }) {
+function Decide({ decision, onDecide, compact }: { decision?: CullDecision; onDecide: (d: CullDecision) => void; compact?: boolean }) {
   return (
-    <div className="tz-ws-decide" role="group" aria-label="החלטה">
+    <div className={`tz-ws-decide${compact ? ' is-compact' : ''}`} role="group" aria-label="החלטה">
       {DECISIONS.map((d) => (
         <button
           key={d.id}
@@ -469,7 +459,7 @@ function Decide({ decision, onDecide }: { decision?: CullDecision; onDecide: (d:
           onClick={(e) => { e.stopPropagation(); onDecide(d.id); }}
           title={`${d.label} (${d.key})`}
         >
-          <span aria-hidden>{d.mark}</span>{d.label}<kbd>{d.key}</kbd>
+          <span aria-hidden>{d.mark}</span>{!compact && <>{d.label}<kbd>{d.key}</kbd></>}
         </button>
       ))}
     </div>
@@ -477,7 +467,7 @@ function Decide({ decision, onDecide }: { decision?: CullDecision; onDecide: (d:
 }
 
 function Card({
-  name, frame, triage, decision, current, twin, cardRef, onSelect, onOpen, onDecide, onTwin,
+  name, frame, triage, decision, current, twin, cardRef, onSelect, onOpen, onDecide, onTwin, big,
 }: {
   name: string;
   frame: Frame;
@@ -490,55 +480,49 @@ function Card({
   onOpen: () => void;
   onDecide: (d: CullDecision) => void;
   onTwin: (name: string) => void;
+  big: boolean;
 }) {
   const [loaded, setLoaded] = useState(false);
   const suggestion = !decision && (triage?.suggestion === 'remove' || triage?.suggestion === 'duplicate') ? triage : null;
   const reason = suggestion?.reasons.find((r) => r.code !== 'duplicate') ?? suggestion?.reasons[0];
-  const face = suggestion?.reasons.find((r) => typeof r.face === 'number')?.face;
-  const faceBox = typeof face === 'number' ? triage?.faces[face]?.box : undefined;
+  const why = suggestion && reason
+    ? `${suggestion.suggestion === 'remove' ? 'מוצע להסיר' : 'כפולה'} · ${REASON_WORDS[reason.code] ?? reason.label}${twin ? ' — לחץ לתאומה' : ''}`
+    : '';
 
   return (
     <article
       ref={cardRef}
-      className={`tz-ws-card${current ? ' is-current' : ''}${decision ? ` is-${decision}` : ''}`}
+      className={`tz-ws-cell${current ? ' is-current' : ''}${decision ? ` is-${decision}` : ''}`}
       onClick={onSelect}
+      onDoubleClick={onOpen}
+      aria-selected={current}
     >
-      <div className={`tz-ws-photo${loaded ? ' is-loaded' : ''}`} onDoubleClick={onOpen} title="לחיצה כפולה לתצוגה מלאה">
+      <div className="tz-ws-cell-img">
         <img
-          src={thumbUrl(frame.path, 1600)}
+          className={loaded ? 'is-loaded' : ''}
+          src={thumbUrl(frame.path, big ? 640 : 320)}
           alt={name}
           loading="lazy"
           decoding="async"
           draggable={false}
           onLoad={() => setLoaded(true)}
         />
-        {faceBox && (
-          <i
-            className="tz-ws-facebox"
-            style={{
-              left: `${faceBox.x * 100}%`,
-              top: `${faceBox.y * 100}%`,
-              width: `${faceBox.width * 100}%`,
-              height: `${faceBox.height * 100}%`,
-            }}
-          />
+        {suggestion && (
+          <button
+            type="button"
+            className={`tz-ws-flag is-${suggestion.suggestion}`}
+            title={why}
+            aria-label={why}
+            onClick={(e) => { e.stopPropagation(); if (twin) onTwin(twin.name); }}
+          >
+            {suggestion.suggestion === 'remove' ? '!' : '≈'}
+          </button>
         )}
-        {decision && <span className={`tz-ws-stamp is-${decision}`}>{WORD[decision]}</span>}
+        {triage?.star && !decision && <span className="tz-ws-flag is-star" title="המומלצת מהרצף">★</span>}
       </div>
-
-      <footer className="tz-ws-card-bar">
+      <footer className="tz-ws-cell-bar">
         <span className="tz-ws-file" dir="ltr">{name}</span>
-        <Decide decision={decision} onDecide={onDecide} />
-        <span className="tz-ws-hint">
-          {suggestion && reason ? (
-            <button type="button" className={`tz-ws-suggest is-${suggestion.suggestion}`} onClick={(e) => { e.stopPropagation(); if (twin) onTwin(twin.name); }} title={twin ? 'עבור לתאומה' : undefined}>
-              {suggestion.suggestion === 'remove' ? 'מוצע להסיר' : 'כפולה'} · {REASON_WORDS[reason.code] ?? reason.label}
-              {twin && <img src={thumbUrl(twin.frame.path, 160)} alt="" />}
-            </button>
-          ) : triage?.star && !decision ? (
-            <span className="tz-ws-star">★ המומלצת מהרצף</span>
-          ) : null}
-        </span>
+        <Decide decision={decision} onDecide={onDecide} compact />
       </footer>
     </article>
   );
