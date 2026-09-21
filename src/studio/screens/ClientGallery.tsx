@@ -651,7 +651,7 @@ function Queue({
               onClick={frame ? () => setOpened(comment.frameId) : undefined}
             >
               {frame ? (
-                <>
+                <span className="cg-note-fit">
                   <img
                     src={`${ENGINE}/thumb?path=${encodeURIComponent(frame.shown)}&w=160`}
                     alt=""
@@ -662,7 +662,7 @@ function Queue({
                     className="cg-pin"
                     style={{ left: `${comment.x * 100}%`, top: `${comment.y * 100}%` }}
                   />
-                </>
+                </span>
               ) : (
                 <span className="cg-note-gone">הקובץ לא בתיקייה</span>
               )}
