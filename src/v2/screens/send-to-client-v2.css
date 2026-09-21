@@ -748,12 +748,22 @@
   overflow: hidden;
   background: #e7e5df;
   flex-shrink: 0;
+  display: grid;
+  place-items: center;
+}
+
+/* The box hugs the photograph itself, so the pin's percentages land on the
+ * picture — not on the square's empty bands around it. */
+.tz-sc-comment-fit {
+  position: relative;
+  display: inline-block;
+  line-height: 0;
 }
 
 .tz-sc-comment-thumb img {
-  width: 100%;
-  height: 100%;
-  object-fit: contain;
+  display: block;
+  max-width: 80px;
+  max-height: 80px;
 }
 
 .tz-sc-pin-dot {

@@ -749,7 +749,7 @@ function ClientFeedbackQueue({
                 onClick={frame ? () => setOpened(comment.frameId) : undefined}
               >
                 {frame ? (
-                  <>
+                  <span className="tz-sc-comment-fit">
                     <img
                       src={`${ENGINE}/thumb?path=${encodeURIComponent(frame.shown)}&w=160`}
                       alt=""
@@ -758,7 +758,7 @@ function ClientFeedbackQueue({
                       className="tz-sc-pin-dot"
                       style={{ left: `${comment.x * 100}%`, top: `${comment.y * 100}%` }}
                     />
-                  </>
+                  </span>
                 ) : (
                   <span style={{ fontSize: 11, color: '#a1a1aa', padding: 4 }}>לא נמצא</span>
                 )}
