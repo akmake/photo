@@ -40,7 +40,6 @@ const SCREEN_TITLE: Record<string, string> = {
   projects: 'פרויקטים בסטודיו',
   clients: 'לקוחות',
   calendar: 'יומן הצילומים',
-  albums: 'אלבומים',
   'smart-cleanup': 'ניקוי חכם',
   lab: 'מעבדה',
   experiments: 'כלים בניסיון',
@@ -71,9 +70,7 @@ export default function V2App({ onSwitchToV1, onOpenProjectV1 }: V2AppProps) {
 
   const isEditing = activeNav === 'project-detail' && activeStage === 'gallery-edit';
   const isGrouping = activeNav === 'project-detail' && activeStage === 'batches';
-  const isAlbumMode =
-    (activeNav === 'project-detail' && activeStage === 'album-design') ||
-    activeNav === 'albums';
+  const isAlbumMode = activeNav === 'project-detail' && activeStage === 'album-design';
   const isSidebarCollapsed = sidebarCollapsed || isEditing || isGrouping || isAlbumMode;
 
   // Active project selection
@@ -110,7 +107,6 @@ export default function V2App({ onSwitchToV1, onOpenProjectV1 }: V2AppProps) {
     { id: 'projects', label: 'פרויקטים', icon: TzIconFolder, count: studio.projects.length },
     { id: 'clients', label: 'לקוחות', icon: TzIconUsers },
     { id: 'calendar', label: 'יומן', icon: TzIconCalendar },
-    { id: 'albums', label: 'אלבומים', icon: TzIconBook },
   ];
 
   // The actual workshop / lab tools of TEZA
@@ -269,18 +265,6 @@ export default function V2App({ onSwitchToV1, onOpenProjectV1 }: V2AppProps) {
           project={selectedProject}
           onNavigateStage={(stage) => setActiveStage(stage)}
         />
-      );
-    }
-
-    if (activeNav === 'albums') {
-      const proj = selectedProject || studio.projects[0];
-      return (
-        <Suspense fallback={<div className="tz-screen-wait" style={{ padding: 40, textAlign: 'center', color: '#71717a' }}>טוען אלבומים...</div>}>
-          <AlbumStudio
-            job={proj}
-            onBack={() => setActiveNav('projects')}
-          />
-        </Suspense>
       );
     }
 
