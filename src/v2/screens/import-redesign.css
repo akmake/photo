@@ -341,3 +341,12 @@
   color: #ffffff;
   font-weight: 700;
 }
+
+/* Files that did not arrive: named, with one retry for all of them. */
+.tz-import-failed { display: grid; gap: 10px; }
+.tz-import-failed-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.tz-import-failed ul {
+  margin: 0; padding: 0; list-style: none; max-height: 180px; overflow: auto;
+  display: grid; gap: 4px; font-size: 12.5px; font-weight: 400; color: #7f1d1d;
+}
+.tz-import-failed li { display: flex; justify-content: space-between; gap: 12px; }

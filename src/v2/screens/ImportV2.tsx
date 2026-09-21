@@ -34,6 +34,10 @@ export default function ImportV2({
   const [total, setTotal] = useState(0);
   const [skipped, setSkipped] = useState(0);
   const [error, setError] = useState<string | null>(null);
+  /* Files that did not make it into the project, by name. A frame that fails
+   * to copy used to vanish while the counter moved on as if it had arrived —
+   * the photographer would find the hole weeks later, in the album. */
+  const [failed, setFailed] = useState<{ file: string; error: string }[]>([]);
   const [cloud, setCloud] = useState<CloudProvider | null>(null);
 
   useEffect(() => {
@@ -67,6 +71,43 @@ export default function ImportV2({
     }
   }, []);
 
+  /* Copies `files` into the project. Used for a fresh import and for retrying
+   * the ones that failed; a file already in the project is skipped by the
+   * engine, so a retry never duplicates. */
+  const copyIn = useCallback(async (files: string[]) => {
+    setError(null);
+    setFailed([]);
+    setBusy(true);
+    setDone(0);
+    setSkipped(0);
+    setTotal(files.length);
+    try {
+      const home = project.home ?? (await initProject(folderNameOf(project))).home;
+      if (!project.home) updateProject(projectId, { home });
+      const rawDir = `${home}\\תמונות גלם`;
+
+      let already = 0;
+      const lost: { file: string; error: string }[] = [];
+      for (const file of files) {
+        try {
+          const r = await importFrame(file, rawDir);
+          if (r.skipped) already += 1;
+        } catch (e) {
+          lost.push({ file, error: e instanceof Error ? e.message : 'ההעתקה נכשלה' });
+        }
+        setDone((n) => n + 1);
+        setSkipped(already);
+      }
+      setFailed(lost);
+      await reloadFrames(projectId);
+      if (project.at < 1) updateProject(projectId, { at: 1, state: 'work' });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'הייבוא נכשל');
+    } finally {
+      setBusy(false);
+    }
+  }, [project, projectId]);
+
   const runImport = useCallback(async () => {
     setError(null);
     try {
@@ -77,35 +118,11 @@ export default function ImportV2({
         setError(`אין תמונות בתיקייה שנבחרה: ${source}`);
         return;
       }
-
-      setBusy(true);
-      setDone(0);
-      setSkipped(0);
-      setTotal(listed.count);
-
-      const home = project.home ?? (await initProject(folderNameOf(project))).home;
-      if (!project.home) updateProject(projectId, { home });
-      const rawDir = `${home}\\תמונות גלם`;
-
-      let already = 0;
-      for (const file of listed.files) {
-        try {
-          const r = await importFrame(file, rawDir);
-          if (r.skipped) already += 1;
-        } catch {
-          // ignore single frame error
-        }
-        setDone((n) => n + 1);
-        setSkipped(already);
-      }
-      await reloadFrames(projectId);
-      if (project.at < 1) updateProject(projectId, { at: 1, state: 'work' });
+      await copyIn(listed.files);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'הייבוא נכשל');
-    } finally {
-      setBusy(false);
     }
-  }, [project, projectId]);
+  }, [copyIn]);
 
   const runCloudImport = useCallback(async (provider: CloudProvider, files: CloudEntry[]) => {
     if (!files.length) return;
@@ -224,6 +241,33 @@ export default function ImportV2({
       {error && (
         <div className="tz-import-error-banner">
           <span>⚠️ {error}</span>
+        </div>
+      )}
+
+      {/* 4b. Files that did not arrive — named, and retryable. */}
+      {!busy && failed.length > 0 && (
+        <div className="tz-import-error-banner tz-import-failed">
+          <div className="tz-import-failed-head">
+            <span>
+              ⚠️ {failed.length.toLocaleString('he-IL')} תמונות לא הועתקו לפרויקט.
+              המקור לא נפגע — אפשר לנסות שוב.
+            </span>
+            <button
+              className="tz-btn-projects-primary"
+              type="button"
+              onClick={() => copyIn(failed.map((f) => f.file))}
+            >
+              נסה שוב את {failed.length.toLocaleString('he-IL')} שנכשלו
+            </button>
+          </div>
+          <ul>
+            {failed.map((f) => (
+              <li key={f.file}>
+                <span dir="ltr">{f.file.split(/[\\/]/).pop()}</span>
+                <span>{f.error}</span>
+              </li>
+            ))}
+          </ul>
         </div>
       )}
 
