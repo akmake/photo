@@ -284,9 +284,54 @@
 .is-photos .tz-tp-chip.on { background: var(--ph-accent); border-color: var(--ph-accent); color: var(--ph-accent-ink); }
 .is-photos .tz-tp-mask-inv { color: var(--ph-ink-2); }
 
-/* ColorMatch sits in the same panel */
+/* ColorMatch, dark like the rest of the panel. Every surface and every text
+ * colour is set here: half-restyling it left light text on its white cards,
+ * and its buttons vanished. */
 .is-photos .tz-cm { color: var(--ph-ink-2); }
-.is-photos .tz-cm button { color: inherit; }
+.is-photos .tz-cm-intro h3 { color: var(--ph-ink); }
+.is-photos .tz-cm-intro p,
+.is-photos .tz-cm-hint,
+.is-photos .tz-cm-where,
+.is-photos .tz-cm-file,
+.is-photos .tz-cm-pair figcaption,
+.is-photos .tz-cm-score p,
+.is-photos .tz-cm-score-head span,
+.is-photos .tz-cm-step i,
+.is-photos .tz-cm-result > header i { color: var(--ph-muted); }
+.is-photos .tz-cm-step,
+.is-photos .tz-cm-result { background: var(--ph-raise); border-color: var(--ph-line); box-shadow: none; }
+.is-photos .tz-cm-step b,
+.is-photos .tz-cm-result b,
+.is-photos .tz-cm-score-head b { color: var(--ph-ink); }
+.is-photos .tz-cm-n { background: var(--ph-accent); color: var(--ph-accent-ink); }
+.is-photos .tz-cm-well { background: #111; border-color: #3a3a3a; }
+.is-photos .tz-cm-well.drop { background: #151515; border-color: #444; }
+.is-photos .tz-cm-well.drop:hover { background: #1b1b1b; border-color: var(--ph-accent); }
+.is-photos .tz-cm-well.drop.filled { border-color: #3a3a3a; }
+.is-photos .tz-cm-empty span { color: var(--ph-ink-2); }
+.is-photos .tz-cm-empty i { color: var(--ph-muted); }
+.is-photos .tz-cm-link { color: var(--ph-accent); background: transparent; }
+.is-photos .tz-cm-arrow { color: #555; }
+.is-photos .tz-cm-learn,
+.is-photos .tz-cm-apply { background: var(--ph-accent); color: var(--ph-accent-ink); border-color: var(--ph-accent); }
+.is-photos .tz-cm-learn:hover:not(:disabled),
+.is-photos .tz-cm-apply:hover { background: #d6dbf6; }
+.is-photos .tz-cm-learn:disabled { background: #2c2c2c; color: #6f6f6f; border-color: #2c2c2c; }
+.is-photos .tz-cm-error { background: #3a1616; color: #ffb4ab; }
+.is-photos .tz-cm-warn { background: #3a2a12; color: #f3c98b; }
+.is-photos .tz-cm-bar { background: #333; }
+.is-photos .tz-cm-score.good .tz-cm-score-head b { color: #6fd39a; }
+.is-photos .tz-cm-score.ok .tz-cm-score-head b { color: #f0b27a; }
+.is-photos .tz-cm-score.weak .tz-cm-score-head b { color: #ff8a80; }
+.is-photos .tz-cm-done { color: #9fd8b8; }
+/* the picker: dark too, and above the editing room */
+.is-photos .tz-cm-scrim { z-index: 1200; background: rgba(0, 0, 0, 0.7); }
+.is-photos .tz-cm-dialog { background: #1b1b1b; color: var(--ph-ink-2); border: 1px solid var(--ph-line); }
+.is-photos .tz-cm-dialog-head { background: transparent; border-bottom-color: var(--ph-line); }
+.is-photos .tz-cm-dialog-head h4 { color: var(--ph-ink); }
+.is-photos .tz-cm-dialog-head button { color: var(--ph-ink-2); }
+.is-photos .tz-cm-dialog-body button { background: #111; border-color: #333; color: var(--ph-ink-2); }
+.is-photos .tz-cm-dialog-body button:hover { border-color: var(--ph-accent); }
 
 .is-photos .tz-tp-modules::-webkit-scrollbar-thumb,
 .is-photos .tz-ge-panel-scroll::-webkit-scrollbar-thumb,
