@@ -201,11 +201,14 @@ function Shape({ layer, template, instance, viewWidth }: {
 }
 
 /** One non-photo layer, as its own element at its place in the paint order. */
-export function TemplateLayerView({ template, instance, layer, zIndex }: {
+export function TemplateLayerView({ template, instance, layer, zIndex, hideLayerId }: {
   template: AlbumTemplate;
   instance: SpreadTemplateInstance;
   layer: ShapeLayer | TextLayer | ImageLayer;
   zIndex: number;
+  /** A text the photographer is typing into: the editor draws it instead, in
+   *  the same place and the same letters, so this one steps out of the way. */
+  hideLayerId?: string | null;
 }) {
   if (layer.type === 'image') {
     const url = elementUrl(layer.assetId);
@@ -260,6 +263,7 @@ export function TemplateLayerView({ template, instance, layer, zIndex }: {
             justifyContent: JUSTIFY[layer.align],
             alignItems: ALIGN_ITEMS[layer.verticalAlign],
             transform: layer.rotation ? `rotate(${layer.rotation}deg)` : undefined,
+            visibility: layer.id === hideLayerId ? 'hidden' : undefined,
           }}
         >
           {textOf(instance, layer)}
@@ -290,9 +294,10 @@ export function TemplateLayerView({ template, instance, layer, zIndex }: {
 }
 
 /** Every non-photo layer of a page. The caller draws the photos. */
-export function TemplateDecor({ template, instance }: {
+export function TemplateDecor({ template, instance, hideLayerId }: {
   template: AlbumTemplate;
   instance: SpreadTemplateInstance;
+  hideLayerId?: string | null;
 }) {
   const z = templateZ(template);
   return (
@@ -304,6 +309,7 @@ export function TemplateDecor({ template, instance }: {
           instance={instance}
           layer={layer}
           zIndex={z.get(layer.id)!}
+          hideLayerId={hideLayerId}
         />
       )))}
     </>

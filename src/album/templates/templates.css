@@ -174,9 +174,8 @@
 .sp-rail button:hover { color: var(--ink); background: var(--card); }
 .sp-rail button.on { color: var(--accent); background: var(--card); box-shadow: inset 0 0 0 1px var(--line); }
 .sp-body { min-width: 0; display: flex; flex-direction: column; overflow-y: auto; }
-.sp-head { padding: 14px 14px 4px; }
-.sp-head h3 { margin: 0; font: 700 15px/1.3 var(--font-display); color: var(--ink); }
-.sp-head p { margin: 4px 0 0; color: var(--ink-3); font-size: 11.5px; line-height: 1.5; }
+.sp-head { padding: 12px 14px 2px; }
+.sp-head h3 { margin: 0; font: 700 13px/1.3 var(--font-display); color: var(--ink-3); letter-spacing: .01em; }
 .sp-section { display: grid; gap: 10px; padding: 10px 14px 16px; }
 .sp-sub { margin-top: 4px; font-size: 12px; color: var(--ink-2); }
 .sp-note { margin: 0; color: var(--ink-3); font-size: 11px; line-height: 1.5; }
@@ -212,6 +211,10 @@
   direction: rtl;
   display: flex;
   align-items: center;
+  /* Wraps to a second line when the window is too narrow for one. It used to
+   * wrap only below a width picked by eye, and in between the delete button
+   * and "סיום" were pushed off the edge of the screen — measured at x = -76. */
+  flex-wrap: wrap;
   gap: 6px;
   min-height: 46px;
   padding: 6px 12px;
@@ -285,12 +288,41 @@
 .ctx-stack > .album-inspector-section, .ctx-stack .tpl-pan { padding: 0; border: 0; }
 .ctx-label { font-size: 11px; color: var(--ink-3); }
 
-/* narrow window: the bar wraps to a second line rather than losing controls */
-@media (max-width: 980px) {
-  .ctx-bar { flex-wrap: wrap; }
+/* on a second line the spacer must not push the actions away on its own */
+@media (max-width: 1180px) {
   .ctx-bar-spacer { min-width: 0; }
 }
 
 /* rotation handle sits under the selection, as in Canva */
 .album-frame-selection .album-frame-rotate { top: auto; bottom: -38px; }
 .album-frame-selection .album-frame-rotate::after { top: auto; bottom: 14px; }
+
+/* ---------- typing into a text where it sits on the spread ---------- */
+/* Same container as .tpl-decor, so the cqh font size resolves against the
+ * spread height and the letters being typed are the printed letters. */
+.tpl-text-editing-layer {
+  position: absolute;
+  z-index: 40;
+  inset: 0;
+  container-type: size;
+  pointer-events: none;
+}
+
+.tpl-text-editing {
+  pointer-events: auto;
+  /* .tpl-text is `pre`; anything else here wraps the words while typing and
+   * unwraps them on commit, so the photographer designs against a line break
+   * that will not be there. */
+  white-space: pre;
+  outline: 0;
+  cursor: text;
+  /* a hairline, so the photographer can see the box she is typing in without
+   * anything being drawn over the photograph underneath */
+  box-shadow: 0 0 0 1px var(--accent, #b7501f);
+}
+
+.tpl-text-editing::selection { background: color-mix(in srgb, var(--accent, #b7501f) 32%, transparent); }
+
+/* a text says it can be typed into before anyone double-clicks it */
+.tpl-hit.text { cursor: text; }
+.tpl-hit.text:active { cursor: move; }

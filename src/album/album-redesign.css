@@ -474,10 +474,11 @@
 .album-workspace.design > .album-center > .album-photo-tray { grid-row: 3; }
 .album-workspace.design > .album-layout-panel { grid-area: inspector; width: auto; min-width: 0; min-height: 0; display: block; overflow-y: auto; direction: rtl; border: 0; border-inline-start: 1px solid var(--line); color: var(--ink); background: var(--card); }
 
-/* While a photograph or a text is selected its tools are on the bar above the
- * canvas, so this column stands down to its rail and the spread takes the
- * width. The rail stays reachable — touching it lets go of the selection. */
-.album-workspace.design.has-selection { grid-template-columns: minmax(0, 1fr) 64px; }
+/* The column is its rail alone whenever the panel is closed — which is how it
+ * starts — and whenever something on the spread is selected, since that thing's
+ * tools are on the bar above the canvas. Either way the width goes to the
+ * spread, and the rail brings the panel back in one click. */
+.album-workspace.design.rail-only { grid-template-columns: minmax(0, 1fr) 64px; }
 .album-layout-panel.rail-only { overflow: hidden; }
 .album-layout-panel.rail-only .sp-panel { grid-template-columns: 64px; }
 .album-layout-panel.rail-only .sp-body { display: none; }

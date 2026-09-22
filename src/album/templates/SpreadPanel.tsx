@@ -16,7 +16,10 @@ import type { AlbumTemplate } from './types';
  *   אלמנטים   — shapes, decorations (open source) and the Vault's artwork
  *   העלאות    — the photographer's own elements and fonts
  *
- * A selected photo or element replaces this panel with its own tools. */
+ * The rail is always there; the panel behind it opens only when asked, the
+ * way Canva's does. Left open by default it spent the whole session taking a
+ * third of the window away from the spread — and a spread is what the
+ * photographer came to look at. Clicking the open tab closes it again. */
 
 type Tab = 'page' | 'colors' | 'text' | 'elements' | 'uploads';
 
@@ -40,6 +43,9 @@ interface Props {
    *  in this panel too, and being told it is a "spread" is how a screen tells
    *  the photographer it was not meant for what he is doing. */
   sheetLabel?: 'כפולה' | 'כריכה';
+  /** Only the rail is showing. */
+  collapsed: boolean;
+  onCollapsedChange(next: boolean): void;
 }
 
 const tabInfo = (sheet: 'כפולה' | 'כריכה'): Record<Tab, {
@@ -79,9 +85,14 @@ export default function SpreadPanel(props: Props) {
         {(Object.keys(TAB_INFO) as Tab[]).map((key) => (
           <button
             key={key}
-            className={key === tab ? 'on' : ''}
-            aria-pressed={key === tab}
-            onClick={() => setTab(key)}
+            className={key === tab && !props.collapsed ? 'on' : ''}
+            aria-pressed={key === tab && !props.collapsed}
+            aria-expanded={key === tab && !props.collapsed}
+            onClick={() => {
+              if (props.collapsed) { setTab(key); props.onCollapsedChange(false); return; }
+              if (key === tab) { props.onCollapsedChange(true); return; }
+              setTab(key);
+            }}
           >
             {TAB_INFO[key].icon}
             <span>{TAB_INFO[key].label}</span>
@@ -89,9 +100,11 @@ export default function SpreadPanel(props: Props) {
         ))}
       </nav>
       <div className="sp-body">
+        {/* A name, not a lecture. Every tab used to open with a sentence
+          * explaining what clicking does; the clicking explains itself, and
+          * the sentence was costing four lines of the panel on every tab. */}
         <header className="sp-head">
           <h3>{info.title}</h3>
-          <p>{info.hint}</p>
         </header>
         {(tab === 'page' || tab === 'colors') && (
           <TemplatePanel

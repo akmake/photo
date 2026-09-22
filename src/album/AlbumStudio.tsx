@@ -27,6 +27,7 @@ import { importElements, loadMyElements, removeMyElement } from './templates/ele
 import { smartGuides, type GuideResult } from './templates/smartGuides';
 import SmartGuideOverlay from './templates/SmartGuideOverlay';
 import { TemplateDecor, photoFrameStyle, templateZ } from './templates/TemplateLayers';
+import SpreadTextEditor from './templates/SpreadTextEditor';
 import TemplatePanel from './templates/TemplatePanel';
 import type {
   AlbumTemplate, ImageLayer, LayerBox, PhotoFade, PlaceStyle, ShapeLayer, SpreadTemplateInstance, TextLayer,
@@ -211,6 +212,14 @@ export default function AlbumStudio({ job, onBack }: {
   const [confirmAutoBuild, setConfirmAutoBuild] = useState(false);
   /** An element the photographer added to the spread (text, shape, artwork, import). */
   const [selectedElementId, setSelectedElementId] = useState<string | null>(null);
+  /* A text the photographer is typing into, right where it sits on the spread.
+   * Canva opens a caret in the words themselves; typing into a box off to the
+   * side and watching the result somewhere else is the thing being replaced. */
+  const [editingTextId, setEditingTextId] = useState<string | null>(null);
+  /* The side panel starts closed, as Canva's does: the spread is what the
+   * photographer opened the screen for, and the panel is one click away on
+   * its rail whenever he wants it. */
+  const [panelOpen, setPanelOpen] = useState(false);
   const [myElements, setMyElements] = useState<ElementDef[]>([]);
   const [userFonts, setUserFonts] = useState<FontEntry[]>([]);
   useEffect(() => {
@@ -1390,6 +1399,7 @@ export default function AlbumStudio({ job, onBack }: {
     setCropIndex(null);
     setSelectedPhotoId(null);
     setSelectedElementId(null);
+    setEditingTextId(null);
   }
 
   function addElement(element: ElementDef) {
@@ -1404,7 +1414,16 @@ export default function AlbumStudio({ job, onBack }: {
     });
     setSelectedSlotIndex(null);
     setSelectedElementId(layer.id);
-    setNotice(`נוסף ${element.name} · גרור להזיז, פינות לשינוי גודל`);
+    /* A new text arrives with a caret in it and its placeholder selected, so
+     * the first thing the photographer does is type the title — not hunt for
+     * where the words are entered. */
+    if (layer.type === 'text') {
+      setEditingTextId(layer.id);
+      setNotice('כתוב את הטקסט · Esc לסיום');
+    } else {
+      setEditingTextId(null);
+      setNotice(`נוסף ${element.name} · גרור להזיז, פינות לשינוי גודל`);
+    }
   }
 
   function updateElement(id: string, change: (layer: ShapeLayer | TextLayer | ImageLayer) => ShapeLayer | TextLayer | ImageLayer, done = true) {
@@ -2408,7 +2427,7 @@ export default function AlbumStudio({ job, onBack }: {
         </div>
       </header>
 
-      <div className={`album-workspace ${mode} ${selectionActive ? 'has-selection' : ''}`}>
+      <div className={`album-workspace ${mode} ${selectionActive || !panelOpen ? 'rail-only' : ''}`}>
         {showAlbumSettings && (
         <div className="album-settings-backdrop">
         <aside className="album-settings-panel">
@@ -3148,7 +3167,7 @@ export default function AlbumStudio({ job, onBack }: {
               {frameGuides && <SmartGuideOverlay guides={frameGuides} />}
 
               {activeTemplate && spread.templateInstance && (
-                <TemplateDecor template={activeTemplate} instance={spread.templateInstance} />
+                <TemplateDecor template={activeTemplate} instance={spread.templateInstance} hideLayerId={editingTextId} />
               )}
               {layout.slots.map((slot, slotIndex) => {
                 const photoId = layout.photoIds[slotIndex];
@@ -3282,8 +3301,8 @@ export default function AlbumStudio({ job, onBack }: {
                 return (
                   <div
                     key={`hit-${layer.id}`}
-                    className="tpl-hit"
-                    title={layer.name}
+                    className={`tpl-hit ${layer.type === 'text' ? 'text' : ''}`}
+                    title={layer.type === 'text' ? `${layer.name} · לחיצה כפולה לכתיבה` : layer.name}
                     style={{
                       left: `${layer.box.x * 100}%`,
                       top: `${(layer.box.height < thin ? layer.box.y - thin / 2 : layer.box.y) * 100}%`,
@@ -3296,9 +3315,29 @@ export default function AlbumStudio({ job, onBack }: {
                     onPointerMove={moveElementGesture}
                     onPointerUp={endElementGesture}
                     onPointerCancel={endElementGesture}
+                    onDoubleClick={(event) => {
+                      if (layer.type !== 'text') return;
+                      event.stopPropagation();
+                      setSelectedSlotIndex(null);
+                      setSelectedElementId(layer.id);
+                      setEditingTextId(layer.id);
+                    }}
                   />
                 );
               })}
+              {editingTextId && activeTemplate && spread.templateInstance
+                && selectedElement?.type === 'text' && selectedElement.id === editingTextId && (
+                <SpreadTextEditor
+                  key={editingTextId}
+                  template={activeTemplate}
+                  instance={spread.templateInstance}
+                  layer={selectedElement}
+                  onCommit={(text) => updateElement(editingTextId, (element) => (
+                    element.type === 'text' ? { ...element, defaultText: text } : element
+                  ))}
+                  onClose={() => setEditingTextId(null)}
+                />
+              )}
               {selectedElement && (
                 <div
                   className="album-frame-selection element"
@@ -3460,7 +3499,7 @@ export default function AlbumStudio({ job, onBack }: {
           * width to the spread; touching the rail lets go of the selection and
           * opens the panel again. */}
         <aside
-          className={`album-layout-panel ${selectionActive ? 'rail-only' : ''}`}
+          className={`album-layout-panel ${selectionActive || !panelOpen ? 'rail-only' : ''}`}
           onPointerDownCapture={selectionActive ? clearSelection : undefined}
         >
           <>
@@ -3469,6 +3508,8 @@ export default function AlbumStudio({ job, onBack }: {
           <div className="album-panel-swap">
           <SpreadPanel
             key={spread.id}
+            collapsed={selectionActive || !panelOpen}
+            onCollapsedChange={(next) => { setPanelOpen(!next); if (!next) clearSelection(); }}
             spread={spread}
             photos={photos}
             spreadAspect={sheetAspect}
