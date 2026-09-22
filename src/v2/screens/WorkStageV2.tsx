@@ -13,8 +13,8 @@
  */
 
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { thumbUrl, triageSet } from '../../api';
-import type { Frame, TriageFrame, TriageResult } from '../../api';
+import { shotInfo, thumbUrl, triageSet } from '../../api';
+import type { Frame, ShotInfo, TriageFrame, TriageResult } from '../../api';
 import {
   batchOfFrame, frameKey, setCull, useBatches, useCull, useProjectFiles,
 } from '../../studio/store';
@@ -79,6 +79,11 @@ export default function WorkStageV2({
   const [sel, setSel] = useState<string | null>(null);
   const [undo, setUndo] = useState<Undo | null>(null);
   const [viewer, setViewer] = useState(false);
+  // Several frames at once: Ctrl adds one, Shift takes the run between.
+  const [picked, setPicked] = useState<Set<string>>(() => new Set());
+  const anchor = useRef<string | null>(null);
+  const [compare, setCompare] = useState<string[] | null>(null);
+  const [compareActive, setCompareActive] = useState(0);
 
   /* ---- the engine's suggestions: asked once, then polled while it measures.
    * A failed call is said as such; the screen stays fully usable without it. */
@@ -277,6 +282,55 @@ export default function WorkStageV2({
     if (viewer) setSel(next); else bring(next);
   }, [bring, cull, decide, flat, viewer]);
 
+  /* ---- selecting several */
+  const select = useCallback((n: string, e?: { ctrlKey: boolean; metaKey: boolean; shiftKey: boolean }) => {
+    if (e && (e.ctrlKey || e.metaKey)) {
+      setPicked((prev) => {
+        const next = new Set(prev);
+        if (!next.size && sel && sel !== n) next.add(sel);
+        if (next.has(n)) next.delete(n); else next.add(n);
+        return next;
+      });
+      anchor.current = n;
+    } else if (e?.shiftKey) {
+      const from = flat.indexOf(anchor.current ?? sel ?? n);
+      const to = flat.indexOf(n);
+      if (from >= 0 && to >= 0) setPicked(new Set(flat.slice(Math.min(from, to), Math.max(from, to) + 1)));
+    } else {
+      setPicked(new Set());
+      anchor.current = n;
+    }
+    setSel(n);
+  }, [flat, sel]);
+
+  // Picked frames that left the view (a filter, a folded burst) drop out.
+  useEffect(() => {
+    setPicked((prev) => {
+      const next = new Set([...prev].filter((n) => flat.includes(n)));
+      return next.size === prev.size ? prev : next;
+    });
+  }, [flat]);
+
+  const pickedList = useMemo(() => flat.filter((n) => picked.has(n)), [flat, picked]);
+
+  /** One decision for everything picked — or for the one frame, and move on. */
+  const act = useCallback((decision: CullDecision) => {
+    if (pickedList.length > 1) {
+      decide(pickedList, decision, `${pickedList.length.toLocaleString('he-IL')} תמונות · ${WORD[decision]}`);
+      return;
+    }
+    if (sel) decideOne(sel, decision);
+  }, [decide, decideOne, pickedList, sel]);
+
+  const openCompare = useCallback(() => {
+    const names = pickedList.length >= 2
+      ? pickedList.slice(0, 4)
+      : sel && flat[flat.indexOf(sel) + 1] ? [sel, flat[flat.indexOf(sel) + 1]] : null;
+    if (!names) return;
+    setCompare(names);
+    setCompareActive(0);
+  }, [flat, pickedList, sel]);
+
   /* ---- the keyboard, by key POSITION so the Hebrew layout works the same. */
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -284,26 +338,49 @@ export default function WorkStageV2({
       if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT' || target.isContentEditable)) return;
       const code = e.code || KEY_TO_CODE[e.key] || e.key;
       if ((e.ctrlKey || e.metaKey) && code === 'KeyZ') { e.preventDefault(); undoLast(); return; }
+      if ((e.ctrlKey || e.metaKey) && code === 'KeyA' && !viewer && !compare) {
+        e.preventDefault(); setPicked(new Set(flat)); return;
+      }
       if (e.ctrlKey || e.metaKey || e.altKey) return;
+      // Side by side: the keys act on the frame in focus, and stay there.
+      if (compare) {
+        const n = compare[compareActive];
+        const on = (d: CullDecision) => { e.preventDefault(); decide([n], cull[n] === d ? null : d, `${n} · ${cull[n] === d ? 'ההחלטה בוטלה' : WORD[d]}`); };
+        switch (code) {
+          case 'Escape': case 'KeyC': e.preventDefault(); setCompare(null); break;
+          case 'ArrowLeft': e.preventDefault(); setCompareActive((i) => Math.min(compare.length - 1, i + 1)); break;
+          case 'ArrowRight': e.preventDefault(); setCompareActive((i) => Math.max(0, i - 1)); break;
+          case 'KeyK': case 'KeyP': case 'Digit1': on('keep'); break;
+          case 'KeyM': case 'Digit2': on('maybe'); break;
+          case 'KeyX': case 'Delete': case 'Digit3': on('reject'); break;
+          default:
+        }
+        return;
+      }
       switch (code) {
-        case 'Escape': if (viewer) { e.preventDefault(); setViewer(false); } break;
+        case 'Escape':
+          if (viewer) { e.preventDefault(); setViewer(false); } else if (picked.size) { e.preventDefault(); setPicked(new Set()); }
+          break;
+        case 'KeyC': if (!viewer) { e.preventDefault(); openCompare(); } break;
         case 'Enter': if (sel && !viewer) { e.preventDefault(); setViewer(true); } break;
         case 'ArrowLeft': e.preventDefault(); step(1); break;
         case 'ArrowRight': e.preventDefault(); step(-1); break;
         case 'ArrowDown': e.preventDefault(); step(viewer ? 1 : columns()); break;
         case 'ArrowUp': e.preventDefault(); step(viewer ? -1 : -columns()); break;
-        case 'KeyK': case 'KeyP': case 'Digit1': if (sel) { e.preventDefault(); decideOne(sel, 'keep'); } break;
-        case 'KeyM': case 'Digit2': if (sel) { e.preventDefault(); decideOne(sel, 'maybe'); } break;
-        case 'KeyX': case 'Delete': case 'Digit3': if (sel) { e.preventDefault(); decideOne(sel, 'reject'); } break;
-        case 'KeyU': case 'Backspace':
-          if (sel && cull[sel]) { e.preventDefault(); decide([sel], null, `${sel} · ההחלטה בוטלה`); }
+        case 'KeyK': case 'KeyP': case 'Digit1': if (sel) { e.preventDefault(); if (viewer) decideOne(sel, 'keep'); else act('keep'); } break;
+        case 'KeyM': case 'Digit2': if (sel) { e.preventDefault(); if (viewer) decideOne(sel, 'maybe'); else act('maybe'); } break;
+        case 'KeyX': case 'Delete': case 'Digit3': if (sel) { e.preventDefault(); if (viewer) decideOne(sel, 'reject'); else act('reject'); } break;
+        case 'KeyU': case 'Backspace': {
+          const names = !viewer && pickedList.length > 1 ? pickedList : sel && cull[sel] ? [sel] : [];
+          if (names.length) { e.preventDefault(); decide(names, null, names.length > 1 ? `${names.length} תמונות · ההחלטה בוטלה` : `${names[0]} · ההחלטה בוטלה`); }
           break;
+        }
         default:
       }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [columns, cull, decide, decideOne, sel, step, undoLast, viewer]);
+  }, [act, columns, compare, compareActive, cull, decide, decideOne, flat, openCompare, picked, pickedList, sel, step, undoLast, viewer]);
 
   // Returning from the viewer: the feed is where the viewer ended.
   const wasViewer = useRef(false);
@@ -444,9 +521,10 @@ export default function WorkStageV2({
                         current={n === sel}
                         twin={twinOf(byName.get(n), frameByName)}
                         cardRef={(el) => { cardRefs.current[n] = el; }}
-                        onSelect={() => setSel(n)}
+                        onSelect={(e) => select(n, e)}
+                        picked={picked.has(n)}
                         onOpen={() => { setSel(n); setViewer(true); }}
-                        onDecide={(d) => decideOne(n, d)}
+                        onDecide={(d) => (picked.has(n) && pickedList.length > 1 ? act(d) : decideOne(n, d))}
                         onTwin={(t) => bring(t)}
                         big={size > 260}
                         stack={inStack ? {
@@ -464,11 +542,34 @@ export default function WorkStageV2({
               </section>
             ))}
             <p className="tz-ws-end">
-              {flat.length.toLocaleString('he-IL')} תמונות בתצוגה · חצים למעבר · K שמור · M מתלבט · X הסר · לחיצה כפולה או Enter לתצוגה גדולה
+              {flat.length.toLocaleString('he-IL')} תמונות בתצוגה · חצים למעבר · K שמור · M מתלבט · X הסר · לחיצה כפולה או Enter לתצוגה גדולה · Ctrl/Shift לבחירת כמה · C להשוואה
             </p>
           </>
         )}
       </div>
+
+      {pickedList.length > 1 && !viewer && !compare && (
+        <div className="tz-ws-pickbar" role="toolbar" aria-label="פעולה על כמה תמונות">
+          <b>נבחרו {pickedList.length.toLocaleString('he-IL')}</b>
+          <Decide onDecide={act} />
+          <button type="button" className="tz-ws-pickbar-btn" disabled={pickedList.length > 4} onClick={openCompare} title={pickedList.length > 4 ? 'השוואה — עד 4 תמונות' : 'השווה זו לצד זו (C)'}>
+            השווה <kbd>C</kbd>
+          </button>
+          <button type="button" className="tz-ws-pickbar-btn is-quiet" onClick={() => setPicked(new Set())}>נקה בחירה</button>
+        </div>
+      )}
+
+      {compare && (
+        <Compare
+          names={compare}
+          frames={frameByName}
+          cull={cull}
+          active={compareActive}
+          onActive={setCompareActive}
+          onDecide={(n, d) => decide([n], cull[n] === d ? null : d, `${n} · ${cull[n] === d ? 'ההחלטה בוטלה' : WORD[d]}`)}
+          onClose={() => setCompare(null)}
+        />
+      )}
 
       {undo && (
         <div className="tz-ws-toast" role="status">
@@ -533,7 +634,7 @@ function Decide({ decision, onDecide, compact }: { decision?: CullDecision; onDe
 }
 
 function Card({
-  name, frame, triage, decision, current, twin, cardRef, onSelect, onOpen, onDecide, onTwin, big, stack,
+  name, frame, triage, decision, current, twin, cardRef, onSelect, picked, onOpen, onDecide, onTwin, big, stack,
 }: {
   name: string;
   frame: Frame;
@@ -542,7 +643,8 @@ function Card({
   current: boolean;
   twin: { name: string; frame: Frame } | null;
   cardRef: (el: HTMLElement | null) => void;
-  onSelect: () => void;
+  onSelect: (e: React.MouseEvent) => void;
+  picked: boolean;
   onOpen: () => void;
   onDecide: (d: CullDecision) => void;
   onTwin: (name: string) => void;
@@ -559,9 +661,10 @@ function Card({
   return (
     <article
       ref={cardRef}
-      className={`tz-ws-cell${current ? ' is-current' : ''}${decision ? ` is-${decision}` : ''}${
+      className={`tz-ws-cell${current ? ' is-current' : ''}${picked ? ' is-picked' : ''}${decision ? ` is-${decision}` : ''}${
         stack ? (stack.open ? ` in-stack${stack.first ? ' is-first' : ''}${stack.last ? ' is-last' : ''}` : ' is-stack') : ''}`}
       onClick={onSelect}
+      onMouseDown={(e) => { if (e.shiftKey) e.preventDefault(); }}
       onDoubleClick={onOpen}
       aria-selected={current}
     >
@@ -748,7 +851,7 @@ function Viewer({
           <b dir="ltr">{name}</b>
           <span>{(position + 1).toLocaleString('he-IL')} מתוך {total.toLocaleString('he-IL')}</span>
         </div>
-        <span className="tz-ws-v-spacer" />
+        {shown ? <ShotLine path={frame.path} /> : <span className="tz-ws-shot" />}
       </header>
 
       <div className="tz-ws-v-body">
@@ -876,5 +979,71 @@ function FaceList({
         );
       })}
     </div>
+  );
+}
+
+/* ------------------------------------------------------------ side by side
+ * Two to four frames, each as large as the window allows, in one row. The
+ * one in focus is framed; the keys decide it and stay on it — comparing is
+ * about choosing between these, not moving on. */
+function Compare({
+  names, frames, cull, active, onActive, onDecide, onClose,
+}: {
+  names: string[];
+  frames: Map<string, Frame>;
+  cull: Record<string, CullDecision>;
+  active: number;
+  onActive: (i: number) => void;
+  onDecide: (name: string, d: CullDecision) => void;
+  onClose: () => void;
+}) {
+  return (
+    <div className="tz-ws-compare" role="dialog" aria-modal="true" aria-label="השוואה">
+      <header className="tz-ws-v-top">
+        <button type="button" className="tz-ws-v-icon" onClick={onClose} aria-label="סגור (Esc)" title="סגור (Esc)">✕</button>
+        <div className="tz-ws-v-name"><b>השוואה</b><span>{names.length} תמונות · חצים לבחירה · K / M / X להחלטה</span></div>
+        <span className="tz-ws-v-spacer" />
+      </header>
+      <div className="tz-ws-compare-row" style={{ gridTemplateColumns: `repeat(${names.length}, minmax(0, 1fr))` }}>
+        {names.map((n, i) => {
+          const f = frames.get(n);
+          const d = cull[n];
+          return (
+            <figure key={n} className={`tz-ws-compare-cell${i === active ? ' is-active' : ''}${d ? ` is-${d}` : ''}`} onClick={() => onActive(i)}>
+              <div className="tz-ws-compare-img">
+                {f && <img src={thumbUrl(f.path, 1600)} alt={n} draggable={false} />}
+              </div>
+              <figcaption>
+                <span dir="ltr">{n}</span>
+                <Decide decision={d} onDecide={(dd) => { onActive(i); onDecide(n, dd); }} compact />
+              </figcaption>
+            </figure>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+/** The shooting details on one line, in the order a photographer reads them. */
+function ShotLine({ path }: { path: string }) {
+  const [info, setInfo] = useState<{ path: string; data: ShotInfo | null } | null>(null);
+  useEffect(() => {
+    let alive = true;
+    shotInfo(path)
+      .then((data) => { if (alive) setInfo({ path, data }); })
+      .catch(() => { if (alive) setInfo({ path, data: null }); });
+    return () => { alive = false; };
+  }, [path]);
+  if (!info || info.path !== path) return <span className="tz-ws-shot" />;
+  if (!info.data) return <span className="tz-ws-shot is-fault">לא ניתן לקרוא את פרטי הצילום</span>;
+  const d = info.data;
+  const parts = [d.shutter, d.aperture, d.iso ? `ISO ${d.iso}` : '', d.focal, d.bias].filter(Boolean) as string[];
+  if (!parts.length && !d.camera) return <span className="tz-ws-shot">אין פרטי צילום בקובץ</span>;
+  return (
+    <span className="tz-ws-shot" dir="ltr" title={[d.camera, d.lens].filter(Boolean).join(' · ')}>
+      {parts.map((p) => <b key={p}>{p}</b>)}
+      {d.lens && <em>{d.lens}</em>}
+    </span>
   );
 }

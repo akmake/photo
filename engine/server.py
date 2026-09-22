@@ -49,6 +49,7 @@ import hairtone
 import presets
 import raw
 import render
+import shotinfo
 import skin
 import background
 import cleanup
@@ -721,6 +722,9 @@ class Handler(BaseHTTPRequestHandler):
         if self.path.startswith("/thumb?"):
             self._thumb()
             return
+        if self.path.startswith("/shotinfo?"):
+            self._shotinfo()
+            return
         if self.path.startswith("/album/source?"):
             self._album_source()
             return
@@ -784,6 +788,19 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Cache-Control", "public, max-age=86400")
             self.end_headers()
             self.wfile.write(data)
+        except Exception as e:  # noqa: BLE001
+            self._json(500, {"error": str(e)})
+
+    def _shotinfo(self):
+        """GET /shotinfo?path=<abs> -> how the frame was taken (shotinfo.py).
+        An empty object means the file carries none of it — not an error."""
+        try:
+            args = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+            path = (args.get("path") or [""])[0]
+            if not path or not os.path.isfile(path):
+                self._json(404, {"error": "not found"})
+                return
+            self._json(200, shotinfo.read(path))
         except Exception as e:  # noqa: BLE001
             self._json(500, {"error": str(e)})
 

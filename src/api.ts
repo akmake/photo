@@ -961,6 +961,24 @@ export interface TriageResult {
   queued?: boolean;
 }
 
+/** How a frame was taken (engine/shotinfo.py). Only what the file carries:
+ *  a field it lacks is absent, never guessed. */
+export interface ShotInfo {
+  camera?: string;
+  lens?: string;
+  shutter?: string;
+  aperture?: string;
+  iso?: number;
+  focal?: string;
+  bias?: string;
+}
+
+export async function shotInfo(path: string): Promise<ShotInfo> {
+  const r = await fetch(`${ENGINE}/shotinfo?path=${encodeURIComponent(path)}`);
+  if (!r.ok) throw new Error(`shotinfo ${r.status}`);
+  return r.json();
+}
+
 export async function triageSet(paths: string[], run = false): Promise<TriageResult> {
   return post('/triage', { paths, run });
 }

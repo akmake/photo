@@ -2,9 +2,12 @@
  * three quick decisions under each; a Photos-style viewer on double-click. */
 
 .tz-ws {
-  --ws-ground: var(--cyc-100, #f6f3ef);
-  --ws-paper: var(--cyc-000, #ffffff);
-  --ws-line: var(--cyc-200, #e5dfd7);
+  /* Neutral greys, not the app's warm paper: a tinted wall shifts how the eye
+   * reads a photograph's colour, and this is where photographs are judged. */
+  --ws-ground: #f1f1f0;
+  --ws-paper: #ffffff;
+  --ws-line: #dfdfdd;
+  --ws-well: #e8e8e7;
   --ws-ink: var(--gr-900, #211d1a);
   --ws-muted: var(--gr-500, #73675d);
   --ws-brand: var(--brand, #b95c2a);
@@ -174,7 +177,7 @@
   aspect-ratio: 1 / 1;
   display: flex; align-items: center; justify-content: center;
   padding: 10px;
-  background: var(--cyc-100, #f6f3ef);
+  background: var(--ws-well);
 }
 /* The picture's box is the whole cell from the first paint. A box that waits
  * for the file to learn its size is 0x0, and the browser's lazy loader treats
@@ -276,7 +279,7 @@
   position: fixed; inset: 0; z-index: 1250;
   display: grid;
   grid-template-rows: 52px minmax(0, 1fr) 60px;
-  background: var(--cyc-150, #efeae4);
+  background: var(--ws-well);
 }
 .tz-ws-v-top, .tz-ws-v-bottom {
   display: grid; grid-template-columns: 1fr auto 1fr; align-items: center;
@@ -364,7 +367,7 @@
     9px 9px 0 -1px var(--ws-paper), 9px 9px 0 0 var(--ws-line);
 }
 /* Opened, the burst stays one family: the same tint behind every member. */
-.tz-ws-cell.in-stack { background: var(--brand-wash, #f8ece5); border-color: #ecd3c4; }
+.tz-ws-cell.in-stack { background: #e2e2e0; border-color: #c9c9c6; }
 .tz-ws-cell.in-stack .tz-ws-cell-img { background: transparent; }
 
 .tz-ws-stackbadge {
@@ -397,7 +400,7 @@
 .tz-ws-v-face {
   position: relative;
   padding: 0; border: 1px solid var(--ws-line); border-radius: 6px;
-  background: var(--cyc-100, #f6f3ef); overflow: hidden;
+  background: var(--ws-well); overflow: hidden;
   aspect-ratio: 1 / 1;
 }
 .tz-ws-v-face > span { position: absolute; inset: 0; background-repeat: no-repeat; }
@@ -415,3 +418,69 @@
   font-style: normal; font-size: 10px; color: #fff; background: var(--ws-keep);
 }
 .tz-ws-v-faces-hint { margin: 0; font-size: 11px; color: var(--ws-muted); }
+
+/* ---------------------------------------------------------- several at once */
+
+.tz-ws-cell.is-picked { border-color: #3b6fd8; box-shadow: 0 0 0 2px #3b6fd8; }
+.tz-ws-cell.is-picked .tz-ws-cell-img { background: #dfe7f7; }
+.tz-ws-cell.is-picked.is-current { box-shadow: 0 0 0 2px #3b6fd8, 0 0 0 4px var(--ws-paper), 0 0 0 5px var(--ws-brand); }
+
+.tz-ws-pickbar {
+  position: fixed; bottom: 22px; left: 50%; transform: translateX(-50%);
+  z-index: 1260;
+  display: flex; align-items: center; gap: 12px;
+  padding: 6px 8px 6px 14px;
+  border-radius: 12px;
+  background: var(--ws-paper);
+  border: 1px solid var(--ws-line);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.16);
+}
+.tz-ws-pickbar > b { font-size: 13px; white-space: nowrap; color: #2c5cc5; }
+.tz-ws-pickbar .tz-ws-decide { box-shadow: none; }
+.tz-ws-pickbar-btn {
+  display: inline-flex; align-items: center; gap: 6px;
+  height: 34px; padding: 0 12px;
+  border: 1px solid var(--ws-line); border-radius: 8px; background: var(--ws-paper);
+}
+.tz-ws-pickbar-btn:disabled { opacity: 0.45; cursor: default; }
+.tz-ws-pickbar-btn.is-quiet { border-color: transparent; color: var(--ws-muted) !important; }
+.tz-ws-toast { bottom: 84px; }
+
+/* ------------------------------------------------------------ side by side */
+
+.tz-ws-compare {
+  position: fixed; inset: 0; z-index: 1250;
+  display: grid; grid-template-rows: 52px minmax(0, 1fr);
+  background: var(--ws-well);
+}
+.tz-ws-compare-row { display: grid; gap: 10px; padding: 12px; min-height: 0; }
+.tz-ws-compare-cell {
+  margin: 0; min-width: 0; min-height: 0;
+  display: grid; grid-template-rows: minmax(0, 1fr) 44px;
+  border-radius: 10px; border: 2px solid transparent;
+  background: var(--ws-ground);
+  cursor: pointer;
+}
+.tz-ws-compare-cell.is-active { border-color: var(--ws-brand); background: var(--ws-paper); }
+.tz-ws-compare-img { min-height: 0; display: flex; align-items: center; justify-content: center; padding: 10px; }
+.tz-ws-compare-img img { max-width: 100%; max-height: 100%; object-fit: contain; box-shadow: 0 2px 10px rgba(0, 0, 0, 0.15); }
+.tz-ws-compare-cell.is-reject .tz-ws-compare-img img { opacity: 0.4; }
+.tz-ws-compare-cell figcaption {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 0 10px; font-size: 12px; color: var(--ws-muted);
+  border-top: 1px solid var(--ws-line);
+}
+.tz-ws-compare-cell.is-keep figcaption { box-shadow: inset 0 3px 0 var(--ws-keep); }
+.tz-ws-compare-cell.is-maybe figcaption { box-shadow: inset 0 3px 0 var(--ws-maybe); }
+.tz-ws-compare-cell.is-reject figcaption { box-shadow: inset 0 3px 0 var(--ws-out); }
+
+/* ----------------------------------------------------- viewer: shot details */
+
+.tz-ws-shot {
+  justify-self: end;
+  display: inline-flex; align-items: baseline; gap: 12px;
+  font-size: 12.5px; color: var(--ws-ink); white-space: nowrap; overflow: hidden;
+}
+.tz-ws-shot b { font-weight: 600; font-variant-numeric: tabular-nums; }
+.tz-ws-shot em { font-style: normal; color: var(--ws-muted); font-size: 12px; }
+.tz-ws-shot.is-fault { color: var(--ws-out); }
