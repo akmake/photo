@@ -928,10 +928,15 @@ export default function GalleryEditV2({
    * A named region rides along untouched. That is the whole point of it —
    * "the 3D on the clothes" means the clothes in every photograph. */
   const [heldBack, setHeldBack] = useState<string[]>([]);
+  const [syncNote, setSyncNote] = useState<string | null>(null);
   const handleSyncToBatch = useCallback(() => {
     if (!currentFrame || applyScope.blocked) return;
     const tools = frameSteps(project.id, currentFrame.name);
-    if (!tools.length) return;
+    if (!tools.length) {
+      setSyncNote('על התמונה הזאת עוד לא כיוונת אף כלי, אז אין מה להעביר לשאר.');
+      return;
+    }
+    setSyncNote(null);
 
     const held: string[] = [];
     const shared: ToolInstance[] = [];
@@ -953,7 +958,7 @@ export default function GalleryEditV2({
   }, [currentFrame, applyScope, project.id, slideFrames, preview]);
 
   /* The list belongs to the photograph it was computed on. */
-  useEffect(() => { setHeldBack([]); }, [currentName]);
+  useEffect(() => { setHeldBack([]); setSyncNote(null); }, [currentName]);
 
   // Reset current frame back to batch defaults
   const handleResetFrame = useCallback(() => {
@@ -1689,16 +1694,23 @@ export default function GalleryEditV2({
 
           {/* Footer Action Bar */}
           <div className="tz-ge-panel-footer">
-            <button
-              type="button"
-              className="tz-ge-sync-batch-btn"
-              onClick={handleSyncToBatch}
-              disabled={!currentFrame || slideFrames.length === 0 || Boolean(applyScope.blocked)}
-              title={applyScope.blocked ?? applyScope.label}
-            >
-              <TzIconCheckCircle size={16} />
-              {`החל עריכה על ${slideFrames.length.toLocaleString('he-IL')} תמונות · ${applyScope.label}`}
-            </button>
+            {/* Carries the hand-set tools only. On the colour tab it sat under
+             *  a learned pair looking like "apply this" and did nothing — that
+             *  tab has its own button. */}
+            {activeTab === 'primary' && (
+              <button
+                type="button"
+                className="tz-ge-sync-batch-btn"
+                onClick={handleSyncToBatch}
+                disabled={!currentFrame || slideFrames.length === 0 || Boolean(applyScope.blocked)}
+                title={applyScope.blocked ?? applyScope.label}
+              >
+                <TzIconCheckCircle size={16} />
+                {`החל עריכה על ${slideFrames.length.toLocaleString('he-IL')} תמונות · ${applyScope.label}`}
+              </button>
+            )}
+
+            {syncNote && activeTab === 'primary' && <p className="tz-ge-held">{syncNote}</p>}
 
             {applyScope.blocked && (
               <p className="tz-ge-held">{applyScope.blocked}</p>

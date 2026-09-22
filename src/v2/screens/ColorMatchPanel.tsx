@@ -259,16 +259,6 @@ export default function ColorMatchPanel({
         )}
       </section>
 
-      <button
-        type="button"
-        className="tz-cm-learn"
-        disabled={!ready || learning}
-        onClick={learn}
-      >
-        <TzIconSparkle size={16} />
-        {learning ? 'לומד את הצבע…' : 'למד את הצבע מהזוג הזה'}
-      </button>
-
       {!ready && !learning && (
         <p className="tz-cm-hint">
           צריך את שתי התמונות — אותה תמונה לפני ואחרי — כדי שיהיה מה להשוות.
@@ -323,21 +313,7 @@ export default function ColorMatchPanel({
             </p>
           )}
 
-          {target.kind === 'blocked' ? (
-            <p className="tz-cm-warn">{target.why}</p>
-          ) : (
-            <>
-              <button
-                type="button"
-                className="tz-cm-apply"
-                onClick={() => { onApply(learned.model); setApplied(true); }}
-              >
-                <TzIconCheckCircle size={16} />
-                החל על כל {target.count.toLocaleString('he-IL')} התמונות
-              </button>
-              <p className="tz-cm-where">{target.label}</p>
-            </>
-          )}
+          {target.kind === 'blocked' && <p className="tz-cm-warn">{target.why}</p>}
 
           {/* Keep this colour, to lay it on other batches and projects later. */}
           {naming === null ? (
@@ -380,6 +356,36 @@ export default function ColorMatchPanel({
           )}
         </section>
       )}
+
+      {/* THE NEXT STEP, pinned to the bottom of the panel. The two photographs
+       * are tall, so an in-flow button sat below the fold — and the only button
+       * he could see was the editor's "החל עריכה", which carries hand-set tools
+       * and knows nothing of this pair. Clicking it did nothing, every time. */}
+      <div className="tz-cm-actions">
+        {!learned ? (
+          <button
+            type="button"
+            className="tz-cm-learn"
+            disabled={!ready || learning}
+            onClick={learn}
+          >
+            <TzIconSparkle size={16} />
+            {learning ? 'לומד את הצבע…' : 'למד את הצבע מהזוג הזה'}
+          </button>
+        ) : target.kind !== 'blocked' ? (
+          <>
+            <button
+              type="button"
+              className="tz-cm-apply"
+              onClick={() => { onApply(learned.model); setApplied(true); }}
+            >
+              <TzIconCheckCircle size={16} />
+              {applied ? 'הוחל ✓ · ' : ''}החל על כל {target.count.toLocaleString('he-IL')} התמונות
+            </button>
+            <p className="tz-cm-where">{target.label}</p>
+          </>
+        ) : null}
+      </div>
 
       {picking && (
         <div className="tz-cm-scrim" onMouseDown={() => setPicking(false)}>

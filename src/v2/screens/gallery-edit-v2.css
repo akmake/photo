@@ -1211,7 +1211,21 @@
  *     photograph changes how its colour reads, which is the one thing this
  *     panel must not do.
  */
-.tz-cm { padding: 16px; }
+/* The panel scrolls itself: its parent clips (overflow hidden, for the tools'
+ * own scroll), so without this everything below the "after" photo — the learn
+ * button included — was cut off and unreachable. */
+.tz-cm { padding: 16px 16px 0; flex: 1; min-height: 0; overflow-y: auto; }
+
+/* The next step stays on screen, whatever the photographs' height. */
+.tz-cm-actions {
+  position: sticky;
+  bottom: 0;
+  margin: 14px -16px 0;
+  padding: 10px 16px 14px;
+  background: #fbfbf9;
+}
+.tz-cm-actions .tz-cm-learn, .tz-cm-actions .tz-cm-apply { margin-top: 0; }
+.tz-cm-actions:empty { display: none; }
 
 .tz-cm-intro h3 {
   margin: 0 0 5px;

@@ -288,6 +288,7 @@
  * colour is set here: half-restyling it left light text on its white cards,
  * and its buttons vanished. */
 .is-photos .tz-cm { color: var(--ph-ink-2); }
+.is-photos .tz-cm-actions { background: var(--ph-panel); border-top: 1px solid var(--ph-line); }
 .is-photos .tz-cm-intro h3 { color: var(--ph-ink); }
 .is-photos .tz-cm-intro p,
 .is-photos .tz-cm-hint,
