@@ -340,3 +340,78 @@
   .tz-ws-filters { overflow-x: auto; }
   .tz-ws-note { display: none; }
 }
+
+/* ------------------------------------------------------------- bursts */
+
+.tz-ws-stacking {
+  height: 30px; padding: 0 12px;
+  border: 1px solid var(--ws-line); border-radius: 8px;
+  background: var(--ws-paper); color: var(--ws-muted) !important;
+  font-size: 12.5px; white-space: nowrap;
+}
+.tz-ws-stacking.is-on { color: var(--ws-ink) !important; border-color: var(--cyc-300, #d3cabf); }
+
+/* A folded burst reads as a pile: two sheets showing behind the top one. */
+.tz-ws-cell.is-stack {
+  box-shadow:
+    4px 4px 0 -1px var(--ws-paper), 4px 4px 0 0 var(--ws-line),
+    8px 8px 0 -1px var(--ws-paper), 8px 8px 0 0 var(--ws-line);
+}
+.tz-ws-cell.is-stack.is-current {
+  box-shadow:
+    0 0 0 2px var(--ws-brand),
+    5px 5px 0 -1px var(--ws-paper), 5px 5px 0 0 var(--ws-line),
+    9px 9px 0 -1px var(--ws-paper), 9px 9px 0 0 var(--ws-line);
+}
+/* Opened, the burst stays one family: the same tint behind every member. */
+.tz-ws-cell.in-stack { background: var(--brand-wash, #f8ece5); border-color: #ecd3c4; }
+.tz-ws-cell.in-stack .tz-ws-cell-img { background: transparent; }
+
+.tz-ws-stackbadge {
+  position: absolute; bottom: 6px; left: 6px;
+  display: inline-flex; align-items: center; gap: 4px;
+  height: 22px; padding: 0 8px;
+  border: 0; border-radius: 11px;
+  background: rgba(33, 29, 26, 0.78); color: #fff !important;
+  font-size: 11.5px; font-weight: 600; font-variant-numeric: tabular-nums;
+}
+.tz-ws-stackbadge:hover { background: var(--ws-ink); }
+.tz-ws-stackbadge.is-open { background: var(--ws-brand); }
+
+/* --------------------------------------------------------- viewer: faces */
+
+.tz-ws-v-body { display: flex; min-height: 0; min-width: 0; }
+.tz-ws-v-body .tz-ws-v-stage { flex: 1; }
+.tz-ws-v-faces {
+  flex: none;
+  width: 210px;
+  display: flex; flex-direction: column; gap: 10px;
+  padding: 14px 12px;
+  background: var(--ws-paper);
+  border-inline-start: 1px solid var(--ws-line);
+  overflow-y: auto;
+}
+.tz-ws-v-faces h3 { margin: 0; font-size: 13px; font-weight: 650; display: flex; justify-content: space-between; }
+.tz-ws-v-faces h3 span { font-weight: 400; color: var(--ws-muted); }
+.tz-ws-v-facelist { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.tz-ws-v-face {
+  position: relative;
+  padding: 0; border: 1px solid var(--ws-line); border-radius: 6px;
+  background: var(--cyc-100, #f6f3ef); overflow: hidden;
+  aspect-ratio: 1 / 1;
+}
+.tz-ws-v-face > span { position: absolute; inset: 0; background-repeat: no-repeat; }
+.tz-ws-v-face:hover { border-color: var(--ws-brand); }
+.tz-ws-v-face.is-shut { border: 2px solid var(--ws-out); }
+.tz-ws-v-face em {
+  position: absolute; inset: auto 0 0 0;
+  padding: 2px 0; font-style: normal; font-size: 10.5px; font-weight: 600;
+  background: var(--ws-out); color: #fff; text-align: center;
+}
+.tz-ws-v-face i {
+  position: absolute; top: 4px; left: 4px;
+  width: 16px; height: 16px; border-radius: 50%;
+  display: grid; place-items: center;
+  font-style: normal; font-size: 10px; color: #fff; background: var(--ws-keep);
+}
+.tz-ws-v-faces-hint { margin: 0; font-size: 11px; color: var(--ws-muted); }

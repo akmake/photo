@@ -12,7 +12,7 @@
  * (project.json `cull`) is never overwritten by a new analysis.
  */
 
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { thumbUrl, triageSet } from '../../api';
 import type { Frame, TriageFrame, TriageResult } from '../../api';
 import {
@@ -149,7 +149,44 @@ export default function WorkStageV2({
     // `cull` changes the filtered views; batchOfFrame reads the same store.
   }, [frames, batches, batch, matches, projectId]);
 
-  const flat = useMemo(() => groups.flatMap((g) => g.names), [groups]);
+  /* ---- bursts: consecutive frames the engine calls near-identical (one twin
+   * group) fold into ONE cell — the recommended frame on top, the count on
+   * its corner. Opened, the burst lies inline, tinted as one family. */
+  const [stacking, setStacking] = useState(true);
+  const [openStacks, setOpenStacks] = useState<Set<string>>(() => new Set());
+  const layout = useMemo(() => groups.map((g) => {
+    const items: { key: string; names: string[]; cover: string }[] = [];
+    let i = 0;
+    while (i < g.names.length) {
+      const t = byName.get(g.names[i])?.twins;
+      if (stacking && t != null) {
+        let j = i;
+        while (j < g.names.length && byName.get(g.names[j])?.twins === t) j += 1;
+        const names = g.names.slice(i, j);
+        if (names.length > 1) {
+          const cover = names.find((n) => byName.get(n)?.star) ?? names[0];
+          items.push({ key: `${g.id}:${t}:${names[0]}`, names, cover });
+          i = j;
+          continue;
+        }
+      }
+      items.push({ key: g.names[i], names: [g.names[i]], cover: g.names[i] });
+      i += 1;
+    }
+    return { ...g, items };
+  }), [groups, byName, stacking]);
+
+  const flat = useMemo(() => layout.flatMap((g) => g.items.flatMap((it) => (
+    it.names.length > 1 && !openStacks.has(it.key) ? [it.cover] : it.names
+  ))), [layout, openStacks]);
+
+  const toggleStack = useCallback((key: string) => {
+    setOpenStacks((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key); else next.add(key);
+      return next;
+    });
+  }, []);
 
   const batchCounts = useMemo(() => {
     const m: Record<string, number> = { none: 0 };
@@ -187,9 +224,14 @@ export default function WorkStageV2({
   useEffect(() => { try { localStorage.setItem('tz-ws-size', String(size)); } catch { /* per-viewer only */ } }, [size]);
 
   const bring = useCallback((n: string) => {
+    // A frame folded inside a closed burst is opened first, then shown.
+    for (const g of layout) {
+      const it = g.items.find((x) => x.names.length > 1 && x.names.includes(n) && x.cover !== n);
+      if (it && !openStacks.has(it.key)) setOpenStacks((prev) => new Set(prev).add(it.key));
+    }
     setSel(n);
-    requestAnimationFrame(() => cardRefs.current[n]?.scrollIntoView({ block: 'nearest' }));
-  }, []);
+    requestAnimationFrame(() => requestAnimationFrame(() => cardRefs.current[n]?.scrollIntoView({ block: 'nearest' })));
+  }, [layout, openStacks]);
 
   /** How many cells a row holds right now — for the up and down arrows. */
   const columns = useCallback(() => {
@@ -319,6 +361,14 @@ export default function WorkStageV2({
         </nav>
 
         <div className="tz-ws-top-side is-end">
+          <button
+            type="button"
+            className={`tz-ws-stacking${stacking ? ' is-on' : ''}`}
+            onClick={() => setStacking((v) => !v)}
+            title="רצפים של תמונות כמעט זהות — בערימה אחת או פרושים"
+          >
+            {stacking ? 'רצפים מקובצים' : 'רצפים פרושים'}
+          </button>
           <label className="tz-ws-size" title="גודל התמונות בגלריה">
             <span aria-hidden>▫</span>
             <input type="range" min={140} max={420} step={10} value={size} onChange={(e) => setSize(Number(e.target.value))} aria-label="גודל התמונות" />
@@ -371,32 +421,44 @@ export default function WorkStageV2({
                 <button type="button" onClick={() => decide(bulk, 'reject', `${bulk.length} תמונות הוסרו`)}>הסר את כולן</button>
               </div>
             )}
-            {groups.map((g) => (
+            {layout.map((g) => (
               <section key={g.id} className="tz-ws-group">
                 {g.title && (
                   <h2 className="tz-ws-group-title">{g.title}<span>{g.names.length.toLocaleString('he-IL')} תמונות</span></h2>
                 )}
                 <div className="tz-ws-grid" style={{ '--ws-cell': `${size}px` } as React.CSSProperties}>
-                {g.names.map((n) => {
-                  const f = frameByName.get(n);
-                  if (!f) return null;
-                  return (
-                    <Card
-                      key={n}
-                      name={n}
-                      frame={f}
-                      triage={byName.get(n)}
-                      decision={cull[n]}
-                      current={n === sel}
-                      twin={twinOf(byName.get(n), frameByName)}
-                      cardRef={(el) => { cardRefs.current[n] = el; }}
-                      onSelect={() => setSel(n)}
-                      onOpen={() => { setSel(n); setViewer(true); }}
-                      onDecide={(d) => decideOne(n, d)}
-                      onTwin={(t) => bring(t)}
-                      big={size > 260}
-                    />
-                  );
+                {g.items.flatMap((it) => {
+                  const inStack = it.names.length > 1;
+                  const isOpen = inStack && openStacks.has(it.key);
+                  const shown = inStack && !isOpen ? [it.cover] : it.names;
+                  return shown.map((n, idx) => {
+                    const f = frameByName.get(n);
+                    if (!f) return null;
+                    return (
+                      <Card
+                        key={n}
+                        name={n}
+                        frame={f}
+                        triage={byName.get(n)}
+                        decision={cull[n]}
+                        current={n === sel}
+                        twin={twinOf(byName.get(n), frameByName)}
+                        cardRef={(el) => { cardRefs.current[n] = el; }}
+                        onSelect={() => setSel(n)}
+                        onOpen={() => { setSel(n); setViewer(true); }}
+                        onDecide={(d) => decideOne(n, d)}
+                        onTwin={(t) => bring(t)}
+                        big={size > 260}
+                        stack={inStack ? {
+                          count: it.names.length,
+                          open: isOpen,
+                          first: idx === 0,
+                          last: idx === shown.length - 1,
+                          onToggle: () => toggleStack(it.key),
+                        } : undefined}
+                      />
+                    );
+                  });
                 })}
                 </div>
               </section>
@@ -418,6 +480,7 @@ export default function WorkStageV2({
       {viewer && sel && frameByName.get(sel) && (
         <Viewer
           frame={frameByName.get(sel)!}
+          faces={byName.get(sel)?.faces ?? []}
           neighbors={[flat[flat.indexOf(sel) + 1], flat[flat.indexOf(sel) - 1], flat[flat.indexOf(sel) + 2]]
             .map((n) => (n ? frameByName.get(n)?.path : undefined))
             .filter((p): p is string => Boolean(p))}
@@ -470,7 +533,7 @@ function Decide({ decision, onDecide, compact }: { decision?: CullDecision; onDe
 }
 
 function Card({
-  name, frame, triage, decision, current, twin, cardRef, onSelect, onOpen, onDecide, onTwin, big,
+  name, frame, triage, decision, current, twin, cardRef, onSelect, onOpen, onDecide, onTwin, big, stack,
 }: {
   name: string;
   frame: Frame;
@@ -484,6 +547,7 @@ function Card({
   onDecide: (d: CullDecision) => void;
   onTwin: (name: string) => void;
   big: boolean;
+  stack?: { count: number; open: boolean; first: boolean; last: boolean; onToggle: () => void };
 }) {
   const [loaded, setLoaded] = useState(false);
   const suggestion = !decision && (triage?.suggestion === 'remove' || triage?.suggestion === 'duplicate') ? triage : null;
@@ -495,7 +559,8 @@ function Card({
   return (
     <article
       ref={cardRef}
-      className={`tz-ws-cell${current ? ' is-current' : ''}${decision ? ` is-${decision}` : ''}`}
+      className={`tz-ws-cell${current ? ' is-current' : ''}${decision ? ` is-${decision}` : ''}${
+        stack ? (stack.open ? ` in-stack${stack.first ? ' is-first' : ''}${stack.last ? ' is-last' : ''}` : ' is-stack') : ''}`}
       onClick={onSelect}
       onDoubleClick={onOpen}
       aria-selected={current}
@@ -521,7 +586,18 @@ function Card({
             {suggestion.suggestion === 'remove' ? '!' : '≈'}
           </button>
         )}
-        {triage?.star && !decision && <span className="tz-ws-flag is-star" title="המומלצת מהרצף">★</span>}
+        {triage?.star && !decision && !stack && <span className="tz-ws-flag is-star" title="המומלצת מהרצף">★</span>}
+        {stack && (stack.first || !stack.open) && (
+          <button
+            type="button"
+            className={`tz-ws-stackbadge${stack.open ? ' is-open' : ''}`}
+            onClick={(e) => { e.stopPropagation(); stack.onToggle(); }}
+            onDoubleClick={(e) => e.stopPropagation()}
+            title={stack.open ? 'קפל את הרצף' : `פתח את הרצף — ${stack.count} תמונות כמעט זהות`}
+          >
+            {stack.open ? '⌃' : '▦'} {stack.count}
+          </button>
+        )}
       </div>
       <footer className="tz-ws-cell-bar">
         <span className="tz-ws-file" dir="ltr">{name}</span>
@@ -553,9 +629,10 @@ function preload(src: string): Promise<{ w: number; h: number }> {
 }
 
 function Viewer({
-  frame, neighbors, name, position, total, decision, onClose, onStep, onDecide,
+  frame, faces, neighbors, name, position, total, decision, onClose, onStep, onDecide,
 }: {
   frame: Frame;
+  faces: TriageFrame['faces'];
   neighbors: string[];
   name: string;
   position: number;
@@ -573,6 +650,9 @@ function Viewer({
   const natural = shown;
   const [zoom, setZoom] = useState(1); // 1 = fit
   const drag = useRef<{ x: number; y: number; l: number; t: number } | null>(null);
+  const [facesOn, setFacesOn] = useState(true);
+  // The faces belong to the picture on screen, not to the one still loading.
+  const [shownFaces, setShownFaces] = useState<TriageFrame['faces']>([]);
 
   useEffect(() => {
     const el = stageRef.current;
@@ -586,8 +666,8 @@ function Viewer({
     let alive = true;
     const src = thumbUrl(frame.path, 2400);
     preload(src)
-      .then((size) => { if (alive) { setZoom(1); setShown({ src, ...size }); } })
-      .catch(() => { if (alive) { setZoom(1); setShown({ src, w: 1500, h: 1000 }); } });
+      .then((size) => { if (alive) { setZoom(1); setShown({ src, ...size }); setShownFaces(faces); } })
+      .catch(() => { if (alive) { setZoom(1); setShown({ src, w: 1500, h: 1000 }); setShownFaces(faces); } });
     // The frames either side, ready before he gets there.
     for (const p of neighbors) void preload(thumbUrl(p, 2400)).catch(() => undefined);
     return () => { alive = false; };
@@ -605,6 +685,17 @@ function Viewer({
   const h = fitH * zoom;
   const percent = natural ? Math.round((w / natural.w) * 100) : Math.round(zoom * 100);
 
+  // Where to scroll once the new zoom is laid out — applied after React has
+  // drawn the larger canvas, never before (a scroll set earlier is clamped to
+  // the old, smaller size and lands at the corner).
+  const pendingScroll = useRef<((el: HTMLDivElement) => void) | null>(null);
+  useLayoutEffect(() => {
+    const el = stageRef.current;
+    const f = pendingScroll.current;
+    pendingScroll.current = null;
+    if (el && f) f(el);
+  }, [zoom]);
+
   // Zoom around a point on screen, so what is under the cursor stays there.
   const zoomTo = useCallback((next: number, cx?: number, cy?: number) => {
     const el = stageRef.current;
@@ -615,16 +706,31 @@ function Viewer({
     const py = (cy ?? r.top + r.height / 2) - r.top;
     const ox = (el.scrollLeft + px) / Math.max(1, el.scrollWidth);
     const oy = (el.scrollTop + py) / Math.max(1, el.scrollHeight);
+    pendingScroll.current = (st) => {
+      st.scrollLeft = ox * st.scrollWidth - px;
+      st.scrollTop = oy * st.scrollHeight - py;
+    };
     setZoom(z);
-    requestAnimationFrame(() => {
-      el.scrollLeft = ox * el.scrollWidth - px;
-      el.scrollTop = oy * el.scrollHeight - py;
-    });
   }, [maxZoom]);
+
+  /** Zoom straight onto one face: its height about half the window. */
+  const zoomToFace = useCallback((b: { x: number; y: number; width: number; height: number }) => {
+    const el = stageRef.current;
+    if (!el) return;
+    const z = Math.max(1, Math.min(maxZoom, (box.h * 0.5) / Math.max(1, b.height * fitH)));
+    pendingScroll.current = (st) => {
+      const wN = fitW * z; const hN = fitH * z;
+      const cw = Math.max(wN + pad * 2, box.w); const ch = Math.max(hN + pad * 2, box.h);
+      st.scrollLeft = (cw - wN) / 2 + (b.x + b.width / 2) * wN - box.w / 2;
+      st.scrollTop = (ch - hN) / 2 + (b.y + b.height / 2) * hN - box.h / 2;
+    };
+    if (z === zoom) { pendingScroll.current(el); pendingScroll.current = null; } else setZoom(z);
+  }, [box, fitH, fitW, maxZoom, zoom]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.ctrlKey || e.metaKey) return;
+      if (e.code === 'KeyF' || e.key === 'כ') { e.preventDefault(); setFacesOn((v) => !v); }
       if (e.key === '+' || e.code === 'Equal' || e.code === 'NumpadAdd') { e.preventDefault(); zoomTo(zoom * 1.25); }
       if (e.key === '-' || e.code === 'Minus' || e.code === 'NumpadSubtract') { e.preventDefault(); zoomTo(zoom / 1.25); }
       if (e.code === 'Digit0' || e.code === 'Numpad0') { e.preventDefault(); zoomTo(1); }
@@ -645,9 +751,11 @@ function Viewer({
         <span className="tz-ws-v-spacer" />
       </header>
 
+      <div className="tz-ws-v-body">
       <div
         className={`tz-ws-v-stage${zoom > 1 ? ' is-zoomed' : ''}`}
         ref={stageRef}
+        dir="ltr"
         onWheel={(e) => { e.preventDefault(); zoomTo(zoom * (e.deltaY < 0 ? 1.15 : 1 / 1.15), e.clientX, e.clientY); }}
         onMouseDown={(e) => {
           if (zoom <= 1 || !stageRef.current) return;
@@ -675,6 +783,15 @@ function Viewer({
         </div>
       </div>
 
+      {facesOn && shown && shownFaces.length > 0 && (
+        <aside className="tz-ws-v-faces" aria-label="הפנים בתמונה">
+          <h3>הפנים בתמונה <span>{shownFaces.length.toLocaleString('he-IL')}</span></h3>
+          <FaceList src={shown.src} aspect={shown.w / shown.h} faces={shownFaces} onPick={zoomToFace} />
+          <p className="tz-ws-v-faces-hint">לחיצה על פנים — הגדלה אליהן · F הסתר</p>
+        </aside>
+      )}
+      </div>
+
       <button type="button" className="tz-ws-v-nav is-prev" disabled={position <= 0} onClick={() => onStep(-1)} aria-label="הקודמת">›</button>
       <button type="button" className="tz-ws-v-nav is-next" disabled={position >= total - 1} onClick={() => onStep(1)} aria-label="הבאה">‹</button>
 
@@ -694,10 +811,70 @@ function Viewer({
           <output>{percent}%</output>
           <button type="button" className={zoom === 1 ? 'is-on' : ''} onClick={() => zoomTo(1)} title="התאם לחלון (0)">התאם</button>
           <button type="button" onClick={() => zoomTo(actual)} title="גודל אמיתי (רווח)">100%</button>
+          {shownFaces.length > 0 && (
+            <button type="button" className={facesOn ? 'is-on' : ''} onClick={() => setFacesOn((v) => !v)} title="הפנים מקרוב (F)">פנים</button>
+          )}
         </div>
         <Decide decision={decision} onDecide={onDecide} />
         <span className="tz-ws-v-spacer" />
       </footer>
+    </div>
+  );
+}
+
+/* Every face in the frame, enlarged — the check a photographer otherwise makes
+ * by zooming into each face in turn. Cropped from the picture already on
+ * screen, so nothing new is fetched. The eyes are read by the engine's own
+ * blink score: 0.65 and up is a closure; a lowered gaze reads 0.42–0.6 and is
+ * deliberately left unlabelled. */
+const EYES_SHUT = 0.65;
+const EYES_OPEN = 0.25;
+
+function FaceList({
+  src, aspect, faces, onPick,
+}: {
+  src: string;
+  aspect: number;
+  faces: TriageFrame['faces'];
+  onPick: (box: TriageFrame['faces'][number]['box']) => void;
+}) {
+  const shown = faces
+    .map((f, i) => ({ ...f, i }))
+    .sort((a, b) => b.box.width * b.box.height - a.box.width * a.box.height)
+    .slice(0, 12);
+  return (
+    <div className="tz-ws-v-facelist">
+      {shown.map((f) => {
+        // A square window around the face, in the picture's own proportions.
+        const side = Math.max(f.box.width, f.box.height / aspect) * 1.6;
+        const w = Math.min(1, side);
+        const h = Math.min(1, side * aspect);
+        const cx = f.box.x + f.box.width / 2;
+        const cy = f.box.y + f.box.height / 2;
+        const x = Math.max(0, Math.min(1 - w, cx - w / 2));
+        const y = Math.max(0, Math.min(1 - h, cy - h / 2));
+        const shut = typeof f.blink === 'number' && f.blink >= EYES_SHUT;
+        const open = typeof f.blink === 'number' && f.blink <= EYES_OPEN;
+        return (
+          <button
+            key={f.i}
+            type="button"
+            className={`tz-ws-v-face${shut ? ' is-shut' : ''}`}
+            onClick={() => onPick(f.box)}
+            title="הגדל לפנים האלה"
+          >
+            <span
+              style={{
+                backgroundImage: `url("${src}")`,
+                backgroundSize: `${100 / w}% ${100 / h}%`,
+                backgroundPosition: `${w < 1 ? (x / (1 - w)) * 100 : 0}% ${h < 1 ? (y / (1 - h)) * 100 : 0}%`,
+              }}
+            />
+            {shut && <em>עיניים עצומות</em>}
+            {open && <i title="עיניים פתוחות">✓</i>}
+          </button>
+        );
+      })}
     </div>
   );
 }
