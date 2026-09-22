@@ -35,6 +35,8 @@ import {
 } from '../store';
 import { useSetPreview } from '../preview';
 import { IcCheck, IcUndo } from '../../design/Icons';
+import { justify } from '../../components/photo-grid/justify';
+import { useDims } from '../../components/photo-grid/useDims';
 import './GroupWorkspace.css';
 
 /* ------------------------------------------------------------------ words */
@@ -99,14 +101,24 @@ function writePref(key: string, value: string) {
 
 type Row =
   | { type: 'sep'; key: string; top: number; h: number; gid: string | null }
-  | { type: 'cells'; key: string; top: number; h: number; items: Frame[]; start: number };
+  | {
+    type: 'cells'; key: string; top: number; h: number; items: Frame[]; start: number;
+    /** Each photograph's place in the row: from the row's start edge, and its width. */
+    xs: number[]; ws: number[];
+    /** The photographs' height in this row (h is that plus the gap below). */
+    ih: number;
+  };
 
+/* JUSTIFIED rows, the Google Photos way (components/photo-grid/justify.ts):
+ * each photograph in its own proportions, every row filling the width, one
+ * gap everywhere. A run of a group always starts on its own row. */
 function buildRows(
   visible: Frame[],
-  cols: number,
-  cell: number,
+  width: number,
+  target: number,
   separate: boolean,
   ownerOf: (f: Frame) => string | null,
+  aspectOf: (f: Frame) => number,
 ) {
   const rows: Row[] = [];
   const where = new Map<string, number>();
@@ -121,11 +133,17 @@ function buildRows(
       rows.push({ type: 'sep', key: `sep-${visible[i].name}`, top, h: SEP_H, gid: owner });
       top += SEP_H;
     }
-    for (let s = i; s < end; s += cols) {
-      const items = visible.slice(s, Math.min(s + cols, end));
+    const run = visible.slice(i, end);
+    const lay = justify(run.map(aspectOf), { width: Math.max(1, width), targetHeight: target, gap: GAP });
+    for (const r of lay.rows) {
+      const items = run.slice(r.from, r.to);
+      const boxes = lay.boxes.slice(r.from, r.to);
       for (const f of items) where.set(f.name, rows.length);
-      rows.push({ type: 'cells', key: `r-${items[0].name}`, top, h: cell + GAP, items, start: s });
-      top += cell + GAP;
+      rows.push({
+        type: 'cells', key: `r-${items[0].name}`, top, h: r.h + GAP, items, start: i + r.from,
+        xs: boxes.map((b) => b.x), ws: boxes.map((b) => b.w), ih: r.h,
+      });
+      top += r.h + GAP;
     }
     i = end;
   }
@@ -291,12 +309,30 @@ export default function GroupWorkspace({ projectId }: { projectId: string }) {
   }, [hasSheet, view === 'all' || visible.length > 0]);
 
   const target = TARGET[size];
-  const cols = Math.max(1, Math.floor((box.w + GAP) / (target + GAP)));
-  const cell = box.w ? Math.floor((box.w - GAP * (cols - 1)) / cols) : target;
   const separate = view === 'all' && groups.length > 0 && !q;
+  // The true proportions, from the file headers — or learned from thumbnails.
+  const dims = useDims(useMemo(() => frames.map((f) => f.path), [frames]));
+  const [learnedAspect, setLearnedAspect] = useState<Record<string, number>>({});
+  const aspectPending = useRef<Record<string, number>>({});
+  const aspectTimer = useRef<number | undefined>(undefined);
+  const onAspect = useCallback((name: string, a: number) => {
+    aspectPending.current[name] = a;
+    window.clearTimeout(aspectTimer.current);
+    aspectTimer.current = window.setTimeout(() => {
+      const add = aspectPending.current;
+      aspectPending.current = {};
+      setLearnedAspect((prev) => ({ ...prev, ...add }));
+    }, 250);
+  }, []);
+  const aspectOf = useCallback(
+    (f: Frame) => dims.get(f.path) ?? learnedAspect[f.name] ?? 1.5,
+    // dims is a shared map that fills in; its size is what changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [dims, dims.size, learnedAspect],
+  );
   const layout = useMemo(
-    () => buildRows(visible, cols, cell, separate, ownerOf),
-    [visible, cols, cell, separate, ownerOf],
+    () => buildRows(visible, box.w, target, separate, ownerOf, aspectOf),
+    [visible, box.w, target, separate, ownerOf, aspectOf],
   );
 
   // Render the viewport plus 1.5 viewports either side — the prefetch (§157).
@@ -306,7 +342,7 @@ export default function GroupWorkspace({ projectId }: { projectId: string }) {
   while (lastRow < layout.rows.length && layout.rows[lastRow].top < scrollTop + box.h + over) lastRow += 1;
   const windowRows = layout.rows.slice(firstRow, lastRow);
 
-  const thumbPx = cell <= 150 ? 240 : cell <= 230 ? 360 : 520;
+  const thumbFor = (w: number) => (w <= 150 ? 240 : w <= 230 ? 360 : w <= 360 ? 520 : 800);
   const warmKey = windowRows.map((r) => r.key).join('|');
   useEffect(() => {
     const paths: string[] = [];
@@ -712,13 +748,31 @@ export default function GroupWorkspace({ projectId }: { projectId: string }) {
     if (mod || e.altKey) return;
 
     // In RTL the next frame is to the LEFT; the timeline's order is untouched.
-    const steps: Record<string, number> = { ArrowLeft: 1, ArrowRight: -1, ArrowDown: cols, ArrowUp: -cols };
+    const steps: Record<string, number> = { ArrowLeft: 1, ArrowRight: -1 };
     const step = steps[e.key];
-    if (step !== undefined) {
+    const vertical = e.key === 'ArrowDown' ? 1 : e.key === 'ArrowUp' ? -1 : 0;
+    if (step !== undefined || vertical) {
       if (!visible.length) return;
       e.preventDefault();
       const cur = focus ? indexOf.get(focus) ?? -1 : -1;
-      const nextName = visible[Math.max(0, Math.min(visible.length - 1, cur === -1 ? 0 : cur + step))].name;
+      let nextName = visible[Math.max(0, Math.min(visible.length - 1, cur === -1 ? 0 : cur + (step ?? 0)))].name;
+      if (vertical && focus) {
+        // The nearest photograph in the next row that way, by its centre.
+        const r = layout.where.get(focus);
+        const row = r !== undefined ? layout.rows[r] : undefined;
+        if (row && row.type === 'cells') {
+          const c = row.items.findIndex((f) => f.name === focus);
+          const cx = row.xs[c] + row.ws[c] / 2;
+          for (let k = r! + vertical; k >= 0 && k < layout.rows.length; k += vertical) {
+            const nr = layout.rows[k];
+            if (nr.type !== 'cells') continue;
+            let best = 0; let bestD = Infinity;
+            nr.xs.forEach((x, j) => { const d = Math.abs(x + nr.ws[j] / 2 - cx); if (d < bestD) { bestD = d; best = j; } });
+            nextName = nr.items[best].name;
+            break;
+          }
+        }
+      }
       if (e.shiftKey) {
         const from = anchor ?? focus ?? nextName;
         setSelected((prev) => range(from, nextName, new Set(prev)));
@@ -753,10 +807,10 @@ export default function GroupWorkspace({ projectId }: { projectId: string }) {
     const [ya, yb] = y0 < y1 ? [y0, y1] : [y1, y0];
     const hits: string[] = [];
     for (const row of layout.rows) {
-      if (row.type !== 'cells' || row.top > yb || row.top + cell < ya) continue;
+      if (row.type !== 'cells' || row.top > yb || row.top + row.ih < ya) continue;
       row.items.forEach((f, c) => {
-        const from = c * (cell + GAP);
-        if (from < xb && from + cell > xa) hits.push(f.name);
+        const from = row.xs[c];
+        if (from < xb && from + row.ws[c] > xa) hits.push(f.name);
       });
     }
     return hits;
@@ -1336,8 +1390,10 @@ export default function GroupWorkspace({ projectId }: { projectId: string }) {
                       <Cell
                         key={f.name}
                         f={f}
-                        size={cell}
-                        url={preview.url(f.path, thumbPx)}
+                        w={row.ws[c]}
+                        h={row.ih}
+                        onAspect={onAspect}
+                        url={preview.url(f.path, thumbFor(row.ws[c] * (window.devicePixelRatio || 1)))}
                         pending={preview.pending(f.path)}
                         selected={selected.has(f.name)}
                         focused={focus === f.name}
@@ -1661,7 +1717,10 @@ export default function GroupWorkspace({ projectId }: { projectId: string }) {
 
 interface CellProps {
   f: Frame;
-  size: number;
+  w: number;
+  h: number;
+  /** The photograph's proportions once its thumbnail has loaded. */
+  onAspect: (name: string, aspect: number) => void;
   url: string;
   pending: boolean;
   selected: boolean;
@@ -1675,13 +1734,13 @@ interface CellProps {
 }
 
 const Cell = memo(function Cell({
-  f, size, url, pending, selected, focused, cover, splittable, cutStrength, cutTitle, cutActionable, onEvent,
+  f, w, h, onAspect, url, pending, selected, focused, cover, splittable, cutStrength, cutTitle, cutActionable, onEvent,
 }: CellProps) {
   const time = clock(f.shot, true);
   return (
     <div
       className={`gw-cell${selected ? ' sel' : ''}${focused ? ' focus' : ''}${pending ? ' pending' : ''}`}
-      style={{ width: size, height: size }}
+      style={{ width: w, height: h }}
       role="gridcell"
       aria-selected={selected}
       title={`${f.name} · ${time || 'ללא זמן'}`}
@@ -1692,7 +1751,14 @@ const Cell = memo(function Cell({
       onDragStart={(e) => onEvent('dragstart', f.name, e)}
       onDragEnd={(e) => onEvent('dragend', f.name, e)}
     >
-      <img src={url} alt="" loading="lazy" decoding="async" draggable={false} />
+      <img
+        src={url}
+        alt=""
+        loading="lazy"
+        decoding="async"
+        draggable={false}
+        onLoad={(e) => { const im = e.currentTarget; if (im.naturalWidth && im.naturalHeight) onAspect(f.name, im.naturalWidth / im.naturalHeight); }}
+      />
       {!f.shot && <span className="gw-badge">ללא זמן</span>}
       {cover && <span className="gw-badge gw-badge-cover">שער</span>}
       <button
