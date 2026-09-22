@@ -19,7 +19,7 @@ import { rankTemplates } from './templates/choose';
 import { designFade } from './templates/fades';
 import { duplicatePlace, reorderZ } from './templates/placeStyles';
 import SpreadPanel from './templates/SpreadPanel';
-import ContextToolbar, { ToolIcons } from './templates/ContextToolbar';
+import ContextToolbar, { ToolIcons, ToolbarStepper, ToolbarSegment, ToolbarColor } from './templates/ContextToolbar';
 import { FONT_CATALOG, FONT_GROUP_LABELS, familyOf, fontStack, type FontEntry } from './templates/fonts';
 import { importUserFonts, loadUserFonts } from './templates/userFonts';
 import { elementToLayer, type ElementDef } from './templates/elements';
@@ -1381,6 +1381,17 @@ export default function AlbumStudio({ job, onBack }: {
       ShapeLayer | TextLayer | ImageLayer | undefined
     : undefined;
 
+  /* Something on the spread is selected, so its tools are on the bar over the
+   * canvas and the side panel can stand down to its rail. */
+  const selectionActive = Boolean((selectedSlot && selectedFrameSettings) || selectedElement);
+
+  function clearSelection() {
+    setSelectedSlotIndex(null);
+    setCropIndex(null);
+    setSelectedPhotoId(null);
+    setSelectedElementId(null);
+  }
+
   function addElement(element: ElementDef) {
     if (!activeTemplate || !spread.templateInstance) {
       setNotice('בחר קודם עמוד מהכספת לכפולה');
@@ -2397,7 +2408,7 @@ export default function AlbumStudio({ job, onBack }: {
         </div>
       </header>
 
-      <div className={`album-workspace ${mode}`}>
+      <div className={`album-workspace ${mode} ${selectionActive ? 'has-selection' : ''}`}>
         {showAlbumSettings && (
         <div className="album-settings-backdrop">
         <aside className="album-settings-panel">
@@ -2719,6 +2730,386 @@ export default function AlbumStudio({ job, onBack }: {
         ) : (
           <>
         <main className="album-center">
+          {selectedSlot && selectedFrameSettings && (
+            <ContextToolbar
+              name="תמונה"
+              onDone={() => { setSelectedSlotIndex(null); setCropIndex(null); setSelectedPhotoId(null); }}
+              inline={(
+                <>
+                  <ToolbarSegment
+                    label="התאמה למקום"
+                    value={selectedFrameSettings.fit ?? 'smart'}
+                    options={[['smart', 'חכם'], ['cover', 'מילוי'], ['contain', 'מלא']] as const}
+                    onChange={(next) => setFitMode(next)}
+                  />
+                  {/* At "מלא" the whole photograph is already in view, so there
+                    * is no zoom to speak of and the control stays away. */}
+                  {selectedFrameSettings.fit !== 'contain' && (
+                    <ToolbarStepper
+                      label="זום"
+                      value={selectedFrameSettings.zoom ?? 100}
+                      min={100}
+                      max={250}
+                      step={5}
+                      suffix="%"
+                      onChange={(zoom) => updateFrameSettings({ zoom })}
+                    />
+                  )}
+                </>
+              )}
+              menus={[
+                ...(selectedFrameSettings.fit !== 'contain' ? [{
+                  id: 'crop', label: 'מיקום בתוך המסגרת', icon: ToolIcons.crop,
+                  content: (
+                    <div className="ctx-stack">
+                      {selectedCrop?.warnings[0] && <span className="album-crop-state warning">{selectedCrop.warnings[0]}</span>}
+                      <label className="tpl-fade-slider">
+                        <span>שמאל ← → ימין <output>{Math.round(selectedCrop?.positionX ?? selectedFrameSettings.positionX)}%</output></span>
+                        <input
+                          type="range" min="0" max="100" step="0.5"
+                          value={selectedCrop?.positionX ?? selectedFrameSettings.positionX}
+                          onChange={(event) => setFramePosition({ positionX: Number(event.target.value) })}
+                        />
+                      </label>
+                      <label className="tpl-fade-slider">
+                        <span>למעלה ↕ למטה <output>{Math.round(selectedCrop?.positionY ?? selectedFrameSettings.positionY)}%</output></span>
+                        <input
+                          type="range" min="0" max="100" step="0.5"
+                          value={selectedCrop?.positionY ?? selectedFrameSettings.positionY}
+                          onChange={(event) => setFramePosition({ positionY: Number(event.target.value) })}
+                        />
+                      </label>
+                      <small className="album-control-hint">אפשר גם פשוט לגרור את התמונה בתוך המסגרת.</small>
+                    </div>
+                  ),
+                }] : []),
+                ...(!activeTemplate ? [{
+                  id: 'geometry', label: 'מיקום וגודל', icon: ToolIcons.position, width: 300,
+                  content: (
+                    <div className="ctx-stack">
+                      <div className="album-inspector-section">
+                        <span>מיקום וגודל <small>אחוזים מהכפולה</small></span>
+                        <div className="album-frame-metrics">
+                          <label><span>X</span><input type="number" min="0" max="100" step="0.1" value={(selectedSlot.x * 100).toFixed(1)} onChange={(event) => updateSelectedSlot({ x: Math.max(0, Math.min(1 - selectedSlot.width, Number(event.target.value) / 100)) })} /></label>
+                          <label><span>Y</span><input type="number" min="0" max="100" step="0.1" value={(selectedSlot.y * 100).toFixed(1)} onChange={(event) => updateSelectedSlot({ y: Math.max(0, Math.min(1 - selectedSlot.height, Number(event.target.value) / 100)) })} /></label>
+                          <label><span>רוחב</span><input type="number" min="6" max="100" step="0.1" value={(selectedSlot.width * 100).toFixed(1)} onChange={(event) => updateSelectedSlot({ width: Math.max(0.06, Math.min(1 - selectedSlot.x, Number(event.target.value) / 100)) })} /></label>
+                          <label><span>גובה</span><input type="number" min="6" max="100" step="0.1" value={(selectedSlot.height * 100).toFixed(1)} onChange={(event) => updateSelectedSlot({ height: Math.max(0.06, Math.min(1 - selectedSlot.y, Number(event.target.value) / 100)) })} /></label>
+                        </div>
+                        <small className="album-size-status">
+                          {layout.slots.filter((slot) => Math.abs(slot.width - selectedSlot.width) < 0.001).length} באותו רוחב ·{' '}
+                          {layout.slots.filter((slot) => Math.abs(slot.height - selectedSlot.height) < 0.001).length} באותו גובה
+                        </small>
+                      </div>
+                      <div className="album-inspector-section">
+                        <span>יישור וריווח <small>המסגרת המסומנת היא הייחוס</small></span>
+                        <div className="album-arrange-options">
+                          <button onClick={() => arrangeFrames('left')}>יישור שמאל</button>
+                          <button onClick={() => arrangeFrames('center-x')}>מרכז אופקי</button>
+                          <button onClick={() => arrangeFrames('right')}>יישור ימין</button>
+                          <button onClick={() => arrangeFrames('top')}>יישור עליון</button>
+                          <button onClick={() => arrangeFrames('center-y')}>מרכז אנכי</button>
+                          <button onClick={() => arrangeFrames('bottom')}>יישור תחתון</button>
+                          <button onClick={() => arrangeFrames('width')}>רוחב אחיד</button>
+                          <button onClick={() => arrangeFrames('height')}>גובה אחיד</button>
+                          <button className="wide" onClick={() => arrangeFrames('size')}>גודל זהה</button>
+                          <button disabled={layout.slots.length < 3} onClick={() => arrangeFrames('horizontal-gap')}>רווח אופקי</button>
+                          <button disabled={layout.slots.length < 3} onClick={() => arrangeFrames('vertical-gap')}>רווח אנכי</button>
+                        </div>
+                      </div>
+                    </div>
+                  ),
+                }] : []),
+                ...(activeTemplate && spread.templateInstance && selectedSlotIndex !== null && templatePhotoLayers[selectedSlotIndex] ? (() => {
+                  const placeId = templatePhotoLayers[selectedSlotIndex].id;
+                  const designed = findTemplate(spread.templateInstance.templateId)?.layers
+                    .find((layer) => layer.id === placeId);
+                  const fade = spread.templateInstance.fades?.[placeId]
+                    ?? designFade(designed?.type === 'photo' ? designed : undefined);
+                  const setFade = (patch: Partial<PhotoFade>, done = false) => {
+                    editTemplateInstance((instance) => ({
+                      ...instance,
+                      fades: { ...instance.fades, [placeId]: { ...fade, ...patch } },
+                    }));
+                    if (done) endTemplateEdit();
+                  };
+                  return [{
+                    id: 'fade', label: 'מעבר ושקיפות', icon: ToolIcons.fade,
+                    content: (
+                      <div className="ctx-stack tpl-fade">
+                        <span className="ctx-label">צד המעבר</span>
+                        <div className="tpl-fade-sides" role="group" aria-label="צד המעבר">
+                          {([['none', 'ללא'], ['right', 'ימין'], ['left', 'שמאל'], ['top', 'למעלה'], ['bottom', 'למטה']] as const)
+                            .map(([side, label]) => (
+                              <button key={side} className={fade.side === side ? 'on' : ''} onClick={() => setFade({ side }, true)}>{label}</button>
+                            ))}
+                        </div>
+                        {fade.side !== 'none' && (
+                          <div className="tpl-fade-modes" role="group" aria-label="סוג המעבר">
+                            <button className={fade.mode === 'background' ? 'on' : ''} onClick={() => setFade({ mode: 'background' }, true)}>נמוג אל הרקע</button>
+                            <button className={fade.mode === 'blend' ? 'on' : ''} onClick={() => setFade({ mode: 'blend' }, true)}>מתמזג לתמונה הסמוכה</button>
+                          </div>
+                        )}
+                        {fade.side !== 'none' && (
+                          <label className="tpl-fade-slider">
+                            <span>רכות <output>{fade.softness}</output></span>
+                            <input
+                              type="range" min="0" max="100" value={fade.softness}
+                              onChange={(event) => setFade({ softness: Number(event.target.value) })}
+                              onPointerUp={endTemplateEdit} onKeyUp={endTemplateEdit} onBlur={endTemplateEdit}
+                            />
+                          </label>
+                        )}
+                        <label className="tpl-fade-slider">
+                          <span>שקיפות <output>{fade.transparency}%</output></span>
+                          <input
+                            type="range" min="0" max="90" value={fade.transparency}
+                            onChange={(event) => setFade({ transparency: Number(event.target.value) })}
+                            onPointerUp={endTemplateEdit} onKeyUp={endTemplateEdit} onBlur={endTemplateEdit}
+                          />
+                        </label>
+                      </div>
+                    ),
+                  }];
+                })() : []),
+                ...(selectedPlace && spread.templateInstance ? (() => {
+                  const style = spread.templateInstance.styles?.[selectedPlace.id] ?? {};
+                  const mm = (fraction: number | undefined) => Math.round((fraction ?? 0) * profile.spreadHeightMm * 10) / 10;
+                  const fromMm = (value: number) => value / profile.spreadHeightMm;
+                  const rotation = Math.round(selectedPlace.rotation ?? 0);
+                  const live = { onPointerUp: endTemplateEdit, onKeyUp: endTemplateEdit, onBlur: endTemplateEdit };
+                  return [
+                    {
+                      id: 'rotate', label: 'סיבוב והיפוך', icon: ToolIcons.rotate,
+                      content: (
+                        <div className="ctx-stack tpl-tools">
+                          <label className="tpl-fade-slider">
+                            <span>סיבוב <output>{rotation}°</output></span>
+                            <input type="range" min="-180" max="180" value={rotation} onChange={(event) => setPlaceStyle({ rotation: Number(event.target.value) }, false)} {...live} />
+                          </label>
+                          <div className="tpl-tool-row">
+                            <button onClick={() => setPlaceStyle({ rotation: ((rotation - 90 + 540) % 360) - 180 })} title="סיבוב 90° נגד כיוון השעון">↺ 90°</button>
+                            <button onClick={() => setPlaceStyle({ rotation: ((rotation + 90 + 540) % 360) - 180 })} title="סיבוב 90° עם כיוון השעון">↻ 90°</button>
+                            <button onClick={() => setPlaceStyle({ rotation: 0 })}>ישר</button>
+                          </div>
+                          <div className="tpl-tool-row">
+                            <button className={style.flipX ? 'on' : ''} onClick={() => setPlaceStyle({ flipX: !style.flipX })}>⇋ היפוך אופקי</button>
+                            <button className={style.flipY ? 'on' : ''} onClick={() => setPlaceStyle({ flipY: !style.flipY })}>⇅ היפוך אנכי</button>
+                          </div>
+                        </div>
+                      ),
+                    },
+                    {
+                      id: 'frame', label: 'פינות, מסגרת וצל', icon: ToolIcons.frame,
+                      content: (
+                        <div className="ctx-stack tpl-tools">
+                          <label className="tpl-fade-slider">
+                            <span>פינות מעוגלות <output>{mm(style.radius)} מ״מ</output></span>
+                            <input type="range" min="0" max="60" step="0.5" value={mm(style.radius)} onChange={(event) => setPlaceStyle({ radius: fromMm(Number(event.target.value)) }, false)} {...live} />
+                          </label>
+                          <label className="tpl-fade-slider">
+                            <span>מסגרת <output>{mm(style.border)} מ״מ</output></span>
+                            <input type="range" min="0" max="15" step="0.5" value={mm(style.border)} onChange={(event) => setPlaceStyle({ border: fromMm(Number(event.target.value)) }, false)} {...live} />
+                          </label>
+                          {(style.border ?? 0) > 0 && (
+                            <label className="tpl-tool-color">
+                              <span>צבע המסגרת</span>
+                              <input type="color" value={style.borderColor ?? '#ffffff'} onChange={(event) => setPlaceStyle({ borderColor: event.target.value }, false)} onBlur={endTemplateEdit} />
+                            </label>
+                          )}
+                          <label className="tpl-fade-slider">
+                            <span>צל <output>{style.shadow ?? 0}</output></span>
+                            <input type="range" min="0" max="100" value={style.shadow ?? 0} onChange={(event) => setPlaceStyle({ shadow: Number(event.target.value) }, false)} {...live} />
+                          </label>
+                        </div>
+                      ),
+                    },
+                    {
+                      id: 'order', label: 'סדר', icon: ToolIcons.layers, width: 240,
+                      content: (
+                        <div className="ctx-stack tpl-tools">
+                          <span className="ctx-label">מה מעל מה</span>
+                          <div className="tpl-tool-row">
+                            <button onClick={() => orderPlace('front')}>לחזית</button>
+                            <button onClick={() => orderPlace('forward')}>קדימה</button>
+                            <button onClick={() => orderPlace('backward')}>אחורה</button>
+                            <button onClick={() => orderPlace('back')}>לרקע</button>
+                          </div>
+                        </div>
+                      ),
+                    },
+                  ];
+                })() : []),
+              ]}
+              actions={[
+                { id: 'unplace', label: 'הוצאת התמונה מהמקום', icon: ToolIcons.unplace, onClick: removeSelectedFramePhoto },
+                ...(selectedPlace ? [
+                  { id: 'duplicate', label: 'שכפול המקום', icon: ToolIcons.duplicate, onClick: duplicateSelectedPlace },
+                  { id: 'delete', label: 'מחיקת המקום מהכפולה', icon: ToolIcons.trash, onClick: deleteSelectedPlace, danger: true },
+                ] : []),
+              ]}
+            />
+          )}
+          {selectedElement && (
+            <ContextToolbar
+              name={selectedElement.type === 'text' ? 'טקסט' : 'אלמנט'}
+              onDone={() => setSelectedElementId(null)}
+              inline={(
+                <>
+                  {selectedElement.type === 'text' && (() => {
+                    /* Type is sized in points here, the way a designer says it
+                     * out loud, and stored as a fraction of the spread height. */
+                    const ptPerUnit = profile.spreadHeightMm * 2.835;
+                    const element = selectedElement;
+                    return (
+                      <>
+                        <select
+                          aria-label="גופן"
+                          value={familyOf(element.fontFamily)}
+                          style={{ fontFamily: element.fontFamily }}
+                          onChange={(event) => updateElement(element.id, (layer) => ({ ...layer, fontFamily: fontStack(event.target.value) }))}
+                        >
+                          {(['mine', 'hebrew', 'script', 'latin'] as const).map((group) => {
+                            const fonts = group === 'mine' ? userFonts : FONT_CATALOG.filter((font) => font.group === group);
+                            if (!fonts.length) return null;
+                            return (
+                              <optgroup key={group} label={FONT_GROUP_LABELS[group]}>
+                                {fonts.map((font) => (
+                                  <option key={font.family} value={font.family} style={{ fontFamily: `'${font.family}'` }}>{font.label}</option>
+                                ))}
+                              </optgroup>
+                            );
+                          })}
+                          {![...FONT_CATALOG, ...userFonts].some((font) => font.family === familyOf(element.fontFamily)) && (
+                            <option value={familyOf(element.fontFamily)}>{familyOf(element.fontFamily)}</option>
+                          )}
+                        </select>
+                        <ToolbarStepper
+                          label="גודל"
+                          value={Math.round(element.fontSize * ptPerUnit)}
+                          min={Math.max(4, Math.round(0.01 * ptPerUnit))}
+                          max={Math.round(0.25 * ptPerUnit)}
+                          suffix="pt"
+                          onChange={(pt) => updateElement(element.id, (layer) => ({ ...layer, fontSize: pt / ptPerUnit }))}
+                        />
+                        <button
+                          type="button"
+                          className={`ctx-toggle ${element.fontWeight >= 700 ? 'on' : ''}`}
+                          aria-pressed={element.fontWeight >= 700}
+                          title="מודגש"
+                          onClick={() => updateElement(element.id, (layer) => (layer.type === 'text' ? { ...layer, fontWeight: layer.fontWeight >= 700 ? 400 : 700 } : layer))}
+                        >
+                          B
+                        </button>
+                        <ToolbarSegment
+                          label="יישור"
+                          value={element.align ?? 'center'}
+                          options={[['start', 'ימין'], ['center', 'מרכז'], ['end', 'שמאל']] as const}
+                          onChange={(align) => updateElement(element.id, (layer) => ({ ...layer, align }))}
+                        />
+                        <ToolbarColor
+                          label="צבע הטקסט"
+                          value={element.color ?? '#ffffff'}
+                          onChange={(color) => updateElement(element.id, (layer) => ({ ...layer, color }), false)}
+                          onDone={endTemplateEdit}
+                        />
+                      </>
+                    );
+                  })()}
+                  {selectedElement.type === 'shape' && (
+                    <ToolbarColor
+                      label="צבע"
+                      value={selectedElement.fillColor ?? selectedElement.strokeColor ?? '#ffffff'}
+                      onChange={(color) => updateElement(selectedElement.id, (layer) => {
+                        if (layer.type === 'shape') {
+                          return { ...layer, fillColor: layer.fillColor ? color : undefined, strokeColor: layer.fillColor ? layer.strokeColor : color };
+                        }
+                        return layer;
+                      }, false)}
+                      onDone={endTemplateEdit}
+                    />
+                  )}
+                </>
+              )}
+              menus={[
+                ...(selectedElement.type === 'shape' && selectedElement.shape !== 'path' ? [{
+                  id: 'stroke', label: 'קו ומילוי', icon: ToolIcons.color,
+                  content: (
+                    <div className="ctx-stack tpl-tools">
+                      <label className="tpl-fade-slider">
+                        <span>עובי קו <output>{Math.round((selectedElement.strokeWidth ?? 0) * profile.spreadHeightMm * 10) / 10} מ״מ</output></span>
+                        <input
+                          type="range" min="0" max="0.04" step="0.0005" value={selectedElement.strokeWidth ?? 0}
+                          onChange={(event) => updateElement(selectedElement.id, (layer) => ({ ...layer, strokeWidth: Number(event.target.value) }), false)}
+                          onPointerUp={endTemplateEdit} onKeyUp={endTemplateEdit}
+                        />
+                      </label>
+                      {selectedElement.shape !== 'polyline' && (
+                        <label className="tpl-tool-color">
+                          <span>מילוי</span>
+                          <span className="tpl-tool-row">
+                            <input
+                              type="color"
+                              value={selectedElement.fillColor ?? '#ffffff'}
+                              onChange={(event) => updateElement(selectedElement.id, (layer) => ({ ...layer, fillColor: event.target.value }), false)}
+                              onBlur={endTemplateEdit}
+                            />
+                            <button onClick={() => updateElement(selectedElement.id, (layer) => (layer.type === 'shape' ? { ...layer, fillColor: undefined } : layer))}>ללא</button>
+                          </span>
+                        </label>
+                      )}
+                    </div>
+                  ),
+                }] : []),
+                {
+                  id: 'opacity', label: 'שקיפות', icon: ToolIcons.opacity, width: 240,
+                  content: (
+                    <div className="ctx-stack tpl-tools">
+                      <label className="tpl-fade-slider">
+                        <span>שקיפות <output>{Math.round((1 - (selectedElement.opacity ?? 1)) * 100)}%</output></span>
+                        <input
+                          type="range" min="0" max="90" value={Math.round((1 - (selectedElement.opacity ?? 1)) * 100)}
+                          onChange={(event) => updateElement(selectedElement.id, (layer) => ({ ...layer, opacity: 1 - Number(event.target.value) / 100 }), false)}
+                          onPointerUp={endTemplateEdit} onKeyUp={endTemplateEdit}
+                        />
+                      </label>
+                    </div>
+                  ),
+                },
+                {
+                  id: 'rotate', label: 'סיבוב', icon: ToolIcons.rotate, width: 240,
+                  content: (
+                    <div className="ctx-stack tpl-tools">
+                      <label className="tpl-fade-slider">
+                        <span>סיבוב <output>{Math.round(selectedElement.rotation ?? 0)}°</output></span>
+                        <input
+                          type="range" min="-180" max="180" value={Math.round(selectedElement.rotation ?? 0)}
+                          onChange={(event) => updateElement(selectedElement.id, (layer) => ({ ...layer, rotation: Number(event.target.value) }), false)}
+                          onPointerUp={endTemplateEdit} onKeyUp={endTemplateEdit}
+                        />
+                      </label>
+                    </div>
+                  ),
+                },
+                {
+                  id: 'order', label: 'סדר', icon: ToolIcons.layers, width: 240,
+                  content: (
+                    <div className="ctx-stack tpl-tools">
+                      <span className="ctx-label">מה מעל מה</span>
+                      <div className="tpl-tool-row">
+                        {([['front', 'לחזית'], ['forward', 'קדימה'], ['backward', 'אחורה'], ['back', 'לרקע']] as const).map(([to, label]) => (
+                          <button key={to} onClick={() => activeTemplate && updateElement(selectedElement.id, (layer) => ({ ...layer, zIndex: reorderZ(activeTemplate.layers, layer.id, to) }))}>{label}</button>
+                        ))}
+                      </div>
+                    </div>
+                  ),
+                },
+              ]}
+              actions={[
+                { id: 'duplicate', label: 'שכפול', icon: ToolIcons.duplicate, onClick: duplicateSelectedElement },
+                { id: 'delete', label: 'מחיקה', icon: ToolIcons.trash, onClick: deleteSelectedElement, danger: true },
+              ]}
+            />
+          )}
           <div
             className="album-canvas-area"
             onClick={(event) => {
@@ -3064,386 +3455,18 @@ export default function AlbumStudio({ job, onBack }: {
           </section>
         </main>
 
-        <aside className="album-layout-panel">
+        {/* The spread's own tabs. While something is selected its tools are on
+          * the bar over the canvas, so this collapses to its rail and hands the
+          * width to the spread; touching the rail lets go of the selection and
+          * opens the panel again. */}
+        <aside
+          className={`album-layout-panel ${selectionActive ? 'rail-only' : ''}`}
+          onPointerDownCapture={selectionActive ? clearSelection : undefined}
+        >
           <>
-          {selectedSlot && selectedFrameSettings && (
-            <ContextToolbar
-              name="תמונה"
-              onDone={() => { setSelectedSlotIndex(null); setCropIndex(null); setSelectedPhotoId(null); }}
-              tools={[
-                {
-                  id: 'crop', label: 'חיתוך ומיקום', icon: ToolIcons.crop,
-                  content: (
-                    <div className="ctx-stack">
-                      <span className="ctx-label">התאמה למקום</span>
-            <div className="album-fit-options">
-              <button className={selectedFrameSettings.fit === 'smart' ? 'on' : ''} onClick={() => setFitMode('smart')}>חכם</button>
-              <button className={selectedFrameSettings.fit === 'cover' ? 'on' : ''} onClick={() => setFitMode('cover')}>מילוי</button>
-              <button className={selectedFrameSettings.fit === 'contain' ? 'on' : ''} onClick={() => setFitMode('contain')}>מלא</button>
-            </div>
-          <label className="album-inspector-section album-zoom-control">
-            <span>זום <output>{selectedFrameSettings.zoom ?? 100}%</output></span>
-            <input type="range" min="100" max="250" value={selectedFrameSettings.zoom ?? 100} disabled={selectedFrameSettings.fit === 'contain'} onChange={(event) => updateFrameSettings({ zoom: Number(event.target.value) })} />
-          </label>
-          {selectedCrop?.warnings[0] && <span className="album-crop-state warning">{selectedCrop.warnings[0]}</span>}
-            <label className="tpl-fade-slider">
-              <span>שמאל ← → ימין <output>{Math.round(selectedCrop?.positionX ?? selectedFrameSettings.positionX)}%</output></span>
-              <input
-                type="range" min="0" max="100" step="0.5"
-                value={selectedCrop?.positionX ?? selectedFrameSettings.positionX}
-                disabled={selectedFrameSettings.fit === 'contain'}
-                onChange={(event) => setFramePosition({ positionX: Number(event.target.value) })}
-              />
-            </label>
-            <label className="tpl-fade-slider">
-              <span>למעלה ↕ למטה <output>{Math.round(selectedCrop?.positionY ?? selectedFrameSettings.positionY)}%</output></span>
-              <input
-                type="range" min="0" max="100" step="0.5"
-                value={selectedCrop?.positionY ?? selectedFrameSettings.positionY}
-                disabled={selectedFrameSettings.fit === 'contain'}
-                onChange={(event) => setFramePosition({ positionY: Number(event.target.value) })}
-              />
-            </label>
-            <small className="album-control-hint">
-              {selectedFrameSettings.fit === 'contain'
-                ? 'במצב "מלא" רואים את כל התמונה, ואין מה להזיז — בחר "חכם" או "מילוי"'
-                : 'גרור את התמונה בתוך המסגרת כדי למקם אותה'}
-            </small>
-                    </div>
-                  ),
-                },
-                ...(!activeTemplate ? [{
-                  id: 'geometry', label: 'מיקום וגודל', icon: ToolIcons.position,
-                  content: (
-                    <div className="ctx-stack">
-          <div className="album-inspector-section">
-            <span>מיקום וגודל <small>אחוזים מהכפולה</small></span>
-            <div className="album-frame-metrics">
-              <label><span>X</span><input type="number" min="0" max="100" step="0.1" value={(selectedSlot.x * 100).toFixed(1)} onChange={(event) => updateSelectedSlot({ x: Math.max(0, Math.min(1 - selectedSlot.width, Number(event.target.value) / 100)) })} /></label>
-              <label><span>Y</span><input type="number" min="0" max="100" step="0.1" value={(selectedSlot.y * 100).toFixed(1)} onChange={(event) => updateSelectedSlot({ y: Math.max(0, Math.min(1 - selectedSlot.height, Number(event.target.value) / 100)) })} /></label>
-              <label><span>רוחב</span><input type="number" min="6" max="100" step="0.1" value={(selectedSlot.width * 100).toFixed(1)} onChange={(event) => updateSelectedSlot({ width: Math.max(0.06, Math.min(1 - selectedSlot.x, Number(event.target.value) / 100)) })} /></label>
-              <label><span>גובה</span><input type="number" min="6" max="100" step="0.1" value={(selectedSlot.height * 100).toFixed(1)} onChange={(event) => updateSelectedSlot({ height: Math.max(0.06, Math.min(1 - selectedSlot.y, Number(event.target.value) / 100)) })} /></label>
-            </div>
-            <small className="album-size-status">
-              {layout.slots.filter((slot) => Math.abs(slot.width - selectedSlot.width) < 0.001).length} באותו רוחב · {' '}
-              {layout.slots.filter((slot) => Math.abs(slot.height - selectedSlot.height) < 0.001).length} באותו גובה
-            </small>
-          </div>
-          <div className="album-inspector-section">
-            <span>יישור וריווח <small>המסגרת המסומנת היא הייחוס</small></span>
-            <div className="album-arrange-options">
-              <button onClick={() => arrangeFrames('left')}>יישור שמאל</button>
-              <button onClick={() => arrangeFrames('center-x')}>מרכז אופקי</button>
-              <button onClick={() => arrangeFrames('right')}>יישור ימין</button>
-              <button onClick={() => arrangeFrames('top')}>יישור עליון</button>
-              <button onClick={() => arrangeFrames('center-y')}>מרכז אנכי</button>
-              <button onClick={() => arrangeFrames('bottom')}>יישור תחתון</button>
-              <button onClick={() => arrangeFrames('width')}>רוחב אחיד</button>
-              <button onClick={() => arrangeFrames('height')}>גובה אחיד</button>
-              <button className="wide" onClick={() => arrangeFrames('size')}>גודל זהה</button>
-              <button disabled={layout.slots.length < 3} onClick={() => arrangeFrames('horizontal-gap')}>רווח אופקי</button>
-              <button disabled={layout.slots.length < 3} onClick={() => arrangeFrames('vertical-gap')}>רווח אנכי</button>
-            </div>
-          </div>
-                    </div>
-                  ),
-                }] : []),
-                ...(activeTemplate && spread.templateInstance && selectedSlotIndex !== null && templatePhotoLayers[selectedSlotIndex] ? (() => {
-            const placeId = templatePhotoLayers[selectedSlotIndex].id;
-            const designed = findTemplate(spread.templateInstance.templateId)?.layers
-              .find((layer) => layer.id === placeId);
-            const fade = spread.templateInstance.fades?.[placeId]
-              ?? designFade(designed?.type === 'photo' ? designed : undefined);
-            const setFade = (patch: Partial<PhotoFade>, done = false) => {
-              editTemplateInstance((instance) => ({
-                ...instance,
-                fades: { ...instance.fades, [placeId]: { ...fade, ...patch } },
-              }));
-              if (done) endTemplateEdit();
-            };
-                  return [{
-                    id: 'fade', label: 'מעבר ושקיפות', icon: ToolIcons.fade,
-                    content: (
-                      <div className="ctx-stack tpl-fade">
-                <div className="tpl-fade-sides" role="group" aria-label="צד המעבר">
-                  {([['none', 'ללא'], ['right', 'ימין'], ['left', 'שמאל'], ['top', 'למעלה'], ['bottom', 'למטה']] as const)
-                    .map(([side, label]) => (
-                      <button key={side} className={fade.side === side ? 'on' : ''} onClick={() => setFade({ side }, true)}>{label}</button>
-                    ))}
-                </div>
-                {fade.side !== 'none' && (
-                  <div className="tpl-fade-modes" role="group" aria-label="סוג המעבר">
-                    <button className={fade.mode === 'background' ? 'on' : ''} onClick={() => setFade({ mode: 'background' }, true)}>נמוג אל הרקע</button>
-                    <button className={fade.mode === 'blend' ? 'on' : ''} onClick={() => setFade({ mode: 'blend' }, true)}>מתמזג לתמונה הסמוכה</button>
-                  </div>
-                )}
-                {fade.side !== 'none' && (
-                  <label className="tpl-fade-slider">
-                    <span>רכות <output>{fade.softness}</output></span>
-                    <input
-                      type="range" min="0" max="100" value={fade.softness}
-                      onChange={(event) => setFade({ softness: Number(event.target.value) })}
-                      onPointerUp={endTemplateEdit} onKeyUp={endTemplateEdit} onBlur={endTemplateEdit}
-                    />
-                  </label>
-                )}
-                <label className="tpl-fade-slider">
-                  <span>שקיפות <output>{fade.transparency}%</output></span>
-                  <input
-                    type="range" min="0" max="90" value={fade.transparency}
-                    onChange={(event) => setFade({ transparency: Number(event.target.value) })}
-                    onPointerUp={endTemplateEdit} onKeyUp={endTemplateEdit} onBlur={endTemplateEdit}
-                  />
-                </label>
-                      </div>
-                    ),
-                  }];
-                })() : []),
-                ...(selectedPlace && spread.templateInstance ? (() => {
-            const style = spread.templateInstance.styles?.[selectedPlace.id] ?? {};
-            const mm = (fraction: number | undefined) => Math.round((fraction ?? 0) * profile.spreadHeightMm * 10) / 10;
-            const fromMm = (value: number) => value / profile.spreadHeightMm;
-            const rotation = Math.round(selectedPlace.rotation ?? 0);
-            const live = { onPointerUp: endTemplateEdit, onKeyUp: endTemplateEdit, onBlur: endTemplateEdit };
-                  return [
-                    {
-                      id: 'rotate', label: 'סיבוב והיפוך', icon: ToolIcons.rotate,
-                      content: (
-                        <div className="ctx-stack tpl-tools">
-                <label className="tpl-fade-slider">
-                  <span>סיבוב <output>{rotation}°</output></span>
-                  <input type="range" min="-180" max="180" value={rotation} onChange={(event) => setPlaceStyle({ rotation: Number(event.target.value) }, false)} {...live} />
-                </label>
-                <div className="tpl-tool-row">
-                  <button onClick={() => setPlaceStyle({ rotation: ((rotation - 90 + 540) % 360) - 180 })} title="סיבוב 90° נגד כיוון השעון">↺ 90°</button>
-                  <button onClick={() => setPlaceStyle({ rotation: ((rotation + 90 + 540) % 360) - 180 })} title="סיבוב 90° עם כיוון השעון">↻ 90°</button>
-                  <button onClick={() => setPlaceStyle({ rotation: 0 })}>ישר</button>
-                </div>
-                <div className="tpl-tool-row">
-                  <button className={style.flipX ? 'on' : ''} onClick={() => setPlaceStyle({ flipX: !style.flipX })}>⇋ היפוך אופקי</button>
-                  <button className={style.flipY ? 'on' : ''} onClick={() => setPlaceStyle({ flipY: !style.flipY })}>⇅ היפוך אנכי</button>
-                </div>
-                        </div>
-                      ),
-                    },
-                    {
-                      id: 'frame', label: 'פינות, מסגרת וצל', icon: ToolIcons.frame,
-                      content: (
-                        <div className="ctx-stack tpl-tools">
-                <label className="tpl-fade-slider">
-                  <span>פינות מעוגלות <output>{mm(style.radius)} מ״מ</output></span>
-                  <input type="range" min="0" max="60" step="0.5" value={mm(style.radius)} onChange={(event) => setPlaceStyle({ radius: fromMm(Number(event.target.value)) }, false)} {...live} />
-                </label>
-                <label className="tpl-fade-slider">
-                  <span>מסגרת <output>{mm(style.border)} מ״מ</output></span>
-                  <input type="range" min="0" max="15" step="0.5" value={mm(style.border)} onChange={(event) => setPlaceStyle({ border: fromMm(Number(event.target.value)) }, false)} {...live} />
-                </label>
-                {(style.border ?? 0) > 0 && (
-                  <label className="tpl-tool-color">
-                    <span>צבע המסגרת</span>
-                    <input type="color" value={style.borderColor ?? '#ffffff'} onChange={(event) => setPlaceStyle({ borderColor: event.target.value }, false)} onBlur={endTemplateEdit} />
-                  </label>
-                )}
-                <label className="tpl-fade-slider">
-                  <span>צל <output>{style.shadow ?? 0}</output></span>
-                  <input type="range" min="0" max="100" value={style.shadow ?? 0} onChange={(event) => setPlaceStyle({ shadow: Number(event.target.value) }, false)} {...live} />
-                </label>
-                        </div>
-                      ),
-                    },
-                    {
-                      id: 'order', label: 'סדר', icon: ToolIcons.layers,
-                      content: (
-                        <div className="ctx-stack tpl-tools">
-                          <span className="ctx-label">מה מעל מה</span>
-                <div className="tpl-tool-row">
-                  <button onClick={() => orderPlace('front')}>לחזית</button>
-                  <button onClick={() => orderPlace('forward')}>קדימה</button>
-                  <button onClick={() => orderPlace('backward')}>אחורה</button>
-                  <button onClick={() => orderPlace('back')}>לרקע</button>
-                </div>
-                        </div>
-                      ),
-                    },
-                  ];
-                })() : []),
-              ]}
-              actions={[
-                { id: 'unplace', label: 'הוצאת התמונה מהמקום', icon: ToolIcons.unplace, onClick: removeSelectedFramePhoto },
-                ...(selectedPlace ? [
-                  { id: 'duplicate', label: 'שכפול המקום', icon: ToolIcons.duplicate, onClick: duplicateSelectedPlace },
-                  { id: 'delete', label: 'מחיקת המקום מהכפולה', icon: ToolIcons.trash, onClick: deleteSelectedPlace, danger: true },
-                ] : []),
-              ]}
-            />
-          )}
-          {selectedElement && (
-            <ContextToolbar
-              name={selectedElement.type === 'text' ? 'טקסט' : 'אלמנט'}
-              onDone={() => setSelectedElementId(null)}
-              tools={[
-                ...(selectedElement.type === 'text' ? [{
-                  id: 'text', label: 'טקסט וגופן', icon: ToolIcons.text,
-                  content: (
-                    <div className="ctx-stack tpl-tools">
-            {selectedElement.type === 'text' && (
-              <>
-                <label className="tpl-texts">
-                  <span>טקסט</span>
-                  <textarea
-                    dir="auto"
-                    rows={2}
-                    value={selectedElement.defaultText}
-                    onChange={(event) => updateElement(selectedElement.id, (layer) => ({ ...layer, defaultText: event.target.value }), false)}
-                    onBlur={endTemplateEdit}
-                    onKeyDown={(event) => event.stopPropagation()}
-                  />
-                </label>
-                <label className="tpl-texts">
-                  <span>גופן</span>
-                  <select
-                    value={familyOf(selectedElement.fontFamily)}
-                    style={{ fontFamily: selectedElement.fontFamily }}
-                    onChange={(event) => updateElement(selectedElement.id, (layer) => ({ ...layer, fontFamily: fontStack(event.target.value) }))}
-                  >
-                    {(['mine', 'hebrew', 'script', 'latin'] as const).map((group) => {
-                      const fonts = group === 'mine' ? userFonts : FONT_CATALOG.filter((font) => font.group === group);
-                      if (!fonts.length) return null;
-                      return (
-                        <optgroup key={group} label={FONT_GROUP_LABELS[group]}>
-                          {fonts.map((font) => (
-                            <option key={font.family} value={font.family} style={{ fontFamily: `'${font.family}'` }}>{font.label}</option>
-                          ))}
-                        </optgroup>
-                      );
-                    })}
-                    {![...FONT_CATALOG, ...userFonts].some((font) => font.family === familyOf(selectedElement.fontFamily)) && (
-                      <option value={familyOf(selectedElement.fontFamily)}>{familyOf(selectedElement.fontFamily)}</option>
-                    )}
-                  </select>
-                </label>
-                <label className="tpl-fade-slider">
-                  <span>גודל <output>{Math.round(selectedElement.fontSize * profile.spreadHeightMm * 2.835)} pt</output></span>
-                  <input
-                    type="range" min="0.01" max="0.25" step="0.002" value={selectedElement.fontSize}
-                    onChange={(event) => updateElement(selectedElement.id, (layer) => ({ ...layer, fontSize: Number(event.target.value) }), false)}
-                    onPointerUp={endTemplateEdit} onKeyUp={endTemplateEdit}
-                  />
-                </label>
-                <div className="tpl-tool-row">
-                  {([['start', 'ימין'], ['center', 'מרכז'], ['end', 'שמאל']] as const).map(([align, label]) => (
-                    <button key={align} className={selectedElement.align === align ? 'on' : ''} onClick={() => updateElement(selectedElement.id, (layer) => ({ ...layer, align }))}>{label}</button>
-                  ))}
-                  <button className={selectedElement.fontWeight >= 700 ? 'on' : ''} onClick={() => updateElement(selectedElement.id, (layer) => (layer.type === 'text' ? { ...layer, fontWeight: layer.fontWeight >= 700 ? 400 : 700 } : layer))}>מודגש</button>
-                </div>
-              </>
-            )}
-                    </div>
-                  ),
-                }] : []),
-                ...(selectedElement.type !== 'image' ? [{
-                  id: 'color', label: 'צבע', icon: ToolIcons.color,
-                  content: (
-                    <div className="ctx-stack tpl-tools">
-            {(
-              <label className="tpl-tool-color">
-                <span>צבע</span>
-                <input
-                  type="color"
-                  value={selectedElement.type === 'text'
-                    ? selectedElement.color ?? '#ffffff'
-                    : selectedElement.fillColor ?? selectedElement.strokeColor ?? '#ffffff'}
-                  onChange={(event) => updateElement(selectedElement.id, (layer) => {
-                    const color = event.target.value;
-                    if (layer.type === 'text') return { ...layer, color };
-                    if (layer.type === 'shape') {
-                      return { ...layer, fillColor: layer.fillColor ? color : undefined, strokeColor: layer.fillColor ? layer.strokeColor : color };
-                    }
-                    return layer;
-                  }, false)}
-                  onBlur={endTemplateEdit}
-                />
-              </label>
-            )}
-            {selectedElement.type === 'shape' && selectedElement.shape !== 'path' && (
-              <>
-                <label className="tpl-fade-slider">
-                  <span>עובי קו <output>{Math.round((selectedElement.strokeWidth ?? 0) * profile.spreadHeightMm * 10) / 10} מ״מ</output></span>
-                  <input
-                    type="range" min="0" max="0.04" step="0.0005" value={selectedElement.strokeWidth ?? 0}
-                    onChange={(event) => updateElement(selectedElement.id, (layer) => ({ ...layer, strokeWidth: Number(event.target.value) }), false)}
-                    onPointerUp={endTemplateEdit} onKeyUp={endTemplateEdit}
-                  />
-                </label>
-                {selectedElement.shape !== 'polyline' && (
-                  <label className="tpl-tool-color">
-                    <span>מילוי</span>
-                    <span className="tpl-tool-row">
-                      <input
-                        type="color"
-                        value={selectedElement.fillColor ?? '#ffffff'}
-                        onChange={(event) => updateElement(selectedElement.id, (layer) => ({ ...layer, fillColor: event.target.value }), false)}
-                        onBlur={endTemplateEdit}
-                      />
-                      <button onClick={() => updateElement(selectedElement.id, (layer) => (layer.type === 'shape' ? { ...layer, fillColor: undefined } : layer))}>ללא</button>
-                    </span>
-                  </label>
-                )}
-              </>
-            )}
-                    </div>
-                  ),
-                }] : []),
-                {
-                  id: 'opacity', label: 'שקיפות', icon: ToolIcons.opacity,
-                  content: <div className="ctx-stack tpl-tools">
-            <label className="tpl-fade-slider">
-              <span>שקיפות <output>{Math.round((1 - (selectedElement.opacity ?? 1)) * 100)}%</output></span>
-              <input
-                type="range" min="0" max="90" value={Math.round((1 - (selectedElement.opacity ?? 1)) * 100)}
-                onChange={(event) => updateElement(selectedElement.id, (layer) => ({ ...layer, opacity: 1 - Number(event.target.value) / 100 }), false)}
-                onPointerUp={endTemplateEdit} onKeyUp={endTemplateEdit}
-              />
-            </label>
-                  </div>,
-                },
-                {
-                  id: 'rotate', label: 'סיבוב', icon: ToolIcons.rotate,
-                  content: <div className="ctx-stack tpl-tools">
-            <label className="tpl-fade-slider">
-              <span>סיבוב <output>{Math.round(selectedElement.rotation ?? 0)}°</output></span>
-              <input
-                type="range" min="-180" max="180" value={Math.round(selectedElement.rotation ?? 0)}
-                onChange={(event) => updateElement(selectedElement.id, (layer) => ({ ...layer, rotation: Number(event.target.value) }), false)}
-                onPointerUp={endTemplateEdit} onKeyUp={endTemplateEdit}
-              />
-            </label>
-                  </div>,
-                },
-                {
-                  id: 'order', label: 'סדר', icon: ToolIcons.layers,
-                  content: <div className="ctx-stack tpl-tools">
-                    <span className="ctx-label">מה מעל מה</span>
-            <div className="tpl-tool-row">
-              {([['front', 'לחזית'], ['forward', 'קדימה'], ['backward', 'אחורה'], ['back', 'לרקע']] as const).map(([to, label]) => (
-                <button key={to} onClick={() => activeTemplate && updateElement(selectedElement.id, (layer) => ({ ...layer, zIndex: reorderZ(activeTemplate.layers, layer.id, to) }))}>{label}</button>
-              ))}
-            </div>
-                  </div>,
-                },
-              ]}
-              actions={[
-                { id: 'duplicate', label: 'שכפול', icon: ToolIcons.duplicate, onClick: duplicateSelectedElement },
-                { id: 'delete', label: 'מחיקה', icon: ToolIcons.trash, onClick: deleteSelectedElement, danger: true },
-              ]}
-            />
-          )}
-          {/* Kept mounted, only hidden: unmounting it threw the photographer back
+          {/* Kept mounted, never unmounted: it threw the photographer back
             * to the first tab every time she touched a photo and came back. */}
-          <div
-            className="album-panel-swap"
-            hidden={Boolean((selectedSlot && selectedFrameSettings) || selectedElement)}
-          >
+          <div className="album-panel-swap">
           <SpreadPanel
             key={spread.id}
             spread={spread}

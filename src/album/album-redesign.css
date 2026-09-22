@@ -465,10 +465,31 @@
   background: var(--album-chrome);
 }
 
-.album-workspace.design > .album-center { grid-area: canvas; min-width: 0; min-height: 0; display: grid; grid-template-rows: minmax(0, 1fr) 122px; direction: rtl; background: var(--album-chrome); }
+/* Three rows, placed by name rather than by order: the tools bar is only
+ * present while something is selected, and an implicitly-placed tray would
+ * slide up into the canvas row every time the photographer let go. */
+.album-workspace.design > .album-center { grid-area: canvas; min-width: 0; min-height: 0; display: grid; grid-template-rows: auto minmax(0, 1fr) 122px; direction: rtl; background: var(--album-chrome); }
+.album-workspace.design > .album-center > .ctx-bar { grid-row: 1; }
+.album-workspace.design > .album-center > .album-canvas-area { grid-row: 2; }
+.album-workspace.design > .album-center > .album-photo-tray { grid-row: 3; }
 .album-workspace.design > .album-layout-panel { grid-area: inspector; width: auto; min-width: 0; min-height: 0; display: block; overflow-y: auto; direction: rtl; border: 0; border-inline-start: 1px solid var(--line); color: var(--ink); background: var(--card); }
-.album-workspace.design .album-canvas-area { min-width: 0; min-height: 0; display: grid; place-items: center; padding: clamp(24px, 5vh, 58px) clamp(28px, 6vw, 90px); overflow: auto; background: radial-gradient(circle at 50% 35%, var(--card), var(--album-chrome) 62%); }
-.album-workspace.design .album-spread { width: min(100%, 1040px); max-height: 100%; margin: 0; flex: none; box-shadow: 0 18px 54px rgb(0 0 0 / .5); }
+
+/* While a photograph or a text is selected its tools are on the bar above the
+ * canvas, so this column stands down to its rail and the spread takes the
+ * width. The rail stays reachable — touching it lets go of the selection. */
+.album-workspace.design.has-selection { grid-template-columns: minmax(0, 1fr) 64px; }
+.album-layout-panel.rail-only { overflow: hidden; }
+.album-layout-panel.rail-only .sp-panel { grid-template-columns: 64px; }
+.album-layout-panel.rail-only .sp-body { display: none; }
+.album-layout-panel.rail-only .sp-rail { border-inline-end: 0; }
+/* The spread is the product; the margin around it is not. This used to reserve
+ * up to 90px a side, which on a laptop was the difference between a spread you
+ * design on and a spread you squint at. */
+.album-workspace.design .album-canvas-area { min-width: 0; min-height: 0; display: grid; place-items: center; padding: clamp(18px, 3vh, 34px) clamp(16px, 2.5vw, 44px); overflow: auto; background: radial-gradient(circle at 50% 35%, var(--card), var(--album-chrome) 62%); }
+/* The canvas box is the limit now, not a number typed here: with the tools
+ * on a bar above, a 1040px cap was leaving the spread smaller than the room
+ * it had. */
+.album-workspace.design .album-spread { width: min(100%, 1400px); max-height: 100%; margin: 0; flex: none; box-shadow: 0 18px 54px rgb(0 0 0 / .5); }
 
 .album-photo-tray { min-width: 0; min-height: 0; display: grid; grid-template-rows: 38px minmax(0, 1fr); border-top: 1px solid var(--line-strong); color: var(--ink); background: var(--album-chrome-2); }
 .album-photo-tray-head { min-width: 0; display: flex; align-items: center; gap: 8px; padding: 0 12px; border-bottom: 1px solid var(--line-strong); }
