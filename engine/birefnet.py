@@ -77,21 +77,36 @@ def _prep(rgb: np.ndarray) -> np.ndarray:
     return np.ascontiguousarray(x.transpose(2, 0, 1)[None])
 
 
-def _cache_path(x: np.ndarray) -> str:
-    """Keyed on the model INPUT, so it is keyed on the picture and nothing else.
+def _cache_path(x: np.ndarray, rgb: np.ndarray, key=None) -> str:
+    """Keyed on the PHOTOGRAPH when it has a name, else on the model input.
 
-    Hashing the prepared tensor rather than the source frame means two requests
-    that differ only in how they got here — a different display width, a
-    different recipe — land on the same entry, which is the whole point: the
-    subject does not move when the grade changes.
+    Hashing the prepared tensor made the key depend on the width the frame
+    arrived at: the strip (640) and the edit screen (~1200) resize to 1024 from
+    different pixels, so the same photograph was inferred twice (measured on
+    disk: two `subject` files per frame, ~3s each). A named photograph -- path,
+    mtime and size, see previews._photo_key -- is the same subject at every
+    width, so it is inferred once. Unnamed pixels keep the tensor hash.
     """
     base = (
         os.environ.get("TEZA_HOME")
         or os.environ.get("LOCALAPPDATA")
         or os.path.expanduser("~")
     )
-    digest = hashlib.blake2b(x.tobytes(), digest_size=16).hexdigest()
-    return os.path.join(base, "TEZA", "cache", "subject", f"{digest}.npy")
+    if key:
+        h, w = rgb.shape[:2]
+        name = f"id-{hashlib.blake2b(f'{key}|{round(w / float(h), 2)}'.encode('utf-8'), digest_size=16).hexdigest()}"
+    else:
+        name = hashlib.blake2b(x.tobytes(), digest_size=16).hexdigest()
+    return os.path.join(base, "TEZA", "cache", "subject", f"{name}.npy")
+
+
+def _whole_frame_key():
+    """The photograph being rendered, unless this call is on a named crop."""
+    import masks
+
+    if getattr(masks._source, "scope", ()):
+        return None
+    return getattr(masks._source, "key", None)
 
 
 def _infer(x: np.ndarray, cached_at: str) -> np.ndarray:
@@ -134,7 +149,7 @@ _inflight_lock = threading.Lock()
 _early = ThreadPoolExecutor(max_workers=1, thread_name_prefix="subject-early")
 
 
-def start(rgb: np.ndarray) -> bool:
+def start(rgb: np.ndarray, key=None) -> bool:
     """Begin inferring `rgb` in the background, unless it is cached or running.
 
     `rgb` must be the frame `subject_alpha` will later be asked about — the
@@ -143,7 +158,7 @@ def start(rgb: np.ndarray) -> bool:
     if not available():
         return False
     x = _prep(rgb)
-    cached_at = _cache_path(x)
+    cached_at = _cache_path(x, rgb, key)
     if os.path.exists(cached_at):
         return False
     with _inflight_lock:
@@ -168,7 +183,7 @@ def subject_alpha(rgb: np.ndarray) -> np.ndarray:
         raise FileNotFoundError(f"BiRefNet weights not found at {MODEL}")
 
     x = _prep(rgb)
-    cached_at = _cache_path(x)
+    cached_at = _cache_path(x, rgb, _whole_frame_key())
     out = None
     try:
         out = np.load(cached_at)

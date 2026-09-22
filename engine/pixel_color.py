@@ -251,14 +251,39 @@ def _features(lab):
     )
 
 
+class _masks_on(object):
+    """Point masks.py at `rgb` for a moment, then put back what was there.
+
+    This used to set the source WITHOUT the photograph's name and then CLEAR
+    it — wiping the identity render.render had set for the whole recipe. Every
+    cache after that point (the subject cutout, the material regions, any tool
+    after this one) saw an unnamed picture and keyed on its pixel size, so the
+    strip, the edit screen and the preparer each paid the full segmentation of
+    the same photograph. Keep the name; restore the rest.
+    """
+
+    def __init__(self, rgb):
+        self.rgb = rgb
+
+    def __enter__(self):
+        src = masks_mod._source
+        self.prev = (getattr(src, "rgb", None), getattr(src, "key", None), getattr(src, "scope", ()))
+        masks_mod.set_source(self.rgb, self.prev[1])
+        src.scope = self.prev[2]
+
+    def __exit__(self, *exc):
+        rgb, key, scope = self.prev
+        masks_mod.set_source(rgb, key)
+        masks_mod._source.scope = scope
+        return False
+
+
 def _subject_mask(rgb):
-    masks_mod.set_source(rgb)
-    try:
-        return masks_mod.get_mask(rgb, "subject").astype(np.float32)
-    except Exception:
-        return np.zeros(rgb.shape[:2], np.float32)
-    finally:
-        masks_mod.clear_source()
+    with _masks_on(rgb):
+        try:
+            return masks_mod.get_mask(rgb, "subject").astype(np.float32)
+        except Exception:
+            return np.zeros(rgb.shape[:2], np.float32)
 
 
 def _fast_subject_mask(rgb):
@@ -268,15 +293,13 @@ def _fast_subject_mask(rgb):
 
 
 def _skin_mask(rgb):
-    masks_mod.set_source(rgb)
-    try:
-        face = masks_mod.get_mask(rgb, "face-skin")
-        body = masks_mod.get_mask(rgb, "body-skin")
-        return np.maximum(face, body).astype(np.float32)
-    except Exception:
-        return np.zeros(rgb.shape[:2], np.float32)
-    finally:
-        masks_mod.clear_source()
+    with _masks_on(rgb):
+        try:
+            face = masks_mod.get_mask(rgb, "face-skin")
+            body = masks_mod.get_mask(rgb, "body-skin")
+            return np.maximum(face, body).astype(np.float32)
+        except Exception:
+            return np.zeros(rgb.shape[:2], np.float32)
 
 
 def _fast_skin_mask(rgb):

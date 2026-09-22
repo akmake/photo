@@ -90,7 +90,7 @@ def _solidify(alpha: np.ndarray, lo: float = 0.08, hi: float = 0.62) -> np.ndarr
     return a * a * (3.0 - 2.0 * a)  # smoothstep
 
 
-def start_early(source_rgb: np.ndarray) -> None:
+def start_early(source_rgb: np.ndarray, key=None) -> None:
     """Begin the subject inference for this frame now, in the background.
 
     Called when a render starts, so BiRefNet runs alongside the face tools
@@ -104,7 +104,7 @@ def start_early(source_rgb: np.ndarray) -> None:
         import birefnet
         import common
 
-        birefnet.start(common.downscale(source_rgb))
+        birefnet.start(common.downscale(source_rgb), key)
     except Exception:  # noqa: BLE001
         pass
 

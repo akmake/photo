@@ -105,6 +105,73 @@ def _texture(gray: np.ndarray, mask: np.ndarray) -> float:
     return float(edges[mask].mean())
 
 
+# ONE SEGMENTATION PER PHOTOGRAPH, not one per panel width.
+#
+# MobileSAM is ~6s of the ~10s a learned colour costs a frame, and it was
+# keyed on the pixel SIZE with only an 8-entry memory cache: the strip (640)
+# and the edit screen (~1200) each paid it, the background preparer paid it a
+# third time, and six frames at two sizes overflowed the memory cache so the
+# next colour applied to the same six paid it all again.
+#
+# A named photograph (render passes its identity through masks.set_source) is
+# now segmented once at REGION_CANON and kept on disk; every width reuses it
+# through the same nearest-neighbour resize the labels always went through.
+# 640 because it is the smallest frame any render works at (the proxy floor),
+# so every caller can supply it. The encoder resizes to 1024 internally either
+# way; what changes is how finely region EDGES land, and those are feathered
+# (pixel_color._apply_material) far wider than a 640->1200 label step.
+REGION_CANON = 640
+# Bump when anything here changes what a region map contains.
+_REGIONS_VERSION = 1
+
+
+def _photo_disk_path(rgb: np.ndarray):
+    """A cache file named by the photograph, or None for unnamed pixels / crops."""
+    import masks  # the one owner of "which photograph is this"
+
+    key = getattr(masks._source, "key", None)
+    if not key or getattr(masks._source, "scope", ()):
+        return None
+    h, w = rgb.shape[:2]
+    ident = hashlib.blake2b(
+        f"{key}|{round(w / float(h), 2)}|{REGION_CANON}|{_REGIONS_VERSION}".encode("utf-8"),
+        digest_size=16,
+    ).hexdigest()
+    base = os.environ.get("TEZA_HOME") or os.environ.get("LOCALAPPDATA") or os.path.expanduser("~")
+    return os.path.join(base, "TEZA", "cache", "regions", f"{ident}.npz")
+
+
+def _load_disk(on_disk, rgb):
+    import json
+    import masks
+
+    try:
+        with np.load(on_disk, allow_pickle=False) as z:
+            # The fingerprint is the second lock, as in masks.py: a file edited
+            # in place under the same name must not borrow the old map.
+            if not masks._same_picture(z["fp"], masks._fingerprint(rgb)):
+                return None
+            return z["labels"].astype(np.int32), json.loads(str(z["stats"]))
+    except Exception:  # noqa: BLE001 - a missing or bad file is a cache miss
+        return None
+
+
+def _save_disk(on_disk, labels, stats, rgb):
+    import json
+    import masks
+
+    try:
+        os.makedirs(os.path.dirname(on_disk), exist_ok=True)
+        tmp = f"{on_disk}.{os.getpid()}.{threading.get_ident()}.tmp.npz"
+        np.savez_compressed(
+            tmp, labels=labels.astype(np.int16), stats=np.array(json.dumps(stats)),
+            fp=masks._fingerprint(rgb),
+        )
+        os.replace(tmp, on_disk)
+    except OSError:
+        pass  # a cache that cannot be written still serves pixels
+
+
 def get_regions(rgb: np.ndarray):
     """Class-agnostic materially-distinct regions.
 
@@ -124,7 +191,34 @@ def get_regions(rgb: np.ndarray):
         _CACHE.move_to_end(key)
         return hit
 
-    small = common.downscale(rgb, REGION_MAX_DIM)
+    on_disk = _photo_disk_path(rgb)
+    if on_disk is not None:
+        stored = _load_disk(on_disk, rgb)
+        if stored is None:
+            stored = _segment(common.downscale(rgb, REGION_CANON))
+            _save_disk(on_disk, stored[0], stored[1], rgb)
+        labels, stats = stored
+        if labels.shape[:2] != rgb.shape[:2]:
+            labels = cv2.resize(
+                labels, (rgb.shape[1], rgb.shape[0]), interpolation=cv2.INTER_NEAREST,
+            )
+        result = (labels, stats)
+    else:
+        labels, stats = _segment(common.downscale(rgb, REGION_MAX_DIM))
+        if labels.shape[:2] != rgb.shape[:2]:
+            labels = cv2.resize(
+                labels, (rgb.shape[1], rgb.shape[0]), interpolation=cv2.INTER_NEAREST,
+            )
+        result = (labels, stats)
+
+    _CACHE[key] = result
+    if len(_CACHE) > _CACHE_MAX:
+        _CACHE.popitem(last=False)
+    return result
+
+
+def _segment(small: np.ndarray):
+    """MobileSAM on one working-size frame -> (labels at that size, stats)."""
     height, width = small.shape[:2]
     min_area = max(64, int(height * width * MIN_REGION_FRACTION))
 
@@ -159,15 +253,4 @@ def get_regions(rgb: np.ndarray):
             }
         )
 
-    if labels.shape[:2] != rgb.shape[:2]:
-        labels = cv2.resize(
-            labels,
-            (rgb.shape[1], rgb.shape[0]),
-            interpolation=cv2.INTER_NEAREST,
-        )
-
-    result = (labels, stats)
-    _CACHE[key] = result
-    if len(_CACHE) > _CACHE_MAX:
-        _CACHE.popitem(last=False)
-    return result
+    return labels, stats

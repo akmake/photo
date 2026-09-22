@@ -518,7 +518,7 @@ def render(img, recipe_tools, source_scale: float = 1.0, source_img=None, key=No
     if key and start < len(active):
         import matting
 
-        matting.start_early(source_rgb)
+        matting.start_early(source_rgb, key)
 
     # `key` names the photograph so its masks outlive this particular width.
     # The masks come from the PRISTINE frame even when resuming mid-stack.
