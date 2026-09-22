@@ -371,6 +371,15 @@ export default function PhotoEditor({
           ))}
         </nav>
         <div className="tz-pe-top-side is-end">
+          <button
+            type="button"
+            className="tz-pe-btn is-quiet"
+            disabled={!dirty}
+            onClick={() => { setEdits({}); setAutoOn(null); setRatio(null); }}
+            title="מחזיר את התמונה למצב שבו פתחת אותה"
+          >
+            איפוס
+          </button>
           <button type="button" className="tz-pe-btn" onClick={cancel}>ביטול</button>
           <button type="button" className="tz-pe-btn is-primary" onClick={save} disabled={!dirty}>שמור</button>
         </div>
