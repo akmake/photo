@@ -1,4 +1,6 @@
-﻿import React, { useCallback, useEffect, useState } from 'react';
+﻿import PhotoGrid from '../../components/photo-grid/PhotoGrid';
+import { useDims } from '../../components/photo-grid/useDims';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   EDIT_WIDTH, importCloudFrame, importFrame, initProject, listImages, pickFolder,
   prepareFrames, triageSet,
@@ -36,6 +38,7 @@ export default function ImportV2({
   const { frames, ready } = useProjectFiles(projectId);
   const statuses = useStatuses(projectId);
   const preview = useSetPreview(projectId);
+  const dims = useDims(useMemo(() => frames.map((f) => f.path), [frames]));
 
   const [root, setRoot] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -331,43 +334,47 @@ export default function ImportV2({
             )}
           </div>
 
+          {/* The same gallery as everywhere: justified, in true proportions. */}
           <div className="tz-import-grid">
-            {frames.map((frame) => {
-              const status = (statuses[frame.name] as PhotoStatus) ?? 'raw';
-              return (
-                <div key={frame.path} className={`tz-frame-card s-${status}`}>
-                  <div className="tz-frame-img-wrap">
-                    <img
-                      src={preview.url(frame.path, 320)}
-                      alt={frame.name}
-                      loading="lazy"
-                      className="tz-frame-img"
-                    />
-                    {preview.pending(frame.path) && (
-                      <span className="tz-frame-pending-badge">טוען…</span>
-                    )}
-                  </div>
-                  <div className="tz-frame-foot">
-                    <span className="tz-frame-name" dir="ltr" title={frame.name}>
-                      {frame.name}
-                    </span>
-                    <div className="tz-frame-statuses">
-                      {PHOTO_STATUS.map((s) => (
-                        <button
-                          key={s.id}
-                          type="button"
-                          className={`tz-frame-status-btn ${s.id === status ? 'active' : ''}`}
-                          onClick={() => setPhotoStatus(projectId, frame.name, s.id)}
-                          title={s.label}
-                        >
-                          {s.label}
-                        </button>
-                      ))}
+            <PhotoGrid
+              className="tz-import-pg"
+              sections={[{
+                id: 'imported',
+                items: frames.map((frame) => ({
+                  id: frame.name,
+                  alt: frame.name,
+                  aspect: dims.get(frame.path),
+                  src: (w: number) => preview.url(frame.path, w),
+                })),
+              }]}
+              targetHeight={190}
+              tileClass={(item) => `s-${(statuses[item.id] as PhotoStatus) ?? 'raw'}`}
+              renderOverlay={(item, state) => {
+                const status = (statuses[item.id] as PhotoStatus) ?? 'raw';
+                const path = frames.find((f) => f.name === item.id)?.path ?? '';
+                return (
+                  <>
+                    {preview.pending(path) && <span className="tz-frame-pending-badge">טוען…</span>}
+                    <div className={`tz-import-pg-bar${state.hovered ? ' is-on' : ''}`}>
+                      {state.width > 170 && <span className="tz-import-pg-name" dir="ltr">{item.id}</span>}
+                      <div className="tz-frame-statuses">
+                        {PHOTO_STATUS.map((st) => (
+                          <button
+                            key={st.id}
+                            type="button"
+                            className={`tz-frame-status-btn ${st.id === status ? 'active' : ''}`}
+                            onClick={(e) => { e.stopPropagation(); setPhotoStatus(projectId, item.id, st.id); }}
+                            title={st.label}
+                          >
+                            {st.label}
+                          </button>
+                        ))}
+                      </div>
                     </div>
-                  </div>
-                </div>
-              );
-            })}
+                  </>
+                );
+              }}
+            />
           </div>
         </section>
       )}
