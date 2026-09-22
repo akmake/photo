@@ -200,6 +200,13 @@ export default function GalleryEditV2({
    * alone, white where it changed it, amplified so a subtle change shows, and
    * the numbers beside it. "I see no change" and "nothing changed" stop being
    * the same sentence. */
+  /* FULL QUALITY WHEN ZOOMED. The working preview is EDIT_WIDTH on its long
+   * edge — right for a fitted frame, soft the moment he zooms in to judge skin
+   * or focus. Zoomed past what the preview holds, the same recipe is rendered
+   * again at the size the screen now shows (up to the file itself) and swapped
+   * in when it is ready; the working preview stays up until then. */
+  const [hiRes, setHiRes] = useState<{ key: string; src: string } | null>(null);
+  const [hiResBusy, setHiResBusy] = useState(false);
   const [diffOn, setDiffOn] = useState(false);
   const [diffGain, setDiffGain] = useState(5);
   const [diffStats, setDiffStats] = useState<Delta | null | 'mismatch'>(null);
@@ -962,7 +969,6 @@ export default function GalleryEditV2({
   );
 
   const hasCustomEdits = Boolean(currentFrame && frameSteps(project.id, currentFrame.name).length > 0);
-  const displayImage = showOriginal ? (rawSrc || thumbUrl(currentFrame?.path ?? '', 1200)) : (renderedSrc || thumbUrl(currentFrame?.path ?? '', 1200));
   const fittedImage = useMemo(() => {
     if (!imageNatural.width || !imageNatural.height || !canvasViewport.width || !canvasViewport.height) {
       return null;
@@ -979,6 +985,18 @@ export default function GalleryEditV2({
       height: Math.round(imageNatural.height * fit * canvasZoom),
     };
   }, [canvasViewport, canvasZoom, imageNatural]);
+  /* How many pixels the screen shows along the long edge right now, and the
+   * render that serves it: 0 = the preview is enough; else a bucket, so a
+   * wheel turn from 150% to 175% does not ask for a new render each step. */
+  const shownLong = fittedImage
+    ? Math.max(fittedImage.width, fittedImage.height) * (typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1)
+    : 0;
+  const hiBucket = shownLong > EDIT_WIDTH * 1.15 ? (shownLong <= 3000 ? 3000 : 0) : -1; // -1 = not needed, 0 = the full file
+  const hiKey = currentPath && hiBucket >= 0 ? `${currentPath}|${hiBucket}|${JSON.stringify(recipe)}` : '';
+  const hiShown = !showOriginal && hiRes && hiRes.key === hiKey ? hiRes.src : null;
+  const displayImage = showOriginal
+    ? (hiBucket >= 0 && currentPath ? thumbUrl(currentPath, hiBucket || 8000) : (rawSrc || thumbUrl(currentFrame?.path ?? '', 1200)))
+    : (hiShown || renderedSrc || thumbUrl(currentFrame?.path ?? '', 1200));
   /* Only as big as the picture needs; the stylesheet's min-width/height 100%
    * fills the rest of the room. Forcing it to the measured box (scrollbars
    * included) would itself overflow by a scrollbar's width. */
@@ -986,6 +1004,26 @@ export default function GalleryEditV2({
     width: (fittedImage?.width ?? 0) + 32,
     height: (fittedImage?.height ?? 0) + 32,
   };
+
+  useEffect(() => {
+    if (!hiKey || !currentPath || !currentName) { setHiResBusy(false); return undefined; }
+    if (hiRes?.key === hiKey) return undefined;
+    let alive = true;
+    const t = window.setTimeout(async () => {
+      setHiResBusy(true);
+      try {
+        const tools = effectiveRecipe(project.id, currentName).filter((x) => x.enabled);
+        const res = await renderRecipeAtPath(currentPath, tools, hiBucket || undefined, false, 'edit-v2-hi');
+        if (alive) setHiRes({ key: hiKey, src: res.image });
+      } catch (e) {
+        if (!(e instanceof Superseded)) console.error('[איכות מלאה]', e);
+      } finally {
+        if (alive) setHiResBusy(false);
+      }
+    }, 350);
+    return () => { alive = false; window.clearTimeout(t); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hiKey]);
 
   /* Preserve the point under the mouse while zooming, like a photo editor.
    * A wheel turn over an eye keeps that eye under the pointer instead of
@@ -1498,6 +1536,9 @@ export default function GalleryEditV2({
                   <div className="tz-ge-canvas-badge-original">
                     תמונת מקור (לפני עריכה)
                   </div>
+                )}
+                {hiResBusy && !busyRender && (
+                  <div className="tz-ge-hires-note">טוען איכות מלאה…</div>
                 )}
                 {busyRender && (
                   <div style={{ position: 'absolute', bottom: 16, left: 16, background: 'rgba(0,0,0,0.65)', color: '#ffffff', padding: '4px 10px', borderRadius: 8, fontSize: 11 }}>
