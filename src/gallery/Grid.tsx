@@ -7,22 +7,23 @@
  * honest.
  *
  * Written by hand rather than pulled in: the whole app has React and nothing
- * else, and a fixed-size square grid is the one case where virtualising is
- * arithmetic, not a library.
+ * else. The positions come from the same justified layout the studio uses.
  */
 
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { justify } from '../components/photo-grid/justify';
 import type { Item } from './api';
 
 const GAP = 3;      // photographs, not cards: they nearly touch
-const OVERSCAN = 3; // rows kept alive above and below, so a flick stays fed
 
-function columnsFor(width: number) {
-  if (width < 420) return 2;
-  if (width < 760) return 3;
-  if (width < 1100) return 4;
-  if (width < 1500) return 5;
-  return 6;
+/** The row height aimed for: about two rows of portraits on a phone held
+ *  upright, more photographs a row as the screen grows. */
+function targetFor(width: number) {
+  if (width < 420) return 170;
+  if (width < 760) return 200;
+  if (width < 1100) return 230;
+  if (width < 1500) return 250;
+  return 270;
 }
 
 export default function Grid({
@@ -74,66 +75,62 @@ export default function Grid({
     return () => window.removeEventListener('scroll', onScroll);
   }, []);
 
-  const columns = columnsFor(width || 360);
-  const cell = width ? (width - GAP * (columns - 1)) / columns : 0;
-  const rowHeight = cell + GAP;
-  const rows = Math.ceil(items.length / columns);
-
-  const first = Math.max(0, Math.floor((scroll - top) / rowHeight) - OVERSCAN);
-  const last = Math.min(
-    rows,
-    Math.ceil((scroll + viewport - top) / rowHeight) + OVERSCAN,
+  /* JUSTIFIED rows (components/photo-grid/justify.ts, the Google Photos
+   * layout): every photograph in its own proportions — the client sees the
+   * frame as it was composed, not a square crop of it — rows filling the
+   * width exactly, one gap everywhere. */
+  const target = targetFor(width || 360);
+  const layout = useMemo(
+    () => justify(items.map((it) => it.aspect || 1.5), { width: Math.max(1, width), targetHeight: target, gap: GAP }),
+    [items, width, target],
   );
 
+  const lo = scroll - top - viewport * 1.2;
+  const hi = scroll - top + viewport * 2.2;
   const visible = [];
-  for (let row = first; row < last; row++) {
-    visible.push(
-      <div className="gal-row" key={row} style={{ height: cell, gap: GAP }}>
-        {items.slice(row * columns, row * columns + columns).map((item, n) => {
-          const index = row * columns + n;
-          const chosen = item.albumIds.length > 0;
-          return (
-            <div
-              className={`gal-cell${chosen ? ' is-chosen' : ''}`}
-              key={item.id}
-              style={{ width: cell, height: cell, background: item.color }}
-            >
-              <img
-                src={item.thumb}
-                alt=""
-                width={cell}
-                height={cell}
-                loading="lazy"
-                decoding="async"
-                draggable={false}
-                onClick={() => onOpen(index)}
-              />
-              <button
-                className="gal-heart"
-                type="button"
-                aria-pressed={chosen}
-                aria-label={chosen ? 'הסר מהבחירה' : 'בחר תמונה'}
-                disabled={locked}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onToggle(item);
-                }}
-              >
-                <Heart filled={chosen} />
-              </button>
-            </div>
-          );
-        })}
-      </div>,
-    );
+  for (const row of layout.rows) {
+    if (row.y + row.h < lo || row.y > hi) continue;
+    for (let index = row.from; index < row.to; index += 1) {
+      const item = items[index];
+      const box = layout.boxes[index];
+      const chosen = item.albumIds.length > 0;
+      visible.push(
+        <div
+          className={`gal-cell${chosen ? ' is-chosen' : ''}`}
+          key={item.id}
+          style={{ position: 'absolute', insetInlineStart: box.x, top: box.y, width: box.w, height: box.h, background: item.color }}
+        >
+          <img
+            src={item.thumb}
+            alt=""
+            width={box.w}
+            height={box.h}
+            decoding="async"
+            draggable={false}
+            onClick={() => onOpen(index)}
+          />
+          <button
+            className="gal-heart"
+            type="button"
+            aria-pressed={chosen}
+            aria-label={chosen ? 'הסר מהבחירה' : 'בחר תמונה'}
+            disabled={locked}
+            onClick={(e) => {
+              e.stopPropagation();
+              onToggle(item);
+            }}
+          >
+            <Heart filled={chosen} />
+          </button>
+        </div>,
+      );
+    }
   }
 
   return (
     <div className="gal-grid" ref={host}>
-      <div style={{ height: Math.max(0, rows * rowHeight - GAP) }}>
-        <div style={{ transform: `translateY(${first * rowHeight}px)` }}>
-          {visible}
-        </div>
+      <div style={{ position: 'relative', height: layout.height }}>
+        {visible}
       </div>
     </div>
   );
