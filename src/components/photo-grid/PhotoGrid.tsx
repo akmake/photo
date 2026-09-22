@@ -242,6 +242,7 @@ const PhotoGrid = React.forwardRef<PhotoGridHandle, {
   const stuck = [...sectionTops].reverse().find((s) => s.y <= top + 1);
 
   return (
+    <div className={`tz-pg-wrap${sectionTops.length > 1 && height > viewH * 2 ? ' has-scrub' : ''}`}>
     <div className={`tz-pg${className ? ` ${className}` : ''}`} ref={scrollRef}>
       <div ref={headRef}>{header}</div>
       {!hasAny ? (
@@ -295,8 +296,66 @@ const PhotoGrid = React.forwardRef<PhotoGridHandle, {
       )}
       {footer}
     </div>
+      {/* THE SCRUBBER, as in Google Photos: where each section sits along the
+          whole scroll, a mark per section, the current place, and a drag
+          anywhere on the rail to fly there. Only when there is somewhere to go. */}
+      {sectionTops.length > 1 && height > viewH * 2 && (
+        <Scrubber
+          sections={sectionTops.map((s) => ({ id: s.id, y: s.y + headH, title: s.title }))}
+          total={height + headH}
+          view={viewH}
+          at={scrollTop}
+          onGo={(y) => scrollRef.current?.scrollTo({ top: Math.max(0, y) })}
+        />
+      )}
+    </div>
   );
 });
+
+function Scrubber({
+  sections, total, view, at, onGo,
+}: {
+  sections: { id: string; y: number; title: React.ReactNode }[];
+  total: number;
+  view: number;
+  at: number;
+  onGo: (y: number) => void;
+}) {
+  const railRef = useRef<HTMLDivElement | null>(null);
+  const [hoverY, setHoverY] = useState<number | null>(null);
+  const [drag, setDrag] = useState(false);
+  const span = Math.max(1, total - view);
+  const toY = (clientY: number) => {
+    const r = railRef.current?.getBoundingClientRect();
+    if (!r) return 0;
+    return Math.max(0, Math.min(1, (clientY - r.top) / r.height)) * span;
+  };
+  const label = (y: number) => [...sections].reverse().find((s) => s.y <= y + view * 0.3)?.title ?? sections[0]?.title;
+  const pos = (y: number) => `${(Math.min(span, y) / span) * 100}%`;
+  return (
+    <div
+      className={`tz-pg-scrub${drag ? ' is-drag' : ''}`}
+      ref={railRef}
+      onPointerDown={(e) => {
+        try { (e.currentTarget as Element).setPointerCapture(e.pointerId); } catch { /* a pointer the browser does not track */ }
+        setDrag(true);
+        onGo(toY(e.clientY));
+      }}
+      onPointerMove={(e) => { const y = toY(e.clientY); setHoverY(y); if (drag) onGo(y); }}
+      onPointerUp={() => setDrag(false)}
+      onPointerLeave={() => { if (!drag) setHoverY(null); }}
+      aria-hidden
+    >
+      {sections.map((s) => <i key={s.id} className="tz-pg-scrub-mark" style={{ top: pos(s.y) }} />)}
+      <b className="tz-pg-scrub-now" style={{ top: pos(at) }} />
+      {(hoverY !== null || drag) && (
+        <span className="tz-pg-scrub-label" style={{ top: pos(drag ? at : hoverY ?? at) }}>
+          {label(drag ? at : hoverY ?? at)}
+        </span>
+      )}
+    </div>
+  );
+}
 
 export default PhotoGrid;
 
