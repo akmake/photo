@@ -308,6 +308,7 @@
 .is-photos .tz-cm-well.drop { background: #151515; border-color: #444; }
 .is-photos .tz-cm-well.drop:hover { background: #1b1b1b; border-color: var(--ph-accent); }
 .is-photos .tz-cm-well.drop.filled { border-color: #3a3a3a; }
+.is-photos .tz-cm-well.drop.over { border-color: var(--ph-accent); background: #1d1f2b; }
 .is-photos .tz-cm-empty span { color: var(--ph-ink-2); }
 .is-photos .tz-cm-empty i { color: var(--ph-muted); }
 .is-photos .tz-cm-link { color: var(--ph-accent); background: transparent; }

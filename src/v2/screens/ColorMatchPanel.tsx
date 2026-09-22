@@ -68,6 +68,7 @@ export default function ColorMatchPanel({
    * he picks one deliberately, and then it stays where he put it. */
   const [source, setSource] = useState<string | null>(null);
   const [picking, setPicking] = useState(false);
+  const [dragOver, setDragOver] = useState(false);
   const [edited, setEdited] = useState<{ name: string; data: string } | null>(null);
   const [learning, setLearning] = useState(false);
   const [learned, setLearned] = useState<LearnColorResponse | null>(null);
@@ -157,7 +158,19 @@ export default function ColorMatchPanel({
 
         <label
           htmlFor="tz-cm-upload"
-          className={`tz-cm-well drop ${edited ? 'filled' : ''}`}
+          className={`tz-cm-well drop ${edited ? 'filled' : ''}${dragOver ? ' over' : ''}`}
+          /* The box says "drag here", so a drop has to land here. Without
+           * these the browser took the file itself and nothing happened. */
+          onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; setDragOver(true); }}
+          onDragLeave={() => setDragOver(false)}
+          onDrop={async (e) => {
+            e.preventDefault();
+            setDragOver(false);
+            const file = [...e.dataTransfer.files].find((f) => f.type.startsWith('image/'));
+            if (!file) { setError('זה לא קובץ תמונה — גרור לכאן את התמונה הערוכה (JPG או PNG).'); return; }
+            resetResult();
+            setEdited({ name: file.name, data: await readAsDataUrl(file) });
+          }}
         >
           {edited ? (
             <img src={edited.data} alt="" />
