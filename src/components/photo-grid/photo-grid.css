@@ -39,8 +39,11 @@
   background: var(--pg-ph);
   cursor: default;
   contain: strict;
-  transition: transform 0.12s ease;
+  /* A zoom or a new width moves every tile to its new box; gliding there is
+   * what lets the eye keep hold of the photograph it was looking at. */
+  transition: transform 0.12s ease, top 0.22s ease, inset-inline-start 0.22s ease, width 0.22s ease, height 0.22s ease;
 }
+@media (prefers-reduced-motion: reduce) { .tz-pg-tile { transition: none; } }
 .tz-pg-img {
   display: block;
   width: 100%; height: 100%;
