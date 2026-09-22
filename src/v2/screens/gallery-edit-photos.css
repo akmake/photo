@@ -1,30 +1,44 @@
 /* עריכה — the editing stage dressed like the work stage's Photos-style editor
  * (photo-editor.css): charcoal surfaces, the stages of the work as tabs with a
  * short accent underline, pale-lavender slider thumbs on a dark track. Loaded
- * after gallery-edit-v2.css and scoped to .is-photos, so it only re-dresses —
- * no layout rule of the screen is changed here. */
+ * after gallery-edit-v2.css and scoped to .is-photos. The one layout rule it
+ * owns: the editing room takes the whole window, on a fixed black ground. */
 
 .tz-ge-studio-root.is-photos {
-  --ph-bg: #1c1c1c;
-  --ph-surface: #242424;
-  --ph-panel: #272727;
-  --ph-raise: #2f2f2f;
-  --ph-hover: #363636;
-  --ph-line: #363636;
+  --ph-bg: #0b0b0b;
+  --ph-surface: #141414;
+  --ph-panel: #161616;
+  --ph-raise: #202020;
+  --ph-hover: #2a2a2a;
+  --ph-line: #262626;
   --ph-ink: #f3f3f3;
   --ph-ink-2: #cfcfcf;
-  --ph-muted: #9a9a9a;
+  --ph-muted: #8f8f8f;
   --ph-accent: #c5cbf0;
   --ph-accent-ink: #1b1b1b;
-  --ph-track: #474747;
+  --ph-track: #3d3d3d;
   --ph-brand: var(--brand, #b95c2a);
 
-  padding: 10px;
-  border-radius: 14px;
+  /* The whole window is the editing room: nothing of the app shows around
+   * it and nothing is left empty under it. Leaving goes through the bar's
+   * own "שלב קודם" / "המשך" buttons. */
+  position: fixed;
+  inset: 0;
+  z-index: 1100;
+  height: auto;
+  min-height: 0;
+  padding: 8px;
+  gap: 8px;
+  border-radius: 0;
   background: var(--ph-bg);
   color: var(--ph-ink);
   color-scheme: dark;
 }
+.is-photos .tz-ge-studio-workspace { flex: 1; min-height: 0; gap: 8px; }
+.is-photos .tz-ge-top-bar,
+.is-photos .tz-ge-slide-deck,
+.is-photos .tz-ge-canvas-stage,
+.is-photos .tz-ge-tools-panel { border-radius: 10px; }
 .is-photos button { color: inherit; }
 
 /* ------------------------------------------------------------- top bar */
