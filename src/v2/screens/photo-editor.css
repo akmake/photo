@@ -162,6 +162,20 @@
 .tz-pe-picture { position: relative; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; }
 .tz-pe-picture img { max-width: 100%; max-height: 100%; object-fit: contain; transition: opacity 0.15s; user-select: none; }
 .tz-pe-picture img.is-stale { opacity: 0.92; }
+.tz-pe-picture .tz-object-mask-preview,
+.tz-pe-object-click {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  border-radius: 6px;
+}
+.tz-pe-picture .tz-object-mask-preview { pointer-events: none; }
+.tz-pe-object-click { z-index: 3; cursor: crosshair; }
+.tz-pe-picture .tz-ge-brush-layer { position: absolute; z-index: 4; cursor: none; touch-action: none; }
+.tz-pe-object-action { width: 100%; margin-top: 14px; }
+.tz-pe-object-action.is-on,
+.tz-pe-panel .tz-pe-row .tz-pe-btn.is-on { border-color: var(--pe-accent); color: var(--pe-accent); }
 .tz-pe-help { margin: 16px 0 6px; font-size: 13px; line-height: 1.55; color: var(--pe-muted); }
 .tz-pe-h { margin: 18px 0 10px; font-size: 14px; font-weight: 600; }
 .tz-pe-row { display: flex; gap: 8px; margin-top: 16px; }

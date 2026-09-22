@@ -23,7 +23,7 @@
  * dragging stays smooth and the engine is asked once. Everything else commits
  * as it moves, because it is cheap and the eye wants it live.
  */
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
 import type { ToolDef, ToolInstance, ToolMask } from '../../types';
 import { MASK_REGIONS, TOOLS, defaultParams, isMaskable, isToolAtDefault } from '../../toolRegistry';
@@ -116,6 +116,11 @@ export default function ToolsPanelV2({
   const [tab, setTab] = useState<string>(() => {
     try { return localStorage.getItem('tz-tp-tab') || 'light'; } catch { return 'light'; }
   });
+  useEffect(() => {
+    if (!objectMode) return;
+    setTab('retouch');
+    setOpen((current) => ({ ...current, 'object-remove': true }));
+  }, [objectMode]);
   /* A value being dragged on a heavy tool. It is what the slider shows until
    * the finger comes off, and only then does it become the recipe. */
   const [draft, setDraft] = useState<Record<string, number>>({});

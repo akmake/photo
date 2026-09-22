@@ -345,6 +345,20 @@
   border-color: var(--tz-brand);
 }
 
+.tz-ge-object-entry {
+  min-height: 34px;
+  padding: 5px 13px;
+  border: 1px solid #8f9acb;
+  border-radius: 8px;
+  background: #c5cbf0;
+  color: #1b1b1b;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.tz-ge-object-entry:hover,
+.tz-ge-object-entry.is-active { background: #e0e4ff; }
+
 /* ---- manual cleaning brush ---- */
 
 .tz-ge-brush-btn {
@@ -473,7 +487,7 @@
   user-select: none;
 }
 
-.tz-ge-object-mask,
+.tz-object-mask-preview,
 .tz-ge-object-click {
   position: absolute;
   left: 50%;
@@ -481,7 +495,7 @@
   transform: translate(-50%, -50%);
   border-radius: 6px;
 }
-.tz-ge-object-mask {
+.tz-object-mask-preview {
   pointer-events: none;
 }
 .tz-ge-object-click {

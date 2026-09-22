@@ -1,6 +1,6 @@
 /* עריכה — the photograph edited in place, laid out the way the Windows Photos
  * editor is: the tools along the top (חיתוך · התאמה · סנן · סימון · מחק ·
- * רקע), the picture in the middle, the controls of the chosen tool in a panel
+ * הסרת אובייקט · רקע), the picture in the middle, the controls of the chosen tool in a panel
  * at the side, "שמור" and "ביטול" in the corner.
  *
  * Nothing here is a second editing system. Every control writes a step of the
@@ -18,15 +18,16 @@
  */
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { autoEnhance, renderRecipeAtPath, Superseded, thumbUrl } from '../../api';
+import { autoEnhance, renderRecipeAtPath, selectObjectAtPath, Superseded, thumbUrl } from '../../api';
 import type { Frame } from '../../api';
-import { effectiveRecipe, setFrameStep } from '../../studio/store';
+import { effectiveRecipe, removeFrameStep, setFrameStep } from '../../studio/store';
 import type { ManualStroke, ToolInstance } from '../../types';
 import { defaultParams, getTool } from '../../toolRegistry';
 import ManualBrush, { DEFAULT_R, MAX_R, MIN_R } from './ManualBrush';
+import ObjectMaskPreview from './ObjectMaskPreview';
 import './photo-editor.css';
 
-export type EditorTab = 'crop' | 'adjust' | 'filter' | 'markup' | 'erase' | 'background';
+export type EditorTab = 'crop' | 'adjust' | 'filter' | 'markup' | 'erase' | 'object' | 'background';
 
 const TABS: { id: EditorTab; label: string; icon: React.ReactNode }[] = [
   { id: 'crop', label: 'חיתוך', icon: <IconCrop /> },
@@ -34,6 +35,7 @@ const TABS: { id: EditorTab; label: string; icon: React.ReactNode }[] = [
   { id: 'filter', label: 'סנן', icon: <IconFilter /> },
   { id: 'markup', label: 'סימון', icon: <IconPen /> },
   { id: 'erase', label: 'מחק', icon: <IconEraser /> },
+  { id: 'object', label: 'הסרת אובייקט', icon: <IconEraser /> },
   { id: 'background', label: 'רקע', icon: <IconBackground /> },
 ];
 
@@ -105,6 +107,7 @@ const BG_COLOURS = ['#ffffff', '#f2efe9', '#d9d9d9', '#1f1f1f', '#c9dff2', '#2f6
 interface Edit {
   params?: Record<string, number>;
   strokes?: ManualStroke[];
+  objectSelection?: ToolInstance['objectSelection'] | null;
 }
 type Edits = Record<string, Edit>;
 
@@ -146,6 +149,12 @@ export default function PhotoEditor({
   const [showBefore, setShowBefore] = useState(false);
   const [busy, setBusy] = useState(false);
   const [fault, setFault] = useState<string | null>(null);
+  const [objectSelecting, setObjectSelecting] = useState(false);
+  const [objectDraft, setObjectDraft] = useState<ToolInstance['objectSelection'] | null>(null);
+  const [objectPaint, setObjectPaint] = useState<'add' | 'subtract' | null>(null);
+  const [objectBusy, setObjectBusy] = useState(false);
+  const [objectFault, setObjectFault] = useState<string | null>(null);
+  const [objectBox, setObjectBox] = useState<{ w: number; h: number } | null>(null);
 
   // What the frame renders through now — the starting point of every control.
   const saved = useMemo(() => effectiveRecipe(projectId, name).filter((t) => t.enabled), [projectId, name]);
@@ -155,13 +164,14 @@ export default function PhotoEditor({
     const base = current?.params ?? defaultParams(getTool(toolId));
     const step: ToolInstance = { ...(current ?? {}), toolId, enabled: true, params: { ...base, ...(edit.params ?? {}) } };
     if (edit.strokes) step.strokes = edit.strokes;
+    if (edit.objectSelection) step.objectSelection = edit.objectSelection;
     return step;
   }, [saved]);
 
   const recipe = useMemo(() => {
     const touched = Object.keys(edits);
     const kept = saved.filter((t) => !touched.includes(t.toolId));
-    return [...kept, ...touched.map((id) => stepFor(id, edits[id]))];
+    return [...kept, ...touched.filter((id) => edits[id].objectSelection !== null).map((id) => stepFor(id, edits[id]))];
   }, [edits, saved, stepFor]);
 
   const paramOf = useCallback((tool: string, param: string, fallback = 0) => {
@@ -185,11 +195,12 @@ export default function PhotoEditor({
 
   /* ---- what the stage renders for this tab (see the header) */
   const stageRecipe = useMemo(() => {
-    const skip = tab === 'crop' || tab === 'erase' || tab === 'background'
+    const skip = tab === 'crop' || tab === 'erase' || tab === 'object' || tab === 'background'
       ? ['geometry', 'markup']
       : tab === 'markup' ? ['markup'] : [];
+    if (tab === 'object' && (objectSelecting || objectDraft)) skip.push('object-remove');
     return recipe.filter((t) => !skip.includes(t.toolId));
-  }, [recipe, tab]);
+  }, [recipe, tab, objectSelecting, objectDraft]);
   const stageSig = useMemo(() => JSON.stringify(stageRecipe), [stageRecipe]);
 
   const width = useMemo(() => {
@@ -225,7 +236,10 @@ export default function PhotoEditor({
   const dirty = Object.keys(edits).length > 0;
 
   const save = useCallback(() => {
-    for (const toolId of Object.keys(edits)) setFrameStep(projectId, name, stepFor(toolId, edits[toolId]));
+    for (const toolId of Object.keys(edits)) {
+      if (edits[toolId].objectSelection === null) removeFrameStep(projectId, name, toolId);
+      else setFrameStep(projectId, name, stepFor(toolId, edits[toolId]));
+    }
     onClose();
   }, [edits, name, onClose, projectId, stepFor]);
 
@@ -240,7 +254,7 @@ export default function PhotoEditor({
       if (e.key === 'Escape') { e.preventDefault(); cancel(); }
       else if ((e.ctrlKey || e.metaKey) && e.code === 'KeyS') { e.preventDefault(); save(); }
       else if (!inField && !e.ctrlKey && !e.metaKey && !e.altKey) {
-        const i = ['Digit1', 'Digit2', 'Digit3', 'Digit4', 'Digit5', 'Digit6'].indexOf(e.code);
+        const i = ['Digit1', 'Digit2', 'Digit3', 'Digit4', 'Digit5', 'Digit6', 'Digit7'].indexOf(e.code);
         if (i >= 0) { e.preventDefault(); setTab(TABS[i].id); }
       }
       // The screens underneath must not see any key while editing.
@@ -254,6 +268,19 @@ export default function PhotoEditor({
   const imgRef = useRef<HTMLImageElement | null>(null);
   const shown = showBefore && before ? before : image;
   const stale = image !== null && imageFor !== stageSig;
+  useEffect(() => {
+    const img = imgRef.current;
+    if (!img || tab !== 'object') return;
+    const measure = () => {
+      const rect = img.getBoundingClientRect();
+      if (rect.width && rect.height) setObjectBox({ w: rect.width, h: rect.height });
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(img);
+    img.addEventListener('load', measure);
+    return () => { observer.disconnect(); img.removeEventListener('load', measure); };
+  }, [shown, tab]);
 
   /* ================================================================ crop */
   const geo = {
@@ -332,6 +359,43 @@ export default function PhotoEditor({
   const [brushR, setBrushR] = useState(DEFAULT_R);
   const [brushErase, setBrushErase] = useState(false);
 
+  /* A selection stays a draft until "הסר אובייקט" is pressed; the modal's
+   * regular Save then records the step on this frame. */
+  const objectEdit = edits['object-remove']?.objectSelection;
+  const savedObject = saved.find((step) => step.toolId === 'object-remove')?.objectSelection;
+  const selectedObject = objectDraft ?? (objectEdit === null ? undefined : objectEdit ?? savedObject);
+  const chooseObject = async (x: number, y: number) => {
+    setObjectBusy(true);
+    setObjectFault(null);
+    try {
+      const result = await selectObjectAtPath(frame.path, x, y);
+      setObjectDraft({ maskPng: result.maskPng, margin: 0.003, add: [], subtract: [] });
+      setObjectSelecting(false);
+      setObjectPaint(null);
+    } catch (error) {
+      setObjectFault(error instanceof Error ? error.message : 'בחירת האובייקט נכשלה');
+    } finally {
+      setObjectBusy(false);
+    }
+  };
+  const startObjectPaint = (mode: 'add' | 'subtract') => {
+    setObjectSelecting(false);
+    setObjectPaint((current) => current === mode ? null : mode);
+    if (!objectDraft && selectedObject) setObjectDraft({ ...selectedObject });
+  };
+  const applyObject = () => {
+    if (!selectedObject) return;
+    setEdits((current) => ({ ...current, 'object-remove': { objectSelection: selectedObject } }));
+    setObjectDraft(null);
+    setObjectPaint(null);
+  };
+  const clearObject = () => {
+    setEdits((current) => ({ ...current, 'object-remove': { objectSelection: null } }));
+    setObjectDraft(null);
+    setObjectPaint(null);
+    setObjectSelecting(false);
+  };
+
   /* ======================================================== background */
   const bgMode = paramOf('background-replace', 'mode');
   const [bgBrush, setBgBrush] = useState<'off' | 'keep' | 'remove'>('off');
@@ -409,6 +473,33 @@ export default function PhotoEditor({
                 />
               ) : (
                 <img ref={imgRef} src={thumbUrl(frame.path, 1600)} alt={name} draggable={false} className="is-waiting" />
+              )}
+              {tab === 'object' && objectDraft && objectBox && !showBefore && (
+                <ObjectMaskPreview selection={objectDraft} width={objectBox.w} height={objectBox.h} />
+              )}
+              {tab === 'object' && objectSelecting && objectBox && !showBefore && (
+                <div className="tz-pe-object-click" style={{ width: objectBox.w, height: objectBox.h }}
+                  role="button" tabIndex={0} aria-label="בחר אובייקט בתמונה"
+                  onClick={(event) => {
+                    const rect = event.currentTarget.getBoundingClientRect();
+                    void chooseObject((event.clientX - rect.left) / rect.width, (event.clientY - rect.top) / rect.height);
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter' || event.key === ' ') {
+                      event.preventDefault();
+                      void chooseObject(0.5, 0.5);
+                    }
+                  }} />
+              )}
+              {tab === 'object' && objectPaint && selectedObject && !showBefore && (
+                <ManualBrush imgRef={imgRef} pending={selectedObject[objectPaint] ?? []}
+                  radius={brushR} onRadius={setBrushR} erasing={false}
+                  tint={objectPaint === 'add' ? '59, 130, 246' : '255, 180, 50'}
+                  onStroke={(stroke) => setObjectDraft({
+                    ...selectedObject,
+                    [objectPaint]: [...(selectedObject[objectPaint] ?? []), stroke],
+                  })}
+                  onErase={() => undefined} />
               )}
               {tab === 'erase' && shown && (
                 <ManualBrush
@@ -600,6 +691,33 @@ export default function PhotoEditor({
                   <button type="button" className="tz-pe-btn" disabled={!strokesOf('manual-clean').length} onClick={() => setStrokes('manual-clean', strokesOf('manual-clean').slice(0, -1))}>בטל אחרון</button>
                   <button type="button" className="tz-pe-btn" disabled={!strokesOf('manual-clean').length} onClick={() => setStrokes('manual-clean', [])}>נקה הכל</button>
                 </div>
+              </>
+            )}
+
+            {tab === 'object' && (
+              <>
+                <h3 className="tz-pe-h">הסרת אובייקט</h3>
+                <p className="tz-pe-help">לחץ על האדם או החפץ בתמונה. בדוק את המסכה הכחולה, תקן אותה במידת הצורך, ואז הסר.</p>
+                <button type="button" className={`tz-pe-btn tz-pe-object-action${objectSelecting ? ' is-on' : ''}`}
+                  disabled={objectBusy} onClick={() => { setObjectSelecting((v) => !v); setObjectPaint(null); setObjectFault(null); }}>
+                  {objectSelecting ? 'בטל בחירה' : 'בחר בלחיצה על התמונה'}
+                </button>
+                {selectedObject && <>
+                  <div className="tz-pe-row">
+                    <button type="button" className={`tz-pe-btn${objectPaint === 'add' ? ' is-on' : ''}`}
+                      onClick={() => startObjectPaint('add')}>הוסף למסכה</button>
+                    <button type="button" className={`tz-pe-btn${objectPaint === 'subtract' ? ' is-on' : ''}`}
+                      onClick={() => startObjectPaint('subtract')}>החסר מהמסכה</button>
+                  </div>
+                  <Slider label="גודל מברשת" icon={<IconDot />} min={Math.round(MIN_R * 1000)} max={Math.round(MAX_R * 1000)} value={Math.round(brushR * 1000)} onChange={(v) => setBrushR(v / 1000)} />
+                  <div className="tz-pe-row">
+                    <button type="button" className="tz-pe-btn is-primary" onClick={applyObject}>הסר אובייקט</button>
+                    <button type="button" className="tz-pe-btn" onClick={clearObject}>נקה בחירה</button>
+                  </div>
+                  <p className="tz-pe-help">אחרי ההסרה לחץ „שמור” למעלה. אזור מוסתר מורכב עשוי לדרוש בדיקה מקרוב.</p>
+                </>}
+                {objectBusy && <p role="status" className="tz-pe-help">מזהה אובייקט…</p>}
+                {objectFault && <p role="alert" className="tz-pe-help">{objectFault}</p>}
               </>
             )}
 
