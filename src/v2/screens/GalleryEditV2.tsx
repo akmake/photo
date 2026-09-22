@@ -228,6 +228,8 @@ export default function GalleryEditV2({
   const [maskPaintTool, setMaskPaintTool] = useState<string | null>(null);
   const [brushR, setBrushR] = useState(DEFAULT_R);
   const [pendingStrokes, setPendingStrokes] = useState<ManualStroke[]>([]);
+  // The cleaning action pointed at in the tools panel's list.
+  const [hoveredAction, setHoveredAction] = useState<string | null>(null);
 
   const [sheetModel, setSheetModel] = useState<LearnedColorModel | null>(null);
 
@@ -1359,10 +1361,26 @@ export default function GalleryEditV2({
                       comparison: the marks would land on the frame he is NOT
                       looking at, which is the same picture in the same place but
                       a different question. */}
+                  {/* The action pointed at in the list, drawn where it was painted.
+                      Look-only: it takes no pointer, so the picture stays usable. */}
+                  {!brushOn && hoveredAction && !showOriginal && (
+                    <div className="tz-ge-action-peek">
+                      <ManualBrush
+                        imgRef={canvasImgRef}
+                        pending={manualStrokes.filter((st) => st.id === hoveredAction)}
+                        radius={brushR}
+                        onRadius={() => undefined}
+                        erasing={false}
+                        onStroke={() => undefined}
+                        onErase={() => undefined}
+                        tint="197, 203, 240"
+                      />
+                    </div>
+                  )}
                   {brushOn && !showOriginal && (
                     <ManualBrush
                       imgRef={canvasImgRef}
-                      pending={pendingStrokes}
+                      pending={[...pendingStrokes, ...manualStrokes.filter((st) => st.id === hoveredAction && !pendingStrokes.some((p) => p.id === st.id))]}
                       radius={brushR}
                       onRadius={setBrushR}
                       erasing={brushErase}
@@ -1478,6 +1496,12 @@ export default function GalleryEditV2({
                 paintingMask={maskPaintTool}
                 maskStrokes={maskStrokeCounts}
                 isRaw={isRawFile(currentPath)}
+                brushActions={manualStrokes}
+                onDeleteAction={(id) => {
+                  writeStrokes(manualStrokes.filter((st) => st.id !== id));
+                  setPendingStrokes((p) => p.filter((st) => st.id !== id));
+                }}
+                onHoverAction={setHoveredAction}
               />
             ) : (
               /* ColorMatch Tab */

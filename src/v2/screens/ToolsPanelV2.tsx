@@ -89,11 +89,18 @@ type Props = {
   /** Whether the frame on screen is still sensor data. Decides whether the
    *  develop step is offered at all — see `rawOnly`. */
   isRaw?: boolean;
+  /** The cleaning brush's actions on this frame, oldest first — each one can
+   *  be taken back on its own instead of undoing everything after it. */
+  brushActions?: { id: string }[];
+  onDeleteAction?: (id: string) => void;
+  /** The action under the pointer in the list, shown on the photograph. */
+  onHoverAction?: (id: string | null) => void;
 };
 
 export default function ToolsPanelV2({
   tools, onParam, onToggle, onReset, onOpenBrush, brushOn, brushStrokes,
   onMask, onPaintMask, paintingMask, maskStrokes, isRaw = false,
+  brushActions = [], onDeleteAction, onHoverAction,
 }: Props) {
   const [open, setOpen] = useState<Record<string, boolean>>({});
   // One stage of the work at a time, the way the Photos editor shows a tab.
@@ -253,6 +260,25 @@ export default function ToolsPanelV2({
                           >
                             {brushOn ? 'סגור את המברשת' : 'פתח את המברשת על התמונה'}
                           </button>
+                          {brushActions.length > 0 && (
+                            <ol className="tz-tp-actions" onMouseLeave={() => onHoverAction?.(null)}>
+                              {brushActions.map((a, i) => (
+                                <li key={a.id} onMouseEnter={() => onHoverAction?.(a.id)}>
+                                  <span className="tz-tp-action-n">{i + 1}</span>
+                                  <span className="tz-tp-action-name">ניקוי {i + 1}</span>
+                                  <button
+                                    type="button"
+                                    className="tz-tp-icon"
+                                    title="מחק את הפעולה הזו בלבד"
+                                    aria-label={`מחק ניקוי ${i + 1}`}
+                                    onClick={() => { onHoverAction?.(null); onDeleteAction?.(a.id); }}
+                                  >
+                                    ✕
+                                  </button>
+                                </li>
+                              ))}
+                            </ol>
+                          )}
                         </>
                       ) : (
                         def.params.map((spec) => {

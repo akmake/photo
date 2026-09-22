@@ -294,3 +294,23 @@
 .is-photos .tz-tp-modules::-webkit-scrollbar-track,
 .is-photos .tz-ge-panel-scroll::-webkit-scrollbar-track,
 .is-photos .tz-ge-deck-scroll::-webkit-scrollbar-track { background: transparent; }
+
+/* the cleaning brush's actions, one row each */
+.is-photos .tz-tp-actions { list-style: none; margin: 12px 0 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+.is-photos .tz-tp-actions li {
+  display: flex; align-items: center; gap: 10px;
+  height: 34px; padding: 0 6px 0 10px; border-radius: 6px;
+  color: var(--ph-ink-2); font-size: 13px;
+}
+.is-photos .tz-tp-actions li:hover { background: var(--ph-raise); color: var(--ph-ink); }
+.is-photos .tz-tp-action-n {
+  width: 20px; height: 20px; border-radius: 50%;
+  display: grid; place-items: center;
+  background: #2c2c2c; color: var(--ph-muted); font-size: 11px; font-variant-numeric: tabular-nums;
+}
+.is-photos .tz-tp-actions li:hover .tz-tp-action-n { background: var(--ph-accent); color: var(--ph-accent-ink); }
+.is-photos .tz-tp-action-name { flex: 1; }
+.is-photos .tz-tp-actions .tz-tp-icon { opacity: 0; }
+.is-photos .tz-tp-actions li:hover .tz-tp-icon { opacity: 1; }
+.tz-ge-action-peek { position: absolute; inset: 0; pointer-events: none; }
+.tz-ge-action-peek * { pointer-events: none !important; }
