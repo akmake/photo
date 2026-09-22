@@ -53,7 +53,7 @@ import AlbumLibrary, { type AlbumCreateInput } from './AlbumLibrary';
 import { clientAlbumsOf } from '../studio/galleryLink';
 import { useProjectFiles } from '../studio/store';
 import type { Project as StudioProject } from '../studio/store';
-import { framesToPool, enrichPool } from './projectPool';
+import { framesToPool, enrichPool, smallUrl } from './projectPool';
 import { runAlbumPreflight, type PreflightIssue } from './preflightEngine';
 import { detectAlbumSessions, oneSession } from './sessionEngine';
 // 3,000 lines of album styling, loaded with the album and not before. This file
@@ -3036,7 +3036,7 @@ export default function AlbumStudio({ job, onBack }: {
                     ? { width: Math.round(64 * Math.min(2.6, Math.max(0.4, photo.widthPx / photo.heightPx))), flexBasis: 'auto' }
                     : undefined}
                 >
-                  <img src={photo.url} alt="" loading="lazy" decoding="async" />
+                  <img src={smallUrl(photo.url)} alt="" loading="lazy" decoding="async" />
                   {usedIds.has(photo.id) && (
                     <span
                       className={`album-used ${currentSpreadIds.has(photo.id) ? 'current' : ''}`}

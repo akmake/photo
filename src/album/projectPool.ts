@@ -57,6 +57,13 @@ export function frameToPhoto(frame: Frame): AlbumPhoto {
   };
 }
 
+/** The same photograph at a width a strip or a grid cell needs — a 64px tile
+ *  was loading the 1200px file the spread uses. Same engine cache, same
+ *  version, so it is still the current edit. */
+export function smallUrl(url: string, width = 320): string {
+  return url.replace(/([?&]w=)\d+/, `$1${width}`);
+}
+
 export function framesToPool(frames: Frame[]): AlbumPhoto[] {
   return frames.map(frameToPhoto);
 }
@@ -70,7 +77,10 @@ export function framesToPool(frames: Frame[]): AlbumPhoto[] {
 export async function enrichPool(
   photos: AlbumPhoto[],
   onPhoto: (photo: AlbumPhoto) => void,
-  concurrency = 4,
+  /* Two, not four: a browser keeps six connections to the engine, and every
+   * analysis held one while it waited — the thumbnails, which are what the
+   * photographer is actually waiting to see, were left two between them. */
+  concurrency = 2,
 ): Promise<void> {
   const queue = photos.filter((photo) => photo.sourcePath);
   let cursor = 0;

@@ -1,3 +1,4 @@
+import { smallUrl } from './projectPool';
 import { assessCrop } from './cropEngine';
 import { buildAlbumLayoutCandidates, EMPTY_GENERATED_LAYOUT } from './layoutEngine';
 import { spreadTemplate, templateBackground } from './templates/library';
@@ -114,7 +115,7 @@ export default function SpreadThumb({
             }}
           >
             <img
-              src={photo.url}
+              src={smallUrl(photo.url, 640)}
               alt=""
               loading="lazy"
               decoding="async"

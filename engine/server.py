@@ -2016,11 +2016,17 @@ if ($path) {
         """Analyse one photo for safe album placement. { image|path }"""
         try:
             body = self._body()
-            image = (
-                common.load_image(body["path"])
-                if body.get("path")
-                else common.b64_to_image(body["image"])
-            )
+            path = body.get("path")
+            if path:
+                # A file analysed before answers from disk, without queueing
+                # behind the renders on the model worker at all.
+                hit = album_analysis.cached(path)
+                if hit is not None:
+                    self._json(200, hit)
+                    return
+                self._json(200, on_worker(album_analysis.analyze_path, path))
+                return
+            image = common.b64_to_image(body["image"])
             self._json(200, on_worker(album_analysis.analyze, image))
         except Exception as e:  # noqa: BLE001
             self._json(500, {"error": str(e)})

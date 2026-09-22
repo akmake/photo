@@ -11,6 +11,7 @@
  * function of the sequence and the cuts; nothing is written until "בנה אלבום".
  */
 
+import { smallUrl } from './projectPool';
 import { useEffect, useMemo, useState } from 'react';
 import { buildAlbumFromGroups, contextualCuts, groupsFromCuts } from './albumFlow';
 import type { AlbumPhoto, AlbumSpread, PrintProductProfile } from './model';
@@ -213,7 +214,7 @@ export default function AlbumTimeline({
                   title={`כפולה ${spreadOfIndex(i) + 1}`}
                 >
                   {photo
-                    ? <img src={photo.url} alt="" loading="lazy" decoding="async" draggable={false} />
+                    ? <img src={smallUrl(photo.url)} alt="" loading="lazy" decoding="async" draggable={false} />
                     : <span className="abm-cell-missing">?</span>}
                 </div>
 

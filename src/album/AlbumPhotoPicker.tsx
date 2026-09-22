@@ -1,3 +1,4 @@
+import { smallUrl } from './projectPool';
 import { useMemo, useState } from 'react';
 import { IcCheck, IcGallery } from '../design/Icons';
 import type { AlbumPhoto } from './model';
@@ -62,7 +63,7 @@ export default function AlbumPhotoPicker({
                 aria-label={isExisting ? `${photo.name}, כבר באלבום` : `${isSelected ? 'הסר' : 'בחר'} ${photo.name}`}
                 title={photo.name}
               >
-                <img src={photo.url} alt="" loading="lazy" decoding="async" />
+                <img src={smallUrl(photo.url)} alt="" loading="lazy" decoding="async" />
                 <span className="album-picker-check" aria-hidden="true">{isExisting ? 'באלבום' : isSelected ? <IcCheck size={14} /> : ''}</span>
               </button>
             );

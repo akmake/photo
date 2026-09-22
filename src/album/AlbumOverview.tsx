@@ -1,3 +1,4 @@
+import { smallUrl } from './projectPool';
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import { IcGallery } from '../design/Icons';
 import { groupsFromCuts } from './albumFlow';
@@ -309,7 +310,7 @@ export default function AlbumOverview({
                     title={photo?.name ?? id}
                     aria-label={`${photo?.name ?? id}, כפולה ${(spreadOfPhoto.get(id) ?? 0) + 1}`}
                   >
-                    {photo ? <img src={photo.url} alt="" loading="lazy" draggable={false} /> : <span>?</span>}
+                    {photo ? <img src={smallUrl(photo.url)} alt="" loading="lazy" draggable={false} /> : <span>?</span>}
                   </button>
                   {index < order.length - 1 && (
                     <button
@@ -326,7 +327,7 @@ export default function AlbumOverview({
             {unplaced.length > 0 && (
               <div className="album-unplaced">
                 <span>לא שובצו · {unplaced.length}</span>
-                {unplaced.slice(0, 12).map((photo) => <button key={photo.id} title={photo.name} onClick={onAddPhotos}><img src={photo.url} alt="" loading="lazy" /></button>)}
+                {unplaced.slice(0, 12).map((photo) => <button key={photo.id} title={photo.name} onClick={onAddPhotos}><img src={smallUrl(photo.url)} alt="" loading="lazy" /></button>)}
               </div>
             )}
             {!order.length && <button className="album-timeline-empty" onClick={onAddPhotos}><IcGallery size={18} /> בחר תמונות כדי להתחיל את הספר</button>}

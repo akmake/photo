@@ -1,3 +1,4 @@
+import { smallUrl } from './projectPool';
 import { useMemo, useState } from 'react';
 import { IcBook, IcCheck, IcChevron, IcGallery, IcSparkle } from '../design/Icons';
 import type { AlbumPhoto, PrintProductProfile } from './model';
@@ -158,7 +159,7 @@ export default function AlbumCreationWizard({ profiles, photos, clientAlbums, on
               {photos.map((photo) => {
                 const index = selectedIds.indexOf(photo.id);
                 const selected = selectedSet.has(photo.id);
-                return <button key={photo.id} className={selected ? 'selected' : ''} onClick={() => togglePhoto(photo.id)} aria-pressed={selected} aria-label={`${selected ? 'הסר' : 'בחר'} ${photo.name}`}><img src={photo.url} alt={photo.name} /><span>{selected ? index + 1 : <IcCheck size={14} />}</span></button>;
+                return <button key={photo.id} className={selected ? 'selected' : ''} onClick={() => togglePhoto(photo.id)} aria-pressed={selected} aria-label={`${selected ? 'הסר' : 'בחר'} ${photo.name}`}><img src={smallUrl(photo.url)} alt={photo.name} /><span>{selected ? index + 1 : <IcCheck size={14} />}</span></button>;
               })}
             </div>
           </section>
@@ -215,7 +216,7 @@ function AlbumShape({ width, height }: { width: number; height: number }) {
 }
 
 function BookPreview({ photos, background, direction }: { photos: AlbumPhoto[]; background: string; direction: 'rtl' | 'ltr' }) {
-  return <div className="album-wizard-book-scene"><div className={`album-wizard-book ${direction}`} style={{ background }}><div className="page">{photos.slice(0, 3).map((photo) => <img key={photo.id} src={photo.url} alt="" />)}</div><i /><div className="page">{photos.slice(3, 6).map((photo) => <img key={photo.id} src={photo.url} alt="" />)}</div></div><span>תצוגת מוצר · {direction === 'rtl' ? 'פתיחה מימין' : 'פתיחה משמאל'}</span></div>;
+  return <div className="album-wizard-book-scene"><div className={`album-wizard-book ${direction}`} style={{ background }}><div className="page">{photos.slice(0, 3).map((photo) => <img key={photo.id} src={smallUrl(photo.url, 640)} alt="" />)}</div><i /><div className="page">{photos.slice(3, 6).map((photo) => <img key={photo.id} src={smallUrl(photo.url, 640)} alt="" />)}</div></div><span>תצוגת מוצר · {direction === 'rtl' ? 'פתיחה מימין' : 'פתיחה משמאל'}</span></div>;
 }
 
 function BookDirection({ rtl = false }: { rtl?: boolean }) {
@@ -223,9 +224,9 @@ function BookDirection({ rtl = false }: { rtl?: boolean }) {
 }
 
 function StylePreview({ variant, photos }: { variant: number; photos: AlbumPhoto[] }) {
-  return <span className={`album-wizard-style-preview v${variant}`}>{photos.slice(0, variant === 0 ? 2 : variant === 1 ? 4 : 3).map((photo) => <img key={photo.id} src={photo.url} alt="" />)}</span>;
+  return <span className={`album-wizard-style-preview v${variant}`}>{photos.slice(0, variant === 0 ? 2 : variant === 1 ? 4 : 3).map((photo) => <img key={photo.id} src={smallUrl(photo.url, 640)} alt="" />)}</span>;
 }
 
 function CoverPreview({ photos, background, style, name }: { photos: AlbumPhoto[]; background: string; style: string; name: string }) {
-  return <div className="album-wizard-cover-scene"><div className={`album-wizard-cover ${style}`} style={{ background }}>{style === 'photo' && photos[0] && <img src={photos[0].url} alt="" />}<span>{name || 'האלבום שלנו'}</span><i /></div><small>תצוגה מקדימה של הכריכה</small></div>;
+  return <div className="album-wizard-cover-scene"><div className={`album-wizard-cover ${style}`} style={{ background }}>{style === 'photo' && photos[0] && <img src={smallUrl(photos[0].url, 640)} alt="" />}<span>{name || 'האלבום שלנו'}</span><i /></div><small>תצוגה מקדימה של הכריכה</small></div>;
 }
