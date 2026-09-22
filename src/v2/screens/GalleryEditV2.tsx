@@ -21,7 +21,7 @@ import {
   useDiskFault,
   retrySave,
 } from '../../studio/store';
-import { EDIT_WIDTH, learnColorModel, prepareFrames, renderRecipeAtPath, Superseded, thumbUrl } from '../../api';
+import { EDIT_WIDTH, learnColorModel, prepareFrames, renderRecipeAtPath, selectObjectAtPath, Superseded, thumbUrl } from '../../api';
 import type { LearnColorResponse } from '../../api';
 import type { LearnedColorModel, ManualStroke, ToolInstance, ToolMask } from '../../types';
 import { defaultParams, getTool, isRawFile, isToolAtDefault } from '../../toolRegistry';
@@ -59,6 +59,64 @@ function readAsDataUrl(file: File): Promise<string> {
     fr.onerror = () => reject(new Error('שגיאה בקריאת הקובץ'));
     fr.readAsDataURL(file);
   });
+}
+
+function ObjectMaskPreview({ selection, width, height }: {
+  selection: NonNullable<ToolInstance['objectSelection']>; width: number; height: number;
+}) {
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    const ctx = canvas?.getContext('2d');
+    if (!canvas || !ctx) return;
+    const image = new Image();
+    let live = true;
+    image.onload = () => {
+      if (!live) return;
+      canvas.width = Math.max(1, Math.round(width));
+      canvas.height = Math.max(1, Math.round(height));
+      ctx.drawImage(image, 0, 0, canvas.width, canvas.height);
+      const pixels = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      for (let i = 0; i < pixels.data.length; i += 4) {
+        const selected = pixels.data[i];
+        pixels.data[i] = 59;
+        pixels.data[i + 1] = 130;
+        pixels.data[i + 2] = 246;
+        pixels.data[i + 3] = Math.round(selected * 0.48);
+      }
+      ctx.putImageData(pixels, 0, 0);
+      const draw = (strokes: ManualStroke[]) => {
+        for (const stroke of strokes) {
+          const points = stroke.points;
+          if (!points.length) continue;
+          const radius = stroke.r * canvas.width;
+          ctx.lineCap = 'round';
+          ctx.lineJoin = 'round';
+          ctx.lineWidth = radius * 2;
+          ctx.beginPath();
+          points.forEach(([x, y], i) => {
+            if (i === 0) ctx.moveTo(x * canvas.width, y * canvas.height);
+            else ctx.lineTo(x * canvas.width, y * canvas.height);
+          });
+          if (points.length === 1) {
+            ctx.arc(points[0][0] * canvas.width, points[0][1] * canvas.height, radius, 0, Math.PI * 2);
+            ctx.fill();
+          } else ctx.stroke();
+        }
+      };
+      ctx.fillStyle = 'rgba(59, 130, 246, 0.48)';
+      ctx.strokeStyle = ctx.fillStyle;
+      draw(selection.add ?? []);
+      ctx.globalCompositeOperation = 'destination-out';
+      ctx.fillStyle = '#fff';
+      ctx.strokeStyle = '#fff';
+      draw(selection.subtract ?? []);
+      ctx.globalCompositeOperation = 'source-over';
+    };
+    image.src = selection.maskPng;
+    return () => { live = false; };
+  }, [selection, width, height]);
+  return <canvas ref={canvasRef} className="tz-ge-object-mask" style={{ width, height }} aria-hidden="true" />;
 }
 
 export default function GalleryEditV2({
@@ -247,6 +305,11 @@ export default function GalleryEditV2({
   } | null>(null);
   const [panning, setPanning] = useState(false);
   const [brushOn, setBrushOn] = useState(false);
+  const [objectMode, setObjectMode] = useState<'select' | 'add' | 'subtract' | null>(null);
+  const [objectDraft, setObjectDraft] = useState<ToolInstance['objectSelection'] | null>(null);
+  const [objectBusy, setObjectBusy] = useState(false);
+  const [objectError, setObjectError] = useState<string | null>(null);
+  const objectRequest = useRef(0);
   const [brushErase, setBrushErase] = useState(false);
   /* The tool whose REGION is being painted, if any. Null means the brush on
    * the picture — when there is one — is the cleaning brush. */
@@ -499,6 +562,7 @@ export default function GalleryEditV2({
         ...(existing?.mask ? { mask: existing.mask } : {}),
         ...(existing?.selection ? { selection: existing.selection } : {}),
         ...(existing?.strokes ? { strokes: existing.strokes } : {}),
+        ...(existing?.objectSelection ? { objectSelection: existing.objectSelection } : {}),
       };
       setFrameStep(project.id, currentFrame.name, nextStep);
     },
@@ -524,6 +588,7 @@ export default function GalleryEditV2({
         ...(existing?.mask ? { mask: existing.mask } : {}),
         ...(existing?.selection ? { selection: existing.selection } : {}),
         ...(existing?.strokes ? { strokes: existing.strokes } : {}),
+        ...(existing?.objectSelection ? { objectSelection: existing.objectSelection } : {}),
       });
       if (!enabled) {
         for (const old of RETIRED_WITH[toolId] ?? []) {
@@ -618,6 +683,7 @@ export default function GalleryEditV2({
     (toolId: string) => {
       setMaskPaintTool((cur) => (cur === toolId ? null : toolId));
       setBrushOn(false);
+      setObjectMode(null);
     },
     [],
   );
@@ -731,6 +797,51 @@ export default function GalleryEditV2({
    * slider move — the same pixels, on the same single engine worker, doubling
    * the wait for the picture that had actually changed. */
   const currentPath = currentFrame?.path ?? null;
+  const savedObject = frameEffectiveTools.find((t) => t.toolId === 'object-remove')?.objectSelection;
+  const selectedObject = objectDraft ?? savedObject;
+  useEffect(() => {
+    objectRequest.current += 1;
+    setObjectMode(null);
+    setObjectDraft(null);
+    setObjectBusy(false);
+    setObjectError(null);
+  }, [currentPath]);
+  const chooseObject = async (x: number, y: number) => {
+    if (!currentPath) return;
+    const request = ++objectRequest.current;
+    setObjectBusy(true);
+    setObjectError(null);
+    try {
+      const result = await selectObjectAtPath(currentPath, x, y);
+      if (request !== objectRequest.current) return;
+      setObjectDraft({ maskPng: result.maskPng, margin: 0.003, add: [], subtract: [] });
+      setObjectMode(null);
+    } catch (error) {
+      if (request === objectRequest.current) setObjectError(error instanceof Error ? error.message : 'בחירת האובייקט נכשלה');
+    } finally {
+      if (request === objectRequest.current) setObjectBusy(false);
+    }
+  };
+  const applyObject = () => {
+    if (!currentFrame || !selectedObject) return;
+    setFrameStep(project.id, currentFrame.name, {
+      toolId: 'object-remove', enabled: true, params: {}, objectSelection: selectedObject,
+    });
+    setObjectDraft(null);
+    setObjectMode(null);
+  };
+  const clearObject = () => {
+    if (currentFrame) removeFrameStep(project.id, currentFrame.name, 'object-remove');
+    setObjectDraft(null);
+    setObjectMode(null);
+    setObjectError(null);
+  };
+  const objectModeChange = (mode: 'select' | 'add' | 'subtract' | null) => {
+    setObjectMode(mode);
+    setBrushOn(false);
+    setMaskPaintTool(null);
+    if (mode && mode !== 'select' && !objectDraft && savedObject) setObjectDraft({ ...savedObject });
+  };
   // A stroke waiting to be rebuilt belongs to the frame it was painted on.
   useEffect(() => setPendingStrokes([]), [currentPath]);
   useEffect(() => {
@@ -1385,7 +1496,7 @@ export default function GalleryEditV2({
               );
             }}
             onPointerDown={(event) => {
-              if (event.button !== 0 || canvasZoom <= 1 || brushOn || maskPaintTool) return;
+              if (event.button !== 0 || canvasZoom <= 1 || brushOn || maskPaintTool || objectMode) return;
               panRef.current = {
                 pointerId: event.pointerId,
                 x: event.clientX,
@@ -1416,7 +1527,7 @@ export default function GalleryEditV2({
               setPanning(false);
             }}
             onDoubleClick={() => {
-              if (!brushOn && !maskPaintTool) setCanvasZoom((zoom) => (zoom === 1 ? 2 : 1));
+              if (!brushOn && !maskPaintTool && !objectMode) setCanvasZoom((zoom) => (zoom === 1 ? 2 : 1));
             }}
           >
             {currentFrame ? (
@@ -1443,6 +1554,33 @@ export default function GalleryEditV2({
                       height: event.currentTarget.naturalHeight,
                     })}
                   />
+                  {selectedObject && objectDraft && fittedImage && !showOriginal && (
+                    <ObjectMaskPreview selection={selectedObject} width={fittedImage.width} height={fittedImage.height} />
+                  )}
+                  {objectMode === 'select' && fittedImage && !showOriginal && (
+                    <div className="tz-ge-object-click" style={{ width: fittedImage.width, height: fittedImage.height }}
+                      role="button" tabIndex={0} aria-label="בחר אובייקט בתמונה"
+                      onClick={(event) => {
+                        const box = event.currentTarget.getBoundingClientRect();
+                        void chooseObject((event.clientX - box.left) / box.width, (event.clientY - box.top) / box.height);
+                      }}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter' || event.key === ' ') {
+                          event.preventDefault();
+                          void chooseObject(0.5, 0.5);
+                        }
+                      }} />
+                  )}
+                  {(objectMode === 'add' || objectMode === 'subtract') && selectedObject && !showOriginal && (
+                    <ManualBrush imgRef={canvasImgRef}
+                      pending={selectedObject[objectMode] ?? []} radius={brushR} onRadius={setBrushR}
+                      erasing={false} tint={objectMode === 'add' ? '59, 130, 246' : '255, 180, 50'}
+                      onStroke={(stroke) => setObjectDraft({
+                        ...selectedObject,
+                        [objectMode]: [...(selectedObject[objectMode] ?? []), stroke],
+                      })}
+                      onErase={() => undefined} />
+                  )}
                   {/* Painting is disabled while the original is being held up for
                       comparison: the marks would land on the frame he is NOT
                       looking at, which is the same picture in the same place but
@@ -1584,10 +1722,10 @@ export default function GalleryEditV2({
                 tools={frameEffectiveTools}
                 /* Touching any OTHER tool puts the cleaning brush away: he has
                  * moved on, and a brush left open keeps taking the pointer. */
-                onParam={(toolId, paramId, value) => { if (toolId !== 'manual-clean') setBrushOn(false); handleParamChange(toolId, paramId, value); }}
-                onToggle={(toolId, enabled) => { if (toolId !== 'manual-clean') setBrushOn(false); handleToolEnabled(toolId, enabled); }}
-                onReset={(toolId) => { if (toolId !== 'manual-clean') setBrushOn(false); handleToolReset(toolId); }}
-                onOpenBrush={() => { setBrushOn((v) => !v); setMaskPaintTool(null); }}
+                onParam={(toolId, paramId, value) => { if (toolId !== 'manual-clean') setBrushOn(false); setObjectMode(null); handleParamChange(toolId, paramId, value); }}
+                onToggle={(toolId, enabled) => { if (toolId !== 'manual-clean') setBrushOn(false); setObjectMode(null); handleToolEnabled(toolId, enabled); }}
+                onReset={(toolId) => { if (toolId !== 'manual-clean') setBrushOn(false); setObjectMode(null); handleToolReset(toolId); }}
+                onOpenBrush={() => { setBrushOn((v) => !v); setMaskPaintTool(null); setObjectMode(null); }}
                 brushOn={brushOn}
                 brushStrokes={manualStrokes.length}
                 onMask={(toolId, mask) => { setBrushOn(false); handleMask(toolId, mask); }}
@@ -1601,6 +1739,13 @@ export default function GalleryEditV2({
                   setPendingStrokes((p) => p.filter((st) => st.id !== id));
                 }}
                 onHoverAction={setHoveredAction}
+                objectMode={objectMode}
+                objectSelected={Boolean(selectedObject)}
+                objectBusy={objectBusy}
+                objectError={objectError}
+                onObjectMode={objectModeChange}
+                onObjectApply={applyObject}
+                onObjectClear={clearObject}
               />
             ) : (
               /* ColorMatch Tab */

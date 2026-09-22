@@ -405,6 +405,22 @@ export async function renderRecipe(
   return r.json();
 }
 
+/** Select the object under a point on a photograph. Coordinates are fractions. */
+export async function selectObjectAtPath(path: string, x: number, y: number): Promise<{
+  maskPng: string; coverage: number; score: number; width: number; height: number;
+}> {
+  const response = await fetch(`${ENGINE}/object/select`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ path, x, y }),
+  });
+  if (!response.ok) {
+    const body = await response.json().catch(() => ({}));
+    throw new Error(body.error || `engine ${response.status}`);
+  }
+  return response.json();
+}
+
 // Uniform call for any AI tool: POST /tools/{id}/apply.
 export async function applyAiTool(
   toolId: string,

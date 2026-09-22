@@ -210,6 +210,17 @@ export const TOOLS: ToolDef[] = [
     params: [],
   },
   {
+    // A selected object is per-photograph geometry. Selection and correction
+    // are stored on the step, while the engine handles preview and export.
+    id: 'object-remove',
+    label: 'הסרת אובייקט',
+    kind: 'ai',
+    category: 'local-ai',
+    order: 12,
+    batchPolicy: 'absolute',
+    params: [],
+  },
+  {
     // RETIRED — replaced by skin-retouch, which does this job and blemishes in
     // the retoucher's order. Kept so work saved with it renders as it was saved.
     id: 'skin',
@@ -761,6 +772,7 @@ export function getInstance(recipe: Recipe, toolId: string): ToolInstance {
 }
 
 export function isToolAtDefault(inst: ToolInstance): boolean {
+  if (inst.toolId === 'object-remove') return !inst.objectSelection;
   const def = getTool(inst.toolId);
   return def.params.every((s) => inst.params[s.id] === s.default);
 }
@@ -866,8 +878,9 @@ export function updateToolSelection(
 export function stripPerPhotoState(recipe: Recipe): Recipe {
   return {
     tools: recipe.tools.map((t) => {
-      const { selection: _sel, strokes: _painted, ...kept } = t;
-      const perPhoto = t.selection !== undefined || t.strokes !== undefined;
+      const { selection: _sel, strokes: _painted, objectSelection: _object, ...kept } = t;
+      if (t.toolId === 'object-remove') return { ...kept, enabled: false };
+      const perPhoto = t.selection !== undefined || t.strokes !== undefined || t.objectSelection !== undefined;
       if (kept.mask?.region !== 'painted') return perPhoto ? kept : t;
       const { mask: _drop, ...rest } = kept;
       return rest;

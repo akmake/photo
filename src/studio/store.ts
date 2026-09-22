@@ -1195,7 +1195,8 @@ export function useRecipe(projectId: string): ProjectRecipe {
  *  frame's geometry to every other frame. The rule is stated in types.ts — this
  *  is where it is enforced, at the one door into the shared layers. */
 function shareable(step: ToolInstance): ToolInstance {
-  const { selection: _drop, strokes: _painted_by_hand, mask, ...rest } = step;
+  const { selection: _drop, strokes: _painted_by_hand, objectSelection: _object_selection, mask, ...rest } = step;
+  if (step.toolId === 'object-remove') return { ...rest, enabled: false };
   if (!mask) return rest;
   // The mask itself travels — "the 3D on the clothes" is a sentence about
   // every photograph in the set. What he drew BY HAND inside it does not, in

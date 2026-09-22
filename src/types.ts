@@ -161,6 +161,13 @@ export interface ToolInstance {
    *  picture and is stripped at the door into any shared layer
    *  (studio/store.ts::shareable). The engine dispatches on this field. */
   strokes?: ManualStroke[];
+  /** Object removal selection belongs to this photograph and is replayed on export. */
+  objectSelection?: {
+    maskPng: string;
+    margin?: number;
+    add?: ManualStroke[];
+    subtract?: ManualStroke[];
+  };
   /** A fitted model this step applies instead of sliders — `pixel-color` only.
    *  Kept out of `params` because params are numbers by contract, and the
    *  engine dispatches on this field (engine/render.py::render). */

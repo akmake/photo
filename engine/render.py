@@ -30,6 +30,7 @@ import eyes
 import glow
 import hairtone
 import manual_clean
+import object_remove
 import skin
 import globals_py
 import photo_tools
@@ -61,6 +62,7 @@ TOOLS = {
     # crucially AFTER it, so the brush is the last word on a mark the detector
     # missed or got wrong.
     "manual-clean": (manual_clean.apply, 11),
+    "object-remove": (object_remove.apply, 12),
     "skin": (skin.apply, 20),
     # sculpting comes AFTER smoothing — smoothing an added highlight would
     # flatten it straight back out — and before any colour work
@@ -438,7 +440,7 @@ def _stage_names(key, rgb, source_scale, has_source, active):
         # cached before a stroke was painted is not this frame. Leaving it out
         # would hand the screen back the picture from before the brush.
         entry = {k: t.get(k)
-                 for k in ("toolId", "params", "mask", "selection", "model", "strokes")}
+                 for k in ("toolId", "params", "mask", "selection", "model", "strokes", "objectSelection")}
         h.update(json.dumps(entry, sort_keys=True, separators=(",", ":")).encode("utf-8"))
         names.append(h.copy().hexdigest())
     return names
@@ -551,6 +553,8 @@ def render(img, recipe_tools, source_scale: float = 1.0, source_img=None, key=No
             # export or the brush would be a control that lies about delivery.
             if t.get("strokes") is not None:
                 params = {**params, "strokes": t["strokes"]}
+            if t.get("objectSelection") is not None:
+                params = {**params, "objectSelection": t["objectSelection"]}
             # A FITTED MODEL, not sliders. `pixel-color` is calibrated from a
             # before/after pair and arrives as anchors, deltas and confidences —
             # it cannot travel in `params`, which is numbers by contract

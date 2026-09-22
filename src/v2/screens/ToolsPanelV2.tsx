@@ -95,12 +95,21 @@ type Props = {
   onDeleteAction?: (id: string) => void;
   /** The action under the pointer in the list, shown on the photograph. */
   onHoverAction?: (id: string | null) => void;
+  objectMode?: 'select' | 'add' | 'subtract' | null;
+  objectSelected?: boolean;
+  objectBusy?: boolean;
+  objectError?: string | null;
+  onObjectMode?: (mode: 'select' | 'add' | 'subtract' | null) => void;
+  onObjectApply?: () => void;
+  onObjectClear?: () => void;
 };
 
 export default function ToolsPanelV2({
   tools, onParam, onToggle, onReset, onOpenBrush, brushOn, brushStrokes,
   onMask, onPaintMask, paintingMask, maskStrokes, isRaw = false,
   brushActions = [], onDeleteAction, onHoverAction,
+  objectMode = null, objectSelected = false, objectBusy = false, objectError = null,
+  onObjectMode, onObjectApply, onObjectClear,
 }: Props) {
   const [open, setOpen] = useState<Record<string, boolean>>({});
   // One stage of the work at a time, the way the Photos editor shows a tab.
@@ -225,7 +234,7 @@ export default function ToolsPanelV2({
                     </button>
                     <span className={`tz-tp-dot ${changed ? '' : 'idle'}`}
                       title={changed ? 'שונה בתמונה הזו' : undefined} />
-                    {!brush && (
+                    {!brush && def.id !== 'object-remove' && (
                       <button
                         type="button"
                         className="tz-tp-icon"
@@ -235,19 +244,39 @@ export default function ToolsPanelV2({
                         ↺
                       </button>
                     )}
-                    <button
+                    {def.id !== 'object-remove' && <button
                       type="button"
                       role="switch"
                       aria-checked={on}
                       className="tz-tp-switch"
                       title={on ? 'כבה' : 'הפעל'}
                       onClick={() => onToggle(def.id, !on)}
-                    />
+                    />}
                   </header>
 
                   {isOpen && (
                     <div className="tz-tp-body">
-                      {brush ? (
+                      {def.id === 'object-remove' ? (
+                        <div className="tz-tp-object">
+                          <p className="tz-tp-note">בחרו אובייקט בתמונה, בדקו את המסכה ותקנו אותה לפני ההסרה. השלמת אדם או בעל חיים מוסתר עדיין דורשת בדיקה מקרוב.</p>
+                          <button type="button" className="tz-tp-brush" disabled={objectBusy}
+                            onClick={() => onObjectMode?.(objectMode === 'select' ? null : 'select')}>
+                            {objectMode === 'select' ? 'בטל בחירה' : 'בחר בלחיצה על התמונה'}
+                          </button>
+                          {objectSelected && <>
+                            <div className="tz-tp-mask-chips">
+                              <button type="button" className={`tz-tp-chip ${objectMode === 'add' ? 'on' : ''}`}
+                                onClick={() => onObjectMode?.(objectMode === 'add' ? null : 'add')}>הוסף למסכה</button>
+                              <button type="button" className={`tz-tp-chip ${objectMode === 'subtract' ? 'on' : ''}`}
+                                onClick={() => onObjectMode?.(objectMode === 'subtract' ? null : 'subtract')}>החסר מהמסכה</button>
+                            </div>
+                            <button type="button" className="tz-tp-brush" disabled={objectBusy} onClick={onObjectApply}>הסר אובייקט</button>
+                            <button type="button" className="tz-tp-brush sm" onClick={onObjectClear}>נקה בחירה</button>
+                          </>}
+                          {objectBusy && <p role="status">מזהה אובייקט…</p>}
+                          {objectError && <p role="alert">{objectError}</p>}
+                        </div>
+                      ) : brush ? (
                         <>
                           <p className="tz-tp-note">
                             מציירים על הלכלוך או הריר בתמונה והוא נעלם. גלגלת העכבר משנה

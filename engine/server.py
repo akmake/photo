@@ -49,6 +49,7 @@ import hairtone
 import presets
 import raw
 import render
+import object_remove
 import shotinfo
 import photo_tools
 import skin
@@ -1122,6 +1123,9 @@ class Handler(BaseHTTPRequestHandler):
         if self.path == "/render":
             self._render()
             return
+        if self.path == "/object/select":
+            self._object_select()
+            return
         if self.path == "/albumdesk/export":
             self._albumdesk_export()
             return
@@ -1358,6 +1362,29 @@ class Handler(BaseHTTPRequestHandler):
             self._json(400, {"error": str(e)})
         except Exception as e:  # noqa: BLE001
             self._json(500, {"error": str(e)})
+
+    def _object_select(self):
+        """POST {path|image, x, y, w?}; returns a persisted selection mask."""
+        try:
+            body = self._body()
+            x, y = float(body["x"]), float(body["y"])
+            if body.get("path"):
+                path = body["path"]
+                if not os.path.isfile(path):
+                    raise ValueError("Photograph not found")
+                def work():
+                    _, img, _ = _working_frame(path, object_remove.SELECT_MAX_DIM, None)
+                    return object_remove.select(common.to_np(img), x, y)
+            else:
+                if not body.get("image"):
+                    raise ValueError("Photograph is required")
+                def work():
+                    return object_remove.select(common.to_np(common.b64_to_image(body["image"])), x, y)
+            self._json(200, on_worker(work))
+        except (KeyError, ValueError) as exc:
+            self._json(400, {"error": str(exc)})
+        except Exception as exc:  # noqa: BLE001
+            self._json(503, {"error": str(exc)})
 
     def _render(self):
         """Run a whole recipe in one pass. { image|path, recipe:[...], w? }

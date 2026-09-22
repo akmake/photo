@@ -473,6 +473,22 @@
   user-select: none;
 }
 
+.tz-ge-object-mask,
+.tz-ge-object-click {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  border-radius: 6px;
+}
+.tz-ge-object-mask {
+  pointer-events: none;
+}
+.tz-ge-object-click {
+  cursor: crosshair;
+  z-index: 4;
+}
+
 /* Always visible above the photograph, in the same lower corner where image
  * applications put view controls. It is deliberately compact but every hit
  * target is at least 32px, so zooming never turns into precision clicking. */
