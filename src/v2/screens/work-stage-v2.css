@@ -484,3 +484,17 @@
 .tz-ws-shot b { font-weight: 600; font-variant-numeric: tabular-nums; }
 .tz-ws-shot em { font-style: normal; color: var(--ws-muted); font-size: 12px; }
 .tz-ws-shot.is-fault { color: var(--ws-out); }
+
+/* viewer bar, laid out as in Photos: ערוך at the start, close at the end,
+ * zoom at the bottom end, the shot details at the bottom start */
+.tz-ws-v-edit {
+  justify-self: start;
+  display: inline-flex; align-items: center; gap: 8px;
+  height: 34px; padding: 0 14px;
+  border: 1px solid var(--ws-line); border-radius: 7px;
+  background: var(--ws-paper); font-weight: 600;
+}
+.tz-ws-v-edit:hover { background: var(--ws-ground); }
+.tz-ws-v-icon.is-close { justify-self: end; }
+.tz-ws-v-bottom .tz-ws-v-zoom { justify-self: end; }
+.tz-ws-v-bottom .tz-ws-shot { justify-self: start; }

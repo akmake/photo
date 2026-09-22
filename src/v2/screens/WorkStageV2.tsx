@@ -13,12 +13,13 @@
  */
 
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { shotInfo, thumbUrl, triageSet } from '../../api';
+import { previewUrl, registerRecipe, shotInfo, thumbUrl, triageSet } from '../../api';
 import type { Frame, ShotInfo, TriageFrame, TriageResult } from '../../api';
 import {
-  batchOfFrame, frameKey, setCull, useBatches, useCull, useProjectFiles,
+  activeSteps, batchOfFrame, frameKey, setCull, useBatches, useCull, useProjectFiles, useRecipe,
 } from '../../studio/store';
 import type { CullDecision, Project } from '../../studio/store';
+import PhotoEditor from './PhotoEditor';
 import './work-stage-v2.css';
 
 type Filter = 'all' | 'open' | 'keep' | 'maybe' | 'reject' | 'suggested';
@@ -79,6 +80,7 @@ export default function WorkStageV2({
   const [sel, setSel] = useState<string | null>(null);
   const [undo, setUndo] = useState<Undo | null>(null);
   const [viewer, setViewer] = useState(false);
+  const [editing, setEditing] = useState(false);
   // Several frames at once: Ctrl adds one, Shift takes the run between.
   const [picked, setPicked] = useState<Set<string>>(() => new Set());
   const anchor = useRef<string | null>(null);
@@ -514,6 +516,7 @@ export default function WorkStageV2({
                     return (
                       <Card
                         key={n}
+                        projectId={projectId}
                         name={n}
                         frame={f}
                         triage={byName.get(n)}
@@ -580,6 +583,8 @@ export default function WorkStageV2({
 
       {viewer && sel && frameByName.get(sel) && (
         <Viewer
+          projectId={projectId}
+          onEdit={() => setEditing(true)}
           frame={frameByName.get(sel)!}
           faces={byName.get(sel)?.faces ?? []}
           neighbors={[flat[flat.indexOf(sel) + 1], flat[flat.indexOf(sel) - 1], flat[flat.indexOf(sel) + 2]]
@@ -592,6 +597,15 @@ export default function WorkStageV2({
           onClose={() => setViewer(false)}
           onStep={step}
           onDecide={(d) => decideOne(sel, d)}
+        />
+      )}
+
+      {editing && sel && frameByName.get(sel) && (
+        <PhotoEditor
+          projectId={projectId}
+          frame={frameByName.get(sel)!}
+          name={sel}
+          onClose={() => setEditing(false)}
         />
       )}
     </div>
@@ -634,8 +648,9 @@ function Decide({ decision, onDecide, compact }: { decision?: CullDecision; onDe
 }
 
 function Card({
-  name, frame, triage, decision, current, twin, cardRef, onSelect, picked, onOpen, onDecide, onTwin, big, stack,
+  projectId, name, frame, triage, decision, current, twin, cardRef, onSelect, picked, onOpen, onDecide, onTwin, big, stack,
 }: {
+  projectId: string;
   name: string;
   frame: Frame;
   triage?: TriageFrame;
@@ -652,6 +667,7 @@ function Card({
   stack?: { count: number; open: boolean; first: boolean; last: boolean; onToggle: () => void };
 }) {
   const [loaded, setLoaded] = useState(false);
+  const cellSrc = useEditedSrc(projectId, name, frame.path, big ? 640 : 320);
   const suggestion = !decision && (triage?.suggestion === 'remove' || triage?.suggestion === 'duplicate') ? triage : null;
   const reason = suggestion?.reasons.find((r) => r.code !== 'duplicate') ?? suggestion?.reasons[0];
   const why = suggestion && reason
@@ -671,7 +687,7 @@ function Card({
       <div className="tz-ws-cell-img">
         <img
           className={loaded ? 'is-loaded' : ''}
-          src={thumbUrl(frame.path, big ? 640 : 320)}
+          src={cellSrc ?? thumbUrl(frame.path, big ? 640 : 320)}
           alt={name}
           loading="lazy"
           decoding="async"
@@ -732,8 +748,10 @@ function preload(src: string): Promise<{ w: number; h: number }> {
 }
 
 function Viewer({
-  frame, faces, neighbors, name, position, total, decision, onClose, onStep, onDecide,
+  projectId, onEdit, frame, faces, neighbors, name, position, total, decision, onClose, onStep, onDecide,
 }: {
+  projectId: string;
+  onEdit: () => void;
   frame: Frame;
   faces: TriageFrame['faces'];
   neighbors: string[];
@@ -765,9 +783,11 @@ function Viewer({
     return () => ro.disconnect();
   }, []);
 
+  // The photograph as it is now — with this frame's own edit when it has one.
+  const src = useEditedSrc(projectId, name, frame.path, 2400);
   useEffect(() => {
+    if (!src) return undefined;
     let alive = true;
-    const src = thumbUrl(frame.path, 2400);
     preload(src)
       .then((size) => { if (alive) { setZoom(1); setShown({ src, ...size }); setShownFaces(faces); } })
       .catch(() => { if (alive) { setZoom(1); setShown({ src, w: 1500, h: 1000 }); setShownFaces(faces); } });
@@ -775,7 +795,7 @@ function Viewer({
     for (const p of neighbors) void preload(thumbUrl(p, 2400)).catch(() => undefined);
     return () => { alive = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [frame.path]);
+  }, [src]);
 
   const aspect = natural ? natural.w / natural.h : 1.5;
   const pad = 32;
@@ -834,6 +854,7 @@ function Viewer({
     const onKey = (e: KeyboardEvent) => {
       if (e.ctrlKey || e.metaKey) return;
       if (e.code === 'KeyF' || e.key === 'כ') { e.preventDefault(); setFacesOn((v) => !v); }
+      if (e.code === 'KeyE' || e.key === 'ק') { e.preventDefault(); onEdit(); }
       if (e.key === '+' || e.code === 'Equal' || e.code === 'NumpadAdd') { e.preventDefault(); zoomTo(zoom * 1.25); }
       if (e.key === '-' || e.code === 'Minus' || e.code === 'NumpadSubtract') { e.preventDefault(); zoomTo(zoom / 1.25); }
       if (e.code === 'Digit0' || e.code === 'Numpad0') { e.preventDefault(); zoomTo(1); }
@@ -841,17 +862,22 @@ function Viewer({
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [actual, zoom, zoomTo]);
+  }, [actual, onEdit, zoom, zoomTo]);
 
   return (
     <div className={`tz-ws-viewer${decision ? ` is-${decision}` : ''}`} role="dialog" aria-modal="true" aria-label="תצוגה מלאה">
       <header className="tz-ws-v-top">
-        <button type="button" className="tz-ws-v-icon" onClick={onClose} aria-label="סגור (Esc)" title="סגור (Esc)">✕</button>
+        <button type="button" className="tz-ws-v-edit" onClick={onEdit} title="עריכה (E)">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+            <rect x="3" y="3" width="14" height="14" rx="2" /><path d="M13 21l1.5-4.5L21 10l-3-3-6.5 6.5L7 15" />
+          </svg>
+          ערוך
+        </button>
         <div className="tz-ws-v-name">
           <b dir="ltr">{name}</b>
           <span>{(position + 1).toLocaleString('he-IL')} מתוך {total.toLocaleString('he-IL')}</span>
         </div>
-        {shown ? <ShotLine path={frame.path} /> : <span className="tz-ws-shot" />}
+        <button type="button" className="tz-ws-v-icon is-close" onClick={onClose} aria-label="סגור (Esc)" title="סגור (Esc)">✕</button>
       </header>
 
       <div className="tz-ws-v-body">
@@ -899,7 +925,9 @@ function Viewer({
       <button type="button" className="tz-ws-v-nav is-next" disabled={position >= total - 1} onClick={() => onStep(1)} aria-label="הבאה">‹</button>
 
       <footer className="tz-ws-v-bottom">
-        <div className="tz-ws-v-zoom" dir="ltr">
+        {shown ? <ShotLine path={frame.path} /> : <span className="tz-ws-shot" />}
+                <Decide decision={decision} onDecide={onDecide} />
+<div className="tz-ws-v-zoom" dir="ltr">
           <button type="button" onClick={() => zoomTo(zoom / 1.25)} aria-label="הקטן" title="הקטן (-)">−</button>
           <input
             type="range"
@@ -918,8 +946,6 @@ function Viewer({
             <button type="button" className={facesOn ? 'is-on' : ''} onClick={() => setFacesOn((v) => !v)} title="הפנים מקרוב (F)">פנים</button>
           )}
         </div>
-        <Decide decision={decision} onDecide={onDecide} />
-        <span className="tz-ws-v-spacer" />
       </footer>
     </div>
   );
@@ -1046,4 +1072,34 @@ function ShotLine({ path }: { path: string }) {
       {d.lens && <em>{d.lens}</em>}
     </span>
   );
+}
+
+/** The picture to show for a frame: its own edit when it has one (rendered by
+ *  the engine under the recipe's key), otherwise the file. Null while the key
+ *  is being asked for, so a caller can keep what is on screen until then. */
+const keyCache = new Map<string, string>();
+function useEditedSrc(projectId: string, name: string, path: string, width: number): string | null {
+  const recipe = useRecipe(projectId);
+  const own = recipe.perFrame[frameKey(name)];
+  const steps = useMemo(
+    () => (own && own.some((t) => t.enabled) ? activeSteps(projectId, name) : null),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [own, projectId, name],
+  );
+  const sig = steps ? JSON.stringify(steps) : '';
+  const [key, setKey] = useState<string | null>(() => (sig ? keyCache.get(sig) ?? null : ''));
+  useEffect(() => {
+    if (!sig) { setKey(''); return undefined; }
+    const known = keyCache.get(sig);
+    if (known) { setKey(known); return undefined; }
+    let alive = true;
+    setKey(null);
+    registerRecipe(steps!)
+      .then((k) => { keyCache.set(sig, k); if (alive) setKey(k); })
+      .catch(() => { if (alive) setKey(''); });
+    return () => { alive = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sig]);
+  if (key === null) return null;
+  return key ? previewUrl(path, width, key) : thumbUrl(path, width);
 }
