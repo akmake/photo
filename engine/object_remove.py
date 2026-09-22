@@ -17,8 +17,41 @@ import paths
 
 SELECT_MAX_DIM = 1024
 DEFAULT_MARGIN = 0.003  # fraction of frame width
+SWALLOW = 12  # a candidate this much larger than the click is the scene, not it
 _predictor = None
 _predict_lock = threading.Lock()
+
+
+def _choose_candidate(candidates: np.ndarray, scores: np.ndarray) -> int:
+    """Prefer the enclosing object when the predictor also offers a part.
+
+    A shirt can score a little higher than the whole person. Keep the broader
+    candidate only when it contains the precise one, is similarly confident,
+    and is not the scene itself: past half the frame, or more than SWALLOW
+    times the area it was supposed to extend, it is no longer that object.
+    A subject can legitimately fill a third of a portrait, so the guard is a
+    ratio to what was clicked, not a small fixed share of the frame. The caller
+    still receives every candidate for visual review.
+    """
+    best = int(np.argmax(scores))
+    core = candidates[best].astype(bool)
+    core_area = int(core.sum())
+    if not core_area:
+        return best
+    eligible = [best]
+    for index, candidate in enumerate(candidates):
+        if index == best or float(scores[index]) < float(scores[best]) - 0.03:
+            continue
+        expanded = candidate.astype(bool)
+        area = int(expanded.sum())
+        if area <= core_area or area > SWALLOW * core_area:
+            continue
+        if area / expanded.size > 0.5:
+            continue
+        if np.count_nonzero(core & expanded) / core_area < 0.85:
+            continue
+        eligible.append(index)
+    return max(eligible, key=lambda index: int(candidates[index].sum()))
 
 
 def _mask_data(mask: np.ndarray) -> str:
@@ -74,18 +107,27 @@ def select(rgb: np.ndarray, x: float, y: float) -> dict:
         )
     if len(candidates) == 0:
         raise RuntimeError("No object mask found at the selected point")
-    index = int(np.argmax(scores))
+    index = _choose_candidate(candidates, scores)
     mask = candidates[index].astype(np.uint8)
     if not mask.any():
         raise RuntimeError("No object mask found at the selected point")
-    return {"maskPng": _mask_data(mask), "coverage": round(float(mask.mean()), 5),
-            "score": round(float(scores[index]), 4), "width": sw, "height": sh}
+    alternatives = [
+        {"maskPng": _mask_data(candidate), "coverage": round(float(candidate.mean()), 5),
+         "score": round(float(score), 4)}
+        for candidate, score in zip(candidates, scores)
+    ]
+    return {**alternatives[index], "width": sw, "height": sh,
+            "selectedIndex": index, "candidates": alternatives}
 
 
 def repair_mask(shape: tuple, selection: dict) -> np.ndarray:
     """Expand the chosen object, then apply hand corrections at render size."""
     h, w = shape[:2]
     mask = _read_mask(selection.get("maskPng"), shape)
+    # Hand-added pixels are part of the object too. Growing only the model's
+    # mask left a halo around the very corrections the photographer made.
+    add = manual_clean.strokes_mask(shape, selection.get("add") or [])
+    mask = np.maximum(mask, add)
     margin = float(selection.get("margin", DEFAULT_MARGIN))
     if not (0 <= margin <= 0.03):
         raise ValueError("Object mask margin must be between 0 and 0.03")
@@ -94,9 +136,7 @@ def repair_mask(shape: tuple, selection: dict) -> np.ndarray:
         kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE,
                                             (2 * radius + 1, 2 * radius + 1))
         mask = cv2.dilate(mask, kernel)
-    add = manual_clean.strokes_mask(shape, selection.get("add") or [])
     subtract = manual_clean.strokes_mask(shape, selection.get("subtract") or [])
-    mask = np.maximum(mask, add)
     mask[subtract > 0] = 0
     return mask
 
