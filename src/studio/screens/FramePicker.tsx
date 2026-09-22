@@ -12,7 +12,9 @@
  * control whose answer is already decided only invites a wrong one.
  */
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import PhotoGrid from '../../components/photo-grid/PhotoGrid';
+import { useDims } from '../../components/photo-grid/useDims';
 import {
   framesInBatch, unassignedFrames, useBatches, useProjectFiles,
 } from '../store';
@@ -36,6 +38,7 @@ export default function FramePicker({
   const { frames, ready } = useProjectFiles(projectId);
   const batches = useBatches(projectId);
   const preview = useSetPreview(projectId);
+  const dims = useDims(useMemo(() => frames.map((f) => f.path), [frames]));
 
   const [at, setAt] = useState<string | null | undefined>(batchId);
 
@@ -90,16 +93,28 @@ export default function FramePicker({
         <p className="pf-empty">אין תמונות במקבץ הזה.</p>
       ) : (
         <div className="pf-grid">
-          {shown.map((frame) => (
-            <figure className="pf-shot" key={frame.path}>
-              <img src={preview.url(frame.path, 320)} alt="" loading="lazy" />
-              {preview.pending(frame.path) && <i className="pf-pending">המראה נטען…</i>}
-              <figcaption className="mono" dir="ltr">{frame.name}</figcaption>
-              <button className="pf-use" onClick={() => onPick(frame.path)}>
-                {label}
-              </button>
-            </figure>
-          ))}
+          {/* The shared gallery: pick by the photograph itself, in its real
+              proportions. A click on a photograph is the choice. */}
+          <PhotoGrid
+            className="pf-pg"
+            sections={[{
+              id: 'pick',
+              items: shown.map((frame) => ({
+                id: frame.path,
+                alt: frame.name,
+                aspect: dims.get(frame.path),
+                src: (w: number) => preview.url(frame.path, w),
+              })),
+            }]}
+            targetHeight={150}
+            onItemClick={(id) => onPick(id)}
+            renderOverlay={(item, state) => (
+              <>
+                {preview.pending(item.id) && <i className="pf-pending">המראה נטען…</i>}
+                <span className={`pf-pg-use${state.hovered ? ' is-on' : ''}`}>{label}</span>
+              </>
+            )}
+          />
         </div>
       )}
     </div>

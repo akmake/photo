@@ -883,3 +883,17 @@
   padding: 2px 7px;
   pointer-events: none;
 }
+
+/* The picker's grid is the shared PhotoGrid in a bounded room. */
+.pf-grid:has(> .pf-pg) { display: block !important; height: min(62vh, 640px); }
+.pf-pg { --pg-bg: transparent; }
+.pf-pg .tz-pg-tile { cursor: pointer; }
+.pf-pg-use {
+  position: absolute; inset: auto 8px 8px auto; z-index: 3;
+  padding: 5px 10px; border-radius: 7px;
+  background: rgba(255, 255, 255, 0.95); color: #1f1f1f;
+  font-size: 12px; font-weight: 600;
+  opacity: 0; transition: opacity 0.12s; pointer-events: none;
+}
+.pf-pg-use.is-on { opacity: 1; }
+.pf-pg .pf-pending { position: absolute; top: 8px; inset-inline-end: 8px; z-index: 3; }
