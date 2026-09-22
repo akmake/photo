@@ -1297,7 +1297,10 @@ export const galleryPublishVersion = (
   galleryId: string,
   itemId: string,
   path: string,
-) => post<{ n: number }>('/api/gallery/publish-version', { galleryId, itemId, path });
+  /** The edited frame of a choice already made: shown as updated, the
+   *  client's own done-state untouched. */
+  keepChoice = false,
+) => post<{ n: number }>('/api/gallery/publish-version', { galleryId, itemId, path, keepChoice });
 
 export interface Brand {
   logo: string;

@@ -25,7 +25,7 @@
 
 import { useEffect, useMemo, useState, useSyncExternalStore } from 'react';
 import {
-  applyToFrame, initProject, projectFrames, projectState, workspaceRoot,
+  applyToFrame, galleryPublishVersion, galleryState, initProject, projectFrames, projectState, workspaceRoot,
 } from '../api';
 import { createEditSync } from './editSync';
 import type { SyncStatus } from './editSync';
@@ -1412,6 +1412,49 @@ const frameSync = createEditSync({
     console.error(`[עדכון קובץ ערוך] ${projectId} ${frame}:`, error);
   },
 });
+
+/** סיימתי — the photograph is finished, so its finished file goes where it is
+ *  looked at:
+ *   1. rendered from the raw through its WHOLE recipe (base, batch and its own
+ *      layer) into תמונות — the album lays out `frame.shown`, and a batch look
+ *      never re-renders a file by itself (see frameSync above);
+ *   2. if the client's gallery holds this frame, published there as the next
+ *      version with the client's choice kept, so the client sees the photos
+ *      they chose being edited.
+ *  Each outcome is reported on its own; a gallery that cannot be reached does
+ *  not undo the file, and neither failure is ever silent. */
+export interface FinishOutcome {
+  file: string | null;
+  fileError?: string;
+  gallery: 'sent' | 'not-in-gallery' | 'no-gallery' | 'failed';
+  galleryError?: string;
+}
+
+export async function publishFinished(projectId: string, frame: string): Promise<FinishOutcome> {
+  const home = getProject(projectId)?.home;
+  const raw = rawPathOf(projectId, frame);
+  if (!home || !raw) {
+    return { file: null, fileError: !home ? 'לפרויקט אין תיקייה על הדיסק' : 'התמונה לא נמצאה בתיקייה', gallery: 'failed' };
+  }
+  let file: string | null = null;
+  try {
+    file = (await applyToFrame(raw, editedDirOf(home), activeSteps(projectId, raw))).file;
+    await reloadFrames(projectId);
+  } catch (e) {
+    return { file: null, fileError: e instanceof Error ? e.message : 'השמירה נכשלה', gallery: 'failed' };
+  }
+  const link = galleryOf(projectId);
+  if (!link) return { file, gallery: 'no-gallery' };
+  try {
+    const state = await galleryState(link.galleryId);
+    const item = state.selection.find((s) => s.frameId === frameKey(frame));
+    if (!item) return { file, gallery: 'not-in-gallery' };
+    await galleryPublishVersion(link.galleryId, item.itemId, file, true);
+    return { file, gallery: 'sent' };
+  } catch (e) {
+    return { file, gallery: 'failed', galleryError: e instanceof Error ? e.message : 'הגלריה לא ענתה' };
+  }
+}
 
 /** What is happening to a frame's file right now: undefined when it is up to
  *  date, else waiting / rendering / error (with the engine's message). */

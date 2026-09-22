@@ -351,11 +351,15 @@ def add_version(gallery_id, item_id):
     return {"n": n, "key": key, "put": store.presign_put(key)}
 
 
-def publish_version(gallery_id, item_id, path):
+def publish_version(gallery_id, item_id, path, keep_choice=False):
     """A corrected frame, derived from disk and published as the next version.
 
     The local counterpart of add_version: same result, except the bytes are
     made here instead of being signed for and pushed from somewhere else.
+
+    `keep_choice`: the photographer finished EDITING a frame the client already
+    chose ("סיימתי"). The client should see it edited, not be asked about it
+    again — so the item's done-state is left exactly as the client left it.
     """
     import gallery_derive  # noqa: PLC0415
 
@@ -377,7 +381,8 @@ def publish_version(gallery_id, item_id, path):
         {"n": n, "key": key, "createdAt": time.time()}
     )
     item["color"] = derived.get("color") or item.get("color")
-    item["clientDone"] = False       # a new version reopens the question
+    if not keep_choice:
+        item["clientDone"] = False   # a correction reopens the question
     _r().save("galleryItems", item)
     return {"n": n, "key": key}
 
@@ -938,7 +943,8 @@ def _admin_route(method, path, body):
         return add_version(body.get("galleryId"), body.get("itemId"))
     if action == "publish-version" and method == "POST":
         return publish_version(
-            body.get("galleryId"), body.get("itemId"), body.get("path")
+            body.get("galleryId"), body.get("itemId"), body.get("path"),
+            keep_choice=bool(body.get("keepChoice")),
         )
     if action == "state":
         return state(body.get("galleryId"))

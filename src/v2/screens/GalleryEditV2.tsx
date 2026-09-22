@@ -17,6 +17,7 @@ import {
   useRecipe,
   useStatuses,
   setPhotoStatus,
+  publishFinished,
   useDiskFault,
   retrySave,
 } from '../../studio/store';
@@ -228,6 +229,8 @@ export default function GalleryEditV2({
   const [maskPaintTool, setMaskPaintTool] = useState<string | null>(null);
   const [brushR, setBrushR] = useState(DEFAULT_R);
   const [pendingStrokes, setPendingStrokes] = useState<ManualStroke[]>([]);
+  // What "סיימתי" did with each frame's file, said once it is known.
+  const [finishNotes, setFinishNotes] = useState<Record<string, string>>({});
   // The cleaning action pointed at in the tools panel's list.
   const [hoveredAction, setHoveredAction] = useState<string | null>(null);
 
@@ -399,6 +402,18 @@ export default function GalleryEditV2({
       return;
     }
     setPhotoStatus(project.id, currentFrame.name, 'ready');
+    // The finished file goes to the album and to the client's gallery.
+    const finished = currentFrame.name;
+    setFinishNotes((n) => ({ ...n, [finished]: 'שומר את התמונה הערוכה…' }));
+    void publishFinished(project.id, finished).then((out) => {
+      const words = out.fileError
+        ? `לא נשמרה: ${out.fileError}`
+        : out.gallery === 'sent' ? 'נשמרה לאלבום · נשלחה ללקוח'
+        : out.gallery === 'failed' ? `נשמרה לאלבום · לא נשלחה ללקוח: ${out.galleryError ?? ''}`
+        : out.gallery === 'not-in-gallery' ? 'נשמרה לאלבום · לא בגלריה של הלקוח'
+        : 'נשמרה לאלבום';
+      setFinishNotes((n) => ({ ...n, [finished]: words }));
+    });
     const after = slideFrames.findIndex((f, i) => i > activeSlideIndex && !isDone(f.name));
     if (after >= 0) setActiveSlideIndex(after);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1210,6 +1225,14 @@ export default function GalleryEditV2({
                 >
                   {isDone(currentFrame.name) ? 'הסתיימה ✓ · החזר לעריכה' : 'סיימתי ✓'}
                 </button>
+              )}
+              {currentFrame && finishNotes[currentFrame.name] && isDone(currentFrame.name) && (
+                <span
+                  className={`tz-ge-finish-note${/לא נ/.test(finishNotes[currentFrame.name]) ? ' is-fault' : ''}`}
+                  role="status"
+                >
+                  {finishNotes[currentFrame.name]}
+                </span>
               )}
               {/* THE BRUSH. Off by default: it takes the mouse over the
                   picture, and a screen where clicking the photograph edits it

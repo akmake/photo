@@ -314,3 +314,7 @@
 .is-photos .tz-tp-actions li:hover .tz-tp-icon { opacity: 1; }
 .tz-ge-action-peek { position: absolute; inset: 0; pointer-events: none; }
 .tz-ge-action-peek * { pointer-events: none !important; }
+
+/* what "סיימתי" did with the file */
+.tz-ge-finish-note { font-size: 12px; color: #9fd8b8; white-space: nowrap; }
+.tz-ge-finish-note.is-fault { color: #f0a8a0; }
