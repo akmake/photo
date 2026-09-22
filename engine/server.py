@@ -78,6 +78,13 @@ import albumdesk_export
 import gallery
 import gallery_store
 
+# A frozen engine is NEVER allowed to run ungated, even when started manually
+# without Electron's environment. The opt-in variable exists only for testing
+# the source engine's packaged behavior before building it.
+LICENSE_REQUIRED = bool(getattr(sys, "frozen", False)) or os.environ.get("TEZA_LICENSE_REQUIRED") == "1"
+if LICENSE_REQUIRED:
+    import license_state
+
 # The port the interface talks to. Overridable, and the override exists for one
 # concrete reason: testing the PACKAGED engine on a development machine, where
 # 8756 is already held by the engine the photographer is working against. The
@@ -697,6 +704,16 @@ DISPATCH = {
 
 
 class Handler(BaseHTTPRequestHandler):
+    def _licensed(self):
+        """Every work endpoint passes here, including galleries and DB writes."""
+        if not LICENSE_REQUIRED:
+            return True
+        state = license_state.status()
+        if state["ok"]:
+            return True
+        self._json(402, {"error": state["error"], "license_required": True})
+        return False
+
     def _cors(self):
         self.send_header("Access-Control-Allow-Origin", "*")
         self.send_header("Access-Control-Allow-Methods", "POST, GET, OPTIONS")
@@ -712,6 +729,14 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
 
     def do_GET(self):
+        if self.path == "/license/status":
+            if LICENSE_REQUIRED:
+                self._json(200, license_state.status())
+            else:
+                self._json(200, {"ok": True, "mode": "development"})
+            return
+        if self.path != "/health" and not self._licensed():
+            return
         if self._gallery_api("GET"):
             return
         if self.path.startswith("/gallery-files/"):
@@ -737,7 +762,8 @@ class Handler(BaseHTTPRequestHandler):
             self._json(200, db.health())
             return
         if self.path == "/health":
-            self._json(200, {"status": "ok", "tools": [t["id"] for t in TOOLS]})
+            self._json(200, {"status": "ok", "tools": [t["id"] for t in TOOLS],
+                             "license_required": LICENSE_REQUIRED})
         elif self.path == "/tools":
             self._json(200, {"tools": TOOLS})
         elif self.path == "/presets":
@@ -1050,6 +1076,26 @@ class Handler(BaseHTTPRequestHandler):
             self._json(500, {"error": str(e)})
 
     def do_POST(self):
+        if self.path == "/license/activate":
+            if not LICENSE_REQUIRED:
+                self._json(200, {"ok": True, "mode": "development"})
+                return
+            try:
+                if int(self.headers.get("Content-Length", 0)) > 8192:
+                    self._json(413, {"error": "בקשת ההפעלה גדולה מדי"})
+                    return
+                body = self._body()
+                self._json(200, license_state.activate(
+                    str(body.get("email", "")), str(body.get("password", "")),
+                    str(body.get("name", "")), body.get("register") is True,
+                ))
+            except license_state.LicenseError as exc:
+                self._json(400, {"error": str(exc)})
+            except Exception:
+                self._json(503, {"error": "ההפעלה נכשלה; נסה שוב כשהשרת זמין"})
+            return
+        if not self._licensed():
+            return
         if self._gallery_api("POST"):
             return
         if self.path == "/recipe-key":

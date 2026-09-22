@@ -19,6 +19,8 @@ settings = get_settings()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    if not settings.is_dev and (len(settings.secret_key) < 32 or settings.secret_key.startswith("dev-")):
+        raise RuntimeError("Production SECRET_KEY must be a unique, long random value")
     init_db()
     yield
 

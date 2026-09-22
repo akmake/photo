@@ -24,12 +24,60 @@
   flex-shrink: 0;
 }
 
+.tz-ge-top-right-group {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  flex: 1;
+}
+
+.tz-ge-back-general-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 36px;
+  padding: 0 14px;
+  background: #222226;
+  border: 1px solid #36363d;
+  border-radius: 10px;
+  color: #f4f4f5 !important;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+  transition: all 0.18s ease;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+}
+
+.tz-ge-back-general-btn:hover {
+  background: #2c2c34;
+  border-color: #52525b;
+  color: #ffffff !important;
+  transform: translateX(2px);
+}
+
+.tz-ge-back-general-btn:active {
+  transform: translateX(0);
+}
+
+.tz-ge-back-general-btn svg {
+  color: #ea6a3c;
+  transition: transform 0.18s ease;
+}
+
+.tz-ge-back-general-btn:hover svg {
+  transform: translateX(2px);
+}
+
 .tz-ge-batch-tabs {
   display: flex;
   align-items: center;
   gap: 8px;
   overflow-x: auto;
-  max-width: 70%;
+  flex: 1;
 }
 
 .tz-ge-top-actions {
@@ -1560,32 +1608,269 @@
 .tz-tp-modules::-webkit-scrollbar-track,
 .tz-ge-panel-scroll::-webkit-scrollbar-track { background: transparent; }
 
-/* ---- ייצוא תמונות ---- */
-.tz-export { width: min(560px, 100%); }
-.tz-export-body { display: grid; gap: 14px; padding: 18px; }
-.tz-export-what { margin: 0; display: grid; gap: 4px; font-size: 14px; }
-.tz-export-what b { font-size: 16px; }
-.tz-export-what span, .tz-export-muted { color: #71717a; font-size: 12.5px; }
-.tz-export-where { display: flex; align-items: center; gap: 10px; min-width: 0; }
-.tz-export-label { font-size: 13px; font-weight: 600; flex: none; }
-.tz-export-where code {
-  flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-  font-size: 12px; background: #f4f4f5; padding: 6px 8px; border-radius: 6px;
+/* ---- ייצוא תמונות (Export Dialog) ---- */
+.scrim:has(.tz-export),
+.scrim {
+  background: rgba(0, 0, 0, 0.75) !important;
+  backdrop-filter: blur(8px) !important;
 }
-.tz-export-where .tz-export-muted { flex: 1; }
-.tz-export-warn, .tz-export-fail, .tz-export-ok { margin: 0; font-size: 13px; padding: 8px 10px; border-radius: 6px; }
-.tz-export-warn { background: #fef3c7; color: #92400e; }
-.tz-export-fail { background: #fee2e2; color: #991b1b; }
-.tz-export-ok { background: #dcfce7; color: #166534; }
-.tz-export-progress { display: flex; align-items: center; gap: 10px; font-size: 12.5px; }
-.tz-export-bar { flex: 1; height: 6px; background: #f4f4f5; border-radius: 99px; overflow: hidden; }
-.tz-export-bar span { display: block; height: 100%; background: #e86338; transition: width 160ms ease-out; }
-.tz-export-failed {
-  margin: 0; padding: 0; list-style: none; max-height: 160px; overflow: auto;
-  display: grid; gap: 4px; font-size: 12px;
+
+.dialog.tz-export {
+  width: min(580px, 94vw) !important;
+  background: #18181b !important;
+  border: 1px solid #27272a !important;
+  border-radius: 18px !important;
+  box-shadow: 0 25px 60px -15px rgba(0, 0, 0, 0.8), 0 0 0 1px rgba(255, 255, 255, 0.08) !important;
+  color: #f4f4f5 !important;
+  overflow: hidden !important;
+  text-align: right !important;
 }
-.tz-export-failed li { display: flex; gap: 10px; justify-content: space-between; }
-.tz-export-failed li span:last-child { color: #71717a; }
+
+.dialog.tz-export .dialog-head {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  padding: 16px 20px !important;
+  border-bottom: 1px solid #27272a !important;
+  background: #1c1c20 !important;
+}
+
+.dialog.tz-export .dialog-head h2 {
+  margin: 0 !important;
+  font-family: var(--tz-font-display, inherit) !important;
+  font-size: 17px !important;
+  font-weight: 800 !important;
+  color: #ffffff !important;
+  letter-spacing: -0.01em !important;
+}
+
+.dialog.tz-export .dialog-x {
+  width: 32px !important;
+  height: 32px !important;
+  border-radius: 50% !important;
+  border: 1px solid #3f3f46 !important;
+  background: #27272a !important;
+  color: #a1a1aa !important;
+  font-size: 18px !important;
+  display: grid !important;
+  place-items: center !important;
+  cursor: pointer !important;
+  transition: all 0.15s ease !important;
+}
+
+.dialog.tz-export .dialog-x:hover:not(:disabled) {
+  background: #3f3f46 !important;
+  color: #ffffff !important;
+  border-color: #52525b !important;
+}
+
+.dialog.tz-export .tz-export-body {
+  display: grid !important;
+  gap: 16px !important;
+  padding: 22px 20px !important;
+  background: #18181b !important;
+}
+
+.dialog.tz-export .tz-export-what {
+  margin: 0 !important;
+  display: grid !important;
+  gap: 6px !important;
+  font-size: 15px !important;
+  color: #ffffff !important;
+}
+
+.dialog.tz-export .tz-export-what b {
+  color: #ea6a3c !important;
+  font-size: 18px !important;
+  font-weight: 800 !important;
+}
+
+.dialog.tz-export .tz-export-what span {
+  color: #a1a1aa !important;
+  font-size: 13px !important;
+  line-height: 1.5 !important;
+}
+
+.dialog.tz-export .tz-export-where {
+  display: flex !important;
+  align-items: center !important;
+  gap: 12px !important;
+  min-width: 0 !important;
+  background: #222226 !important;
+  border: 1px solid #333338 !important;
+  border-radius: 12px !important;
+  padding: 10px 14px !important;
+}
+
+.dialog.tz-export .tz-export-label {
+  font-size: 12px !important;
+  font-weight: 800 !important;
+  color: #ea6a3c !important;
+  text-transform: uppercase !important;
+  letter-spacing: 0.05em !important;
+  flex: none !important;
+}
+
+.dialog.tz-export .tz-export-where code {
+  flex: 1 !important;
+  min-width: 0 !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
+  font-size: 12.5px !important;
+  background: transparent !important;
+  color: #f4f4f5 !important;
+  font-family: monospace !important;
+  padding: 0 !important;
+  direction: ltr !important;
+  text-align: left !important;
+}
+
+.dialog.tz-export .tz-export-muted {
+  flex: 1 !important;
+  color: #71717a !important;
+  font-size: 13px !important;
+}
+
+.dialog.tz-export .tz-export-where .btn {
+  background: #2e2e34 !important;
+  border: 1px solid #3f3f46 !important;
+  color: #f4f4f5 !important;
+  border-radius: 8px !important;
+  padding: 6px 13px !important;
+  font-size: 12px !important;
+  font-weight: 600 !important;
+  cursor: pointer !important;
+  white-space: nowrap !important;
+  transition: all 0.15s ease !important;
+}
+
+.dialog.tz-export .tz-export-where .btn:hover:not(:disabled) {
+  background: #3f3f46 !important;
+  border-color: #52525b !important;
+  color: #ffffff !important;
+}
+
+.dialog.tz-export .tz-export-warn {
+  margin: 0 !important;
+  font-size: 13px !important;
+  padding: 10px 14px !important;
+  border-radius: 10px !important;
+  background: rgba(245, 158, 11, 0.12) !important;
+  border: 1px solid rgba(245, 158, 11, 0.3) !important;
+  color: #fcd34d !important;
+  line-height: 1.45 !important;
+}
+
+.dialog.tz-export .tz-export-fail {
+  margin: 0 !important;
+  font-size: 13px !important;
+  padding: 10px 14px !important;
+  border-radius: 10px !important;
+  background: rgba(239, 68, 68, 0.12) !important;
+  border: 1px solid rgba(239, 68, 68, 0.3) !important;
+  color: #fca5a5 !important;
+}
+
+.dialog.tz-export .tz-export-ok {
+  margin: 0 !important;
+  font-size: 13px !important;
+  padding: 10px 14px !important;
+  border-radius: 10px !important;
+  background: rgba(16, 185, 129, 0.12) !important;
+  border: 1px solid rgba(16, 185, 129, 0.3) !important;
+  color: #6ee7b7 !important;
+}
+
+.dialog.tz-export .tz-export-progress {
+  display: flex !important;
+  align-items: center !important;
+  gap: 12px !important;
+  font-size: 13px !important;
+  color: #f4f4f5 !important;
+}
+
+.dialog.tz-export .tz-export-bar {
+  flex: 1 !important;
+  height: 8px !important;
+  background: #27272a !important;
+  border-radius: 99px !important;
+  overflow: hidden !important;
+}
+
+.dialog.tz-export .tz-export-bar span {
+  display: block !important;
+  height: 100% !important;
+  background: linear-gradient(90deg, #f97316, #ea580c) !important;
+  border-radius: 99px !important;
+  transition: width 160ms ease-out !important;
+}
+
+.dialog.tz-export .tz-export-failed {
+  margin: 0 !important;
+  padding: 0 !important;
+  list-style: none !important;
+  max-height: 160px !important;
+  overflow: auto !important;
+  display: grid !important;
+  gap: 6px !important;
+  font-size: 12px !important;
+}
+
+.dialog.tz-export .tz-export-failed li {
+  display: flex !important;
+  gap: 10px !important;
+  justify-content: space-between !important;
+  background: #27272a !important;
+  padding: 6px 10px !important;
+  border-radius: 6px !important;
+}
+
+.dialog.tz-export .dialog-foot {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: flex-end !important;
+  gap: 10px !important;
+  padding: 16px 20px !important;
+  border-top: 1px solid #27272a !important;
+  background: #1c1c20 !important;
+}
+
+.dialog.tz-export .dialog-foot .btn:not(.btn-primary) {
+  background: #27272a !important;
+  border: 1px solid #3f3f46 !important;
+  color: #e4e4e7 !important;
+  border-radius: 10px !important;
+  padding: 9px 18px !important;
+  font-size: 13px !important;
+  font-weight: 600 !important;
+  cursor: pointer !important;
+  transition: all 0.15s ease !important;
+}
+
+.dialog.tz-export .dialog-foot .btn:not(.btn-primary):hover:not(:disabled) {
+  background: #3f3f46 !important;
+  border-color: #52525b !important;
+  color: #ffffff !important;
+}
+
+.dialog.tz-export .dialog-foot .btn-primary {
+  background: linear-gradient(180deg, #f97316 0%, #ea580c 100%) !important;
+  border: 1px solid #ea580c !important;
+  color: #ffffff !important;
+  border-radius: 10px !important;
+  padding: 9px 20px !important;
+  font-size: 13.5px !important;
+  font-weight: 700 !important;
+  box-shadow: 0 2px 10px rgba(234, 88, 12, 0.35) !important;
+  cursor: pointer !important;
+  transition: transform 0.15s ease, box-shadow 0.15s ease !important;
+}
+
+.dialog.tz-export .dialog-foot .btn-primary:hover:not(:disabled) {
+  transform: translateY(-1px) !important;
+  box-shadow: 0 4px 16px rgba(234, 88, 12, 0.45) !important;
+}
 
 /* ---- finished, and saved */
 .tz-ge-done-btn {

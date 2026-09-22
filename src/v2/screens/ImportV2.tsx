@@ -20,7 +20,7 @@ import './import-redesign.css';
 
 /** The work stage's analysis starts the moment the set is in, in the engine's
  *  low-priority background process — so by the time the photographer reaches
- *  שלב העבודה the suggestions are there. Failing here is not an error to show:
+ *  סינון the suggestions are there. Failing here is not an error to show:
  *  the work stage asks again and says so itself if the engine cannot answer. */
 function startTriage(projectId: string) {
   const paths = framesOf(projectId).map((f) => f.path);

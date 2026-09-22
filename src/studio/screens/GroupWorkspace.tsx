@@ -1,6 +1,6 @@
-/* מקבצים — one working surface for dividing a shoot.
+/* סשנים — one working surface for dividing a shoot.
  *
- * Built to docs/new/mik.md. The old מקבצים screen was a pool that shrank: mark,
+ * Built to docs/new/mik.md. The old סשנים screen was a pool that shrank: mark,
  * name, and the frames LEFT — which made the first pass fast and every
  * correction after it a rebuild (פרק, then mark again). Here the division is
  * live data that is always open to change:
@@ -10,7 +10,7 @@
  *   sheet        the active group's photographs, dense, virtualised.
  *   selection    checkbox first; Shift/Ctrl are shortcuts, never the interface.
  *
- * The visible product has one grouping concept: edit groups, called מקבצים.
+ * The visible product has one grouping concept: edit groups, called סשנים.
  * Legacy story moments remain readable in project data for compatibility but
  * are not exposed as a second, competing mode here.
  * The rules live in ../groups.ts and are tested there; every change goes
@@ -43,11 +43,11 @@ import './GroupWorkspace.css';
 
 const WORDS = {
   edit: {
-    title: 'מקבצים', one: 'מקבץ', many: 'מקבצים', none: 'ללא מקבץ',
+    title: 'סשנים', one: 'מקבץ', many: 'סשנים', none: 'ללא מקבץ',
     moveTo: 'העברה למקבץ', remove: 'הוצא מהמקבץ', removed: 'הוצאו מהמקבץ',
     create: 'מקבץ חדש', createVerb: 'יצירת מקבץ', createCta: 'צור והעבר',
     split: 'פצל מקבץ', merge: 'מזג עם…', del: 'מחק מקבץ', unnamed: 'מקבץ ללא שם',
-    plus: '+ מקבץ', empty: 'המקבץ ריק', suggest: 'הצע מקבצים', nameField: 'שם המקבץ',
+    plus: '+ מקבץ', empty: 'המקבץ ריק', suggest: 'הצע סשנים', nameField: 'שם המקבץ',
   },
 } as const;
 
@@ -237,7 +237,7 @@ export default function GroupWorkspace({ projectId }: { projectId: string }) {
   // additive: old moment data remains intact and existing edit assignments win.
   useEffect(() => {
     if (!ready || state.batches.length || !(state.moments?.length)) return;
-    applyGroups(projectId, 'איחוד רצפים ישנים למקבצים', (s) =>
+    applyGroups(projectId, 'איחוד רצפים ישנים לסשנים', (s) =>
       G.copyStoryMomentsAsEditGroups(s, () => ({ id: newGroupId('edit'), createdAt: new Date().toISOString() })));
   }, [projectId, ready, state.batches.length, state.moments?.length]);
 
@@ -1154,7 +1154,7 @@ export default function GroupWorkspace({ projectId }: { projectId: string }) {
             </div>
             <div>
               <span className="gw-empty-kicker">התחלה מהירה</span>
-              <strong>חלק את הצילום למקבצים ברורים</strong>
+              <strong>חלק את הצילום לסשנים ברורים</strong>
               <p>מקבץ מרכז תמונות שתרצה לבחור ולערוך יחד. אפשר לקבל הצעה אוטומטית או להתחיל ידנית.</p>
             </div>
 
@@ -1215,12 +1215,12 @@ export default function GroupWorkspace({ projectId }: { projectId: string }) {
               /* Suggestions ready to accept right from the card */
               <div className="gw-card-suggest-results">
                 <div className="gw-cresults-head">
-                  <strong>✨ נמצאו {count(suggest.boundaries.length)} מקבצים מוצעים</strong>
+                  <strong>✨ נמצאו {count(suggest.boundaries.length)} סשנים מוצעים</strong>
                   {suggest.visualOnly && <small>לפי מראה ויזואלי</small>}
                 </div>
                 <div className="gw-cresults-actions">
                   <button type="button" className="btn btn-primary" onClick={acceptAll}>
-                    קבל את כל המקבצים
+                    קבל את כל הסשנים
                   </button>
                   <button
                     type="button"

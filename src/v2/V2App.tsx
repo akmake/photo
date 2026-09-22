@@ -71,7 +71,7 @@ export default function V2App({ onSwitchToV1, onOpenProjectV1 }: V2AppProps) {
 
   const isEditing = activeNav === 'project-detail' && activeStage === 'gallery-edit';
   const isGrouping = activeNav === 'project-detail' && activeStage === 'batches';
-  // שלב העבודה wants every pixel for pictures, but scrolls like a page.
+  // סינון wants every pixel for pictures, but scrolls like a page.
   const isWorking = activeNav === 'project-detail' && activeStage === 'work';
   const isAlbumMode = activeNav === 'project-detail' && activeStage === 'album-design';
   const isSidebarCollapsed = sidebarCollapsed || isEditing || isGrouping || isWorking || isAlbumMode;
@@ -130,8 +130,8 @@ export default function V2App({ onSwitchToV1, onOpenProjectV1 }: V2AppProps) {
   const PROJECT_STAGES = [
     { id: 'client-status', label: 'סטטוס לקוח', icon: TzIconUsers },
     { id: 'gallery-upload', label: 'ייבוא תמונות', icon: TzIconUpload },
-    { id: 'batches', label: 'מקבצים', icon: TzIconLayers },
-    { id: 'work', label: 'שלב העבודה', icon: TzIconFilter },
+    { id: 'batches', label: 'סשנים', icon: TzIconLayers },
+    { id: 'work', label: 'סינון', icon: TzIconFilter },
     { id: 'send-to-client', label: 'שלח ללקוח', icon: TzIconSend },
     { id: 'gallery-edit', label: 'עריכה', icon: TzIconSliders },
     { id: 'album-design', label: 'אלבום', icon: TzIconBook },
@@ -266,6 +266,7 @@ export default function V2App({ onSwitchToV1, onOpenProjectV1 }: V2AppProps) {
             project={proj}
             onNext={() => setActiveStage('album-design')}
             onBack={() => setActiveStage('send-to-client')}
+            onExitGeneral={() => setActiveStage('client-status')}
           />
         );
       }

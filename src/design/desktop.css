@@ -7,16 +7,39 @@
  * worked on and a "desktop" rule that also fires there would be a daily
  * nuisance rather than a product decision.
  *
- * The window frame is hidden (electron/main.cjs: titleBarStyle 'hidden'), so the
- * app's own top bar IS the title bar. Two things follow, and both are handled
- * below: the bar has to be draggable, and it has to keep out of the way of the
- * minimise/maximise/close buttons that Windows draws over it.
+ * The window frame is hidden (electron/main.cjs: titleBarStyle 'hidden'), so a
+ * dedicated 36px strip is the title bar. The navigation beneath it remains
+ * ordinary content; no fat header is needed just to hold the window buttons.
  */
 
 html[data-desktop] {
-  /* The strip Windows reserves for its buttons. Set by the platform; the
-   * fallback matches TITLEBAR_HEIGHT in electron/main.cjs. */
-  --tz-titlebar-h: env(titlebar-area-height, 56px);
+  --tz-titlebar-h: env(titlebar-area-height, 36px);
+}
+
+#teza-desktop-titlebar { display: none; }
+
+html[data-desktop] #teza-desktop-titlebar {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  height: var(--tz-titlebar-h);
+  padding-left: max(18px, env(titlebar-area-x, 0px));
+  padding-right: max(18px, calc(100vw - env(titlebar-area-x, 0px) - env(titlebar-area-width, 100vw)));
+  background: #57585c;
+  color: #fff;
+  font: 500 14px/1 'Assistant', 'Segoe UI', sans-serif;
+  letter-spacing: .02em;
+  direction: ltr;
+  -webkit-app-region: drag;
+  user-select: none;
+}
+
+html[data-desktop] #root {
+  height: calc(100% - var(--tz-titlebar-h));
+}
+
+html[data-desktop] .tz-app {
+  height: 100%;
 }
 
 /* ------------------------------------------------------------------ pointing
@@ -52,31 +75,8 @@ html[data-desktop] a {
   -webkit-user-drag: none;
 }
 
-/* ---------------------------------------------------------------- title bar
- *
- * The bar is the drag handle: pulling anywhere on its empty space moves the
- * window, exactly as a native title bar does. Its children are excluded, or the
- * bell and the back button would become undraggable dead spots — a click inside
- * a drag region is swallowed by the window manager.
- *
- * The padding is the important part. Windows draws its three buttons INSIDE the
- * window, at one end of the strip, and which end depends on the system's
- * direction. `titlebar-area-x` and `titlebar-area-width` describe the space that
- * is actually free, so the two physical paddings below reserve exactly the room
- * the buttons take on whichever side they landed, and nothing on the other — no
- * guess about RTL, and no hard-coded 138px that breaks when Windows changes. */
-
-html[data-desktop] .tz-topbar,
-html[data-desktop] .site-topbar {
-  -webkit-app-region: drag;
-  padding-left: max(32px, env(titlebar-area-x, 0px));
-  padding-right: max(32px, calc(100vw - env(titlebar-area-x, 0px) - env(titlebar-area-width, 100vw)));
-}
-
-html[data-desktop] .tz-topbar > *,
-html[data-desktop] .site-topbar > * {
-  -webkit-app-region: no-drag;
-}
+/* Navigation is no longer a drag region; every control keeps its normal hit
+ * target. The native button overlay is reserved by the title strip above. */
 
 /* An escape hatch for anything that needs to move the window from elsewhere
  * (an empty header on a screen that has no top bar yet). */

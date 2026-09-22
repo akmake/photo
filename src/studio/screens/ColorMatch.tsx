@@ -227,13 +227,13 @@ export default function ColorMatch({
             </button>
           </div>
 
-          {/* Only when there is somewhere else to go. "0 מקבצים עדיין בלי מראה"
+          {/* Only when there is somewhere else to go. "0 סשנים עדיין בלי מראה"
             * is a sentence that offers an option that does not exist. */}
           {scoped && ungraded > 0 && (
             <p className="cm-known-else">
               או בחר מקבץ אחר למטה — {ungraded === 1
                 ? 'מקבץ אחד עדיין בלי מראה'
-                : `${ungraded} מקבצים עדיין בלי מראה`}.
+                : `${ungraded} סשנים עדיין בלי מראה`}.
             </p>
           )}
         </section>
@@ -467,7 +467,7 @@ export default function ColorMatch({
               </b>
               <span>
                 {scoped
-                  ? 'שאר המקבצים לא ייגעו — לכל אור המראה שלו. '
+                  ? 'שאר הסשנים לא ייגעו — לכל אור המראה שלו. '
                   : ''}
                 שום קובץ לא נכתב עכשיו; המסכים מציגים את המראה מיד, והקבצים נכתבים
                 כשתלחץ "החל" בשלב העריכה.

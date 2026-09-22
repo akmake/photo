@@ -65,10 +65,12 @@ export default function GalleryEditV2({
   project,
   onNext,
   onBack,
+  onExitGeneral,
 }: {
   project: Project;
   onNext?: () => void;
   onBack?: () => void;
+  onExitGeneral?: () => void;
 }) {
   const batches = useBatches(project.id);
   const { frames, ready } = useProjectFiles(project.id);
@@ -1070,58 +1072,74 @@ export default function GalleryEditV2({
     <div className="tz-ge-studio-root is-photos">
       {/* 1. TOP BAR: BATCH TABS & ACTIONS */}
       <header className="tz-ge-top-bar">
-        <div className="tz-ge-batch-tabs">
-          <span style={{ fontSize: 13, fontWeight: 700, color: '#18181b', marginLeft: 6 }}>
-            {selectedOnly ? 'בחירת הלקוח לפי מקבצים:' : 'מקבץ עבודה:'}
-          </span>
-
-          {(visibleBatches.length > 0 || visibleAll.length > 0) && (
+        <div className="tz-ge-top-right-group">
+          {(onExitGeneral || onBack) && (
             <button
               type="button"
-              className={`tz-ge-batch-tab ${at === '__all__' ? 'active' : ''}`}
-              onClick={() => {
-                setAt('__all__');
-                setActiveSlideIndex(0);
-              }}
+              className="tz-ge-back-general-btn"
+              onClick={onExitGeneral || onBack}
+              title="חזרה לאזור הכללי של הפרויקט"
             >
-              <span>{selectedOnly ? 'כל בחירת הלקוח' : 'כל התמונות'}</span>
-              <span className="tz-ge-batch-pill-badge">{visibleAll.length}</span>
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+                <path d="m9 18 6-6-6-6" />
+              </svg>
+              <span>חזור לאזור הכללי</span>
             </button>
           )}
 
-          {visibleBatches.map((b) => {
-            const count = framesForBatch(b.id).length;
-            const hasGrade = Boolean(colorStep(project.id, b.id));
-            return (
+          <div className="tz-ge-batch-tabs">
+            <span style={{ fontSize: 13, fontWeight: 700, color: 'inherit', marginLeft: 6 }}>
+              {selectedOnly ? 'בחירת הלקוח לפי סשנים:' : 'מקבץ עבודה:'}
+            </span>
+
+            {(visibleBatches.length > 0 || visibleAll.length > 0) && (
               <button
-                key={b.id}
                 type="button"
-                className={`tz-ge-batch-tab ${at === b.id ? 'active' : ''}`}
+                className={`tz-ge-batch-tab ${at === '__all__' ? 'active' : ''}`}
                 onClick={() => {
-                  setAt(b.id);
+                  setAt('__all__');
                   setActiveSlideIndex(0);
                 }}
               >
-                <span>{b.name}</span>
-                <span className="tz-ge-batch-pill-badge">{count}</span>
-                {hasGrade && <span style={{ color: '#059669', fontSize: 11 }}>✓</span>}
+                <span>{selectedOnly ? 'כל בחירת הלקוח' : 'כל התמונות'}</span>
+                <span className="tz-ge-batch-pill-badge">{visibleAll.length}</span>
               </button>
-            );
-          })}
+            )}
 
-          {visibleUnassigned.length > 0 && (
-            <button
-              type="button"
-              className={`tz-ge-batch-tab ${at === null ? 'active' : ''}`}
-              onClick={() => {
-                setAt(null);
-                setActiveSlideIndex(0);
-              }}
-            >
-              <span>ללא מקבץ</span>
-              <span className="tz-ge-batch-pill-badge">{visibleUnassigned.length}</span>
-            </button>
-          )}
+            {visibleBatches.map((b) => {
+              const count = framesForBatch(b.id).length;
+              const hasGrade = Boolean(colorStep(project.id, b.id));
+              return (
+                <button
+                  key={b.id}
+                  type="button"
+                  className={`tz-ge-batch-tab ${at === b.id ? 'active' : ''}`}
+                  onClick={() => {
+                    setAt(b.id);
+                    setActiveSlideIndex(0);
+                  }}
+                >
+                  <span>{b.name}</span>
+                  <span className="tz-ge-batch-pill-badge">{count}</span>
+                  {hasGrade && <span style={{ color: '#059669', fontSize: 11 }}>✓</span>}
+                </button>
+              );
+            })}
+
+            {visibleUnassigned.length > 0 && (
+              <button
+                type="button"
+                className={`tz-ge-batch-tab ${at === null ? 'active' : ''}`}
+                onClick={() => {
+                  setAt(null);
+                  setActiveSlideIndex(0);
+                }}
+              >
+                <span>ללא מקבץ</span>
+                <span className="tz-ge-batch-pill-badge">{visibleUnassigned.length}</span>
+              </button>
+            )}
+          </div>
         </div>
 
         <div className="tz-ge-top-actions">
@@ -1336,94 +1354,6 @@ export default function GalleryEditV2({
                 >
                   {finishNotes[currentFrame.name]}
                 </span>
-              )}
-              {/* THE BRUSH. Off by default: it takes the mouse over the
-                  picture, and a screen where clicking the photograph edits it
-                  without being asked is a screen that surprises people. */}
-              <button
-                type="button"
-                className={`tz-ge-brush-btn ${brushOn ? 'active' : ''}`}
-                onClick={() => {
-                  setBrushOn((v) => !v);
-                  setMaskPaintTool(null);
-                }}
-                title="צייר על מה שצריך להיעלם — לכלוך, ריר, כתם (Esc ליציאה)"
-              >
-                <TzIconSparkle size={14} />
-                <span>ניקוי ידני</span>
-                {manualStrokes.length > 0 && (
-                  <span className="tz-ge-brush-count">{manualStrokes.length}</span>
-                )}
-              </button>
-              {brushOn && (
-                <div className="tz-ge-brush-bar">
-                  <span className="tz-ge-brush-hint">גודל</span>
-                  <input
-                    type="range"
-                    min={MIN_R * 1000}
-                    max={MAX_R * 1000}
-                    step={0.5}
-                    value={brushR * 1000}
-                    onChange={(e) => setBrushR(Number(e.target.value) / 1000)}
-                    title="גם גלגלת העכבר על התמונה"
-                  />
-                  <button
-                    type="button"
-                    className={`tz-ge-brush-mini ${brushErase ? 'active' : ''}`}
-                    onClick={() => setBrushErase((v) => !v)}
-                    title="מחיקת סימון שצוייר (E)"
-                  >
-                    מחק סימון
-                  </button>
-                  <button
-                    type="button"
-                    className="tz-ge-brush-mini"
-                    onClick={undoStroke}
-                    disabled={manualStrokes.length === 0}
-                    title="בטל את המשיכה האחרונה (Ctrl+Z)"
-                  >
-                    בטל
-                  </button>
-                  <button
-                    type="button"
-                    className="tz-ge-brush-mini"
-                    onClick={() => { writeStrokes([]); setPendingStrokes([]); }}
-                    disabled={manualStrokes.length === 0}
-                    title="הסר את כל הניקוי הידני בתמונה הזו"
-                  >
-                    נקה הכל
-                  </button>
-                </div>
-              )}
-              <button
-                type="button"
-                className={`tz-ge-canvas-compare-btn ${diffOn ? 'active' : ''}`}
-                onClick={() => setDiffOn((v) => !v)}
-                title="איפה העריכה שינתה את התמונה — שחור: לא נגעה, לבן: שינתה (D)"
-              >
-                <span>הפרש</span>
-              </button>
-              {diffOn && (
-                <div className="tz-ge-diff-bar">
-                  {[1, 5, 10, 25].map((g) => (
-                    <button
-                      key={g}
-                      type="button"
-                      className={`tz-ge-brush-mini ${diffGain === g ? 'active' : ''}`}
-                      onClick={() => setDiffGain(g)}
-                      title="הגברה — כדי לראות גם שינוי עדין"
-                    >
-                      ×{g}
-                    </button>
-                  ))}
-                  <span className="tz-ge-diff-stats">
-                    {diffStats === 'mismatch'
-                      ? 'החיתוך שינה את גודל התמונה — אין השוואה פיקסל מול פיקסל'
-                      : diffStats
-                        ? `ממוצע ${diffStats.mean.toFixed(1)} · מקסימום ${Math.round(diffStats.max)} · ${diffStats.p3.toFixed(1)}% מהתמונה השתנה לעין`
-                        : 'מחשב…'}
-                  </span>
-                </div>
               )}
               <button
                 type="button"

@@ -573,7 +573,7 @@ function Imported({
     <div className="cg-imported">
       <p>
         <IcCheckCircle size={16} />
-        הבחירה נשמרה ותופיע בעריכה בתוך <strong>המקבצים המקוריים</strong>
+        הבחירה נשמרה ותופיע בעריכה בתוך <strong>הסשנים המקוריים</strong>
         {count ? ` · ${count} תמונות באלבום הגדול` : ''}
       </p>
       {missing.length > 0 && (

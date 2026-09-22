@@ -133,18 +133,18 @@ export default function TzStatusScreen({
       title: 'מעבר לייבוא תמונות', counts: true,
     },
     {
-      id: 'batches', label: 'יצירת מקבצים', icon: <TzIconFilter size={18} />,
+      id: 'batches', label: 'יצירת סשנים', icon: <TzIconFilter size={18} />,
       state: grouped ? 'done' : imported ? 'active' : 'pending',
-      detail: grouped ? `${batches.length.toLocaleString('he-IL')} מקבצים` : 'טרם חולק',
-      title: 'מעבר ליצירת מקבצים', counts: true,
+      detail: grouped ? `${batches.length.toLocaleString('he-IL')} סשנים` : 'טרם חולק',
+      title: 'מעבר ליצירת סשנים', counts: true,
     },
     {
-      id: 'work', label: 'שלב העבודה', icon: <TzIconGallery size={18} />,
+      id: 'work', label: 'סינון', icon: <TzIconGallery size={18} />,
       state: link || chose ? 'done' : decided > 0 || grouped ? 'active' : 'pending',
       detail: rejected > 0
         ? `${rejected.toLocaleString('he-IL')} הוצאו מהסט`
         : decided > 0 ? `${decided.toLocaleString('he-IL')} נבדקו` : 'טרם נבדק',
-      title: 'מעבר לשלב העבודה', counts: true,
+      title: 'מעבר לסינון', counts: true,
     },
     {
       id: 'send-to-client', label: 'שלח ללקוח', icon: <TzIconHeart size={18} />,

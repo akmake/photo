@@ -1,4 +1,4 @@
-/* שלב העבודה — the photographer decides what stays and what goes to the client.
+/* סינון — the photographer decides what stays and what goes to the client.
  *
  * The whole window, light. A gallery of every photograph, in the batches made
  * in the step before, each in a cell of the same size so portraits and
@@ -456,12 +456,12 @@ export default function WorkStageV2({
       <header className="tz-ws-top">
         <div className="tz-ws-top-side">
           {onBack && (
-            <button type="button" className="tz-ws-back" onClick={onBack} title="חזרה למקבצים">
-              <span aria-hidden>→</span> מקבצים
+            <button type="button" className="tz-ws-back" onClick={onBack} title="חזרה לסשנים">
+              <span aria-hidden>→</span> סשנים
             </button>
           )}
           <div className="tz-ws-title">
-            <b>שלב העבודה</b>
+            <b>סינון</b>
             <span>{[project.client, project.event].filter(Boolean).join(' · ')}</span>
           </div>
         </div>
@@ -512,7 +512,7 @@ export default function WorkStageV2({
       {batches.length > 0 && (
         <div className="tz-ws-batches" role="tablist" aria-label="מקבץ">
           <button type="button" role="tab" aria-selected={batch === 'all'} className={batch === 'all' ? 'is-on' : ''} onClick={() => { setBatch('all'); gridRef.current?.scrollToTop(); }}>
-            כל המקבצים<i>{frames.length.toLocaleString('he-IL')}</i>
+            כל הסשנים<i>{frames.length.toLocaleString('he-IL')}</i>
           </button>
           {batches.map((b) => (
             <button key={b.id} type="button" role="tab" aria-selected={batch === b.id} className={batch === b.id ? 'is-on' : ''} onClick={() => { setBatch(b.id); gridRef.current?.scrollToTop(); }}>

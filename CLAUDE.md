@@ -65,7 +65,7 @@
 | ניקוי עור, כתמים, פיגמנט | `engine/cleanup.py` · `skinmodel.py` · `pigment.py` · `healing.py` |
 | "איפה נמצא X בתמונה" | `engine/masks.py` — **מקום אחד**. כלי AI חדש = לבחור `kind`, לא לחבר מודל |
 | ה-API של המנוע | `engine/server.py` (`127.0.0.1:8756`) |
-| הפרויקט על הדיסק, מקבצים, שכבות מתכון | `engine/workspace.py` · `src/studio/store.ts` · `src/types.ts` |
+| הפרויקט על הדיסק, סשנים, שכבות מתכון | `engine/workspace.py` · `src/studio/store.ts` · `src/types.ts` |
 | מונגו | `engine/db.py` |
 | התאמת צבעים | `engine/local_color.py` · `color_harmonization.py` · `src/studio/screens/ColorMatch.tsx` |
 | אלבום חכם | `src/album/*` · `engine/album_*.py` · `cull.py` · `embed.py` · `identity.py` |

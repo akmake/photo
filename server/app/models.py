@@ -139,6 +139,18 @@ class Device(Base):
     license: Mapped[License] = relationship(back_populates="devices")
 
 
+class TrialActivation(Base):
+    """Permanent trial-use ledger: a new account cannot restart a device's trial."""
+
+    __tablename__ = "trial_activations"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    device_id: Mapped[str] = mapped_column(String(128), unique=True, index=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
 class Gallery(Base):
     __tablename__ = "galleries"
 

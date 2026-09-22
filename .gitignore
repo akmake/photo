@@ -8,6 +8,8 @@ server/node_modules/
 dist/
 build/
 release/
+release-config/license.json
+release-config/license-public.pem
 client/dist/
 server/dist/
 test-results/

@@ -45,6 +45,12 @@ def main() -> None:
     import runpy
 
     if "--prep" in sys.argv[1:]:
+        # The frozen preparation worker is another entry point into image work;
+        # it must not bypass the HTTP server's license gate when run directly.
+        if getattr(sys, "frozen", False):
+            import license_state
+            if not license_state.status()["ok"]:
+                sys.exit("TEZA license required")
         runpy.run_module("prep", run_name="__main__")
     else:
         runpy.run_module("server", run_name="__main__")

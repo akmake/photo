@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import base64
 import json
-from datetime import timedelta
+from datetime import timedelta, timezone
 
 from ..config import get_settings
 from ..models import License, Subscription, utcnow
@@ -57,9 +57,18 @@ def build_lease(
     only limit is the offline window, which a periodic refresh keeps extending.
     """
     now = utcnow()
-    offline_until = now + timedelta(days=settings.license_offline_days)
-
     sub_end = subscription.current_period_end if subscription else None
+    # SQLite returns naive datetimes even for DateTime(timezone=True). They are
+    # stored as UTC here; timestamp() on a naive value would otherwise apply the
+    # server's local timezone and shorten the trial by hours.
+    if sub_end is not None and sub_end.tzinfo is None:
+        sub_end = sub_end.replace(tzinfo=timezone.utc)
+    # The one-time trial must survive a network outage for its full 30 days,
+    # but can never run past its fixed, server-recorded expiry.
+    if subscription and subscription.provider == "trial" and sub_end:
+        offline_until = sub_end
+    else:
+        offline_until = now + timedelta(days=settings.license_offline_days)
     plan = subscription.plan if subscription else "none"
     status = subscription.status if subscription else "none"
 

@@ -9,9 +9,11 @@
     "dev": "vite",
     "shell": "electron .",
     "build": "tsc && vite build",
-    "build:engine": "cd engine && .venv\\Scripts\\python.exe -m PyInstaller teza-engine.spec --noconfirm",
-    "package:win:dir": "npm run build && electron-builder --win --x64 --dir",
-    "package:win": "npm run build && set ELECTRON_BUILDER_7Z_FILTER=BCJ&& electron-builder --win --x64",
+    "build:engine": "npm run license:pin && cd engine && .venv\\Scripts\\python.exe -m PyInstaller teza-engine.spec --noconfirm --distpath .dist --workpath .build",
+    "license:pin": "node scripts/license-pin.cjs",
+    "license:preflight": "node scripts/license-preflight.cjs",
+    "package:win:dir": "npm run license:preflight && npm run build && electron-builder --win --x64 --dir",
+    "package:win": "npm run license:preflight && npm run build && set ELECTRON_BUILDER_7Z_FILTER=BCJ&& electron-builder --win --x64",
     "package:win:full": "npm run build:engine && npm run package:win",
     "preview": "vite preview",
     "test": "node --test \"tests/*.test.ts\""
@@ -69,6 +71,14 @@
       "package.json"
     ],
     "extraResources": [
+      {
+        "from": "release-config/license.json",
+        "to": "license-config.json"
+      },
+      {
+        "from": "release-config/license-public.pem",
+        "to": "license-public.pem"
+      },
       {
         "from": "engine/.dist/teza-engine",
         "to": "engine",

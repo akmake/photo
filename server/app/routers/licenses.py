@@ -15,16 +15,19 @@ issued when the subscription is truly current.
 
 from __future__ import annotations
 
+from datetime import timedelta
+
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from ..db import get_db
 from ..deps import current_user
-from ..models import Device, License, User, utcnow
+from ..models import Device, License, TrialActivation, User, utcnow
 from ..security import public_key_pem
-from ..services.accounts import ensure_license
+from ..services.accounts import ensure_license, set_subscription
 from ..services.licensing import build_lease
 
 router = APIRouter(prefix="/licenses", tags=["licenses"])
@@ -56,7 +59,12 @@ def _issue(db: Session, user: User, device_id: str) -> LeaseOut:
         license=user.license,
         subscription=user.subscription,
     )
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        # A concurrent activation may have won the one-trial-per-device race.
+        raise HTTPException(409, "תקופת הניסיון במחשב הזה כבר נוצלה") from exc
     return LeaseOut(
         lease=lease["lease"],
         offline_until=lease["offline_until"],
@@ -74,10 +82,32 @@ def get_public_key() -> dict:
 @router.post("/activate", response_model=LeaseOut)
 def activate(body: ActivateIn, user: User = Depends(current_user), db: Session = Depends(get_db)) -> LeaseOut:
     device_id = body.device_id.strip()
-    if not device_id:
-        raise HTTPException(400, "חסר מזהה מכשיר")
+    if not device_id or len(device_id) > 128:
+        raise HTTPException(400, "מזהה מכשיר לא תקין")
+
+    # The server clock starts the one-time trial only on actual activation,
+    # never at account registration or installer creation. A permanent device
+    # ledger stops a fresh account from restarting the same machine's trial.
+    used = db.scalar(select(TrialActivation).where(TrialActivation.device_id == device_id))
+    if user.subscription is None:
+        if used is not None:
+            raise HTTPException(409, "תקופת הניסיון במחשב הזה כבר נוצלה")
+        started = utcnow()
+        set_subscription(
+            db, user, plan="trial", status="trialing",
+            period_end=started + timedelta(days=30),
+            provider="trial", provider_ref=None,
+        )
 
     _require_current_subscription(user)
+    if user.subscription.provider == "trial":
+        if used is not None and used.user_id != user.id:
+            raise HTTPException(409, "תקופת הניסיון במחשב הזה כבר נוצלה")
+        if used is None:
+            db.add(TrialActivation(
+                device_id=device_id, user_id=user.id,
+                started_at=utcnow(), expires_at=user.subscription.current_period_end,
+            ))
     lic = ensure_license(db, user)
     if lic.status != "active":
         raise HTTPException(403, "הרישיון בוטל")

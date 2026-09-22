@@ -1,4 +1,4 @@
-"""שלב העבודה — what the tool would remove, offered to the photographer as a suggestion.
+"""סינון — what the tool would remove, offered to the photographer as a suggestion.
 
 The earlier judge (cull.py) looked at each frame ALONE and asked "is this bad?".
 On a real 648-frame family session it proposed removing 172 frames, and every

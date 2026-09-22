@@ -45,6 +45,8 @@ def plans() -> dict:
 
 @router.post("/checkout")
 def checkout(body: CheckoutIn, user: User = Depends(current_user)) -> dict:
+    if settings.payment_provider == "stub" and not settings.is_dev:
+        raise HTTPException(503, "תשלום עדיין לא הוגדר בשרת זה")
     if body.plan not in {p["id"] for p in PLANS}:
         raise HTTPException(400, "חבילה לא מוכרת")
     provider = get_provider()
@@ -64,6 +66,8 @@ def activate_subscription(
 
     Real flow keeps checkout → provider webhook → this same set_subscription call.
     """
+    if not settings.is_dev or settings.payment_provider != "stub":
+        raise HTTPException(404, "מסלול בדיקה זמין בסביבת פיתוח בלבד")
     provider = get_provider()
     checkout = provider.start_checkout(user_public_id=user.public_id, email=user.email, plan=body.plan)
     state = provider.read_state(checkout.provider_ref)

@@ -25,14 +25,16 @@
  * theming and the correct side under an RTL system. Hand-drawn buttons get all
  * four of those subtly wrong, and this product is judged on exactly that.
  *
- * The renderer must leave the strip free. It is told where via CSS env():
- * `titlebar-area-x/y/width/height` — see src/design/desktop.css.
+ * A dedicated, quiet 36px strip lives ABOVE the app's navigation. The renderer
+ * leaves native button space free via CSS env(): `titlebar-area-*` — see
+ * src/design/desktop.css.
  */
 
-const { app, BrowserWindow, Menu, ipcMain, screen, shell } = require('electron');
+const { app, BrowserWindow, Menu, ipcMain, screen, shell, dialog } = require('electron');
 const { spawn } = require('node:child_process');
 const fs = require('node:fs');
 const http = require('node:http');
+const net = require('node:net');
 const path = require('node:path');
 
 const DEV = !app.isPackaged;
@@ -48,13 +50,11 @@ const ENGINE_PORT = Number.isInteger(requestedEnginePort) &&
   : 8756;
 const ENGINE_ORIGIN = `http://${ENGINE_HOST}:${ENGINE_PORT}`;
 
-/* The window controls are drawn over the app's own top bar, so the strip is
- * measured from that bar and not chosen: `.tz-topbar` is 56px and white
- * (src/v2/tz-exact.css), and the buttons have to sit in it as if they had always
- * belonged to it. `symbolColor` is the bar's own title ink. */
-const TITLEBAR_HEIGHT = 56;
-const TITLEBAR_COLOR = '#ffffff';
-const TITLEBAR_SYMBOL = '#18181b';
+/* Match the reference's understated native title strip, without making the
+ * app's navigation carry window controls. Keep this in sync with desktop.css. */
+const TITLEBAR_HEIGHT = 36;
+const TITLEBAR_COLOR = '#57585c';
+const TITLEBAR_SYMBOL = '#ffffff';
 
 /** The app's pre-paint ground — the same value as index.html's <style>, so the
  *  first frame is the product's surface and never a flash of white. */
@@ -83,14 +83,21 @@ let quitting = false;
 
 // ---------------------------------------------------------------- the engine
 
-/** Ask the engine whether it is up. Resolves true/false, never throws. */
+/** Ask the engine whether it is up. Packaged must never accept a development
+ * engine answering on the same port: it has no license gate. */
 function engineAnswers(timeoutMs = 1500) {
   return new Promise((resolve) => {
     const req = http.get(
       { host: ENGINE_HOST, port: ENGINE_PORT, path: '/health', timeout: timeoutMs },
       (res) => {
-        res.resume();
-        resolve(res.statusCode === 200);
+        let body = '';
+        res.on('data', (part) => { body += part; });
+        res.on('end', () => {
+          try {
+            const health = JSON.parse(body);
+            resolve(res.statusCode === 200 && (!app.isPackaged || health.license_required === true));
+          } catch { resolve(false); }
+        });
       },
     );
     req.on('error', () => resolve(false));
@@ -113,6 +120,7 @@ function engineCommand() {
     if (fs.existsSync(frozen)) {
       return { file: frozen, args: [], cwd: path.dirname(frozen) };
     }
+    return null;
   }
   const python = path.join(REPO_ROOT, 'engine', '.venv', 'Scripts', 'python.exe');
   return {
@@ -129,16 +137,39 @@ function engineCommand() {
  * hard-coded, so a shell that insisted on spawning its own would die on
  * "port already in use" every time it was opened here. */
 async function startEngine(onLine) {
-  if (await engineAnswers()) {
+  if (!DEV && await portAnswers()) {
+    onLine('פורט המנוע תפוס; סגור גרסה אחרת של TEZA');
+    return false;
+  }
+  if (DEV && await engineAnswers()) {
     engineAttached = true;
     onLine('משתמש במנוע שכבר רץ');
-    return;
+    return true;
   }
 
-  const { file, args, cwd } = engineCommand();
+  const command = engineCommand();
+  if (!command) {
+    onLine('קובץ המנוע חסר בהתקנה');
+    return false;
+  }
+  const { file, args, cwd } = command;
   if (!fs.existsSync(file)) {
     onLine(`המנוע לא נמצא: ${file}`);
-    return;
+    return false;
+  }
+
+  let licenseConfig = null;
+  if (!DEV) {
+    try {
+      licenseConfig = JSON.parse(fs.readFileSync(path.join(process.resourcesPath, 'license-config.json'), 'utf8'));
+      if (!/^https:\/\//.test(licenseConfig.origin) ||
+          !fs.existsSync(path.join(process.resourcesPath, 'license-public.pem'))) {
+        throw new Error('invalid license configuration');
+      }
+    } catch {
+      onLine('התקנה חסרה: שרת רישיונות או מפתח אימות');
+      return false;
+    }
   }
 
   fs.mkdirSync(LOG_DIR, { recursive: true });
@@ -161,6 +192,10 @@ async function startEngine(onLine) {
         // database and not inside the installed folder, which an update
         // replaces and Program Files will not let us write to anyway.
         TEZA_DATA_DIR: DATA_ROOT,
+        TEZA_LICENSE_REQUIRED: '1',
+        TEZA_LICENSE_ORIGIN: licenseConfig.origin,
+        TEZA_LICENSE_PUBLIC_KEY_PATH: path.join(process.resourcesPath, 'license-public.pem'),
+        TEZA_LICENSE_DATA_DIR: path.join(DATA_ROOT, 'license'),
       }),
       PYTHONIOENCODING: 'utf-8',   // Hebrew paths through a pipe, on a Hebrew codepage
       PYTHONUNBUFFERED: '1',
@@ -174,6 +209,16 @@ async function startEngine(onLine) {
     if (!quitting && mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.webContents.send('engine:down', { code });
     }
+  });
+  return true;
+}
+
+function portAnswers() {
+  return new Promise((resolve) => {
+    const socket = net.connect({ host: ENGINE_HOST, port: ENGINE_PORT });
+    socket.once('connect', () => { socket.destroy(); resolve(true); });
+    socket.once('error', () => resolve(false));
+    socket.setTimeout(800, () => { socket.destroy(); resolve(false); });
   });
 }
 
@@ -444,7 +489,17 @@ if (!app.requestSingleInstanceLock()) {
     openSplash();
     splashSay('מדליק את המנוע');
 
-    await startEngine(splashSay);
+    const startedEngine = await startEngine(splashSay);
+    if (!startedEngine) {
+      closeSplash();
+      await dialog.showMessageBox({
+        type: 'error', title: 'TEZA לא נפתחה',
+        message: 'לא ניתן להפעיל את מנוע TEZA.',
+        detail: 'בדוק שההתקנה מלאה ושאין גרסה אחרת של TEZA פתוחה, ואז נסה שוב.',
+      });
+      app.quit();
+      return;
+    }
 
     /* Measured on this machine: the engine's imports alone cost ~3.8s warm, and
      * a first start after a reboot is slower. So the wait is real, it is shown,

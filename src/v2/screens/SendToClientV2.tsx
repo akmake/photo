@@ -100,7 +100,7 @@ export default function SendToClientV2({
               type="button"
               onClick={onBack}
             >
-              ← חזרה למקבצים
+              ← חזרה לסשנים
             </button>
           )}
           {onNext && (
@@ -162,7 +162,7 @@ function CreateGalleryFlow({
   const [error, setError] = useState<string | null>(null);
   const [oneTimePassword, setOneTimePassword] = useState<string | null>(null);
 
-  /* What the photographer took out in שלב העבודה never reaches the client.
+  /* What the photographer took out in סינון never reaches the client.
    * Undecided frames go: a suggestion is not a decision. */
   const cull = useCull(projectId);
   const going = useMemo(() => notRejected(projectId, frames), [projectId, frames, cull]);
@@ -280,7 +280,7 @@ function CreateGalleryFlow({
 
             {takenOut > 0 && (
               <p className="tz-sc-card-desc">
-                {takenOut.toLocaleString('he-IL')} תמונות שהוצאו בשלב העבודה לא יעלו לגלריה.
+                {takenOut.toLocaleString('he-IL')} תמונות שהוצאו בסינון לא יעלו לגלריה.
               </p>
             )}
 
@@ -755,7 +755,7 @@ function LiveGalleryFlow({
               <div className="tz-sc-imported-copy">
                 <TzIconCheckCircle size={22} />
                 <span>
-                  הבחירה נשמרה בהצלחה ותופיע בעריכה לפי <strong>המקבצים המקוריים</strong>!
+                  הבחירה נשמרה בהצלחה ותופיע בעריכה לפי <strong>הסשנים המקוריים</strong>!
                 </span>
               </div>
             </div>

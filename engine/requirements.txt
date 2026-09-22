@@ -5,6 +5,7 @@ mediapipe          # face landmarks + selfie segmentation; also pulls in opencv,
                    # which masks.py/abpn.py/regions.py import directly as cv2
 rawpy              # libraw: RAW decode. The one dependency with no JS analogue.
 onnxruntime        # birefnet, midas, and now abpn_unet (see export_onnx.py)
+cryptography>=43    # verify the server's Ed25519 license lease in packaged builds
 
 # --- still runtime, and the reason torch has not left yet --------------------
 #

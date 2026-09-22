@@ -199,7 +199,7 @@ export default function ToolsPanelV2({
       <div className="tz-tp-modules">
         {current && [current].map((s) => (
           <React.Fragment key={s.id}>
-            {s.defs.map((def) => {
+            {s.defs.filter((def) => def.id !== BRUSH_TOOL).map((def) => {
               const inst = instOf(def.id);
               const on = Boolean(inst?.enabled);
               const isOpen = open[def.id] ?? false;
