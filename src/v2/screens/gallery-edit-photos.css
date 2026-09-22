@@ -381,3 +381,17 @@
   padding: 4px 10px; border-radius: 8px;
   background: rgba(0, 0, 0, 0.7); color: #c5cbf0; font-size: 11px;
 }
+
+/* a strip photo whose edit is still being drawn */
+.tz-ge-slide-thumb.is-pending { opacity: 0.72; }
+.tz-ge-slide-busy {
+  position: absolute; top: 8px; left: 8px; z-index: 2;
+  width: 14px; height: 14px; border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.25); border-top-color: #c5cbf0;
+  animation: tz-ge-spin 0.8s linear infinite;
+}
+@keyframes tz-ge-spin { to { transform: rotate(360deg); } }
+
+.is-photos .tz-ge-deck-progress { padding: 8px 12px 10px; border-bottom: 1px solid var(--ph-line); font-size: 12px; color: #c5cbf0; }
+.is-photos .tz-ge-deck-progress i { display: block; height: 3px; margin-top: 6px; border-radius: 2px; background: #2c2c2c; overflow: hidden; }
+.is-photos .tz-ge-deck-progress b { display: block; height: 100%; background: #c5cbf0; transition: width 0.4s; }

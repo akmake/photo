@@ -32,7 +32,7 @@ import ExportDialog from './ExportDialog';
 import { computeDiff } from '../../design/Metering';
 import type { Delta } from '../../design/Metering';
 import EditedReviewV2 from './EditedReviewV2';
-import { useSetPreview } from '../../studio/preview';
+import { useFramePreview, useSetPreview } from '../../studio/preview';
 import { useGalleryWatch } from '../../studio/galleryLink';
 import BeforeAfter from '../../studio/screens/BeforeAfter';
 import {
@@ -74,6 +74,11 @@ export default function GalleryEditV2({
   const { frames, ready } = useProjectFiles(project.id);
   const recipe = useRecipe(project.id);
   const preview = useSetPreview(project.id);
+  /* The strip shows every photograph AS EDITED — base, batch and its own
+   * layer. It used to show the raw file, so a look applied to the whole batch
+   * changed the big picture and nothing beside it, and read as "nothing
+   * happened". */
+  const stripPreview = useFramePreview(project.id);
   const galleryWatch = useGalleryWatch(project.id);
 
   // Active batch selection
@@ -796,6 +801,14 @@ export default function GalleryEditV2({
     };
   }, [currentPath, currentName, recipe, project.id, warm]);
 
+  useEffect(() => {
+    if (!slideFrames.length) return;
+    const at = Math.max(0, activeSlideIndex);
+    const order = [...slideFrames.slice(at), ...slideFrames.slice(0, at).reverse()];
+    stripPreview.want(order.map((f) => ({ path: f.path, name: f.name })));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [slideFrames, activeSlideIndex, recipe]);
+
   /* GET THE NEIGHBOURHOOD READY. Every time the photographer lands on a frame:
    *   - the next two and the previous one are RENDERED by the engine while it
    *     is idle, so stepping to them shows a finished frame, not a retouch in
@@ -1207,6 +1220,21 @@ export default function GalleryEditV2({
             <span>שקופיות ({slideFrames.length})</span>
             <span style={{ fontSize: 11.5, color: '#71717a' }}>בחר לעריכה</span>
           </div>
+          {(() => {
+            /* An edit laid on the whole view takes the engine a while per
+             * photograph — the colour match reads each frame's skin and
+             * materials. Said, with a count, so it never looks like nothing. */
+            const edited = slideFrames.filter((f) => stripPreview.edited(f.name));
+            const waiting = edited.filter((f) => stripPreview.pending(f.path, f.name)).length;
+            if (!waiting) return null;
+            const done = edited.length - waiting;
+            return (
+              <div className="tz-ge-deck-progress" role="status">
+                <span>מחיל את העריכה · {done.toLocaleString('he-IL')} מתוך {edited.length.toLocaleString('he-IL')}</span>
+                <i><b style={{ width: `${(done / Math.max(1, edited.length)) * 100}%` }} /></i>
+              </div>
+            );
+          })()}
 
           <div className="tz-ge-deck-scroll">
             {slideFrames.length === 0 ? (
@@ -1227,12 +1255,15 @@ export default function GalleryEditV2({
                       * name is not what a photographer recognises a frame by —
                       * it stays on hover, where it costs no room. */}
                     <img
-                      className="tz-ge-slide-thumb"
-                      src={thumbUrl(f.path, 320)}
+                      className={`tz-ge-slide-thumb${stripPreview.pending(f.path, f.name) ? ' is-pending' : ''}`}
+                      src={stripPreview.url(f.path, f.name, 320)}
                       alt={f.name}
                       title={f.name}
                       loading="lazy"
                     />
+                    {stripPreview.pending(f.path, f.name) && (
+                      <span className="tz-ge-slide-busy" title="מחיל את העריכה על התמונה…" />
+                    )}
                     <span className="tz-ge-slide-idx">
                       {String(idx + 1).padStart(2, '0')}
                     </span>
