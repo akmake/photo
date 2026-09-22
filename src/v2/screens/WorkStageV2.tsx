@@ -20,6 +20,9 @@ import {
 } from '../../studio/store';
 import type { CullDecision, Project } from '../../studio/store';
 import PhotoEditor from './PhotoEditor';
+import PhotoGrid from '../../components/photo-grid/PhotoGrid';
+import type { GridItem, GridSection, PhotoGridHandle } from '../../components/photo-grid/PhotoGrid';
+import { useDims } from '../../components/photo-grid/useDims';
 import './work-stage-v2.css';
 
 type Filter = 'all' | 'open' | 'keep' | 'maybe' | 'reject' | 'suggested';
@@ -187,6 +190,42 @@ export default function WorkStageV2({
     it.names.length > 1 && !openStacks.has(it.key) ? [it.cover] : it.names
   ))), [layout, openStacks]);
 
+  /* ---- what the grid is handed: per section, the frames shown (a closed
+   * burst shows its cover), each with its proportions and its thumbnail —
+   * the frame's own edit when it has one. */
+  const dims = useDims(useMemo(() => frames.map((f) => f.path), [frames]));
+  const editedKeys = useEditedKeys(projectId);
+  const stackOf = useMemo(() => {
+    const m = new Map<string, { count: number; open: boolean; first: boolean; onToggle: () => void }>();
+    for (const g of layout) {
+      for (const it of g.items) {
+        if (it.names.length < 2) continue;
+        const open = openStacks.has(it.key);
+        const shown = open ? it.names : [it.cover];
+        shown.forEach((n, idx) => m.set(n, { count: it.names.length, open, first: idx === 0, onToggle: () => toggleStackRef.current(it.key) }));
+      }
+    }
+    return m;
+  }, [layout, openStacks]);
+  const gridSections = useMemo<GridSection[]>(() => layout.map((g) => ({
+    id: g.id,
+    title: g.title ? <><span>{g.title}</span><em className="tz-ws-pg-count">{g.names.length.toLocaleString('he-IL')} תמונות</em></> : undefined,
+    items: g.items.flatMap((it) => (it.names.length > 1 && !openStacks.has(it.key) ? [it.cover] : it.names))
+      .map((n): GridItem | null => {
+        const f = frameByName.get(n);
+        if (!f) return null;
+        const key = editedKeys.get(n);
+        return {
+          id: n,
+          alt: n,
+          aspect: dims.get(f.path),
+          src: (w) => (key ? previewUrl(f.path, w, key) : thumbUrl(f.path, w)),
+        };
+      })
+      .filter((x): x is GridItem => Boolean(x)),
+  })), [layout, openStacks, frameByName, dims, editedKeys]);
+
+  const toggleStackRef = useRef<(key: string) => void>(() => undefined);
   const toggleStack = useCallback((key: string) => {
     setOpenStacks((prev) => {
       const next = new Set(prev);
@@ -194,6 +233,7 @@ export default function WorkStageV2({
       return next;
     });
   }, []);
+  toggleStackRef.current = toggleStack;
 
   const batchCounts = useMemo(() => {
     const m: Record<string, number> = { none: 0 };
@@ -223,8 +263,7 @@ export default function WorkStageV2({
 
   /* ---- the grid. The selected frame is the one the keys act on; the grid
    * follows it, so the keyboard alone can walk the whole set. */
-  const feedRef = useRef<HTMLDivElement | null>(null);
-  const cardRefs = useRef<Record<string, HTMLElement | null>>({});
+  const gridRef = useRef<PhotoGridHandle | null>(null);
   const [size, setSize] = useState<number>(() => {
     try { return Number(localStorage.getItem('tz-ws-size')) || 220; } catch { return 220; }
   });
@@ -237,14 +276,15 @@ export default function WorkStageV2({
       if (it && !openStacks.has(it.key)) setOpenStacks((prev) => new Set(prev).add(it.key));
     }
     setSel(n);
-    requestAnimationFrame(() => requestAnimationFrame(() => cardRefs.current[n]?.scrollIntoView({ block: 'nearest' })));
+    requestAnimationFrame(() => requestAnimationFrame(() => gridRef.current?.reveal(n)));
   }, [layout, openStacks]);
 
-  /** How many cells a row holds right now — for the up and down arrows. */
-  const columns = useCallback(() => {
-    const w = feedRef.current?.clientWidth ?? 1200;
-    return Math.max(1, Math.floor((w - 32 + 12) / (size + 12)));
-  }, [size]);
+  /** Up and down follow the rows as they are laid out on screen. */
+  const moveVertical = useCallback((dir: 'up' | 'down') => {
+    if (!sel) return;
+    const n = gridRef.current?.neighbor(sel, dir);
+    if (n) bring(n);
+  }, [bring, sel]);
 
   /* ---- deciding, with one level of undo that says what it undoes */
   const decide = useCallback((names: string[], decision: CullDecision | null, label: string) => {
@@ -367,8 +407,8 @@ export default function WorkStageV2({
         case 'Enter': if (sel && !viewer) { e.preventDefault(); setViewer(true); } break;
         case 'ArrowLeft': e.preventDefault(); step(1); break;
         case 'ArrowRight': e.preventDefault(); step(-1); break;
-        case 'ArrowDown': e.preventDefault(); step(viewer ? 1 : columns()); break;
-        case 'ArrowUp': e.preventDefault(); step(viewer ? -1 : -columns()); break;
+        case 'ArrowDown': e.preventDefault(); if (viewer) step(1); else moveVertical('down'); break;
+        case 'ArrowUp': e.preventDefault(); if (viewer) step(-1); else moveVertical('up'); break;
         case 'KeyK': case 'KeyP': case 'Digit1': if (sel) { e.preventDefault(); if (viewer) decideOne(sel, 'keep'); else act('keep'); } break;
         case 'KeyM': case 'Digit2': if (sel) { e.preventDefault(); if (viewer) decideOne(sel, 'maybe'); else act('maybe'); } break;
         case 'KeyX': case 'Delete': case 'Digit3': if (sel) { e.preventDefault(); if (viewer) decideOne(sel, 'reject'); else act('reject'); } break;
@@ -382,7 +422,7 @@ export default function WorkStageV2({
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [act, columns, compare, compareActive, cull, decide, decideOne, flat, openCompare, picked, pickedList, sel, step, undoLast, viewer]);
+  }, [act, moveVertical, compare, compareActive, cull, decide, decideOne, flat, openCompare, picked, pickedList, sel, step, undoLast, viewer]);
 
   // Returning from the viewer: the feed is where the viewer ended.
   const wasViewer = useRef(false);
@@ -432,7 +472,7 @@ export default function WorkStageV2({
               key={id}
               type="button"
               className={`tz-ws-filter is-${id}${filter === id ? ' is-on' : ''}`}
-              onClick={() => { setFilter(id); feedRef.current?.scrollTo({ top: 0 }); }}
+              onClick={() => { setFilter(id); gridRef.current?.scrollToTop(); }}
             >
               {label}<i>{n.toLocaleString('he-IL')}</i>
             </button>
@@ -471,108 +511,69 @@ export default function WorkStageV2({
 
       {batches.length > 0 && (
         <div className="tz-ws-batches" role="tablist" aria-label="מקבץ">
-          <button type="button" role="tab" aria-selected={batch === 'all'} className={batch === 'all' ? 'is-on' : ''} onClick={() => { setBatch('all'); feedRef.current?.scrollTo({ top: 0 }); }}>
+          <button type="button" role="tab" aria-selected={batch === 'all'} className={batch === 'all' ? 'is-on' : ''} onClick={() => { setBatch('all'); gridRef.current?.scrollToTop(); }}>
             כל המקבצים<i>{frames.length.toLocaleString('he-IL')}</i>
           </button>
           {batches.map((b) => (
-            <button key={b.id} type="button" role="tab" aria-selected={batch === b.id} className={batch === b.id ? 'is-on' : ''} onClick={() => { setBatch(b.id); feedRef.current?.scrollTo({ top: 0 }); }}>
+            <button key={b.id} type="button" role="tab" aria-selected={batch === b.id} className={batch === b.id ? 'is-on' : ''} onClick={() => { setBatch(b.id); gridRef.current?.scrollToTop(); }}>
               {b.name}<i>{(batchCounts[b.id] ?? 0).toLocaleString('he-IL')}</i>
             </button>
           ))}
           {batchCounts.none > 0 && (
-            <button type="button" role="tab" aria-selected={batch === 'none'} className={batch === 'none' ? 'is-on' : ''} onClick={() => { setBatch('none'); feedRef.current?.scrollTo({ top: 0 }); }}>
+            <button type="button" role="tab" aria-selected={batch === 'none'} className={batch === 'none' ? 'is-on' : ''} onClick={() => { setBatch('none'); gridRef.current?.scrollToTop(); }}>
               ללא מקבץ<i>{batchCounts.none.toLocaleString('he-IL')}</i>
             </button>
           )}
         </div>
       )}
 
-      <div className="tz-ws-feed" ref={feedRef}>
+      <div className="tz-ws-feed">
         {!ready ? (
           <p className="tz-ws-empty">טוען את תיקיית הפרויקט…</p>
-        ) : flat.length === 0 ? (
-          <p className="tz-ws-empty">{emptyLine(filter, pending)}</p>
         ) : (
-          <>
-            {bulk.length > 0 && (
+          <PhotoGrid
+            ref={gridRef}
+            className="tz-ws-pg"
+            sections={gridSections}
+            targetHeight={size}
+            currentId={sel}
+            isSelected={(id) => picked.has(id)}
+            onItemClick={(id, e) => select(id, e)}
+            onItemDoubleClick={(id) => { setSel(id); setViewer(true); }}
+            onToggleSelect={(id) => select(id, { ctrlKey: true, metaKey: false, shiftKey: false })}
+            tileClass={(item) => {
+              const d = cull[item.id];
+              const st = stackOf.get(item.id);
+              return `${d ? `is-${d}` : ''}${st ? (st.open ? ' in-stack' : ' is-stack') : ''}`;
+            }}
+            renderOverlay={(item, state) => (
+              <TileOverlay
+                name={item.id}
+                triage={byName.get(item.id)}
+                decision={cull[item.id]}
+                twin={twinOf(byName.get(item.id), frameByName)}
+                stack={stackOf.get(item.id)}
+                show={state.hovered || state.current}
+                small={state.width < 150}
+                onDecide={(d) => (picked.has(item.id) && pickedList.length > 1 ? act(d) : decideOne(item.id, d))}
+                onTwin={(t) => bring(t)}
+              />
+            )}
+            empty={emptyLine(filter, pending)}
+            header={bulk.length > 0 ? (
               <div className="tz-ws-bulkbar">
                 <span>המערכת מציעה להסיר {bulk.length.toLocaleString('he-IL')} תמונות שיש להן תאומה טובה יותר.</span>
                 <button type="button" onClick={() => decide(bulk, 'reject', `${bulk.length} תמונות הוסרו`)}>הסר את כולן</button>
               </div>
-            )}
-            {layout.map((g) => (
-              <section key={g.id} className="tz-ws-group">
-                {g.title && (
-                  <h2 className="tz-ws-group-title">{g.title}<span>{g.names.length.toLocaleString('he-IL')} תמונות</span></h2>
-                )}
-                <div className="tz-ws-grid" style={{ '--ws-cell': `${size}px` } as React.CSSProperties}>
-                {g.items.flatMap((it) => {
-                  const inStack = it.names.length > 1;
-                  const isOpen = inStack && openStacks.has(it.key);
-                  const shown = inStack && !isOpen ? [it.cover] : it.names;
-                  return shown.map((n, idx) => {
-                    const f = frameByName.get(n);
-                    if (!f) return null;
-                    return (
-                      <Card
-                        key={n}
-                        projectId={projectId}
-                        name={n}
-                        frame={f}
-                        triage={byName.get(n)}
-                        decision={cull[n]}
-                        current={n === sel}
-                        twin={twinOf(byName.get(n), frameByName)}
-                        cardRef={(el) => { cardRefs.current[n] = el; }}
-                        onSelect={(e) => select(n, e)}
-                        picked={picked.has(n)}
-                        onOpen={() => { setSel(n); setViewer(true); }}
-                        onDecide={(d) => (picked.has(n) && pickedList.length > 1 ? act(d) : decideOne(n, d))}
-                        onTwin={(t) => bring(t)}
-                        big={size > 260}
-                        stack={inStack ? {
-                          count: it.names.length,
-                          open: isOpen,
-                          first: idx === 0,
-                          last: idx === shown.length - 1,
-                          onToggle: () => toggleStack(it.key),
-                        } : undefined}
-                      />
-                    );
-                  });
-                })}
-                </div>
-              </section>
-            ))}
-            <p className="tz-ws-end">
-              {flat.length.toLocaleString('he-IL')} תמונות בתצוגה · חצים למעבר · K שמור · M מתלבט · X הסר · לחיצה כפולה או Enter לתצוגה גדולה · Ctrl/Shift לבחירת כמה · C להשוואה
-            </p>
-          </>
+            ) : null}
+            footer={flat.length ? (
+              <p className="tz-ws-end">
+                {flat.length.toLocaleString('he-IL')} תמונות בתצוגה · חצים למעבר · K שמור · M מתלבט · X הסר · לחיצה כפולה או Enter לתצוגה גדולה · Ctrl/Shift לבחירת כמה · C להשוואה
+              </p>
+            ) : null}
+          />
         )}
       </div>
-
-      {pickedList.length > 1 && !viewer && !compare && (
-        <div className="tz-ws-pickbar" role="toolbar" aria-label="פעולה על כמה תמונות">
-          <b>נבחרו {pickedList.length.toLocaleString('he-IL')}</b>
-          <Decide onDecide={act} />
-          <button type="button" className="tz-ws-pickbar-btn" disabled={pickedList.length > 4} onClick={openCompare} title={pickedList.length > 4 ? 'השוואה — עד 4 תמונות' : 'השווה זו לצד זו (C)'}>
-            השווה <kbd>C</kbd>
-          </button>
-          <button type="button" className="tz-ws-pickbar-btn is-quiet" onClick={() => setPicked(new Set())}>נקה בחירה</button>
-        </div>
-      )}
-
-      {compare && (
-        <Compare
-          names={compare}
-          frames={frameByName}
-          cull={cull}
-          active={compareActive}
-          onActive={setCompareActive}
-          onDecide={(n, d) => decide([n], cull[n] === d ? null : d, `${n} · ${cull[n] === d ? 'ההחלטה בוטלה' : WORD[d]}`)}
-          onClose={() => setCompare(null)}
-        />
-      )}
 
       {undo && (
         <div className="tz-ws-toast" role="status">
@@ -647,82 +648,57 @@ function Decide({ decision, onDecide, compact }: { decision?: CullDecision; onDe
   );
 }
 
-function Card({
-  projectId, name, frame, triage, decision, current, twin, cardRef, onSelect, picked, onOpen, onDecide, onTwin, big, stack,
+function TileOverlay({
+  name, triage, decision, twin, stack, show, small, onDecide, onTwin,
 }: {
-  projectId: string;
   name: string;
-  frame: Frame;
   triage?: TriageFrame;
   decision?: CullDecision;
-  current: boolean;
   twin: { name: string; frame: Frame } | null;
-  cardRef: (el: HTMLElement | null) => void;
-  onSelect: (e: React.MouseEvent) => void;
-  picked: boolean;
-  onOpen: () => void;
+  stack?: { count: number; open: boolean; first: boolean; onToggle: () => void };
+  show: boolean;
+  small: boolean;
   onDecide: (d: CullDecision) => void;
   onTwin: (name: string) => void;
-  big: boolean;
-  stack?: { count: number; open: boolean; first: boolean; last: boolean; onToggle: () => void };
 }) {
-  const [loaded, setLoaded] = useState(false);
-  const cellSrc = useEditedSrc(projectId, name, frame.path, big ? 640 : 320);
   const suggestion = !decision && (triage?.suggestion === 'remove' || triage?.suggestion === 'duplicate') ? triage : null;
   const reason = suggestion?.reasons.find((r) => r.code !== 'duplicate') ?? suggestion?.reasons[0];
   const why = suggestion && reason
     ? `${suggestion.suggestion === 'remove' ? 'מוצע להסיר' : 'כפולה'} · ${REASON_WORDS[reason.code] ?? reason.label}${twin ? ' — לחץ לתאומה' : ''}`
     : '';
-
   return (
-    <article
-      ref={cardRef}
-      className={`tz-ws-cell${current ? ' is-current' : ''}${picked ? ' is-picked' : ''}${decision ? ` is-${decision}` : ''}${
-        stack ? (stack.open ? ` in-stack${stack.first ? ' is-first' : ''}${stack.last ? ' is-last' : ''}` : ' is-stack') : ''}`}
-      onClick={onSelect}
-      onMouseDown={(e) => { if (e.shiftKey) e.preventDefault(); }}
-      onDoubleClick={onOpen}
-      aria-selected={current}
-    >
-      <div className="tz-ws-cell-img">
-        <img
-          className={loaded ? 'is-loaded' : ''}
-          src={cellSrc ?? thumbUrl(frame.path, big ? 640 : 320)}
-          alt={name}
-          loading="lazy"
-          decoding="async"
-          draggable={false}
-          onLoad={() => setLoaded(true)}
-        />
-        {suggestion && (
-          <button
-            type="button"
-            className={`tz-ws-flag is-${suggestion.suggestion}`}
-            title={why}
-            aria-label={why}
-            onClick={(e) => { e.stopPropagation(); if (twin) onTwin(twin.name); }}
-          >
-            {suggestion.suggestion === 'remove' ? '!' : '≈'}
-          </button>
-        )}
-        {triage?.star && !decision && !stack && <span className="tz-ws-flag is-star" title="המומלצת מהרצף">★</span>}
-        {stack && (stack.first || !stack.open) && (
-          <button
-            type="button"
-            className={`tz-ws-stackbadge${stack.open ? ' is-open' : ''}`}
-            onClick={(e) => { e.stopPropagation(); stack.onToggle(); }}
-            onDoubleClick={(e) => e.stopPropagation()}
-            title={stack.open ? 'קפל את הרצף' : `פתח את הרצף — ${stack.count} תמונות כמעט זהות`}
-          >
-            {stack.open ? '⌃' : '▦'} {stack.count}
-          </button>
-        )}
-      </div>
-      <footer className="tz-ws-cell-bar">
-        <span className="tz-ws-file" dir="ltr">{name}</span>
+    <>
+      {decision && <span className={`tz-ws-pg-mark is-${decision}`}>{WORD[decision]}</span>}
+      {!decision && suggestion && (
+        <button
+          type="button"
+          className={`tz-ws-pg-flag is-${suggestion.suggestion}`}
+          title={why}
+          aria-label={why}
+          onClick={(e) => { e.stopPropagation(); if (twin) onTwin(twin.name); }}
+          onDoubleClick={(e) => e.stopPropagation()}
+        >
+          {suggestion.suggestion === 'remove' ? '!' : '≈'}
+        </button>
+      )}
+      {!decision && !suggestion && triage?.star && !stack && <span className="tz-ws-pg-star" title="המומלצת מהרצף">★</span>}
+      {stack && (stack.first || !stack.open) && (
+        <button
+          type="button"
+          className={`tz-ws-pg-stack${stack.open ? ' is-open' : ''}`}
+          onClick={(e) => { e.stopPropagation(); stack.onToggle(); }}
+          onDoubleClick={(e) => e.stopPropagation()}
+          title={stack.open ? 'קפל את הרצף' : `פתח את הרצף — ${stack.count} תמונות כמעט זהות`}
+        >
+          <svg viewBox="0 0 24 24" width="13" height="13" aria-hidden><rect x="7" y="3" width="14" height="14" rx="2" fill="none" stroke="currentColor" strokeWidth="2" /><path d="M3 7v12a2 2 0 0 0 2 2h12" fill="none" stroke="currentColor" strokeWidth="2" /></svg>
+          {stack.count}
+        </button>
+      )}
+      <div className={`tz-ws-pg-bar${show ? ' is-on' : ''}`} onDoubleClick={(e) => e.stopPropagation()}>
+        {!small && <span className="tz-ws-pg-name" dir="ltr">{name}</span>}
         <Decide decision={decision} onDecide={onDecide} compact />
-      </footer>
-    </article>
+      </div>
+    </>
   );
 }
 
@@ -1073,6 +1049,37 @@ function ShotLine({ path }: { path: string }) {
     </span>
   );
 }
+
+/** Recipe keys for every frame that has its own edit — so a grid can ask the
+ *  engine for the edited thumbnail by URL without a hook per tile. */
+function useEditedKeys(projectId: string): Map<string, string> {
+  const recipe = useRecipe(projectId);
+  const [, bump] = useState(0);
+  const wanted = useMemo(() => {
+    const out: [string, string, ToolInstanceLike[]][] = [];
+    for (const [name, own] of Object.entries(recipe.perFrame)) {
+      if (!own?.some((t) => t.enabled)) continue;
+      const steps = activeSteps(projectId, name);
+      out.push([name, JSON.stringify(steps), steps]);
+    }
+    return out;
+  }, [recipe, projectId]);
+  useEffect(() => {
+    let alive = true;
+    const todo = wanted.filter(([, sig]) => !keyCache.has(sig));
+    if (!todo.length) return undefined;
+    Promise.all(todo.map(([, sig, steps]) => registerRecipe(steps as never).then((k) => { keyCache.set(sig, k); }).catch(() => undefined)))
+      .then(() => { if (alive) bump((n) => n + 1); });
+    return () => { alive = false; };
+  }, [wanted]);
+  const m = new Map<string, string>();
+  for (const [name, sig] of wanted) {
+    const k = keyCache.get(sig);
+    if (k) m.set(frameKey(name), k);
+  }
+  return m;
+}
+type ToolInstanceLike = { toolId: string };
 
 /** The picture to show for a frame: its own edit when it has one (rendered by
  *  the engine under the recipe's key), otherwise the file. Null while the key

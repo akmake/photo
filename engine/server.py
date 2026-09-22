@@ -792,6 +792,17 @@ class Handler(BaseHTTPRequestHandler):
         except Exception as e:  # noqa: BLE001
             self._json(500, {"error": str(e)})
 
+    def _dims(self):
+        """POST {paths:[...]} -> {dims: {path: [w, h]}} as the photograph STANDS
+        (camera rotation applied). Read from the file headers only, so a
+        gallery can lay out hundreds of frames in their true proportions
+        before a single thumbnail has arrived. Unreadable files are left out."""
+        try:
+            paths = (self._body() or {}).get("paths") or []
+            self._json(200, {"dims": shotinfo.dims_many(paths)})
+        except Exception as e:  # noqa: BLE001
+            self._json(500, {"error": str(e)})
+
     def _auto_enhance(self):
         """POST {path} -> tone-color params for "שיפור אוטומטי" (photo_tools).
         Measured on a small decode; the answer is a starting point the
@@ -1046,6 +1057,9 @@ class Handler(BaseHTTPRequestHandler):
             return
         if self.path == "/auto-enhance":
             self._auto_enhance()
+            return
+        if self.path == "/dims":
+            self._dims()
             return
         if self.path == "/preview/ready":
             self._preview_ready()

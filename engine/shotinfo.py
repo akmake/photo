@@ -10,6 +10,7 @@ different layout per brand, and a wrong point is worse than none.
 """
 
 import io
+import os
 from fractions import Fraction
 from functools import lru_cache
 
@@ -98,4 +99,49 @@ def read(path):
         out["bias"] = f"{Fraction(b).limit_denominator(3)} EV".replace("+", "")
         if b > 0:
             out["bias"] = "+" + out["bias"]
+    return out
+
+
+# ------------------------------------------------------------------ dims
+
+_DIMS = {}
+
+
+def dims(path):
+    """(w, h) as the photograph stands, from the header — no decode. Cached
+    by path and modification time."""
+    try:
+        key = (path, os.path.getmtime(path))
+    except OSError:
+        return None
+    if key in _DIMS:
+        return _DIMS[key]
+    wh = None
+    try:
+        with Image.open(path) as im:
+            w, h = im.size
+            orient = im.getexif().get(274, 1)
+        wh = (h, w) if orient in (5, 6, 7, 8) else (w, h)
+    except Exception:  # noqa: BLE001 - a raw container Pillow cannot open
+        if raw.is_raw(path):
+            try:
+                import rawpy
+
+                with rawpy.imread(path) as r:
+                    w, h = int(r.sizes.width), int(r.sizes.height)
+                    flip = int(r.sizes.flip)
+                wh = (h, w) if flip in (5, 6) else (w, h)
+            except Exception:  # noqa: BLE001
+                wh = None
+    if wh:
+        _DIMS[key] = wh
+    return wh
+
+
+def dims_many(paths):
+    out = {}
+    for p in paths[:20000]:
+        wh = dims(p)
+        if wh:
+            out[p] = [int(wh[0]), int(wh[1])]
     return out
