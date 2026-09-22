@@ -238,9 +238,14 @@ export default function GalleryEditV2({
   useEffect(() => {
     const viewport = canvasViewportRef.current;
     if (!viewport) return;
-    const measure = () => setCanvasViewport({
-      width: viewport.clientWidth,
-      height: viewport.clientHeight,
+    /* The WHOLE box, scrollbars included. Measured inside them (clientWidth)
+     * the room shrank the moment a zoomed frame overflowed by a hair: the
+     * scrollbar took ten pixels, the fit shrank the picture, the overflow went,
+     * the scrollbar went, the room grew back — and the frame jumped in a loop
+     * that only a square or landscape frame near the edge could start. */
+    const measure = () => setCanvasViewport((prev) => {
+      const next = { width: viewport.offsetWidth, height: viewport.offsetHeight };
+      return prev.width === next.width && prev.height === next.height ? prev : next;
     });
     measure();
     const observer = new ResizeObserver(measure);
@@ -928,9 +933,12 @@ export default function GalleryEditV2({
       height: Math.round(imageNatural.height * fit * canvasZoom),
     };
   }, [canvasViewport, canvasZoom, imageNatural]);
+  /* Only as big as the picture needs; the stylesheet's min-width/height 100%
+   * fills the rest of the room. Forcing it to the measured box (scrollbars
+   * included) would itself overflow by a scrollbar's width. */
   const canvasSurface = {
-    width: Math.max(canvasViewport.width, (fittedImage?.width ?? 0) + 32),
-    height: Math.max(canvasViewport.height, (fittedImage?.height ?? 0) + 32),
+    width: (fittedImage?.width ?? 0) + 32,
+    height: (fittedImage?.height ?? 0) + 32,
   };
 
   /* Preserve the point under the mouse while zooming, like a photo editor.
