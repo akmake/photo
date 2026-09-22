@@ -32,6 +32,7 @@ import hairtone
 import manual_clean
 import skin
 import globals_py
+import photo_tools
 import hsl
 import pixel_color
 import grade_zones
@@ -109,6 +110,14 @@ TOOLS = {
     "glow": (glow.apply, 55),
     "oil-paint": (globals_py.oil_paint, 58),
     "sharpen": (globals_py.sharpen, 60),
+    # The work stage's Photos-style editor (photo_tools.py). The background is
+    # filled beside the blur, before any grade; the look after the colour
+    # tools; the frame is cut LAST so every tool above saw the whole picture;
+    # the markup is drawn on the finished, cut frame.
+    "background-replace": (photo_tools.background_replace, 26),
+    "look": (photo_tools.look, 43),
+    "geometry": (photo_tools.geometry, 90),
+    "markup": (photo_tools.markup, 95),
 }
 
 
@@ -120,7 +129,7 @@ TOOLS = {
 # `dimension` came off this list when the vignette moved out of it: clarity and
 # texture are defined relative to the CONTENT, and texture on a dress but not on
 # a face is an ordinary retouching move that used to be impossible.
-FRAME_ONLY = {"light-point", "glow", "vignette"}
+FRAME_ONLY = {"light-point", "glow", "vignette", "geometry", "markup"}
 
 
 # The smallest face each tool can still do something with, declared once where

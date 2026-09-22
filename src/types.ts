@@ -144,6 +144,10 @@ export interface ManualStroke {
   points: [number, number][];
   /** Brush radius as a fraction of the frame WIDTH. */
   r: number;
+  /** סימון: the ink. Absent on a cleaning stroke. */
+  color?: string;
+  /** סימון: 'pen' | 'highlighter'; רקע: 'keep' | 'remove'. */
+  kind?: string;
 }
 
 export interface ToolInstance {

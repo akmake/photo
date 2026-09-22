@@ -583,6 +583,53 @@ export const TOOLS: ToolDef[] = [
   },
 ];
 
+/* The work stage's Photos-style editor (src/v2/screens/PhotoEditor.tsx;
+ * engine/photo_tools.py). Marked `legacy` for the one property that flag
+ * carries everywhere: never added to a new recipe and never offered in the
+ * tool panels. A frame that carries one still renders it, and the panels show
+ * it while it is doing something, so it can be seen and turned down. */
+const PHOTO_EDITOR_TOOLS: ToolDef[] = [
+  {
+    id: 'geometry', label: 'חיתוך וסיבוב', kind: 'global', category: 'artistic', order: 90,
+    batchPolicy: 'absolute', legacy: true,
+    params: [
+      { id: 'quarter', label: 'סיבוב ברבעים', min: 0, max: 3, step: 1, default: 0 },
+      { id: 'flipH', label: 'היפוך אופקי', min: 0, max: 1, step: 1, default: 0, control: 'toggle' },
+      { id: 'flipV', label: 'היפוך אנכי', min: 0, max: 1, step: 1, default: 0, control: 'toggle' },
+      { id: 'angle', label: 'יישור', min: -45, max: 45, step: 0.1, default: 0 },
+      { id: 'cropX', label: 'חיתוך · ימין', min: 0, max: 1, step: 0.001, default: 0 },
+      { id: 'cropY', label: 'חיתוך · למעלה', min: 0, max: 1, step: 0.001, default: 0 },
+      { id: 'cropW', label: 'חיתוך · רוחב', min: 0, max: 1, step: 0.001, default: 1 },
+      { id: 'cropH', label: 'חיתוך · גובה', min: 0, max: 1, step: 0.001, default: 1 },
+    ],
+  },
+  {
+    id: 'look', label: 'סנן', kind: 'global', category: 'artistic', order: 43,
+    batchPolicy: 'absolute', legacy: true,
+    params: [
+      { id: 'preset', label: 'סנן', min: 0, max: 15, step: 1, default: 0 },
+      { id: 'amount', label: 'עוצמה', min: 0, max: 100, step: 1, default: 100 },
+    ],
+  },
+  {
+    id: 'background-replace', label: 'רקע', kind: 'global', category: 'artistic', order: 26,
+    batchPolicy: 'absolute', legacy: true,
+    params: [
+      { id: 'mode', label: 'מצב', min: 0, max: 3, step: 1, default: 0 },
+      { id: 'amount', label: 'עוצמת טשטוש', min: 0, max: 100, step: 1, default: 60 },
+      { id: 'r', label: 'אדום', min: 0, max: 255, step: 1, default: 255 },
+      { id: 'g', label: 'ירוק', min: 0, max: 255, step: 1, default: 255 },
+      { id: 'b', label: 'כחול', min: 0, max: 255, step: 1, default: 255 },
+    ],
+  },
+  {
+    id: 'markup', label: 'סימון', kind: 'global', category: 'artistic', order: 95,
+    batchPolicy: 'absolute', legacy: true,
+    params: [],
+  },
+];
+TOOLS.push(...PHOTO_EDITOR_TOOLS);
+
 export function getTool(id: string): ToolDef {
   const t = TOOLS.find((x) => x.id === id);
   if (!t) throw new Error(`unknown tool: ${id}`);

@@ -395,11 +395,21 @@
   min-height: 56px;
   background: #ffffff;
   border-bottom: 1px solid var(--tz-border);
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
   align-items: center;
-  justify-content: space-between;
   padding: 0 32px;
 }
+
+.tz-topbar-leading {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  min-width: 0;
+  justify-self: start;
+}
+
+.tz-topbar-trailing { min-width: 0; }
 
 .tz-topbar-back {
   display: flex;
@@ -422,6 +432,10 @@
   font-size: 16px;
   font-weight: 700;
   color: #18181b;
+  max-width: 42vw;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .tz-topbar-user-area {

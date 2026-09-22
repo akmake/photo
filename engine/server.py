@@ -50,6 +50,7 @@ import presets
 import raw
 import render
 import shotinfo
+import photo_tools
 import skin
 import background
 import cleanup
@@ -791,6 +792,20 @@ class Handler(BaseHTTPRequestHandler):
         except Exception as e:  # noqa: BLE001
             self._json(500, {"error": str(e)})
 
+    def _auto_enhance(self):
+        """POST {path} -> tone-color params for "שיפור אוטומטי" (photo_tools).
+        Measured on a small decode; the answer is a starting point the
+        photographer sees on the sliders, never a step written for him."""
+        try:
+            path = (self._body() or {}).get("path", "")
+            if not path or not os.path.isfile(path):
+                self._json(404, {"error": "not found"})
+                return
+            im, _ = previews.decode_small(path, 800, fast=True)
+            self._json(200, photo_tools.auto_enhance(common.to_np(im)))
+        except Exception as e:  # noqa: BLE001
+            self._json(500, {"error": str(e)})
+
     def _shotinfo(self):
         """GET /shotinfo?path=<abs> -> how the frame was taken (shotinfo.py).
         An empty object means the file carries none of it — not an error."""
@@ -1028,6 +1043,9 @@ class Handler(BaseHTTPRequestHandler):
             return
         if self.path == "/recipe-key":
             self._recipe_key()
+            return
+        if self.path == "/auto-enhance":
+            self._auto_enhance()
             return
         if self.path == "/preview/ready":
             self._preview_ready()

@@ -979,6 +979,19 @@ export async function shotInfo(path: string): Promise<ShotInfo> {
   return r.json();
 }
 
+/** "שיפור אוטומטי": tone-color params measured from the frame
+ *  (engine/photo_tools.auto_enhance). A starting point shown on the sliders. */
+export async function autoEnhance(path: string): Promise<Record<string, number>> {
+  const r = await fetch(`${ENGINE}/auto-enhance`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ path }),
+  });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j?.error ?? `engine ${r.status}`);
+  return j;
+}
+
 export async function triageSet(paths: string[], run = false): Promise<TriageResult> {
   return post('/triage', { paths, run });
 }

@@ -441,6 +441,7 @@ export default function V2App({ onSwitchToV1, onOpenProjectV1 }: V2AppProps) {
         {/* Top Header - Hidden when editing or in album mode to maximize workspace */}
         {!isEditing && !isGrouping && !isAlbumMode && (
           <header className="tz-topbar">
+            <div className="tz-topbar-leading">
             {activeNav === 'project-detail' ? (
               <button className="tz-topbar-back" type="button" onClick={() => setActiveNav('projects')}>
                 <span>‹</span> חזרה לפרויקטים
@@ -449,16 +450,7 @@ export default function V2App({ onSwitchToV1, onOpenProjectV1 }: V2AppProps) {
               <button className="tz-topbar-back" type="button" onClick={() => setActiveNav('today')}>
                 <span>‹</span> חזרה לדף הבית
               </button>
-            ) : (
-              <div style={{ width: 100 }} />
-            )}
-
-            {/* The bar states where you are. It used to fall through to the
-              * project title on every screen it did not know by name, so
-              * לקוחות and הגדרות were both headed "לא נבחר פרויקט". */}
-            <div className="tz-topbar-title">
-              {activeNav === 'project-detail' ? projectTitle : (SCREEN_TITLE[activeNav] ?? '')}
-            </div>
+            ) : null}
 
             <div className="tz-topbar-user-area">
               {/* The count is what is actually open: clients who were sent a
@@ -510,15 +502,14 @@ export default function V2App({ onSwitchToV1, onOpenProjectV1 }: V2AppProps) {
                 </>
               )}
 
-              <button
-                className="tz-icon-button"
-                type="button"
-                title="הגדרות ומצב המערכת"
-                onClick={() => setActiveNav('settings')}
-              >
-                <TzIconGear size={18} />
-              </button>
             </div>
+            </div>
+
+            {/* Keep the screen name centered; settings remain in the sidebar. */}
+            <div className="tz-topbar-title">
+              {activeNav === 'project-detail' ? projectTitle : (SCREEN_TITLE[activeNav] ?? '')}
+            </div>
+            <div className="tz-topbar-trailing" aria-hidden="true" />
           </header>
         )}
 
