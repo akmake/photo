@@ -176,11 +176,14 @@
   padding: 10px;
   background: var(--cyc-100, #f6f3ef);
 }
+/* The picture's box is the whole cell from the first paint. A box that waits
+ * for the file to learn its size is 0x0, and the browser's lazy loader treats
+ * a 0x0 image as off screen — the gallery then sat empty for seconds. */
 .tz-ws-cell-img img {
-  max-width: 100%; max-height: 100%;
+  width: 100%; height: 100%;
   object-fit: contain;
-  box-shadow: 0 1px 3px rgba(33, 29, 26, 0.18);
-  opacity: 0; transition: opacity 0.2s;
+  filter: drop-shadow(0 1px 2px rgba(33, 29, 26, 0.2));
+  opacity: 0; transition: opacity 0.15s;
 }
 .tz-ws-cell-img img.is-loaded { opacity: 1; }
 .tz-ws-cell.is-reject .tz-ws-cell-img img { opacity: 0.3; filter: grayscale(0.6); }
