@@ -43,6 +43,7 @@ import {
 } from '../TzIcons';
 import './stages-v2.css';
 import './gallery-edit-v2.css';
+import './gallery-edit-photos.css';
 
 function baseName(p: string) {
   return p.split(/[\\/]/).pop() ?? p;
@@ -956,7 +957,7 @@ export default function GalleryEditV2({
   }, [canvasZoom, fittedImage?.width, fittedImage?.height]);
 
   return (
-    <div className="tz-ge-studio-root">
+    <div className="tz-ge-studio-root is-photos">
       {/* 1. TOP BAR: BATCH TABS & ACTIONS */}
       <header className="tz-ge-top-bar">
         <div className="tz-ge-batch-tabs">

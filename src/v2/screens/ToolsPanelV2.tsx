@@ -30,12 +30,25 @@ import { MASK_REGIONS, TOOLS, defaultParams, isMaskable, isToolAtDefault } from 
 
 /** The sections, in the order the engine runs them. Names are what a
  *  photographer calls these stages, not what the code calls them. */
-const SECTIONS: { id: string; title: string; cats: string[] }[] = [
-  { id: 'retouch', title: 'ריטוש', cats: ['local-ai'] },
-  { id: 'light', title: 'אור וצבע', cats: ['tone-color', 'raw'] },
-  { id: 'scene', title: 'סצנה', cats: ['scene'] },
-  { id: 'style', title: 'סגנון', cats: ['artistic'] },
+const SECTIONS: { id: string; title: string; cats: string[]; icon: React.ReactNode }[] = [
+  { id: 'retouch', title: 'ריטוש', cats: ['local-ai'], icon: <IconFace /> },
+  { id: 'light', title: 'אור וצבע', cats: ['tone-color', 'raw'], icon: <IconSun /> },
+  { id: 'scene', title: 'סצנה', cats: ['scene'], icon: <IconScene /> },
+  { id: 'style', title: 'סגנון', cats: ['artistic'], icon: <IconPalette /> },
 ];
+
+/* The same thin line icons as the work stage's editor (PhotoEditor.tsx). */
+function Svg({ children }: { children: React.ReactNode }) {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      {children}
+    </svg>
+  );
+}
+function IconFace() { return <Svg><circle cx="12" cy="12" r="9" /><path d="M9 10h.01M15 10h.01" /><path d="M8.5 14.5a4.5 4.5 0 0 0 7 0" /></Svg>; }
+function IconSun() { return <Svg><circle cx="12" cy="12" r="4" /><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" /></Svg>; }
+function IconScene() { return <Svg><path d="M3 20l6-9 4 6 3-4 5 7z" /><circle cx="16" cy="6" r="2" /></Svg>; }
+function IconPalette() { return <Svg><path d="M12 3a9 9 0 1 0 0 18c1.1 0 1.5-.8 1.5-1.5 0-1.2-1-1.5-1-2.5s.8-1.5 2-1.5H17a4 4 0 0 0 4-4c0-4.7-4-8.5-9-8.5z" /><circle cx="7.5" cy="11" r="1" /><circle cx="10" cy="7" r="1" /><circle cx="15" cy="7" r="1" /></Svg>; }
 
 /** Tools whose render costs a network pass: commit on release, not per pixel
  *  of slider travel. */
@@ -83,6 +96,10 @@ export default function ToolsPanelV2({
   onMask, onPaintMask, paintingMask, maskStrokes, isRaw = false,
 }: Props) {
   const [open, setOpen] = useState<Record<string, boolean>>({});
+  // One stage of the work at a time, the way the Photos editor shows a tab.
+  const [tab, setTab] = useState<string>(() => {
+    try { return localStorage.getItem('tz-tp-tab') || 'light'; } catch { return 'light'; }
+  });
   /* A value being dragged on a heavy tool. It is what the slider shows until
    * the finger comes off, and only then does it become the recipe. */
   const [draft, setDraft] = useState<Record<string, number>>({});
@@ -116,6 +133,16 @@ export default function ToolsPanelV2({
   const sections = SECTIONS
     .map((s) => ({ ...s, defs: visible.filter((d) => s.cats.includes(d.category)) }))
     .filter((s) => s.defs.length > 0);
+  const current = sections.find((s) => s.id === tab) ?? sections[0];
+  const pickTab = (id: string) => {
+    setTab(id);
+    try { localStorage.setItem('tz-tp-tab', id); } catch { /* per-viewer only */ }
+  };
+  // How many tools in each tab are doing something on this frame.
+  const activeIn = (defs: ToolDef[]) => defs.filter((d) => {
+    const inst = instOf(d.id);
+    return Boolean(inst?.enabled && !isToolAtDefault(inst));
+  }).length;
 
   const valueOf = (def: ToolDef, paramId: string, fallback: number) => {
     const key = `${def.id}.${paramId}`;
@@ -142,23 +169,29 @@ export default function ToolsPanelV2({
 
   return (
     <div className="tz-tp">
-      <nav className="tz-tp-jump" aria-label="קפיצה לחלק">
-        {sections.map((s) => (
-          <button
-            key={s.id}
-            type="button"
-            onClick={() => document.getElementById(`tz-tp-sec-${s.id}`)
-              ?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
-          >
-            {s.title}
-          </button>
-        ))}
+      <nav className="tz-tp-tabs" role="tablist" aria-label="שלבי העריכה">
+        {sections.map((s) => {
+          const n = activeIn(s.defs);
+          return (
+            <button
+              key={s.id}
+              type="button"
+              role="tab"
+              aria-selected={current?.id === s.id}
+              className={`tz-tp-tab${current?.id === s.id ? ' is-on' : ''}`}
+              onClick={() => pickTab(s.id)}
+            >
+              <span className="tz-tp-tab-icon">{s.icon}</span>
+              <span>{s.title}</span>
+              {n > 0 && <i className="tz-tp-tab-n" title={`${n} כלים פעילים`}>{n}</i>}
+            </button>
+          );
+        })}
       </nav>
 
       <div className="tz-tp-modules">
-        {sections.map((s) => (
+        {current && [current].map((s) => (
           <React.Fragment key={s.id}>
-            <h3 className="tz-tp-section" id={`tz-tp-sec-${s.id}`}>{s.title}</h3>
             {s.defs.map((def) => {
               const inst = instOf(def.id);
               const on = Boolean(inst?.enabled);
@@ -228,7 +261,11 @@ export default function ToolsPanelV2({
                           return (
                             <div
                               key={spec.id}
-                              className={`tz-tp-row ${v !== spec.default ? 'changed' : ''}`}
+                              className={`tz-tp-row ${v !== spec.default ? 'changed' : ''}${isToggle ? ' is-toggle' : ''}`}
+                              style={isToggle ? undefined : {
+                                '--tp-from': `${((Math.min(v, spec.min < 0 ? 0 : spec.min) - spec.min) / (spec.max - spec.min)) * 100}%`,
+                                '--tp-to': `${((Math.max(v, spec.min < 0 ? 0 : spec.min) - spec.min) / (spec.max - spec.min)) * 100}%`,
+                              } as React.CSSProperties}
                             >
                               <label htmlFor={`${def.id}-${spec.id}`}>{spec.label}</label>
                               {isToggle ? (
