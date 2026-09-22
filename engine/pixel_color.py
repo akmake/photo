@@ -85,9 +85,9 @@ _CHROMA95_MARGIN = 5.0
 # grid search a second time, restricted to the subject mask, and
 # `_apply_model_samples`'s "protected" mode uses that instead of the shared
 # base -- reusing existing code with a different mask, no new model.
-SUBJECT_BASE_ENABLED = False
+SUBJECT_BASE_ENABLED = True
 # When the subject-specific fit does NOT validate (see _fit_subject_base),
-# what to shrink toward. False (default, validated): the whole-frame base --
+# what to shrink toward. False: the whole-frame base --
 # the subject still gets whatever grade the rest of the photo gets. True:
 # identity (no correction at all) -- "leave the subject alone" is treated as
 # strictly safer than "give it the same shift as the background", since the
@@ -97,6 +97,12 @@ SUBJECT_BASE_ENABLED = False
 # swept via holdout.py -- the trade-off is a subject that can look
 # uncorrected next to a graded background when trust is low.
 SUBJECT_BASE_SHRINK_TO_IDENTITY = False
+# Applying one learned exposure blindly to every frame is what made the already
+# bright children in 321A4934 jump out of the scene.  The fitted model records
+# how bright the reference subject was before editing.  A new subject that is
+# this many Lab-L levels brighter gets none of the reference's subject base;
+# between the two points the transfer fades continuously.
+_SUBJECT_TRANSFER_LUMA_RANGE = 64.0
 _MIN_SUBJECT_BASE_PX = 400
 # Held-out subject pixels needed before trusting the validation comparison
 # at all (see _fit_subject_base) -- below this, "the subject fit validated
@@ -128,6 +134,12 @@ _SUBJECT_BASE_VALIDATION_SCALE = 15.0
 # model) -- treated as 0.0 here, i.e. also unsafe, since that is a worse
 # failure than a merely low ratio, not a better one.
 _SAFE_MIN_INLIER_RATIO = 0.3
+# "Safe" is a user-facing permission to trust the fit, not merely proof that
+# the optimiser moved in the right direction.  The 321A5078 pair improved by
+# only 39.8% and was still labelled safe; visually it was nowhere near the
+# supplied edit.  The product UI already calls <45% a weak fit, so the engine's
+# safety gate must agree with that same boundary.
+_SAFE_MIN_GAP_CLOSED = 0.45
 # A hue rotation like magenta->rust needs ~95 in Lab. At 46 the model could not
 # express it and cranked global strength to the rail instead. See
 # experiments/holdout.py: on unseen pairs this is +8pt overall, +38pt on
@@ -172,7 +184,14 @@ SKIN_PROTECTION = 0.35
 # backed by MobileSAM) and matching its regions to fit-time material anchors
 # by colour+texture gives materials the same cross-photo, runtime location
 # awareness the skin model already has.
-MATERIAL_MODEL_ENABLED = True
+MATERIAL_MODEL_ENABLED = False
+# Old saved looks can still carry material anchors.  Applying them used to run
+# MobileSAM independently on every full-resolution frame: 19.0s of a measured
+# 26.1s render on 321A4934, for a change too small to justify the cost.  Keep
+# the fields readable for backwards compatibility, but do not put that pass on
+# the interactive/batch render path.  Material-aware colour can return only
+# behind an asynchronous cached segmentation path with measured visual value.
+MATERIAL_APPLY_ENABLED = False
 # A region smaller than this many *valid* (non-subject, non-rim, non-neutral)
 # pixels in the teach pair is too little evidence to trust as its own anchor.
 MIN_MATERIAL_REGION_PX = 600
@@ -218,6 +237,7 @@ _SLOPE_TRUST_SCALE = 6000.0
 _SLOPE_TRUST_RADIUS = 40.0
 
 _CUBE_CACHE = {}
+_SUBJECT_CUBE_CACHE = {}
 
 
 def _resize(rgb, cap):
@@ -971,6 +991,50 @@ def _fit_luma_curve(source_lab, target_lab, valid):
     return np.clip(identity + np.clip(curve - identity, -38.0, 38.0), 0, 255)
 
 
+def _subject_luma_median(rgb, subject):
+    selected = subject > 0.5
+    if int(selected.sum()) < _MIN_SUBJECT_BASE_PX:
+        return None
+    return float(np.median(_lab(rgb)[..., 0][selected]))
+
+
+def _subject_tone_transfer(rgb, subject, model):
+    """How much of the reference subject's tone is safe on this frame.
+
+    Darker/equally-lit subjects can use the learned correction.  As the new
+    subject starts brighter than the teaching subject, shrink only its global
+    temperature/exposure base toward identity.  Palette and skin colour still
+    pass through their own learned, confidence-gated paths.
+    """
+    reference = model.get("subjectSourceLumaMedian")
+    current = _subject_luma_median(rgb, subject)
+    if reference is None or current is None:
+        return 1.0
+    return float(
+        np.clip(
+            1.0 - max(0.0, current - float(reference)) / _SUBJECT_TRANSFER_LUMA_RANGE,
+            0.0,
+            1.0,
+        )
+    )
+
+
+def _fit_is_safe(selection, look_error, look_baseline, confidences, geometry):
+    """One safety decision shared by the report and its regression tests.
+
+    A fit that is numerically stable but reproduces less than 45% of the edit
+    is still useful as a preview, but it is not safe to present as validated.
+    """
+    gap_closed = max(0.0, 1.0 - look_error / max(look_baseline, 1e-6))
+    return bool(
+        selection["error"] < selection["baseline"]
+        and look_error < look_baseline
+        and gap_closed >= _SAFE_MIN_GAP_CLOSED
+        and np.asarray(confidences).mean() >= 0.12
+        and geometry.get("inlierRatio", 0.0) >= _SAFE_MIN_INLIER_RATIO
+    )
+
+
 def _resolved_strengths(model, count, strengths_key, scalar_key):
     """Per-anchor strengths if the model has them, else the old scalar broadcast.
 
@@ -1163,6 +1227,9 @@ def fit(before_rgb, after_rgb):
     }
     if subject_base is not None:
         model["subjectBase"] = subject_base
+        subject_luma = _subject_luma_median(before, subject)
+        if subject_luma is not None:
+            model["subjectSourceLumaMedian"] = subject_luma
 
     skin_sample_count = int(valid_skin.sum())
     if skin_sample_count >= MIN_SKIN_SAMPLES:
@@ -1302,11 +1369,12 @@ def fit(before_rgb, after_rgb):
             if has_material_model
             else None
         ),
-        "safe": bool(
-            selection["error"] < selection["baseline"]
-            and best_luma[0] < baseline_error
-            and model["confidences"].mean() >= 0.12
-            and geometry.get("inlierRatio", 0.0) >= _SAFE_MIN_INLIER_RATIO
+        "safe": _fit_is_safe(
+            selection,
+            best_luma[0],
+            baseline_error,
+            model["confidences"],
+            geometry,
         ),
     }
     return serialize(model), report, preview
@@ -1364,6 +1432,34 @@ def _compile_processors(model, size=CUBE_SIZE):
     compiled = tuple(compiled)
     _CUBE_CACHE.clear()
     _CUBE_CACHE[key] = compiled
+    return compiled
+
+
+def _compile_subject_processor(model, transfer):
+    """One protected cube at this frame's adaptive subject-tone strength.
+
+    Building and applying one small cube is cheaper than applying both the
+    learned and identity cubes to a 26MP frame and blending their full images.
+    """
+    transfer = float(np.clip(transfer, 0.0, 1.0))
+    key = (_model_key(model), round(transfer, 3))
+    cached = _SUBJECT_CUBE_CACHE.get(key)
+    if cached is not None:
+        return cached
+
+    levels = np.linspace(0, 255, CUBE_SIZE, dtype=np.float32)
+    red, green, blue = np.meshgrid(levels, levels, levels, indexing="ij")
+    grid = np.stack((red, green, blue), axis=-1).astype(np.uint8)
+    adaptive = dict(model)
+    adaptive["subjectBase"] = {
+        name: float(value) * transfer
+        for name, value in model["subjectBase"].items()
+    }
+    cube = _apply_model_samples(grid, adaptive, mode="protected")
+    compiled = (_processor_from_cube(cube), cube)
+    if len(_SUBJECT_CUBE_CACHE) >= 8:
+        _SUBJECT_CUBE_CACHE.clear()
+    _SUBJECT_CUBE_CACHE[key] = compiled
     return compiled
 
 
@@ -1457,8 +1553,14 @@ def apply(rgb, model):
     started = time.time()
     model = deserialize(model)
     compiled = _compile_processors(model)
-    has_skin = len(compiled) > 2
-    has_material = "materialAnchors" in model
+    has_skin = "skinAnchors" in model
+    has_adaptive_subject = (
+        "subjectBase" in model and "subjectSourceLumaMedian" in model
+    )
+    # Read old material fields, but do not wake MobileSAM on every photograph.
+    # See MATERIAL_APPLY_ENABLED: this pass dominated render time and is not
+    # part of the product path until it can be served from an async cache.
+    has_material = MATERIAL_APPLY_ENABLED and "materialAnchors" in model
     full = _apply_compiled(rgb, compiled[0])
     protection = float(model.get("subjectProtection", SUBJECT_PROTECTION))
     skin_protection = float(model.get("skinProtection", SKIN_PROTECTION)) if has_skin else 0.0
@@ -1470,7 +1572,17 @@ def apply(rgb, model):
         output = full
     else:
         subject = _fast_subject_mask(rgb)
-        protected = _apply_compiled(rgb, compiled[1])
+        subject_tone_transfer = (
+            _subject_tone_transfer(rgb, subject, model)
+            if has_adaptive_subject
+            else 1.0
+        )
+        protected_processor = (
+            _compile_subject_processor(model, subject_tone_transfer)
+            if has_adaptive_subject and subject_tone_transfer < 0.999
+            else compiled[1]
+        )
+        protected = _apply_compiled(rgb, protected_processor)
         skin = _fast_skin_mask(rgb) if has_skin else None
         skin_out = _apply_compiled(rgb, compiled[2]) if has_skin else None
         if has_material and material_protection > 0:
@@ -1489,6 +1601,11 @@ def apply(rgb, model):
         "subjectProtection": protection,
         "skinProtection": skin_protection,
         "materialProtection": material_protection,
+        "subjectToneTransfer": (
+            subject_tone_transfer
+            if protection > 0 and has_adaptive_subject
+            else 1.0
+        ),
     }
 
 

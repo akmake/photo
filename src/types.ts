@@ -117,6 +117,12 @@ export interface LearnedColorModel {
   strengths?: number[];
   sigma: number;
   subjectProtection: number;
+  /** Separately fitted tone for people/foreground. New fits shrink this
+   * toward identity unless held-out subject pixels prove the change. */
+  subjectBase?: Record<string, number>;
+  /** Median Lab-L of the teaching frame's subject before editing. Used to
+   * reduce the learned subject exposure on an already-bright new frame. */
+  subjectSourceLumaMedian?: number;
   lumaCurve: number[];
   lumaStrength: number;
   // Present only when the pair had enough real face/body-skin pixels to
@@ -130,6 +136,16 @@ export interface LearnedColorModel {
   skinStrengths?: number[];
   skinSigma?: number;
   skinProtection?: number;
+  /** Legacy material fields remain readable, but the engine no longer runs
+   * per-frame MobileSAM in the normal apply path. */
+  materialAnchors?: number[][];
+  materialDeltas?: number[][];
+  materialConfidences?: number[];
+  materialSupports?: number[];
+  materialTextures?: number[];
+  materialStrength?: number;
+  materialStrengths?: number[];
+  materialProtection?: number;
 }
 
 /** One pass of the manual cleaning brush.

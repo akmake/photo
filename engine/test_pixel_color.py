@@ -9,6 +9,25 @@ import pixel_color
 
 
 class PixelColorTests(unittest.TestCase):
+    def test_shipped_colormatch_uses_balanced_fast_path(self):
+        """The two product decisions from the 321A4934 failure stay on:
+        subject tone shrinks toward identity, and per-frame MobileSAM stays
+        off the apply path.
+        """
+        self.assertTrue(pixel_color.SUBJECT_BASE_ENABLED)
+        self.assertFalse(pixel_color.SUBJECT_BASE_SHRINK_TO_IDENTITY)
+        self.assertFalse(pixel_color.MATERIAL_MODEL_ENABLED)
+        self.assertFalse(pixel_color.MATERIAL_APPLY_ENABLED)
+
+    def test_brighter_subject_shrinks_reference_tone_toward_identity(self):
+        dark = np.full((20, 20, 3), 90, np.uint8)
+        bright = np.full((20, 20, 3), 220, np.uint8)
+        subject = np.ones((20, 20), np.float32)
+        reference = pixel_color._subject_luma_median(dark, subject)
+        model = {"subjectSourceLumaMedian": reference}
+        self.assertEqual(pixel_color._subject_tone_transfer(dark, subject, model), 1.0)
+        self.assertLess(pixel_color._subject_tone_transfer(bright, subject, model), 0.1)
+
     def test_model_serialization_round_trip(self):
         model = {
             "version": 1,
@@ -107,6 +126,64 @@ class PixelColorTests(unittest.TestCase):
             material, confidence, 0.0,
         )
         np.testing.assert_array_equal(baseline, with_material_at_zero)
+
+    def test_old_material_model_does_not_run_mobile_sam(self):
+        """Previously saved looks remain readable, but their material fields
+        cannot put the 19-second MobileSAM pass back on the render path.
+        """
+        model = {
+            "version": 1,
+            "base": {"temperature": 0.0, "exposure": 0.0},
+            "anchors": np.zeros((1, 3), np.float32),
+            "deltas": np.zeros((1, 3), np.float32),
+            "confidences": np.ones(1, np.float32),
+            "supports": np.array([100], np.int32),
+            "strength": 1.0,
+            "sigma": 8.0,
+            "subjectProtection": 0.0,
+            "lumaCurve": np.arange(256, dtype=np.float32),
+            "lumaStrength": 0.0,
+            "materialAnchors": np.zeros((1, 3), np.float32),
+            "materialDeltas": np.zeros((1, 3), np.float32),
+            "materialConfidences": np.ones(1, np.float32),
+            "materialSupports": np.array([700], np.int32),
+            "materialTextures": np.zeros(1, np.float32),
+            "materialStrengths": np.ones(1, np.float32),
+            "materialStrength": 1.0,
+            "materialProtection": 0.35,
+        }
+        rgb = np.full((12, 12, 3), 128, np.uint8)
+        with patch.object(
+            pixel_color,
+            "_apply_material",
+            side_effect=AssertionError("MobileSAM must not run"),
+        ):
+            output, meta = pixel_color.apply(rgb, pixel_color.serialize(model))
+        self.assertEqual(output.shape, rgb.shape)
+        self.assertEqual(meta["materialProtection"], 0.0)
+
+    def test_safe_rejects_a_stable_but_weak_fit(self):
+        selection = {"error": 6.0, "baseline": 10.0}
+        confidences = np.array([0.4, 0.5], np.float32)
+        geometry = {"inlierRatio": 0.98}
+        self.assertFalse(
+            pixel_color._fit_is_safe(
+                selection,
+                look_error=6.02,
+                look_baseline=10.0,
+                confidences=confidences,
+                geometry=geometry,
+            )
+        )
+        self.assertTrue(
+            pixel_color._fit_is_safe(
+                selection,
+                look_error=5.0,
+                look_baseline=10.0,
+                confidences=confidences,
+                geometry=geometry,
+            )
+        )
 
     def test_local_slope_disabled_is_a_noop(self):
         """LOCAL_SLOPE_ENABLED == False (the default) must reproduce
