@@ -490,7 +490,7 @@ export default function WorkStageV2({
           </button>
           <label className="tz-ws-size" title="גודל התמונות בגלריה">
             <span aria-hidden>▫</span>
-            <input type="range" min={140} max={420} step={10} value={size} onChange={(e) => setSize(Number(e.target.value))} aria-label="גודל התמונות" />
+            <input type="range" min={120} max={440} step={10} value={size} onChange={(e) => setSize(Number(e.target.value))} aria-label="גודל התמונות" />
             <span aria-hidden>◻</span>
           </label>
           {fault ? (
@@ -536,6 +536,7 @@ export default function WorkStageV2({
             className="tz-ws-pg"
             sections={gridSections}
             targetHeight={size}
+            onZoom={(dir) => setSize((v) => Math.round(Math.max(120, Math.min(440, v * (dir > 0 ? 1.14 : 1 / 1.14)))))}
             currentId={sel}
             isSelected={(id) => picked.has(id)}
             onItemClick={(id, e) => select(id, e)}

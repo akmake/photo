@@ -90,9 +90,11 @@ const PhotoGrid = React.forwardRef<PhotoGridHandle, {
   header?: React.ReactNode;
   footer?: React.ReactNode;
   className?: string;
+  /** Ctrl + wheel: bigger (+1) or smaller (-1) photographs, as in Photos. */
+  onZoom?: (dir: 1 | -1) => void;
 }>(function PhotoGrid({
   sections, targetHeight = 220, gap = 4, currentId, isSelected, onItemClick, onItemDoubleClick,
-  onToggleSelect, renderOverlay, tileClass, empty, header, footer, className,
+  onToggleSelect, renderOverlay, tileClass, empty, header, footer, className, onZoom,
 }, ref) {
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const headRef = useRef<HTMLDivElement | null>(null);
@@ -135,6 +137,21 @@ const PhotoGrid = React.forwardRef<PhotoGridHandle, {
     };
     el.addEventListener('scroll', onScroll, { passive: true });
     return () => { el.removeEventListener('scroll', onScroll); cancelAnimationFrame(raf); };
+  }, []);
+
+  // Not passive: Ctrl+wheel must not zoom the whole page instead.
+  const zoomRef = useRef(onZoom);
+  zoomRef.current = onZoom;
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return undefined;
+    const onWheel = (e: WheelEvent) => {
+      if (!(e.ctrlKey || e.metaKey) || !zoomRef.current) return;
+      e.preventDefault();
+      zoomRef.current(e.deltaY < 0 ? 1 : -1);
+    };
+    el.addEventListener('wheel', onWheel, { passive: false });
+    return () => el.removeEventListener('wheel', onWheel);
   }, []);
 
   const innerW = Math.max(0, width - 2 * 16);
