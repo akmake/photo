@@ -570,25 +570,25 @@ select {
  * light as everything else on it. */
 .btn-primary {
   color: #fff;
-  background: linear-gradient(180deg, #6b45ea 0%, var(--brand) 100%);
+  background: linear-gradient(180deg, #f97316 0%, #ea580c 100%);
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.22),
-    0 1px 2px rgba(45, 25, 120, 0.2),
-    0 8px 18px -6px rgba(74, 38, 196, 0.45);
+    0 1px 2px rgba(234, 88, 12, 0.2),
+    0 8px 18px -6px rgba(234, 88, 12, 0.38);
 }
 
 .btn-primary:hover {
   color: #fff;
-  background: linear-gradient(180deg, #7752f0 0%, #5730d8 100%);
+  background: linear-gradient(180deg, #fb923c 0%, #c2410c 100%);
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.28),
-    0 2px 4px rgba(45, 25, 120, 0.22),
-    0 14px 28px -8px rgba(74, 38, 196, 0.5);
+    0 2px 4px rgba(234, 88, 12, 0.25),
+    0 14px 28px -8px rgba(234, 88, 12, 0.45);
 }
 
 .btn-primary:active {
-  background: var(--brand-deep);
-  box-shadow: inset 0 2px 5px rgba(30, 14, 90, 0.45);
+  background: #c2410c;
+  box-shadow: inset 0 2px 5px rgba(154, 52, 18, 0.45);
 }
 
 /* The one control that carries the flag: an action taken because the interface

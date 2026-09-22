@@ -29,6 +29,8 @@ import ManualBrush, { DEFAULT_R, MAX_R, MIN_R } from './ManualBrush';
 import ToolsPanelV2 from './ToolsPanelV2';
 import ColorMatchPanel from './ColorMatchPanel';
 import ExportDialog from './ExportDialog';
+import { computeDiff } from '../../design/Metering';
+import type { Delta } from '../../design/Metering';
 import EditedReviewV2 from './EditedReviewV2';
 import { useSetPreview } from '../../studio/preview';
 import { useGalleryWatch } from '../../studio/galleryLink';
@@ -194,6 +196,14 @@ export default function GalleryEditV2({
 
   // Canvas comparison state
   const [showOriginal, setShowOriginal] = useState(false);
+  /* הפרש — the Lab's difference view: black where the edit left the picture
+   * alone, white where it changed it, amplified so a subtle change shows, and
+   * the numbers beside it. "I see no change" and "nothing changed" stop being
+   * the same sentence. */
+  const [diffOn, setDiffOn] = useState(false);
+  const [diffGain, setDiffGain] = useState(5);
+  const [diffStats, setDiffStats] = useState<Delta | null | 'mismatch'>(null);
+  const diffRef = useRef<HTMLCanvasElement | null>(null);
   const [renderedSrc, setRenderedSrc] = useState<string | null>(null);
   const [rawSrc, setRawSrc] = useState<string | null>(null);
   const [busyRender, setBusyRender] = useState(false);
@@ -689,6 +699,20 @@ export default function GalleryEditV2({
     setPendingStrokes((p) => p.slice(0, -1));
   }, [manualStrokes, writeStrokes]);
 
+  useEffect(() => {
+    if (!diffOn) { setDiffStats(null); return undefined; }
+    const canvas = diffRef.current;
+    if (!rawSrc || !renderedSrc || !canvas) return undefined;
+    let alive = true;
+    setDiffStats(null);
+    computeDiff(rawSrc, renderedSrc, canvas, diffGain)
+      .then((d) => { if (alive) setDiffStats(d ?? 'mismatch'); })
+      .catch(() => { if (alive) setDiffStats('mismatch'); });
+    return () => { alive = false; };
+    // The picture's box (viewport, zoom, file size): the canvas remounts with it.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [diffOn, diffGain, rawSrc, renderedSrc, canvasViewport, canvasZoom, imageNatural]);
+
   /* THE ORIGINAL, once per frame. It used to be rendered again beside every
    * slider move — the same pixels, on the same single engine worker, doubling
    * the wait for the picture that had actually changed. */
@@ -815,6 +839,11 @@ export default function GalleryEditV2({
       if (e.code === 'Space' && !e.repeat) {
         e.preventDefault();
         setShowOriginal(true);
+      }
+      if (!e.ctrlKey && !e.metaKey && !e.altKey && (e.code === 'KeyD' || e.key === 'ג') && !brushOn && !maskPaintTool) {
+        e.preventDefault();
+        setDiffOn((v) => !v);
+        return;
       }
       if ((e.ctrlKey || e.metaKey) && (e.key === '+' || e.key === '=')) {
         e.preventDefault();
@@ -1294,6 +1323,36 @@ export default function GalleryEditV2({
               )}
               <button
                 type="button"
+                className={`tz-ge-canvas-compare-btn ${diffOn ? 'active' : ''}`}
+                onClick={() => setDiffOn((v) => !v)}
+                title="איפה העריכה שינתה את התמונה — שחור: לא נגעה, לבן: שינתה (D)"
+              >
+                <span>הפרש</span>
+              </button>
+              {diffOn && (
+                <div className="tz-ge-diff-bar">
+                  {[1, 5, 10, 25].map((g) => (
+                    <button
+                      key={g}
+                      type="button"
+                      className={`tz-ge-brush-mini ${diffGain === g ? 'active' : ''}`}
+                      onClick={() => setDiffGain(g)}
+                      title="הגברה — כדי לראות גם שינוי עדין"
+                    >
+                      ×{g}
+                    </button>
+                  ))}
+                  <span className="tz-ge-diff-stats">
+                    {diffStats === 'mismatch'
+                      ? 'החיתוך שינה את גודל התמונה — אין השוואה פיקסל מול פיקסל'
+                      : diffStats
+                        ? `ממוצע ${diffStats.mean.toFixed(1)} · מקסימום ${Math.round(diffStats.max)} · ${diffStats.p3.toFixed(1)}% מהתמונה השתנה לעין`
+                        : 'מחשב…'}
+                  </span>
+                </div>
+              )}
+              <button
+                type="button"
                 className={`tz-ge-canvas-compare-btn ${showOriginal ? 'active' : ''}`}
                 onMouseDown={() => setShowOriginal(true)}
                 onMouseUp={() => setShowOriginal(false)}
@@ -1384,6 +1443,14 @@ export default function GalleryEditV2({
                       comparison: the marks would land on the frame he is NOT
                       looking at, which is the same picture in the same place but
                       a different question. */}
+                  {diffOn && !showOriginal && fittedImage && (
+                    <canvas
+                      ref={diffRef}
+                      className="tz-ge-diff-canvas"
+                      style={{ width: fittedImage.width, height: fittedImage.height }}
+                      aria-label="מפת ההפרש"
+                    />
+                  )}
                   {/* The action pointed at in the list, drawn where it was painted.
                       Look-only: it takes no pointer, so the picture stays usable. */}
                   {!brushOn && hoveredAction && !showOriginal && (

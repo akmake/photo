@@ -318,3 +318,13 @@
 /* what "סיימתי" did with the file */
 .tz-ge-finish-note { font-size: 12px; color: #9fd8b8; white-space: nowrap; }
 .tz-ge-finish-note.is-fault { color: #f0a8a0; }
+
+/* הפרש: the difference map over the picture, and its gain and numbers */
+.tz-ge-diff-canvas { grid-area: 1 / 1; position: relative; z-index: 1; image-rendering: auto; background: #000; }
+.tz-ge-canvas-surface > .tz-ge-canvas-img { grid-area: 1 / 1; }
+.tz-ge-diff-bar {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 3px 8px 3px 4px; border-radius: 8px;
+  background: #1c1c1c; border: 1px solid var(--ph-line, #262626);
+}
+.tz-ge-diff-stats { margin-inline-start: 6px; font-size: 11.5px; color: #cfcfcf; white-space: nowrap; font-variant-numeric: tabular-nums; }

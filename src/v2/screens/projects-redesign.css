@@ -1,4 +1,4 @@
-﻿/* ==========================================================================
+/* ==========================================================================
    PROJECTS LIST V2 — EDITORIAL STUDIO DESIGN (TEZA AI)
    ========================================================================== */
 
@@ -291,27 +291,28 @@
 
 .tz-project-card {
   background: #ffffff;
-  border: 1px solid var(--tz-border);
-  border-radius: 16px;
+  border: 1px solid #e2e8f0;
+  border-radius: 20px;
   overflow: hidden;
   display: flex;
   flex-direction: column;
   cursor: pointer;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.02);
-  transition: transform 0.22s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.22s cubic-bezier(0.16, 1, 0.3, 1), border-color 0.2s ease;
+  box-shadow: 0 4px 20px -2px rgba(15, 23, 42, 0.05), 0 1px 3px rgba(15, 23, 42, 0.03);
+  transition: transform 0.28s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.28s cubic-bezier(0.16, 1, 0.3, 1), border-color 0.25s ease;
   text-align: right;
+  position: relative;
 }
 
 .tz-project-card:hover {
-  transform: translateY(-5px);
-  box-shadow: 0 14px 32px -6px rgba(0, 0, 0, 0.09), 0 4px 12px -2px rgba(0, 0, 0, 0.03);
-  border-color: #f2d5c6;
+  transform: translateY(-6px);
+  box-shadow: 0 20px 40px -12px rgba(234, 106, 60, 0.14), 0 10px 20px -6px rgba(15, 23, 42, 0.06);
+  border-color: rgba(234, 106, 60, 0.45);
 }
 
 .tz-pcard-img-wrap {
   position: relative;
-  height: 200px;
-  background: #f4f4f5;
+  height: 220px;
+  background: #0f172a;
   width: 100%;
   overflow: hidden;
 }
@@ -319,37 +320,37 @@
 .tz-pcard-img {
   width: 100%;
   height: 100%;
-  object-fit: contain;
+  object-fit: cover !important;
   display: block;
-  transition: transform 0.45s cubic-bezier(0.16, 1, 0.3, 1);
+  transition: transform 0.6s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .tz-project-card:hover .tz-pcard-img {
   transform: scale(1.05);
 }
 
-/* Nothing imported yet. It says that, rather than borrowing a photograph:
-   an empty tile is true and a stranger's portrait is not. */
+/* Nothing imported yet */
 .tz-pcard-img-empty {
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 6px;
-  background: linear-gradient(160deg, #fafafa, #ececee);
-  color: #a1a1aa;
+  gap: 8px;
+  background: radial-gradient(circle at 50% 40%, #1e293b, #0f172a);
+  color: #94a3b8;
 }
 
 .tz-pcard-img-empty span {
-  font-size: 34px;
+  font-size: 32px;
   font-weight: 800;
   line-height: 1;
-  color: #d4d4d8;
+  color: #fdba74;
 }
 
 .tz-pcard-img-empty small {
-  font-size: 11.5px;
+  font-size: 12px;
   letter-spacing: 0.01em;
+  color: #cbd5e1;
 }
 
 .tz-pcard-img-overlay {
@@ -357,144 +358,317 @@
   inset: 0;
   background: linear-gradient(
     to bottom,
-    rgba(15, 15, 20, 0.35) 0%,
+    rgba(15, 23, 42, 0.45) 0%,
     transparent 35%,
-    transparent 65%,
-    rgba(15, 15, 20, 0.45) 100%
+    transparent 55%,
+    rgba(15, 23, 42, 0.65) 100%
   );
   pointer-events: none;
 }
 
 .tz-pcard-badges-top {
   position: absolute;
-  top: 12px;
-  right: 12px;
-  left: 12px;
+  top: 10px;
+  right: 10px;
+  left: auto;
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  gap: 6px;
+  z-index: 4;
   pointer-events: none;
+}
+
+/* Status Badges */
+.tz-status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 99px;
+  font-size: 11.5px;
+  font-weight: 700;
+  backdrop-filter: blur(10px);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.14);
+  letter-spacing: -0.01em;
+}
+
+.tz-status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.tz-status-badge.delivered {
+  background: rgba(236, 253, 245, 0.94);
+  color: #047857;
+  border: 1px solid rgba(167, 243, 208, 0.85);
+}
+.tz-status-badge.delivered .tz-status-dot {
+  background: #10b981;
+  box-shadow: 0 0 6px rgba(16, 185, 129, 0.8);
+}
+
+.tz-status-badge.review {
+  background: rgba(254, 243, 199, 0.94);
+  color: #b45309;
+  border: 1px solid rgba(253, 230, 138, 0.85);
+}
+.tz-status-badge.review .tz-status-dot {
+  background: #f59e0b;
+  box-shadow: 0 0 6px rgba(245, 158, 11, 0.8);
+}
+
+.tz-status-badge.scheduled {
+  background: rgba(239, 246, 255, 0.94);
+  color: #1d4ed8;
+  border: 1px solid rgba(191, 219, 254, 0.85);
+}
+.tz-status-badge.scheduled .tz-status-dot {
+  background: #3b82f6;
+  box-shadow: 0 0 6px rgba(59, 130, 246, 0.8);
+}
+
+.tz-status-badge.editing {
+  background: rgba(255, 247, 237, 0.94);
+  color: #c2410c;
+  border: 1px solid rgba(254, 215, 170, 0.85);
+}
+.tz-status-badge.editing .tz-status-dot {
+  background: #ea580c;
+  box-shadow: 0 0 6px rgba(234, 88, 12, 0.8);
+}
+
+.tz-status-badge.culling,
+.tz-status-badge.album,
+.tz-status-badge.imported {
+  background: rgba(255, 247, 237, 0.94);
+  color: var(--tz-brand);
+  border: 1px solid rgba(254, 215, 170, 0.85);
+}
+.tz-status-badge.culling .tz-status-dot,
+.tz-status-badge.album .tz-status-dot,
+.tz-status-badge.imported .tz-status-dot {
+  background: var(--tz-brand);
+  box-shadow: 0 0 6px rgba(234, 106, 60, 0.8);
 }
 
 .tz-pcard-album-badge {
   display: inline-flex;
   align-items: center;
+  gap: 4px;
   background: rgba(253, 242, 248, 0.94);
   color: #be185d;
-  border: 1px solid rgba(251, 207, 232, 0.8);
-  backdrop-filter: blur(6px);
-  padding: 3px 9px;
-  border-radius: 20px;
+  border: 1px solid rgba(251, 207, 232, 0.85);
+  backdrop-filter: blur(10px);
+  padding: 4px 10px;
+  border-radius: 99px;
   font-size: 11px;
   font-weight: 700;
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.08);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.14);
 }
 
 .tz-pcard-date-badge {
   position: absolute;
   bottom: 10px;
-  right: 12px;
+  right: 10px;
   display: inline-flex;
   align-items: center;
-  background: rgba(255, 255, 255, 0.92);
-  backdrop-filter: blur(8px);
-  color: #27272a;
-  padding: 3px 9px;
-  border-radius: 20px;
+  gap: 5px;
+  background: rgba(15, 23, 42, 0.72);
+  backdrop-filter: blur(10px);
+  color: #f8fafc;
+  padding: 4px 9px;
+  border-radius: 7px;
+  font-size: 11.5px;
+  font-weight: 600;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.01em;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+/* Hover Quick Action on Image */
+.tz-pcard-hover-action {
+  position: absolute;
+  bottom: 10px;
+  left: 10px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: rgba(15, 23, 42, 0.78);
+  backdrop-filter: blur(10px);
+  color: #ffffff;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  padding: 4px 11px;
+  border-radius: 99px;
   font-size: 11.5px;
   font-weight: 700;
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1);
-  font-variant-numeric: tabular-nums;
+  opacity: 0;
+  transform: translateY(6px);
+  transition: opacity 0.22s cubic-bezier(0.16, 1, 0.3, 1), transform 0.22s cubic-bezier(0.16, 1, 0.3, 1), background-color 0.2s;
+  pointer-events: none;
 }
 
+.tz-project-card:hover .tz-pcard-hover-action {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+/* Card Body */
 .tz-pcard-body {
-  padding: 18px 20px;
+  padding: 16px 18px 18px;
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 13px;
   flex: 1;
+  background: #ffffff;
 }
 
-.tz-pcard-main-info {
+.tz-pcard-meta-chips {
   display: flex;
-  flex-direction: column;
-  gap: 3px;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.tz-pcard-event-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 700;
+  background: #fff7ed;
+  color: #ea580c;
+  border: 1px solid #fed7aa;
+}
+
+.tz-pcard-loc-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  color: #64748b;
+  font-weight: 500;
+}
+
+.tz-pcard-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
 }
 
 .tz-pcard-title {
   margin: 0;
   font-family: var(--tz-font-display);
-  font-size: 17px;
+  font-size: 18px;
   font-weight: 800;
-  color: #18181b;
-  letter-spacing: -0.01em;
+  color: #0f172a;
+  letter-spacing: -0.02em;
+  line-height: 1.25;
 }
 
-.tz-pcard-subtitle {
-  margin: 0;
-  font-size: 13px;
-  color: #71717a;
+.tz-pcard-arrow-icon {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  color: #94a3b8;
+  transition: transform 0.22s cubic-bezier(0.16, 1, 0.3, 1), color 0.22s ease;
 }
 
-.tz-pcard-progress-wrap {
+.tz-project-card:hover .tz-pcard-arrow-icon {
+  color: var(--tz-brand);
+  transform: translateX(-4px);
+}
+
+/* 3-Cell Stats Strip */
+.tz-pcard-stats-strip {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+  background: #f8fafc;
+  border: 1px solid #f1f5f9;
+  border-radius: 12px;
+  padding: 8px 6px;
+}
+
+.tz-pcard-stat-box {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  text-align: center;
+}
+
+.tz-pstat-val {
+  font-size: 13.5px;
+  font-weight: 800;
+  color: #1e293b;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.2;
+}
+
+.tz-pstat-val.has-balance {
+  color: #ea580c;
+}
+
+.tz-pstat-val.is-cleared {
+  color: #059669;
+  font-weight: 700;
+}
+
+.tz-pstat-lbl {
+  font-size: 11px;
+  font-weight: 600;
+  color: #94a3b8;
+}
+
+/* Progress Section */
+.tz-pcard-progress-section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: auto;
+  padding-top: 4px;
+}
+
+.tz-pcard-prog-info {
   display: flex;
   align-items: center;
-  gap: 8px;
+  justify-content: space-between;
+  font-size: 12px;
+}
+
+.tz-pcard-stage-name {
+  font-weight: 600;
+  color: #475569;
+  font-size: 12px;
+}
+
+.tz-pcard-prog-pct {
+  font-size: 11.5px;
+  font-weight: 800;
+  color: #ea580c;
+  font-variant-numeric: tabular-nums;
 }
 
 .tz-pprog-track {
-  flex: 1;
   height: 6px;
-  background: #f0f0f2;
+  background: #f1f5f9;
   border-radius: 999px;
   overflow: hidden;
 }
 
 .tz-pprog-fill {
   height: 100%;
-  background: var(--tz-brand);
+  background: linear-gradient(90deg, var(--tz-brand), #f97316);
   border-radius: 999px;
   transition: width 0.4s ease;
-}
-
-.tz-pcard-prog-pct {
-  font-size: 11px;
-  font-weight: 700;
-  color: #71717a;
-  min-width: 28px;
-  text-align: left;
-}
-
-.tz-pcard-footer {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding-top: 12px;
-  border-top: 1px solid var(--tz-border);
-  margin-top: auto;
-  font-size: 12px;
-}
-
-.tz-pcard-stage-info {
-  color: #71717a;
-}
-
-.tz-balance-tag {
-  color: var(--tz-brand);
-  font-weight: 700;
-}
-
-.tz-stage-tag {
-  color: #71717a;
-  font-weight: 500;
-}
-
-.tz-pcard-photo-count {
-  display: inline-flex;
-  align-items: center;
-  color: #71717a;
-  font-weight: 600;
-  font-size: 11.5px;
 }
 
 /* Empty State */
@@ -536,27 +710,38 @@
  */
 .tz-pcard-del {
   position: absolute;
-  top: 8px;
-  inset-inline-start: 8px;
-  z-index: 3;
-  width: 26px;
-  height: 26px;
+  top: 10px;
+  left: 10px;
+  right: auto;
+  inset-inline-start: auto;
+  z-index: 5;
+  width: 28px;
+  height: 28px;
   display: grid;
   place-items: center;
   border: 0;
-  border-radius: 7px;
-  background: rgba(16, 18, 22, .55);
-  backdrop-filter: blur(4px);
-  color: #fff;
-  font-size: 13px;
+  border-radius: 50%;
+  background: rgba(15, 23, 42, 0.62);
+  backdrop-filter: blur(8px);
+  color: #ffffff;
+  font-size: 12px;
   line-height: 1;
   cursor: pointer;
   opacity: 0;
-  transition: opacity .14s, background .14s;
+  transform: scale(0.9);
+  transition: opacity 0.18s ease, transform 0.18s ease, background-color 0.18s ease;
 }
+
 .tz-project-card:hover .tz-pcard-del,
-.tz-pcard-del:focus-visible { opacity: 1; }
-.tz-pcard-del:hover { background: #d92d20; }
+.tz-pcard-del:focus-visible {
+  opacity: 1;
+  transform: scale(1);
+}
+
+.tz-pcard-del:hover {
+  background: #ef4444;
+  transform: scale(1.08);
+}
 
 .tz-del-backdrop {
   position: fixed;

@@ -263,48 +263,97 @@ export default function ProjectsV2({
                   {/* Top Badges */}
                   <div className="tz-pcard-badges-top">
                     <span className={`tz-status-badge ${st.className}`}>
+                      <span className="tz-status-dot" />
                       {st.label}
                     </span>
                     {project.hasAlbum && (
                       <span className="tz-pcard-album-badge">
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                          <path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1-2.5-2.5Z"/>
+                          <path d="M6 2v20"/>
+                        </svg>
                         אלבום מעוצב
                       </span>
                     )}
                   </div>
 
-                  {/* Bottom Date Overlay */}
+                  {/* Date Overlay */}
                   {project.date && (
                     <div className="tz-pcard-date-badge">
-                      {project.date}
+                      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <rect width="18" height="18" x="3" y="4" rx="2" ry="2"/>
+                        <line x1="16" x2="16" y1="2" y2="6"/>
+                        <line x1="8" x2="8" y1="2" y2="6"/>
+                        <line x1="3" x2="21" y1="10" y2="10"/>
+                      </svg>
+                      <span>{project.date}</span>
                     </div>
                   )}
+
+                  {/* Hover Quick Action */}
+                  <div className="tz-pcard-hover-action">
+                    <span>פתח פרויקט</span>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="m15 18-6-6 6-6"/>
+                    </svg>
+                  </div>
                 </div>
 
                 <div className="tz-pcard-body">
-                  <div className="tz-pcard-main-info">
-                    <h3 className="tz-pcard-title">{project.client}</h3>
-                    <p className="tz-pcard-subtitle">
-                      {[project.event, project.location].filter(Boolean).join(' · ') || 'פרויקט צילום'}
-                    </p>
+                  {/* Category & Location */}
+                  <div className="tz-pcard-meta-chips">
+                    {project.event && (
+                      <span className="tz-pcard-event-chip">{project.event}</span>
+                    )}
+                    {project.location && (
+                      <span className="tz-pcard-loc-chip">
+                        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                          <path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/>
+                          <circle cx="12" cy="10" r="3"/>
+                        </svg>
+                        {project.location}
+                      </span>
+                    )}
                   </div>
 
-                  <div className="tz-pcard-progress-wrap">
+                  {/* Client Title Row */}
+                  <div className="tz-pcard-title-row">
+                    <h3 className="tz-pcard-title">{project.client}</h3>
+                    <div className="tz-pcard-arrow-icon" aria-hidden="true">
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="m15 18-6-6 6-6"/>
+                      </svg>
+                    </div>
+                  </div>
+
+                  {/* 3-Cell Metrics Capsule Strip */}
+                  <div className="tz-pcard-stats-strip">
+                    <div className="tz-pcard-stat-box">
+                      <span className="tz-pstat-val">{project.imported.toLocaleString('he-IL')}</span>
+                      <span className="tz-pstat-lbl">תמונות</span>
+                    </div>
+                    <div className="tz-pcard-stat-box">
+                      <span className="tz-pstat-val">
+                        {project.picked > 0 ? project.picked.toLocaleString('he-IL') : (project.kept > 0 ? project.kept.toLocaleString('he-IL') : '—')}
+                      </span>
+                      <span className="tz-pstat-lbl">{project.picked > 0 ? 'נבחרו' : 'סוננו'}</span>
+                    </div>
+                    <div className="tz-pcard-stat-box">
+                      <span className={`tz-pstat-val ${bal > 0 ? 'has-balance' : 'is-cleared'}`}>
+                        {bal > 0 ? `₪${bal.toLocaleString('he-IL')}` : 'שולם'}
+                      </span>
+                      <span className="tz-pstat-lbl">{bal > 0 ? 'יתרה' : 'הושלם'}</span>
+                    </div>
+                  </div>
+
+                  {/* Progress Section */}
+                  <div className="tz-pcard-progress-section">
+                    <div className="tz-pcard-prog-info">
+                      <span className="tz-pcard-stage-name">{stageLabel(project)}</span>
+                      <span className="tz-pcard-prog-pct">{prog}%</span>
+                    </div>
                     <div className="tz-pprog-track">
                       <div className="tz-pprog-fill" style={{ width: `${prog}%` }} />
-                    </div>
-                    <span className="tz-pcard-prog-pct">{prog}%</span>
-                  </div>
-
-                  <div className={`tz-pcard-footer ${bal > 0 ? 'has-balance' : ''}`}>
-                    <div className="tz-pcard-stage-info">
-                      {bal > 0 ? (
-                        <span className="tz-balance-tag">יתרה: ₪{bal.toLocaleString('he-IL')}</span>
-                      ) : (
-                        <span className="tz-stage-tag">{stageLabel(project)}</span>
-                      )}
-                    </div>
-                    <div className="tz-pcard-photo-count">
-                      <span>{project.imported.toLocaleString('he-IL')} תמונות</span>
                     </div>
                   </div>
                 </div>

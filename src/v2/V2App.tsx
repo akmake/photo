@@ -85,6 +85,13 @@ export default function V2App({ onSwitchToV1, onOpenProjectV1 }: V2AppProps) {
    * single photograph had been read yet. */
   const processedPercent = imported ? Math.min(100, Math.round((rendered / imported) * 100)) : 0;
 
+  // Storage for client gallery uploads (max 50 GB)
+  const MAX_STORAGE_GB = 50;
+  const galleryProjects = studio.projects.filter((p) => p.hasGallery || p.state === 'waiting' || p.at >= 3);
+  const uploadedPhotosCount = galleryProjects.reduce((sum, p) => sum + (p.imported || 0), 0);
+  const usedGb = Math.min(MAX_STORAGE_GB, Number(((uploadedPhotosCount * 1.8) / 1024).toFixed(1)));
+  const storagePercent = Math.min(100, Math.round((usedGb / MAX_STORAGE_GB) * 100));
+
   /* What actually wants the photographer today. The bell used to carry a red
    * "3" that was written into the markup and never moved, on an installation
    * with one project — so it said the same thing on an empty studio as on a
@@ -303,24 +310,84 @@ export default function V2App({ onSwitchToV1, onOpenProjectV1 }: V2AppProps) {
     <div className={`tz-app ${isEditing ? 'is-editing' : ''} ${isGrouping ? 'is-grouping' : ''}`}>
       {/* 1. SIDEBAR (Placed on Right in natural RTL) */}
       <aside className={`tz-sidebar ${isSidebarCollapsed ? 'collapsed' : ''}`}>
-        {/* Toggle Sidebar Collapse Button */}
+        {/* Top Header Row of Sidebar: Toggle button + Bell */}
+        <div className="tz-sidebar-top-row">
+          <button
+            type="button"
+            className="tz-sidebar-toggle-btn"
+            onClick={() => setSidebarCollapsed(!isSidebarCollapsed)}
+            title={isSidebarCollapsed ? 'הרחב תפריט' : 'כווץ תפריט לסרגל סמלים'}
+            style={{ marginBottom: 0 }}
+          >
+            {isSidebarCollapsed ? '›' : '‹'}
+          </button>
+
+          <div className="tz-sidebar-bell-wrap">
+            <button
+              className="tz-icon-button"
+              type="button"
+              title={attention.count ? `${attention.count} דברים פתוחים` : 'אין כרגע דבר שממתין לך'}
+              onClick={() => setAlerts((open) => !open)}
+              aria-expanded={alerts}
+            >
+              <TzIconBell size={18} />
+              {attention.count > 0 && <span className="tz-badge-dot">{attention.count}</span>}
+            </button>
+
+            {alerts && (
+              <>
+                <div className="tz-alerts-catch" onClick={() => setAlerts(false)} />
+                <div className="tz-alerts" role="dialog" aria-label="מה פתוח">
+                  <div className="tz-alerts-head">מה מחכה לך</div>
+                  {attention.count === 0 && (
+                    <p className="tz-alerts-none">אין כרגע צילום קרוב ואף לקוח לא ממתין לתשובה.</p>
+                  )}
+                  {attention.soon.map(({ project, when }) => (
+                    <button
+                      key={`s-${project.id}`}
+                      type="button"
+                      className="tz-alerts-row"
+                      onClick={() => { setAlerts(false); handleOpenProject(project.id); }}
+                    >
+                      <strong>{project.event || 'צילום'} — {project.client}</strong>
+                      <small>צילום ב־{when.toLocaleDateString('he-IL', { day: 'numeric', month: 'long' })}</small>
+                    </button>
+                  ))}
+                  {attention.waiting.map((project) => (
+                    <button
+                      key={`w-${project.id}`}
+                      type="button"
+                      className="tz-alerts-row"
+                      onClick={() => { setAlerts(false); handleOpenProject(project.id, 'send-to-client'); }}
+                    >
+                      <strong>{project.client}</strong>
+                      <small>{project.waitingSince ? `ממתין לאישור מאז ${project.waitingSince}` : 'ממתין לאישור הלקוח'}</small>
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+
+        {/* Logo: FrameOps (clickable to return to today) */}
         <button
           type="button"
-          className="tz-sidebar-toggle-btn"
-          onClick={() => setSidebarCollapsed(!isSidebarCollapsed)}
-          title={isSidebarCollapsed ? 'הרחב תפריט' : 'כווץ תפריט לסרגל סמלים'}
+          className="tz-logo-wrap"
+          onClick={() => setActiveNav('today')}
+          title="FrameOps — חזרה לדף היום"
         >
-          {isSidebarCollapsed ? '›' : '‹'}
+          <img
+            src="/frameops-logo.png"
+            alt="FrameOps — studio operations for photographers"
+            className="tz-logo-full"
+          />
+          <img
+            src="/frameops-mark.png"
+            alt="FrameOps"
+            className="tz-logo-mark"
+          />
         </button>
-
-        {/* Logo */}
-        <div className="tz-logo-wrap">
-          <div className="tz-logo-title">
-            <span>TEZA</span>
-            <span className="tz-logo-ai">AI</span>
-          </div>
-          <div className="tz-logo-subtitle">מערכת ההפעלה של הצלם</div>
-        </div>
 
         {/* Business Navigation items */}
         <nav className="tz-nav-list">
@@ -345,57 +412,21 @@ export default function V2App({ onSwitchToV1, onOpenProjectV1 }: V2AppProps) {
             );
           })}
 
-          <div className="tz-nav-sep" />
-
-          {/* Workshop items */}
-          {WORKSHOP_NAV.map((item) => {
-            const Icon = item.icon;
-            const isActive = activeNav === item.id;
-            return (
-              <button
-                key={item.id}
-                type="button"
-                className={`tz-nav-item ${isActive ? 'active' : ''}`}
-                onClick={() => setActiveNav(item.id)}
-              >
-                <span className="tz-nav-icon"><Icon size={17} /></span>
-                <span>{item.label}</span>
-                {item.isAi && <span className="tz-ai-badge">AI</span>}
-              </button>
-            );
-          })}
         </nav>
 
-        {/* How much of what was imported has been rendered, and whether the
-          * engine is answering. The card used to end in a "שדרוג חבילה" button
-          * that did nothing, for a subscription this product does not have. It
-          * opens the settings instead, which is where the engine and the
-          * records file actually are. */}
+        {/* Storage Card: Client Gallery Uploads (out of 50 GB) */}
         <div className="tz-storage-card">
           <div className="tz-storage-title">
-            <span style={{ fontSize: '13px' }}>◉</span>
-            <span>מצב ספרייה ומנוע</span>
+            <span style={{ fontSize: '13px' }}>☁</span>
+            <span>הועלה לבחירת לקוחות</span>
           </div>
           <div className="tz-storage-bar">
-            <div className="tz-storage-fill" style={{ width: `${processedPercent}%` }} />
+            <div className="tz-storage-fill" style={{ width: `${Math.max(storagePercent, usedGb > 0 ? 4 : 0)}%` }} />
           </div>
-          <div className="tz-storage-numbers" style={{ display: 'flex', justifyContent: 'space-between' }}>
-            <span>
-              {imported > 0
-                ? `${rendered.toLocaleString('he-IL')} מתוך ${imported.toLocaleString('he-IL')} תמונות`
-                : 'טרם יובאו תמונות'}
-            </span>
-            <strong style={{ color: studio.status === 'ready' ? 'var(--tz-green)' : studio.status === 'down' ? '#d92d20' : 'var(--tz-brand)' }}>
-              {studio.status === 'ready' ? 'מנוע מחובר' : studio.status === 'down' ? 'מנוע מנותק' : 'מתחבר…'}
-            </strong>
+          <div className="tz-storage-numbers" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span><strong>{usedGb} GB</strong> מתוך {MAX_STORAGE_GB} GB</span>
+            <span style={{ color: 'var(--tz-text-muted)', fontSize: '11px' }}>{storagePercent}%</span>
           </div>
-          <button
-            className="tz-btn-storage-upgrade"
-            type="button"
-            onClick={() => setActiveNav('settings')}
-          >
-            מצב המערכת
-          </button>
         </div>
 
         {/* Settings */}
@@ -409,9 +440,7 @@ export default function V2App({ onSwitchToV1, onOpenProjectV1 }: V2AppProps) {
           <span>הגדרות</span>
         </button>
 
-        {/* The studio itself. There is no account system and no second user,
-          * so this does not pretend to be a profile — it opens the settings,
-          * which is the only thing behind it that exists. */}
+        {/* The studio itself */}
         <button
           className="tz-nav-user-item"
           type="button"
@@ -424,94 +453,11 @@ export default function V2App({ onSwitchToV1, onOpenProjectV1 }: V2AppProps) {
             <small>{studio.projects.length} פרויקטים</small>
           </div>
         </button>
-
-        {/* Switch back to V1 */}
-        <button
-          className="tz-help-link"
-          type="button"
-          onClick={onSwitchToV1}
-          style={{ marginTop: '10px', fontSize: '11.5px', color: '#a1a1aa' }}
-        >
-          <span>↺</span> חזרה לעיצוב קודם
-        </button>
       </aside>
 
       {/* 2. MAIN CONTENT WRAPPER */}
       <div className="tz-main-wrapper">
-        {/* Top Header - Hidden when editing or in album mode to maximize workspace */}
-        {!isEditing && !isGrouping && !isAlbumMode && (
-          <header className="tz-topbar">
-            <div className="tz-topbar-leading">
-            {activeNav === 'project-detail' ? (
-              <button className="tz-topbar-back" type="button" onClick={() => setActiveNav('projects')}>
-                <span>‹</span> חזרה לפרויקטים
-              </button>
-            ) : activeNav !== 'today' ? (
-              <button className="tz-topbar-back" type="button" onClick={() => setActiveNav('today')}>
-                <span>‹</span> חזרה לדף הבית
-              </button>
-            ) : null}
 
-            <div className="tz-topbar-user-area">
-              {/* The count is what is actually open: clients who were sent a
-                * gallery and have not answered, and shoots inside the coming
-                * week. No badge at all when there is nothing — the old red "3"
-                * was a literal in the markup. */}
-              <button
-                className="tz-icon-button"
-                type="button"
-                title={attention.count ? `${attention.count} דברים פתוחים` : 'אין כרגע דבר שממתין לך'}
-                onClick={() => setAlerts((open) => !open)}
-                aria-expanded={alerts}
-              >
-                <TzIconBell size={18} />
-                {attention.count > 0 && <span className="tz-badge-dot">{attention.count}</span>}
-              </button>
-
-              {alerts && (
-                <>
-                  <div className="tz-alerts-catch" onClick={() => setAlerts(false)} />
-                  <div className="tz-alerts" role="dialog" aria-label="מה פתוח">
-                    <div className="tz-alerts-head">מה מחכה לך</div>
-                    {attention.count === 0 && (
-                      <p className="tz-alerts-none">אין כרגע צילום קרוב ואף לקוח לא ממתין לתשובה.</p>
-                    )}
-                    {attention.soon.map(({ project, when }) => (
-                      <button
-                        key={`s-${project.id}`}
-                        type="button"
-                        className="tz-alerts-row"
-                        onClick={() => { setAlerts(false); handleOpenProject(project.id); }}
-                      >
-                        <strong>{project.event || 'צילום'} — {project.client}</strong>
-                        <small>צילום ב־{when.toLocaleDateString('he-IL', { day: 'numeric', month: 'long' })}</small>
-                      </button>
-                    ))}
-                    {attention.waiting.map((project) => (
-                      <button
-                        key={`w-${project.id}`}
-                        type="button"
-                        className="tz-alerts-row"
-                        onClick={() => { setAlerts(false); handleOpenProject(project.id, 'send-to-client'); }}
-                      >
-                        <strong>{project.client}</strong>
-                        <small>{project.waitingSince ? `ממתין לאישור מאז ${project.waitingSince}` : 'ממתין לאישור הלקוח'}</small>
-                      </button>
-                    ))}
-                  </div>
-                </>
-              )}
-
-            </div>
-            </div>
-
-            {/* Keep the screen name centered; settings remain in the sidebar. */}
-            <div className="tz-topbar-title">
-              {activeNav === 'project-detail' ? projectTitle : (SCREEN_TITLE[activeNav] ?? '')}
-            </div>
-            <div className="tz-topbar-trailing" aria-hidden="true" />
-          </header>
-        )}
 
         {/* Stage Tabs Bar (shown only when in single project cockpit mode) */}
         {activeNav === 'project-detail' && (

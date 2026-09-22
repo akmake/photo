@@ -993,6 +993,47 @@ export default function GroupWorkspace({ projectId }: { projectId: string }) {
         </div>
       )}
 
+      {/* Live running progress indicator if scanning while groups exist */}
+      {busy && groups.length > 0 && (
+        <div className="gw-sidebar-progress" aria-live="polite">
+          <div className="gw-cprog-head">
+            <div className="gw-cprog-title">
+              <span className="gw-cprog-spinner" />
+              <span>
+                {analysis?.phase === 'embed' && (
+                  analysis.done === 0
+                    ? 'טוען את מודל הזיהוי…'
+                    : `קורא ${count(analysis.done)} / ${count(analysis.total)} תמונות`
+                )}
+                {analysis?.phase === 'group' && 'מנתח ומחפש גבולות…'}
+              </span>
+            </div>
+            {analysis?.phase === 'embed' && analysis.total > 0 && (
+              <span className="gw-cprog-pct">
+                {Math.round((analysis.done / analysis.total) * 100)}%
+              </span>
+            )}
+          </div>
+          <div className="gw-cprog-track">
+            <div
+              className={`gw-cprog-fill ${analysis?.phase === 'group' ? 'indeterminate' : ''}`}
+              style={{
+                width: analysis?.phase === 'embed' && analysis.total > 0
+                  ? `${Math.max(6, Math.round((analysis.done / analysis.total) * 100))}%`
+                  : '100%',
+              }}
+            />
+          </div>
+          <button
+            type="button"
+            className="gw-btn-stop-sm"
+            onClick={() => { stopAnalysis.current = true; }}
+          >
+            עצור
+          </button>
+        </div>
+      )}
+
       {/* ---- real groups only: filters live in the header ---- */}
       {groups.length > 0 ? (
       <div className="gw-strip-shell">
@@ -1049,24 +1090,118 @@ export default function GroupWorkspace({ projectId }: { projectId: string }) {
       </div>
       ) : (
         <div className="gw-empty-groups">
-          <div>
-            <span className="gw-empty-kicker">התחלה מהירה</span>
-            <strong>חלק את הצילום למקבצים ברורים</strong>
-            <p>מקבץ מרכז תמונות שתרצה לבחור ולערוך יחד. אפשר לקבל הצעה אוטומטית או להתחיל ידנית.</p>
-          </div>
-          <div className="gw-empty-actions">
-            <button type="button" className="btn btn-primary" onClick={suggestNow} disabled={busy}>{W.suggest}</button>
-            <button
-              type="button"
-              className="btn"
-              onClick={() => {
-                sheetRef.current?.focus();
-                const first = visible[0];
-                if (first) { setFocus(first.name); setAnchor(first.name); setSelected(new Set([first.name])); }
-              }}
-            >
-              בחר ידנית
-            </button>
+          <div className="gw-empty-card">
+            <div className="gw-empty-icon-box">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                <polygon points="12 2 2 7 12 12 22 7 12 2" />
+                <polyline points="2 17 12 22 22 17" />
+                <polyline points="2 12 12 17 22 12" />
+              </svg>
+            </div>
+            <div>
+              <span className="gw-empty-kicker">התחלה מהירה</span>
+              <strong>חלק את הצילום למקבצים ברורים</strong>
+              <p>מקבץ מרכז תמונות שתרצה לבחור ולערוך יחד. אפשר לקבל הצעה אוטומטית או להתחיל ידנית.</p>
+            </div>
+
+            {/* Error or Note message if any */}
+            {analysis?.phase === 'error' && (
+              <div className="gw-card-alert gw-card-alert-error">
+                <span>{analysis.text}</span>
+              </div>
+            )}
+            {analysis?.phase === 'note' && (
+              <div className="gw-card-alert gw-card-alert-note">
+                <span>{analysis.text}</span>
+              </div>
+            )}
+
+            {/* If analysis is currently running, show live progress here */}
+            {busy ? (
+              <div className="gw-card-progress" aria-live="polite">
+                <div className="gw-cprog-head">
+                  <div className="gw-cprog-title">
+                    <span className="gw-cprog-spinner" />
+                    <span>
+                      {analysis?.phase === 'embed' && (
+                        analysis.done === 0
+                          ? 'טוען את מודל הזיהוי…'
+                          : `קורא ${count(analysis.done)} מתוך ${count(analysis.total)} תמונות`
+                      )}
+                      {analysis?.phase === 'group' && 'מנתח ומחפש גבולות…'}
+                    </span>
+                  </div>
+                  {analysis?.phase === 'embed' && analysis.total > 0 && (
+                    <span className="gw-cprog-pct">
+                      {Math.round((analysis.done / analysis.total) * 100)}%
+                    </span>
+                  )}
+                </div>
+
+                <div className="gw-cprog-track">
+                  <div
+                    className={`gw-cprog-fill ${analysis?.phase === 'group' ? 'indeterminate' : ''}`}
+                    style={{
+                      width: analysis?.phase === 'embed' && analysis.total > 0
+                        ? `${Math.max(6, Math.round((analysis.done / analysis.total) * 100))}%`
+                        : '100%',
+                    }}
+                  />
+                </div>
+
+                <button
+                  type="button"
+                  className="gw-btn-stop"
+                  onClick={() => { stopAnalysis.current = true; }}
+                >
+                  עצור סריקה
+                </button>
+              </div>
+            ) : suggest && suggest.boundaries.length > 0 ? (
+              /* Suggestions ready to accept right from the card */
+              <div className="gw-card-suggest-results">
+                <div className="gw-cresults-head">
+                  <strong>✨ נמצאו {count(suggest.boundaries.length)} מקבצים מוצעים</strong>
+                  {suggest.visualOnly && <small>לפי מראה ויזואלי</small>}
+                </div>
+                <div className="gw-cresults-actions">
+                  <button type="button" className="btn btn-primary" onClick={acceptAll}>
+                    קבל את כל המקבצים
+                  </button>
+                  <button
+                    type="button"
+                    className="btn gw-btn-toggle"
+                    onClick={() => setSuggest({ ...suggest, shown: !suggest.shown })}
+                  >
+                    {suggest.shown ? 'הסתר גבולות' : 'הצג גבולות'}
+                  </button>
+                  <button type="button" className="gw-link" onClick={() => setSuggest(null)}>
+                    נקה
+                  </button>
+                </div>
+              </div>
+            ) : (
+              /* Default action buttons */
+              <div className="gw-empty-actions">
+                <button type="button" className="btn btn-primary gw-btn-suggest" onClick={suggestNow} disabled={busy}>
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="m12 3-1.9 5.8a2 2 0 0 1-1.3 1.3L3 12l5.8 1.9a2 2 0 0 1 1.3 1.3L12 21l1.9-5.8a2 2 0 0 1 1.3-1.3L21 12l-5.8-1.9a2 2 0 0 1-1.3-1.3Z" />
+                  </svg>
+                  {W.suggest}
+                </button>
+                <button
+                  type="button"
+                  className="btn gw-btn-manual"
+                  onClick={() => {
+                    sheetRef.current?.focus();
+                    const first = visible[0];
+                    if (first) { setFocus(first.name); setAnchor(first.name); setSelected(new Set([first.name])); }
+                  }}
+                >
+                  בחר ידנית
+                </button>
+              </div>
+            )}
           </div>
         </div>
       )}
