@@ -9,8 +9,9 @@ the export delivers. Nothing here is a preview-only effect.
                       the whole frame, then the frame is cut.
   look                the filter gallery (סנן): fifteen named looks and an
                       intensity. After the colour tools, before light/glow.
-  background-replace  רקע · הסר / החלף: the background (masks.py 'subject',
-                      inverted) filled with white or with a chosen colour.
+  background-replace  רקע · טשטוש / הסר / החלף: the background (masks.py
+                      'subject', inverted, refined by the background brush)
+                      blurred, filled white, or filled with a chosen colour.
   markup              סימון: pen and highlighter strokes, drawn after geometry,
                       in fractions of the FINISHED frame.
 

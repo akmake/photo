@@ -185,11 +185,12 @@
 }
 .tz-pe-crop-shade { position: absolute; box-shadow: 0 0 0 9999px rgba(20, 20, 20, 0.62); pointer-events: none; }
 .tz-pe-thirds {
-  position: absolute; inset: 0; pointer-events: none; opacity: 0.35;
+  position: absolute; inset: 0; pointer-events: none; opacity: 0; transition: opacity 0.15s;
   background-image:
     linear-gradient(to right, transparent 33%, #fff 33%, #fff calc(33% + 1px), transparent calc(33% + 1px), transparent 66%, #fff 66%, #fff calc(66% + 1px), transparent calc(66% + 1px)),
     linear-gradient(to bottom, transparent 33%, #fff 33%, #fff calc(33% + 1px), transparent calc(33% + 1px), transparent 66%, #fff 66%, #fff calc(66% + 1px), transparent calc(66% + 1px));
 }
+.tz-pe-crop:active .tz-pe-thirds { opacity: 0.4; }
 .tz-pe-handle { position: absolute; box-sizing: border-box; }
 .tz-pe-handle.is-nw, .tz-pe-handle.is-ne, .tz-pe-handle.is-se, .tz-pe-handle.is-sw { width: 26px; height: 26px; }
 .tz-pe-handle.is-nw { left: -4px; top: -4px; cursor: nwse-resize; border-left: 4px solid #fff; border-top: 4px solid #fff; }
