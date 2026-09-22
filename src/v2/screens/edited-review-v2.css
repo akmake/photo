@@ -56,9 +56,15 @@
 .tz-er-tile.is-done .tz-er-mark { background: #34d399; }
 .tz-er-tile.is-big img { height: 170px; width: 170px; max-width: none; object-fit: contain; }
 
-.tz-er-grid {
-  flex: 1; min-height: 0; overflow: auto;
-  display: flex; flex-wrap: wrap; align-content: flex-start; gap: 10px 8px;
+.tz-er-grid { flex: 1; min-height: 0; overflow: hidden; }
+.tz-er-pg { --pg-ph: #262321; --pg-bg: #151413; --pg-ink: #e7e5e4; --pg-current: #fafaf9; }
+.tz-er-pg .tz-pg-tile.is-done { box-shadow: inset 0 -3px 0 #34d399; }
+.tz-er-pg-done {
+  position: absolute; top: 8px; inset-inline-end: 8px; z-index: 3;
+  width: 22px; height: 22px; border-radius: 50%;
+  display: grid; place-items: center;
+  background: #34d399; color: #0b2a1f; font-size: 12px; font-weight: 800;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
 }
 .tz-er-empty { margin: 40px auto; color: #a8a29e; }
 .tz-er-keys { margin: 0; font-size: 11.5px; color: #78716c; }

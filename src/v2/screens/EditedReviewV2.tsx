@@ -13,6 +13,9 @@ import { thumbUrl } from '../../api';
 import type { Frame } from '../../api';
 import { frameKey, setPhotoStatus, useStatuses } from '../../studio/store';
 import { useFramePreview } from '../../studio/preview';
+import PhotoGrid from '../../components/photo-grid/PhotoGrid';
+import type { GridItem } from '../../components/photo-grid/PhotoGrid';
+import { useDims } from '../../components/photo-grid/useDims';
 import './edited-review-v2.css';
 
 type Show = 'all' | 'done' | 'todo';
@@ -45,6 +48,13 @@ export default function EditedReviewV2({
     () => frames.filter((f) => (show === 'done' ? isDone(f.name) : show === 'todo' ? !isDone(f.name) : true)),
     [frames, show, isDone],
   );
+  const dims = useDims(useMemo(() => frames.map((f) => f.path), [frames]));
+  const gridItems = useMemo<GridItem[]>(() => list.map((f) => ({
+    id: frameKey(f.name),
+    alt: f.name,
+    aspect: dims.get(f.path),
+    src: (w: number) => preview.url(f.path, f.name, w),
+  })), [list, dims, preview]);
   const doneCount = useMemo(() => frames.filter((f) => isDone(f.name)).length, [frames, isDone]);
 
   useEffect(() => {
@@ -158,7 +168,20 @@ export default function EditedReviewV2({
           {show === 'done' ? 'עוד לא סומנה אף תמונה כגמורה.' : show === 'todo' ? 'כל התמונות הסתיימו.' : 'אין תמונות.'}
         </p>
       ) : grid ? (
-        <div className="tz-er-grid">{list.map((f) => tile(f, true))}</div>
+        <div className="tz-er-grid">
+          {/* The same gallery as everywhere else: every frame as it will be
+              delivered, in its own proportions. */}
+          <PhotoGrid
+            className="tz-er-pg"
+            sections={[{ id: 'set', items: gridItems }]}
+            targetHeight={200}
+            currentId={sel}
+            onItemClick={(id) => setSel(id)}
+            onItemDoubleClick={(id) => { setSel(id); setGrid(false); }}
+            tileClass={(item) => (statuses[item.id] === 'ready' ? 'is-done' : '')}
+            renderOverlay={(item) => (statuses[item.id] === 'ready' ? <span className="tz-er-pg-done" title="הסתיימה">✓</span> : null)}
+          />
+        </div>
       ) : (
         <>
           <div className="tz-er-bar-actions">
