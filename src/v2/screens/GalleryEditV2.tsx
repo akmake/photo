@@ -757,7 +757,7 @@ export default function GalleryEditV2({
     try {
       const result = await selectObjectAtPath(currentPath, x, y);
       if (request !== objectRequest.current) return;
-      setObjectDraft({ maskPng: result.maskPng, margin: 0.003, add: [], subtract: [] });
+      setObjectDraft({ maskPng: result.maskPng, margin: result.margin, add: [], subtract: [] });
       setObjectMode(null);
     } catch (error) {
       if (request === objectRequest.current) setObjectError(error instanceof Error ? error.message : 'בחירת האובייקט נכשלה');

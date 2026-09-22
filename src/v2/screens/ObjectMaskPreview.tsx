@@ -17,6 +17,23 @@ export default function ObjectMaskPreview({ selection, width, height }: {
       canvas.width = Math.max(1, Math.round(width));
       canvas.height = Math.max(1, Math.round(height));
       ctx.drawImage(image, 0, 0, canvas.width, canvas.height);
+      // The engine grows the outline before it fills, because the segmenter
+      // stops short of a held phone or a dark shoe. Show that growth: a blue
+      // area that ends where the removal does not is a promise the picture
+      // breaks. Rings of offset copies stand in for the engine's disc.
+      const grow = (selection.margin ?? 0) * canvas.width;
+      if (grow >= 1) {
+        // the mask arrives opaque, so the copies have to add, not overwrite
+        ctx.globalCompositeOperation = 'lighter';
+        for (const radius of [grow, grow * 0.55]) {
+          for (let i = 0; i < 16; i += 1) {
+            const angle = (i / 16) * Math.PI * 2;
+            ctx.drawImage(image, Math.cos(angle) * radius, Math.sin(angle) * radius,
+                          canvas.width, canvas.height);
+          }
+        }
+        ctx.globalCompositeOperation = 'source-over';
+      }
       const pixels = ctx.getImageData(0, 0, canvas.width, canvas.height);
       for (let i = 0; i < pixels.data.length; i += 4) {
         const selected = pixels.data[i];

@@ -408,6 +408,8 @@ export async function renderRecipe(
 /** Select the object under a point on a photograph. Coordinates are fractions. */
 export async function selectObjectAtPath(path: string, x: number, y: number): Promise<{
   maskPng: string; coverage: number; score: number; width: number; height: number;
+  /** How far past the outline the engine grows the selection. Its decision, not ours. */
+  margin: number;
 }> {
   const response = await fetch(`${ENGINE}/object/select`, {
     method: 'POST',

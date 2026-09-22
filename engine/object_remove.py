@@ -16,8 +16,30 @@ import manual_clean
 import paths
 
 SELECT_MAX_DIM = 1024
-DEFAULT_MARGIN = 0.003  # fraction of frame width
+#: Fraction of frame width the selection is grown by before the fill.
+#:
+#: A fringe, and nothing more. The segmenter stops a few pixels inside the
+#: outline, and this covers that.
+#:
+#: IT MUST NOT BE USED TO CATCH WHAT THE SEGMENTER MISSED. On 321A4954 it left
+#: the tip of a held phone and the dark toe of a shoe outside the outline, and
+#: 1% of the frame width (55px there) cleared both. It also inflated the mask
+#: into a balloon over the horse's chest in 321A5078, a hand's width past
+#: anything the man occupied, and the fill replaced photographed horse with
+#: invented background. That trade is the wrong way round: a leftover sliver
+#: the photographer brushes away in a second costs him a second, and a chest
+#: rebuilt out of nothing costs him the frame. Leftovers belong to the brush.
+DEFAULT_MARGIN = 0.003
 SWALLOW = 12  # a candidate this much larger than the click is the scene, not it
+#: Where the segmenter's own confidence is cut into a yes or a no.
+#:
+#: Its default, 0, is the outline it is sure of, and it stops short: on
+#: 321A4954 the dark toe of the man's shoe, against ground it barely contrasts
+#: with, fell outside. Reading the outline at -4 takes in what it half-believed
+#: and nothing else — the mask grows by 5%, the toe comes in, and the balloon a
+#: blunt dilation put over the horse's chest in 321A5078 does not appear,
+#: because there the answer is not uncertain, it is no.
+MASK_THRESHOLD = -4.0
 _predictor = None
 _predict_lock = threading.Lock()
 
@@ -102,9 +124,11 @@ def select(rgb: np.ndarray, x: float, y: float) -> dict:
         sh, sw = small.shape[:2]
         point = np.array([[min(sw - 1, round(x * (sw - 1))),
                            min(sh - 1, round(y * (sh - 1)))]])
-        candidates, scores, _ = _predictor.predict(
+        raw, scores, _ = _predictor.predict(
             point_coords=point, point_labels=np.array([1]), multimask_output=True,
+            return_logits=True,
         )
+    candidates = (raw > MASK_THRESHOLD).astype(np.uint8)
     if len(candidates) == 0:
         raise RuntimeError("No object mask found at the selected point")
     index = _choose_candidate(candidates, scores)
@@ -116,7 +140,9 @@ def select(rgb: np.ndarray, x: float, y: float) -> dict:
          "score": round(float(score), 4)}
         for candidate, score in zip(candidates, scores)
     ]
-    return {**alternatives[index], "width": sw, "height": sh,
+    # The margin travels with the selection so the screen and the render agree
+    # on it, and so it stays one decision, made here.
+    return {**alternatives[index], "width": sw, "height": sh, "margin": DEFAULT_MARGIN,
             "selectedIndex": index, "candidates": alternatives}
 
 

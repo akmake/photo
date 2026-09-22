@@ -369,7 +369,7 @@ export default function PhotoEditor({
     setObjectFault(null);
     try {
       const result = await selectObjectAtPath(frame.path, x, y);
-      setObjectDraft({ maskPng: result.maskPng, margin: 0.003, add: [], subtract: [] });
+      setObjectDraft({ maskPng: result.maskPng, margin: result.margin, add: [], subtract: [] });
       setObjectSelecting(false);
       setObjectPaint(null);
     } catch (error) {
