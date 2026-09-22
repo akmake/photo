@@ -24,6 +24,7 @@ import { learnColorModel, thumbUrl } from '../../api';
 import type { LearnColorResponse } from '../../api';
 import type { LearnedColorModel } from '../../types';
 import FramePicker from '../../studio/screens/FramePicker';
+import { useLooks } from '../../studio/looks';
 import { TzIconSparkle, TzIconUpload, TzIconCheckCircle, TzIconGallery } from '../TzIcons';
 
 function baseName(p: string) {
@@ -74,6 +75,11 @@ export default function ColorMatchPanel({
   const [learned, setLearned] = useState<LearnColorResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [applied, setApplied] = useState(false);
+  // צבעים שמורים: learned once, laid on any batch of any project.
+  const looks = useLooks();
+  const [naming, setNaming] = useState<string | null>(null);
+  const [saveNote, setSaveNote] = useState<string | null>(null);
+  const [lookApplied, setLookApplied] = useState<string | null>(null);
 
   const sourcePath = source ?? frame?.path ?? null;
 
@@ -112,6 +118,50 @@ export default function ColorMatchPanel({
           אותו על שאר התמונות.
         </p>
       </div>
+
+      {/* ---------- the colours already learned and kept ---------- */}
+      {(looks.looks.length > 0 || looks.status === 'down') && (
+        <section className="tz-cm-looks">
+          <header>
+            <b>צבעים שמורים</b>
+            {target.kind !== 'blocked' && <i>{target.label}</i>}
+          </header>
+          {looks.status === 'down' ? (
+            <p className="tz-cm-error">לא ניתן לקרוא את הצבעים השמורים: {looks.error}</p>
+          ) : (
+            <ul>
+              {looks.looks.map((look) => (
+                <li key={look.id}>
+                  <span className="tz-cm-look-name">{look.name}</span>
+                  {typeof look.score === 'number' && <span className="tz-cm-look-score">{look.score}%</span>}
+                  <button
+                    type="button"
+                    className="tz-cm-look-apply"
+                    disabled={target.kind === 'blocked'}
+                    title={target.kind === 'blocked' ? target.why : `החל על ${target.count.toLocaleString('he-IL')} התמונות`}
+                    onClick={() => { onApply(look.model); setLookApplied(look.id); }}
+                  >
+                    {lookApplied === look.id ? 'הוחל ✓' : 'החל'}
+                  </button>
+                  <button
+                    type="button"
+                    className="tz-cm-look-del"
+                    aria-label={`מחק את ${look.name}`}
+                    title="מחק את הצבע השמור"
+                    onClick={() => {
+                      if (window.confirm(`למחוק את הצבע השמור "${look.name}"? תמונות שכבר קיבלו אותו לא ישתנו.`)) {
+                        void looks.remove(look.id).catch((e) => setSaveNote(e instanceof Error ? `המחיקה נכשלה: ${e.message}` : 'המחיקה נכשלה'));
+                      }
+                    }}
+                  >
+                    ✕
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+      )}
 
       {/* ---------- 1. the frame as it came out of the camera ---------- */}
       <section className="tz-cm-step">
@@ -288,6 +338,39 @@ export default function ColorMatchPanel({
               <p className="tz-cm-where">{target.label}</p>
             </>
           )}
+
+          {/* Keep this colour, to lay it on other batches and projects later. */}
+          {naming === null ? (
+            <button
+              type="button"
+              className="tz-cm-save"
+              onClick={() => { setSaveNote(null); setNaming((edited?.name ?? '').replace(/\.[^.]+$/, '')); }}
+            >
+              שמור את הצבע הזה
+            </button>
+          ) : (
+            <form
+              className="tz-cm-save-form"
+              onSubmit={(e) => {
+                e.preventDefault();
+                const name = naming;
+                void looks.save(name, learned.model, { score: gap, learnedFrom: sourcePath ? sourcePath.split(/[\\/]/).pop() : undefined })
+                  .then(() => { setNaming(null); setSaveNote(`נשמר בשם "${name.trim() || 'צבע ללא שם'}" — זמין בכל פרויקט.`); })
+                  .catch((err) => setSaveNote(`לא נשמר: ${err instanceof Error ? err.message : 'המנוע לא ענה'}. אם המנוע לא הופעל מחדש מאז העדכון, הפעל אותו מחדש ונסה שוב.`));
+              }}
+            >
+              <input
+                autoFocus
+                value={naming}
+                onChange={(e) => setNaming(e.target.value)}
+                placeholder="שם לצבע, למשל: סתיו חם"
+                aria-label="שם לצבע"
+              />
+              <button type="submit">שמור</button>
+              <button type="button" className="is-quiet" onClick={() => setNaming(null)}>ביטול</button>
+            </form>
+          )}
+          {saveNote && <p className={/^לא נשמר|נכשלה/.test(saveNote) ? 'tz-cm-error' : 'tz-cm-done'}>{saveNote}</p>}
 
           {applied && (
             <p className="tz-cm-done">

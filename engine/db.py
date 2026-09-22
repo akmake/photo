@@ -75,6 +75,7 @@ COLLECTIONS = {
     "galleryItems",    # one published frame: keys, selection, versions
     "galleryComments", # a client's note, pinned to a point on one version
     "galleryBrand",    # the photographer's mark, shown on their client galleries
+    "looks",           # a colour learned in ColorMatch, saved by name to reuse anywhere
 }
 
 _conn = None

@@ -13,7 +13,7 @@
 const ENGINE = 'http://127.0.0.1:8756';
 
 /** A collection the engine will address. Anything else is rejected there. */
-export type Collection = 'projects' | 'folders' | 'photoStatus' | 'albums';
+export type Collection = 'projects' | 'folders' | 'photoStatus' | 'albums' | 'looks';
 
 /** The database could not be reached.
  *
