@@ -1603,7 +1603,7 @@ export default function GalleryEditV2({
                 type="button"
                 className={`tz-sc-source-pill ${activeTab === 'colormatch' ? 'active' : ''}`}
                 style={{ padding: '7px 14px', fontSize: 12.5 }}
-                onClick={() => setActiveTab('colormatch')}
+                onClick={() => { setActiveTab('colormatch'); setBrushOn(false); }}
               >
                 <TzIconSparkle size={14} />
                 ColorMatch
@@ -1616,13 +1616,15 @@ export default function GalleryEditV2({
             {activeTab === 'primary' ? (
               <ToolsPanelV2
                 tools={frameEffectiveTools}
-                onParam={(toolId, paramId, value) => handleParamChange(toolId, paramId, value)}
-                onToggle={handleToolEnabled}
-                onReset={handleToolReset}
+                /* Touching any OTHER tool puts the cleaning brush away: he has
+                 * moved on, and a brush left open keeps taking the pointer. */
+                onParam={(toolId, paramId, value) => { if (toolId !== 'manual-clean') setBrushOn(false); handleParamChange(toolId, paramId, value); }}
+                onToggle={(toolId, enabled) => { if (toolId !== 'manual-clean') setBrushOn(false); handleToolEnabled(toolId, enabled); }}
+                onReset={(toolId) => { if (toolId !== 'manual-clean') setBrushOn(false); handleToolReset(toolId); }}
                 onOpenBrush={() => { setBrushOn((v) => !v); setMaskPaintTool(null); }}
                 brushOn={brushOn}
                 brushStrokes={manualStrokes.length}
-                onMask={handleMask}
+                onMask={(toolId, mask) => { setBrushOn(false); handleMask(toolId, mask); }}
                 onPaintMask={handlePaintMask}
                 paintingMask={maskPaintTool}
                 maskStrokes={maskStrokeCounts}
