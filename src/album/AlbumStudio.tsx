@@ -3030,6 +3030,11 @@ export default function AlbumStudio({ job, onBack }: {
                   title={photo.name}
                   draggable
                   onDragStart={(event) => beginPhotoDrag(event, photo.id)}
+                  /* Each photograph at its own proportions, one height for the
+                   * strip — the same rule as every gallery in the product. */
+                  style={photo.widthPx && photo.heightPx
+                    ? { width: Math.round(64 * Math.min(2.6, Math.max(0.4, photo.widthPx / photo.heightPx))), flexBasis: 'auto' }
+                    : undefined}
                 >
                   <img src={photo.url} alt="" loading="lazy" decoding="async" />
                   {usedIds.has(photo.id) && (
