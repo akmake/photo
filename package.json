@@ -1,7 +1,7 @@
 {
   "name": "photo-editor",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.2.0",
   "type": "module",
   "description": "AI editing tool for photographers - recipe builder core",
   "main": "electron/main.cjs",

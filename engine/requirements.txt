@@ -22,6 +22,13 @@ cryptography>=43    # verify the server's Ed25519 license lease in packaged buil
 # CAREFUL: regions.py:130-133 swallows the load failure and returns zero
 # regions. Dropping torch before the export lands would not raise -- pixel_color
 # would quietly lose its material anchors. Export first, measure, then delete.
+#
+# THE CPU BUILD, NOT CUDA (24.09.2026). A `+cu130` build installed on 22.09 went
+# into the packaged engine: 3.3GB instead of ~1GB, 2.6GB of GPU libraries that
+# nothing uses — every model here loads with map_location="cpu". The product
+# runs on the CPU (no GPU dependency). If this was reinstalled as CUDA:
+#   pip install --no-deps --force-reinstall torch torchvision --index-url https://download.pytorch.org/whl/cpu
+# GPU acceleration, if ever, is a deliberate feature with code and measurements.
 torch
 mobile_sam @ git+https://github.com/ChaoningZhang/MobileSAM.git
 
