@@ -137,11 +137,15 @@ export default function PhotoEditor({
   name,
   onClose,
   initialTab = 'adjust',
+  placeholder,
 }: {
   projectId: string;
   frame: Frame;
   name: string;
   onClose: () => void;
+  /** A picture of this frame the caller already has loaded — shown at once,
+   *  undimmed, until the editor's own render arrives. */
+  placeholder?: string;
   initialTab?: EditorTab;
 }) {
   const [tab, setTab] = useState<EditorTab>(initialTab);
@@ -542,7 +546,7 @@ export default function PhotoEditor({
                   onLoad={(e) => { if (!showBefore) setNatural({ w: e.currentTarget.naturalWidth, h: e.currentTarget.naturalHeight }); }}
                 />
               ) : (
-                <img ref={imgRef} src={thumbUrl(frame.path, 1600)} alt={name} draggable={false} className="is-waiting" />
+                <img ref={imgRef} src={placeholder ?? thumbUrl(frame.path, 1600)} alt={name} draggable={false} className={placeholder ? '' : 'is-waiting'} />
               )}
               {tab === 'object' && objectDraft && objectBox && !showBefore && (
                 <ObjectMaskPreview selection={objectDraft} width={objectBox.w} height={objectBox.h} />

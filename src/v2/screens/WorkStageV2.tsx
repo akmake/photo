@@ -84,6 +84,9 @@ export default function WorkStageV2({
   const [undo, setUndo] = useState<Undo | null>(null);
   const [viewer, setViewer] = useState(false);
   const [editing, setEditing] = useState(false);
+  // The picture the viewer had up when עריכה was pressed — the editor shows it
+  // at once instead of a dimmed wait while its own render is made.
+  const [editFrom, setEditFrom] = useState<string | null>(null);
   // Several frames at once: Ctrl adds one, Shift takes the run between.
   const [picked, setPicked] = useState<Set<string>>(() => new Set());
   const anchor = useRef<string | null>(null);
@@ -586,7 +589,7 @@ export default function WorkStageV2({
       {viewer && sel && frameByName.get(sel) && (
         <Viewer
           projectId={projectId}
-          onEdit={() => setEditing(true)}
+          onEdit={(from) => { setEditFrom(from); setEditing(true); }}
           frame={frameByName.get(sel)!}
           faces={byName.get(sel)?.faces ?? []}
           neighbors={[flat[flat.indexOf(sel) + 1], flat[flat.indexOf(sel) - 1], flat[flat.indexOf(sel) + 2]]
@@ -607,6 +610,7 @@ export default function WorkStageV2({
           projectId={projectId}
           frame={frameByName.get(sel)!}
           name={sel}
+          placeholder={editFrom ?? undefined}
           onClose={() => setEditing(false)}
         />
       )}
@@ -728,7 +732,8 @@ function Viewer({
   projectId, onEdit, frame, faces, neighbors, name, position, total, decision, onClose, onStep, onDecide,
 }: {
   projectId: string;
-  onEdit: () => void;
+  /** Called with the picture on screen when it is THIS frame's, else null. */
+  onEdit: (onScreen: string | null) => void;
   frame: Frame;
   faces: TriageFrame['faces'];
   neighbors: string[];
@@ -762,6 +767,10 @@ function Viewer({
 
   // The photograph as it is now — with this frame's own edit when it has one.
   const src = useEditedSrc(projectId, name, frame.path, 2400);
+  // Only while it is this frame's: stepping keeps the previous picture up
+  // until the next one has loaded.
+  const onScreenRef = useRef<string | null>(null);
+  onScreenRef.current = shown && shown.src === src ? shown.src : null;
   useEffect(() => {
     if (!src) return undefined;
     let alive = true;
@@ -831,7 +840,7 @@ function Viewer({
     const onKey = (e: KeyboardEvent) => {
       if (e.ctrlKey || e.metaKey) return;
       if (e.code === 'KeyF' || e.key === 'כ') { e.preventDefault(); setFacesOn((v) => !v); }
-      if (e.code === 'KeyE' || e.key === 'ק') { e.preventDefault(); onEdit(); }
+      if (e.code === 'KeyE' || e.key === 'ק') { e.preventDefault(); onEdit(onScreenRef.current); }
       if (e.key === '+' || e.code === 'Equal' || e.code === 'NumpadAdd') { e.preventDefault(); zoomTo(zoom * 1.25); }
       if (e.key === '-' || e.code === 'Minus' || e.code === 'NumpadSubtract') { e.preventDefault(); zoomTo(zoom / 1.25); }
       if (e.code === 'Digit0' || e.code === 'Numpad0') { e.preventDefault(); zoomTo(1); }
@@ -844,7 +853,7 @@ function Viewer({
   return (
     <div className={`tz-ws-viewer${decision ? ` is-${decision}` : ''}`} role="dialog" aria-modal="true" aria-label="תצוגה מלאה">
       <header className="tz-ws-v-top">
-        <button type="button" className="tz-ws-v-edit" onClick={onEdit} title="עריכה (E)">
+        <button type="button" className="tz-ws-v-edit" onClick={() => onEdit(onScreenRef.current)} title="עריכה (E)">
           <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
             <rect x="3" y="3" width="14" height="14" rx="2" /><path d="M13 21l1.5-4.5L21 10l-3-3-6.5 6.5L7 15" />
           </svg>
