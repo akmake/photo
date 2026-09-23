@@ -18,7 +18,7 @@
  */
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { autoEnhance, renderRecipeAtPath, selectObjectAtPath, Superseded, thumbUrl } from '../../api';
+import { autoEnhance, paintObjectAtPath, renderRecipeAtPath, selectObjectAtPath, Superseded, thumbUrl } from '../../api';
 import type { Frame } from '../../api';
 import { effectiveRecipe, removeFrameStep, setFrameStep } from '../../studio/store';
 import type { ManualStroke, ToolInstance } from '../../types';
@@ -154,7 +154,9 @@ export default function PhotoEditor({
   const [fault, setFault] = useState<string | null>(null);
   const [objectSelecting, setObjectSelecting] = useState(false);
   const [objectDraft, setObjectDraft] = useState<ToolInstance['objectSelection'] | null>(null);
-  const [objectPaint, setObjectPaint] = useState<'add' | 'subtract' | null>(null);
+  const [objectPaint, setObjectPaint] = useState<'remove' | 'add' | 'subtract' | null>(null);
+  // the removal brush's strokes for the object being drafted now
+  const [paintStrokes, setPaintStrokes] = useState<ManualStroke[]>([]);
   const [objectBusy, setObjectBusy] = useState(false);
   const [objectFault, setObjectFault] = useState<string | null>(null);
   const [objectBox, setObjectBox] = useState<{ w: number; h: number } | null>(null);
@@ -203,7 +205,6 @@ export default function PhotoEditor({
     const skip = tab === 'crop' || tab === 'erase' || tab === 'object' || tab === 'background'
       ? ['geometry', 'markup']
       : tab === 'markup' ? ['markup'] : [];
-    if (tab === 'object' && (objectSelecting || objectDraft)) skip.push('object-remove');
     return recipe.filter((t) => !skip.includes(t.toolId));
   }, [recipe, tab, objectSelecting, objectDraft]);
   const stageSig = useMemo(() => JSON.stringify(stageRecipe), [stageRecipe]);
@@ -368,7 +369,13 @@ export default function PhotoEditor({
    * regular Save then records the step on this frame. */
   const objectEdit = edits['object-remove']?.objectSelection;
   const savedObject = saved.find((step) => step.toolId === 'object-remove')?.objectSelection;
-  const selectedObject = objectDraft ?? (objectEdit === null ? undefined : objectEdit ?? savedObject);
+  // What is already removed on this photograph (the step), and what is being
+  // drafted now. A new draft never replaces what was removed before it.
+  const appliedObject = objectEdit === null ? undefined : objectEdit ?? savedObject;
+  const removedList = appliedObject
+    ? [...(appliedObject.removals ?? []), ...(appliedObject.maskPng ? [{ ...appliedObject, removals: undefined }] : [])]
+    : [];
+  const selectedObject = objectDraft ?? undefined;
   const chooseObject = async (x: number, y: number) => {
     // A click again at (nearly) the same spot means "not that one": step to the
     // next size of the three the engine offers, largest to smallest, skipping
@@ -395,6 +402,7 @@ export default function PhotoEditor({
       // the engine names what stands behind on its own (object_remove._find_behind)
       const behind = result.behind;
       setObjectDraft({ maskPng: result.maskPng, margin: result.margin, add: [], subtract: [], ...(behind ? { behind } : {}) });
+      setPaintStrokes([]);
       setObjectPaint(null);
     } catch (error) {
       setObjectFault(error instanceof Error ? error.message : 'בחירת האובייקט נכשלה');
@@ -402,20 +410,48 @@ export default function PhotoEditor({
       setObjectBusy(false);
     }
   };
-  const startObjectPaint = (mode: 'add' | 'subtract') => {
+  const startObjectPaint = (mode: 'remove' | 'add' | 'subtract') => {
     setObjectSelecting(false);
     setObjectPaint((current) => current === mode ? null : mode);
-    if (!objectDraft && selectedObject) setObjectDraft({ ...selectedObject });
+  };
+  // The removal brush: every stroke goes to the engine with the ones before it,
+  // and the draft becomes exactly what was painted (object_remove.select_painted).
+  const paintRemove = async (stroke: ManualStroke) => {
+    const strokes = [...paintStrokes, stroke];
+    setPaintStrokes(strokes);
+    setObjectBusy(true);
+    setObjectFault(null);
+    try {
+      const result = await paintObjectAtPath(frame.path, strokes);
+      objectClicks.current = null;
+      setObjectDraft({ maskPng: result.maskPng, margin: result.margin, add: [], subtract: [], ...(result.behind ? { behind: result.behind } : {}) });
+    } catch (error) {
+      setObjectFault(error instanceof Error ? error.message : 'המריחה לא נקלטה');
+    } finally {
+      setObjectBusy(false);
+    }
   };
   const applyObject = () => {
     if (!selectedObject) return;
-    setEdits((current) => ({ ...current, 'object-remove': { objectSelection: selectedObject } }));
+    setEdits((current) => ({ ...current, 'object-remove': { objectSelection: { ...selectedObject, removals: removedList } } }));
     setObjectDraft(null);
-    setObjectPaint(null);
+    setPaintStrokes([]);
+    objectClicks.current = null;
+  };
+  const undoLastRemoval = () => {
+    const rest = removedList.slice(0, -1);
+    setEdits((current) => ({ ...current, 'object-remove': {
+      objectSelection: rest.length ? { ...rest[rest.length - 1], removals: rest.slice(0, -1) } : null,
+    } }));
+  };
+  const discardDraft = () => {
+    setObjectDraft(null);
+    setPaintStrokes([]);
+    objectClicks.current = null;
   };
   const clearObject = () => {
     setEdits((current) => ({ ...current, 'object-remove': { objectSelection: null } }));
-    setObjectDraft(null);
+    discardDraft();
     setObjectPaint(null);
     setObjectSelecting(false);
   };
@@ -506,7 +542,13 @@ export default function PhotoEditor({
                   className="tz-pe-object-click" busy={objectBusy}
                   onPick={(x, y) => { void chooseObject(x, y); }} />
               )}
-              {tab === 'object' && objectPaint && selectedObject && !showBefore && (
+              {tab === 'object' && objectPaint === 'remove' && !showBefore && (
+                <ManualBrush imgRef={imgRef} pending={paintStrokes}
+                  radius={brushR} onRadius={setBrushR} erasing={false} tint="239, 68, 68"
+                  onStroke={(stroke) => { void paintRemove(stroke); }}
+                  onErase={() => undefined} />
+              )}
+              {tab === 'object' && (objectPaint === 'add' || objectPaint === 'subtract') && selectedObject && !showBefore && (
                 <ManualBrush imgRef={imgRef} pending={selectedObject[objectPaint] ?? []}
                   radius={brushR} onRadius={setBrushR} erasing={false}
                   tint={objectPaint === 'add' ? '59, 130, 246' : '255, 180, 50'}
@@ -712,11 +754,20 @@ export default function PhotoEditor({
             {tab === 'object' && (
               <>
                 <h3 className="tz-pe-h">הסרת אובייקט</h3>
-                <p className="tz-pe-help">העבר את העכבר על התמונה — קו לבן מראה מה ייבחר. לחץ לבחירה. לא מה שרצית? לחץ שוב באותו מקום.</p>
-                <button type="button" className={`tz-pe-btn tz-pe-object-action${objectSelecting ? ' is-on' : ''}`}
-                  disabled={objectBusy} onClick={() => { setObjectSelecting((v) => !v); setObjectPaint(null); setObjectFault(null); }}>
-                  {objectSelecting ? 'בטל בחירה' : 'בחר בלחיצה על התמונה'}
-                </button>
+                <p className="tz-pe-help">מרח על מה שרוצים להוריד, ולחץ „הסר”. אפשר להסיר כמה דברים, אחד אחרי השני.</p>
+                <div className="tz-pe-row">
+                  <button type="button" className={`tz-pe-btn tz-pe-object-action${objectPaint === 'remove' ? ' is-on' : ''}`}
+                    disabled={objectBusy} onClick={() => { startObjectPaint('remove'); setObjectFault(null); }}>
+                    מברשת הסרה
+                  </button>
+                  <button type="button" className={`tz-pe-btn${objectSelecting ? ' is-on' : ''}`}
+                    disabled={objectBusy} onClick={() => { setObjectSelecting((v) => !v); setObjectPaint(null); setObjectFault(null); }}>
+                    {objectSelecting ? 'בטל לחיצה' : 'בחירה בלחיצה'}
+                  </button>
+                </div>
+                {(objectPaint || selectedObject) && (
+                  <Slider label="גודל מברשת — גם ] ו-[ או גלגלת" icon={<IconDot />} min={Math.round(MIN_R * 1000)} max={Math.round(MAX_R * 1000)} value={Math.round(brushR * 1000)} onChange={(v) => setBrushR(v / 1000)} />
+                )}
                 {selectedObject && <>
                   <div className="tz-pe-row">
                     <button type="button" className={`tz-pe-btn${objectPaint === 'add' ? ' is-on' : ''}`}
@@ -724,12 +775,18 @@ export default function PhotoEditor({
                     <button type="button" className={`tz-pe-btn${objectPaint === 'subtract' ? ' is-on' : ''}`}
                       onClick={() => startObjectPaint('subtract')}>החסר מהמסכה</button>
                   </div>
-                  <Slider label="גודל מברשת" icon={<IconDot />} min={Math.round(MIN_R * 1000)} max={Math.round(MAX_R * 1000)} value={Math.round(brushR * 1000)} onChange={(v) => setBrushR(v / 1000)} />
                   <div className="tz-pe-row">
-                    <button type="button" className="tz-pe-btn is-primary" onClick={applyObject}>הסר אובייקט</button>
-                    <button type="button" className="tz-pe-btn" onClick={clearObject}>נקה בחירה</button>
+                    <button type="button" className="tz-pe-btn is-primary" disabled={objectBusy} onClick={applyObject}>הסר</button>
+                    <button type="button" className="tz-pe-btn" onClick={discardDraft}>בטל סימון</button>
                   </div>
-                  <p className="tz-pe-help">אחרי ההסרה לחץ „שמור” למעלה. אזור מוסתר מורכב עשוי לדרוש בדיקה מקרוב.</p>
+                </>}
+                {removedList.length > 0 && <>
+                  <p className="tz-pe-help">הוסרו מהתמונה: {removedList.length}</p>
+                  <div className="tz-pe-row">
+                    <button type="button" className="tz-pe-btn" onClick={undoLastRemoval}>החזר את האחרון</button>
+                    <button type="button" className="tz-pe-btn" onClick={clearObject}>החזר הכול</button>
+                  </div>
+                  <p className="tz-pe-help">בסוף לחץ „שמור” למעלה.</p>
                 </>}
                 {objectBusy && <p role="status" className="tz-pe-help">מזהה אובייקט…</p>}
                 {objectFault && <p role="alert" className="tz-pe-help">{objectFault}</p>}

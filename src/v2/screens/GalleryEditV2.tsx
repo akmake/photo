@@ -780,7 +780,7 @@ export default function GalleryEditV2({
       objectClicks.current = { at, sizes: result.candidates.map((c) => c.coverage), index: result.selectedIndex };
       // the engine names what stands behind on its own (object_remove._find_behind)
       const behind = result.behind;
-      // selection stays on: an Alt-click next corrects what was just chosen
+      // selection stays on: a click again at the same spot changes the size
       setObjectDraft({ maskPng: result.maskPng, margin: result.margin, add: [], subtract: [], ...(behind ? { behind } : {}) });
     } catch (error) {
       if (request === objectRequest.current) setObjectError(error instanceof Error ? error.message : 'בחירת האובייקט נכשלה');
@@ -789,9 +789,14 @@ export default function GalleryEditV2({
     }
   };
   const applyObject = () => {
-    if (!currentFrame || !selectedObject) return;
+    if (!currentFrame || !objectDraft) return;
+    // A new removal joins the ones already on this photograph; it never
+    // replaces them (engine/object_remove.py::apply fills them in order).
+    const removals = savedObject
+      ? [...(savedObject.removals ?? []), ...(savedObject.maskPng ? [{ ...savedObject, removals: undefined }] : [])]
+      : [];
     setFrameStep(project.id, currentFrame.name, {
-      toolId: 'object-remove', enabled: true, params: {}, objectSelection: selectedObject,
+      toolId: 'object-remove', enabled: true, params: {}, objectSelection: { ...objectDraft, removals },
     });
     setObjectDraft(null);
     setObjectMode(null);
@@ -806,7 +811,6 @@ export default function GalleryEditV2({
     setObjectMode(mode);
     setBrushOn(false);
     setMaskPaintTool(null);
-    if (mode && mode !== 'select' && !objectDraft && savedObject) setObjectDraft({ ...savedObject });
   };
   // A stroke waiting to be rebuilt belongs to the frame it was painted on.
   useEffect(() => setPendingStrokes([]), [currentPath]);

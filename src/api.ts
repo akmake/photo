@@ -209,7 +209,7 @@ export interface CompareResponse {
  * recipe holds one, and types.ts is where the recipe lives. Re-exported so
  * every existing importer keeps working. */
 export type { LearnedColorModel } from './types';
-import type { LearnedColorModel, ToolInstance } from './types';
+import type { LearnedColorModel, ManualStroke, ToolInstance } from './types';
 
 export interface LearnColorResponse {
   model: LearnedColorModel;
@@ -422,6 +422,22 @@ export async function selectObjectAtPath(path: string, x: number, y: number,
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ path, x, y, exclude, ...(index === undefined ? {} : { index }) }),
+  });
+  if (!response.ok) {
+    const body = await response.json().catch(() => ({}));
+    throw new Error(body.error || `engine ${response.status}`);
+  }
+  return response.json();
+}
+
+/** The removal brush: exactly what was painted, and what stands behind it. */
+export async function paintObjectAtPath(path: string, strokes: ManualStroke[]): Promise<{
+  maskPng: string; margin: number; behind?: { maskPng: string };
+}> {
+  const response = await fetch(`${ENGINE}/object/paint`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ path, strokes }),
   });
   if (!response.ok) {
     const body = await response.json().catch(() => ({}));

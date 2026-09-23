@@ -177,21 +177,27 @@ export interface ToolInstance {
    *  picture and is stripped at the door into any shared layer
    *  (studio/store.ts::shareable). The engine dispatches on this field. */
   strokes?: ManualStroke[];
-  /** Object removal selection belongs to this photograph and is replayed on export. */
-  objectSelection?: {
-    maskPng: string;
-    margin?: number;
-    add?: ManualStroke[];
-    subtract?: ManualStroke[];
-    /** What stands behind the removed object (a second click). With it the
-     *  engine completes that object's outline under the hole and fills each
-     *  side from its own material (engine/object_remove.py::_layered). */
-    behind?: { maskPng: string };
-  };
+  /** Object removal selection belongs to this photograph and is replayed on export.
+   *  `removals` are the ones removed before it, filled first, in order — a
+   *  photograph can need several (engine/object_remove.py::apply). An empty
+   *  `maskPng` means only the earlier removals remain. */
+  objectSelection?: ObjectRemoval & { removals?: ObjectRemoval[] };
   /** A fitted model this step applies instead of sliders — `pixel-color` only.
    *  Kept out of `params` because params are numbers by contract, and the
    *  engine dispatches on this field (engine/render.py::render). */
   model?: LearnedColorModel;
+}
+
+/** One object taken out of a photograph. */
+export interface ObjectRemoval {
+  maskPng: string;
+  margin?: number;
+  add?: ManualStroke[];
+  subtract?: ManualStroke[];
+  /** What stands behind the removed object, found by the engine. With it the
+   *  engine completes that object's outline under the hole and fills each
+   *  side from its own material (engine/object_remove.py::_layered). */
+  behind?: { maskPng: string };
 }
 
 // The recipe: an ordered, non-destructive stack of tools. This is the heart.

@@ -207,6 +207,31 @@ def select(rgb: np.ndarray, x: float, y: float, exclude=(), key=None, index=None
     return out
 
 
+def select_painted(rgb: np.ndarray, strokes, key=None) -> dict:
+    """Exactly what the photographer painted over — the removal brush.
+
+    Professional removal brushes remove what is painted; they do not guess an
+    object from the stroke. Snapping a stroke to "the object under it" was
+    tried three ways on 321A5078 and failed each time (a stroke along the
+    black pipe became the whole fence post twice; a stroke on the horse
+    became a sliver of it), so the paint is the selection. What stands behind
+    it is still looked for, so painting over the man keeps the horse whole.
+    """
+    small = _small(rgb)
+    sh, sw = small.shape[:2]
+    painted = manual_clean.strokes_mask(small.shape, strokes or []) > 0
+    if not painted.any():
+        raise ValueError("Nothing was painted")
+    with _predict_lock:
+        _hold(small, key)
+        behind = _find_behind(small, painted)
+    out = {"maskPng": _mask_data(painted), "coverage": round(float(painted.mean()), 5),
+           "width": sw, "height": sh, "margin": 0.0}
+    if behind is not None:
+        out["behind"] = {"maskPng": _mask_data(behind)}
+    return out
+
+
 #: How far outside the removed object the ring of probe clicks sits.
 PROBE_RING = 0.02
 #: How many probes around it, and how many must name the same object.
@@ -506,16 +531,11 @@ def _straddles(hole: np.ndarray, behind: np.ndarray) -> bool:
     return float((behind & rim).sum()) / float(rim.sum()) < INSIDE_SHARE
 
 
-def apply(rgb: np.ndarray, params: dict):
-    selection = params.get("objectSelection")
-    if not isinstance(selection, dict):
-        raise ValueError("Object removal requires a saved selection")
+def _remove_one(rgb: np.ndarray, selection: dict):
     mask = repair_mask(rgb.shape, selection)
     count = int(mask.sum())
     if not count:
         return rgb, {"removedPx": 0, "filler": "none"}
-    if not lama_fill.available():
-        raise RuntimeError("LaMa model is unavailable for object removal")
     behind = selection.get("behind")
     if isinstance(behind, dict) and behind.get("maskPng") and _straddles(
             mask > 0, _read_mask(behind["maskPng"], rgb.shape) > 0):
@@ -524,8 +544,34 @@ def apply(rgb: np.ndarray, params: dict):
         if radius:
             front = cv2.dilate(front, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2 * radius + 1, 2 * radius + 1)))
         out, hidden = _layered(rgb, mask > 0, _read_mask(behind["maskPng"], rgb.shape) > 0, front > 0)
-        return out, {"removedPx": count, "filler": "layered", "hiddenPx": hidden,
-                     "coverage": round(count / mask.size, 5)}
-    out = lama_fill.fill(rgb, mask, context=1.0)
-    return out, {"removedPx": count, "filler": "lama",
-                 "coverage": round(count / mask.size, 5)}
+        return out, {"removedPx": count, "filler": "layered", "hiddenPx": hidden}
+    return lama_fill.fill(rgb, mask, context=1.0), {"removedPx": count, "filler": "lama"}
+
+
+#: How many removals one photograph may carry.
+MAX_REMOVALS = 24
+
+
+def apply(rgb: np.ndarray, params: dict):
+    """Every removal on this photograph, one after another.
+
+    A photograph can need several: the man, the pipe on the post, the tail's
+    remnant. Choosing a second one used to replace the first, and the man came
+    back. The earlier ones ride inside the selection as `removals` — the field
+    already travels everywhere a selection does (recipe, render cache, export).
+    Each is filled on the result of the ones before it.
+    """
+    selection = params.get("objectSelection")
+    if not isinstance(selection, dict):
+        raise ValueError("Object removal requires a saved selection")
+    if not lama_fill.available():
+        raise RuntimeError("LaMa model is unavailable for object removal")
+    earlier = [r for r in (selection.get("removals") or []) if isinstance(r, dict)]
+    steps = (earlier + ([selection] if selection.get("maskPng") else []))[-MAX_REMOVALS:]
+    out, report = rgb, []
+    for step in steps:
+        out, meta = _remove_one(out, step)
+        report.append(meta)
+    removed = sum(m["removedPx"] for m in report)
+    return out, {"removedPx": removed, "removals": report,
+                 "coverage": round(removed / (rgb.shape[0] * rgb.shape[1]), 5)}

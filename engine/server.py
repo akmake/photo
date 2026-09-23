@@ -1129,6 +1129,9 @@ class Handler(BaseHTTPRequestHandler):
         if self.path == "/object/hover":
             self._object_hover()
             return
+        if self.path == "/object/paint":
+            self._object_paint()
+            return
         if self.path == "/albumdesk/export":
             self._albumdesk_export()
             return
@@ -1388,6 +1391,26 @@ class Handler(BaseHTTPRequestHandler):
                     raise ValueError("Photograph is required")
                 def work():
                     return object_remove.select(common.to_np(common.b64_to_image(body["image"])), x, y, exclude)
+            self._json(200, on_worker(work))
+        except (KeyError, ValueError) as exc:
+            self._json(400, {"error": str(exc)})
+        except Exception as exc:  # noqa: BLE001
+            self._json(503, {"error": str(exc)})
+
+    def _object_paint(self):
+        """POST {path, strokes:[{points:[[x,y],..], r}]}; the object(s) under the paint."""
+        try:
+            body = self._body()
+            path = body["path"]
+            if not os.path.isfile(path):
+                raise ValueError("Photograph not found")
+            strokes = body.get("strokes") or []
+            if not isinstance(strokes, list) or len(strokes) > 64:
+                raise ValueError("Invalid strokes")
+            def work():
+                _, img, _ = _working_frame(path, object_remove.SELECT_MAX_DIM, None)
+                return object_remove.select_painted(common.to_np(img), strokes,
+                                                    key=(_photo_key(path), object_remove.SELECT_MAX_DIM))
             self._json(200, on_worker(work))
         except (KeyError, ValueError) as exc:
             self._json(400, {"error": str(exc)})

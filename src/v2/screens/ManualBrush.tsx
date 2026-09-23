@@ -199,7 +199,18 @@ export default function ManualBrush({
       onRadius(Math.min(MAX_R, Math.max(MIN_R, next)));
     };
     c.addEventListener('wheel', onWheel, { passive: false });
-    return () => c.removeEventListener('wheel', onWheel);
+    // [ and ] — the keys every photo editor uses for brush size
+    const onKey = (e: KeyboardEvent) => {
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
+      if (e.code !== 'BracketLeft' && e.code !== 'BracketRight') return;
+      const t = e.target as HTMLElement | null;
+      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA')) return;
+      e.preventDefault();
+      const next = e.code === 'BracketRight' ? radius * 1.15 : radius / 1.15;
+      onRadius(Math.min(MAX_R, Math.max(MIN_R, next)));
+    };
+    window.addEventListener('keydown', onKey, true);
+    return () => { c.removeEventListener('wheel', onWheel); window.removeEventListener('keydown', onKey, true); };
   }, [radius, onRadius]);
 
   if (!box) return null;
