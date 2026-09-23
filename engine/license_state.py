@@ -122,6 +122,13 @@ def _status() -> dict:
     with _LOCK:
         try:
             folder = _data_dir()
+            try:
+                blocked = json.loads((folder / "blocked.json").read_text(encoding="utf-8"))
+                return {"ok": False, "error": str(blocked.get("message") or "הרישיון אינו פעיל")}
+            except FileNotFoundError:
+                pass
+            except ValueError:
+                return {"ok": False, "error": "הרישיון אינו פעיל"}
             lease = (folder / "lease.txt").read_text(encoding="utf-8")
             claims = verify(lease)
             clock = int(time.time())
@@ -219,4 +226,87 @@ def activate(email: str, password: str, name: str = "", register: bool = False) 
     verify(lease)  # Pin and verify BEFORE saving any server response.
     with _LOCK:
         _atomic_write(_data_dir() / "lease.txt", lease)
+        # A fresh activation the server agreed to lifts an earlier lock.
+        try:
+            (_data_dir() / "blocked.json").unlink()
+        except FileNotFoundError:
+            pass
     return status()
+
+
+# --------------------------------------------------------------------------
+# check-in: how "turn it off" in the admin panel reaches this computer
+# --------------------------------------------------------------------------
+
+RENEW_EVERY = 5 * 60
+# The only answers that lock. Anything else — no network, a proxy's error page,
+# a 5xx, a timeout — is "cannot reach", and the app keeps working until its
+# lease's offline window ends. Failure is not a verdict (CLAUDE.md §6).
+_LOCK_VERDICTS = {"revoked", "device_removed", "no_subscription", "invalid"}
+
+
+def _lock(verdict: str, message: str) -> None:
+    """The server said no. Remove the lease, and remember the refusal so that
+    putting an old copy of lease.txt back does not reopen the app."""
+    with _LOCK:
+        folder = _data_dir()
+        _atomic_write(folder / "blocked.json", json.dumps(
+            {"at": int(time.time()), "verdict": verdict,
+             "message": message or "הרישיון אינו פעיל"}, ensure_ascii=False))
+        try:
+            (folder / "lease.txt").unlink()
+        except FileNotFoundError:
+            pass
+
+
+def renew() -> str:
+    """Check in with the site once: 'renewed' | 'locked' | 'unreachable' | 'skipped'."""
+    if not REQUIRED:
+        return "skipped"
+    lease = current_lease()
+    origin = server_origin()
+    if not lease or not origin.startswith("https://"):
+        return "skipped"
+    request = urllib.request.Request(
+        origin + "/licenses/renew", b"{}", method="POST",
+        headers={"Content-Type": "application/json", "X-Teza-Lease": lease},
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=15) as response:
+            answer = json.load(response)
+    except urllib.error.HTTPError as exc:
+        try:
+            answer = json.load(exc)
+        except Exception:  # noqa: BLE001  (an HTML error page is not a verdict)
+            return "unreachable"
+        verdict = answer.get("verdict") if isinstance(answer, dict) else None
+        if exc.code in (401, 402, 403, 409) and verdict in _LOCK_VERDICTS:
+            _lock(verdict, str(answer.get("error") or ""))
+            return "locked"
+        return "unreachable"
+    except (OSError, ValueError):
+        return "unreachable"
+
+    fresh = answer.get("lease", "") if isinstance(answer, dict) else ""
+    try:
+        verify(fresh)  # a lease that does not verify here is not trusted — nor a lock
+    except LicenseError:
+        return "unreachable"
+    with _LOCK:
+        if current_lease() == lease:  # not replaced meanwhile by a new activation
+            _atomic_write(_data_dir() / "lease.txt", fresh)
+    return "renewed"
+
+
+def start_renewal() -> None:
+    """Check in every few minutes for as long as the engine runs."""
+    def loop():
+        time.sleep(15)
+        while True:
+            try:
+                renew()
+            except Exception:  # noqa: BLE001  (a check-in must never kill the engine)
+                pass
+            time.sleep(RENEW_EVERY)
+
+    threading.Thread(target=loop, name="license-renew", daemon=True).start()

@@ -2523,4 +2523,10 @@ if __name__ == "__main__":
 
     threading.Thread(target=_warm_depth, name="warm-depth", daemon=True).start()
 
+    # The admin's "turn it off" reaches this computer through this check-in:
+    # a revoked license, an ended subscription or a removed computer locks the
+    # studio within minutes (license_state.renew). Offline, nothing changes.
+    if LICENSE_REQUIRED:
+        license_state.start_renewal()
+
     srv.serve_forever()
