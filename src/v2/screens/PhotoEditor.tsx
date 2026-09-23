@@ -20,7 +20,9 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { autoEnhance, EDIT_WIDTH, paintObjectAtPath, renderRecipeAtPath, selectObjectAtPath, Superseded, thumbUrl } from '../../api';
 import type { Frame } from '../../api';
-import { effectiveRecipe, removeFrameStep, setFrameStep } from '../../studio/store';
+import {
+  batchesOf, batchOfFrame, effectiveRecipe, frameSteps, framesInBatch, removeFrameStep, setFrameStep, setFrameSteps,
+} from '../../studio/store';
 import type { ManualStroke, ToolInstance } from '../../types';
 import { defaultParams, getTool } from '../../toolRegistry';
 import ManualBrush, { DEFAULT_R, MAX_R, MIN_R } from './ManualBrush';
@@ -75,6 +77,11 @@ const ADJUST: { title: string; controls: Control[] }[] = [
     ],
   },
 ];
+
+/* ---- "החל על כל המקבץ": what a look of light and colour is made of — the
+ * התאמה sliders and the סנן. Crop, markup, erase, object and background are
+ * about what is IN this photograph, and never travel to another one. */
+const SHARED_TOOLS = [...new Set([...ADJUST.flatMap((s) => s.controls.map((c) => c.tool)), 'look'])];
 
 /* ---- סנן: the looks engine/photo_tools.py knows, in its order. */
 const LOOKS = [
@@ -255,13 +262,41 @@ export default function PhotoEditor({
       .catch(() => { beforeAsked.current = false; });
   }, [wantsBefore, frame.path, saved, width]);
 
-  const save = useCallback(() => {
+  const commit = useCallback(() => {
     for (const toolId of Object.keys(edits)) {
       if (edits[toolId].objectSelection === null) removeFrameStep(projectId, name, toolId);
       else setFrameStep(projectId, name, stepFor(toolId, edits[toolId]));
     }
+  }, [edits, name, projectId, stepFor]);
+
+  const save = useCallback(() => {
+    commit();
     onClose();
-  }, [edits, name, onClose, projectId, stepFor]);
+  }, [commit, onClose]);
+
+  /* ---- the batch (סשן) this photograph belongs to, and what would travel:
+   * its own light, colour and look as they stand when the button is pressed —
+   * edited here now, or earlier on this photograph. What it inherits from the
+   * batch or the project is already on every frame of the batch. */
+  const batch = useMemo(() => {
+    const id = batchOfFrame(projectId, name);
+    if (!id) return null;
+    const others = framesInBatch(projectId, id).map((f) => f.name).filter((n) => n !== name);
+    return others.length ? { others, name: batchesOf(projectId).find((b) => b.id === id)?.name ?? '' } : null;
+  }, [projectId, name]);
+  const sharedSteps = useMemo(() => {
+    const own = frameSteps(projectId, name);
+    return SHARED_TOOLS
+      .map((id) => (edits[id] ? stepFor(id, edits[id]) : own.find((t) => t.toolId === id)))
+      .filter((t): t is ToolInstance => Boolean(t));
+  }, [edits, name, projectId, stepFor]);
+
+  const saveToBatch = useCallback(() => {
+    if (!batch || !sharedSteps.length) return;
+    commit();
+    setFrameSteps(projectId, batch.others, sharedSteps);
+    onClose();
+  }, [batch, commit, onClose, projectId, sharedSteps]);
 
   const cancel = useCallback(() => {
     if (dirty && !window.confirm('לצאת בלי לשמור את השינויים?')) return;
@@ -519,6 +554,19 @@ export default function PhotoEditor({
             איפוס
           </button>
           <button type="button" className="tz-pe-btn" onClick={cancel}>ביטול</button>
+          {batch && (
+            <button
+              type="button"
+              className="tz-pe-btn"
+              onClick={saveToBatch}
+              disabled={!sharedSteps.length}
+              title={sharedSteps.length
+                ? `שומר את התמונה הזו, ונותן את האור, הצבע והסנן שלה ל־${batch.others.length.toLocaleString('he-IL')} התמונות האחרות${batch.name ? ` ב„${batch.name}”` : ' במקבץ'}. חיתוך, סימון, מחיקה ורקע נשארים רק בתמונה הזו.`
+                : 'אין עדיין אור, צבע או סנן בתמונה הזו להעביר.'}
+            >
+              החל על כל המקבץ
+            </button>
+          )}
           <button type="button" className="tz-pe-btn is-primary" onClick={save} disabled={!dirty}>שמור</button>
         </div>
       </header>
