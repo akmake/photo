@@ -158,8 +158,8 @@ export default function PhotoEditor({
   const [objectBusy, setObjectBusy] = useState(false);
   const [objectFault, setObjectFault] = useState<string | null>(null);
   const [objectBox, setObjectBox] = useState<{ w: number; h: number } | null>(null);
-  // the click that chose the object, and the "not this" clicks that corrected it
-  const objectClicks = useRef<{ at: [number, number]; exclude: Array<[number, number]> } | null>(null);
+  // the click that chose the object, and which of its sizes is showing
+  const objectClicks = useRef<{ at: [number, number]; sizes: number[]; index: number } | null>(null);
 
   // What the frame renders through now — the starting point of every control.
   const saved = useMemo(() => effectiveRecipe(projectId, name).filter((t) => t.enabled), [projectId, name]);
@@ -369,16 +369,29 @@ export default function PhotoEditor({
   const objectEdit = edits['object-remove']?.objectSelection;
   const savedObject = saved.find((step) => step.toolId === 'object-remove')?.objectSelection;
   const selectedObject = objectDraft ?? (objectEdit === null ? undefined : objectEdit ?? savedObject);
-  const chooseObject = async (x: number, y: number, exclude = false) => {
+  const chooseObject = async (x: number, y: number) => {
+    // A click again at (nearly) the same spot means "not that one": step to the
+    // next size of the three the engine offers, largest to smallest, skipping
+    // sizes too close to tell apart.
     const prev = objectClicks.current;
-    const clicks = exclude && prev
-      ? { at: prev.at, exclude: [...prev.exclude, [x, y] as [number, number]] }
-      : { at: [x, y] as [number, number], exclude: [] };
+    const again = prev && Math.hypot(prev.at[0] - x, prev.at[1] - y) < 0.02;
+    let index: number | undefined;
+    if (again && prev) {
+      const order = prev.sizes.map((c, i) => [c, i] as const).sort((a, b) => b[0] - a[0]);
+      let pos = order.findIndex(([, i]) => i === prev.index);
+      for (let step = 0; step < order.length; step += 1) {
+        pos = (pos + 1) % order.length;
+        const [size, i] = order[pos];
+        const cur = prev.sizes[prev.index];
+        if (i !== prev.index && Math.abs(size - cur) > 0.1 * Math.max(size, cur)) { index = i; break; }
+      }
+    }
+    const at: [number, number] = again && prev ? prev.at : [x, y];
     setObjectBusy(true);
     setObjectFault(null);
     try {
-      const result = await selectObjectAtPath(frame.path, clicks.at[0], clicks.at[1], clicks.exclude);
-      objectClicks.current = clicks;
+      const result = await selectObjectAtPath(frame.path, at[0], at[1], [], index);
+      objectClicks.current = { at, sizes: result.candidates.map((c) => c.coverage), index: result.selectedIndex };
       // the engine names what stands behind on its own (object_remove._find_behind)
       const behind = result.behind;
       setObjectDraft({ maskPng: result.maskPng, margin: result.margin, add: [], subtract: [], ...(behind ? { behind } : {}) });
@@ -491,7 +504,7 @@ export default function PhotoEditor({
               {tab === 'object' && objectSelecting && objectBox && !showBefore && (
                 <ObjectPickLayer path={frame.path} width={objectBox.w} height={objectBox.h}
                   className="tz-pe-object-click" busy={objectBusy}
-                  onPick={(x, y, exclude) => { void chooseObject(x, y, exclude); }} />
+                  onPick={(x, y) => { void chooseObject(x, y); }} />
               )}
               {tab === 'object' && objectPaint && selectedObject && !showBefore && (
                 <ManualBrush imgRef={imgRef} pending={selectedObject[objectPaint] ?? []}
@@ -699,7 +712,7 @@ export default function PhotoEditor({
             {tab === 'object' && (
               <>
                 <h3 className="tz-pe-h">הסרת אובייקט</h3>
-                <p className="tz-pe-help">העבר את העכבר על התמונה — קו לבן מראה מה ייבחר. לחץ לבחירה. תפס יותר מדי? Alt ולחיצה על מה שלא רצית.</p>
+                <p className="tz-pe-help">העבר את העכבר על התמונה — קו לבן מראה מה ייבחר. לחץ לבחירה. לא מה שרצית? לחץ שוב באותו מקום.</p>
                 <button type="button" className={`tz-pe-btn tz-pe-object-action${objectSelecting ? ' is-on' : ''}`}
                   disabled={objectBusy} onClick={() => { setObjectSelecting((v) => !v); setObjectPaint(null); setObjectFault(null); }}>
                   {objectSelecting ? 'בטל בחירה' : 'בחר בלחיצה על התמונה'}

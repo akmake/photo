@@ -254,8 +254,8 @@ export default function GalleryEditV2({
   const [objectBusy, setObjectBusy] = useState(false);
   const [objectError, setObjectError] = useState<string | null>(null);
   const objectRequest = useRef(0);
-  // the click that chose the object, and the "not this" clicks that corrected it
-  const objectClicks = useRef<{ at: [number, number]; exclude: Array<[number, number]> } | null>(null);
+  // the click that chose the object, and which of its sizes is showing
+  const objectClicks = useRef<{ at: [number, number]; sizes: number[]; index: number } | null>(null);
   const [brushErase, setBrushErase] = useState(false);
   /* The tool whose REGION is being painted, if any. Null means the brush on
    * the picture — when there is one — is the cleaning brush. */
@@ -752,19 +752,32 @@ export default function GalleryEditV2({
     setObjectBusy(false);
     setObjectError(null);
   }, [currentPath]);
-  const chooseObject = async (x: number, y: number, exclude = false) => {
+  const chooseObject = async (x: number, y: number) => {
     if (!currentPath) return;
+    // A click again at (nearly) the same spot means "not that one": step to the
+    // next size of the three the engine offers, largest to smallest, skipping
+    // sizes too close to tell apart.
     const prev = objectClicks.current;
-    const clicks = exclude && prev
-      ? { at: prev.at, exclude: [...prev.exclude, [x, y] as [number, number]] }
-      : { at: [x, y] as [number, number], exclude: [] };
+    const again = prev && Math.hypot(prev.at[0] - x, prev.at[1] - y) < 0.02;
+    let index: number | undefined;
+    if (again && prev) {
+      const order = prev.sizes.map((c, i) => [c, i] as const).sort((a, b) => b[0] - a[0]);
+      let pos = order.findIndex(([, i]) => i === prev.index);
+      for (let step = 0; step < order.length; step += 1) {
+        pos = (pos + 1) % order.length;
+        const [size, i] = order[pos];
+        const cur = prev.sizes[prev.index];
+        if (i !== prev.index && Math.abs(size - cur) > 0.1 * Math.max(size, cur)) { index = i; break; }
+      }
+    }
+    const at: [number, number] = again && prev ? prev.at : [x, y];
     const request = ++objectRequest.current;
     setObjectBusy(true);
     setObjectError(null);
     try {
-      const result = await selectObjectAtPath(currentPath, clicks.at[0], clicks.at[1], clicks.exclude);
+      const result = await selectObjectAtPath(currentPath, at[0], at[1], [], index);
       if (request !== objectRequest.current) return;
-      objectClicks.current = clicks;
+      objectClicks.current = { at, sizes: result.candidates.map((c) => c.coverage), index: result.selectedIndex };
       // the engine names what stands behind on its own (object_remove._find_behind)
       const behind = result.behind;
       // selection stays on: an Alt-click next corrects what was just chosen
@@ -1522,7 +1535,7 @@ export default function GalleryEditV2({
                   {objectMode === 'select' && fittedImage && !showOriginal && currentPath && (
                     <ObjectPickLayer path={currentPath} width={fittedImage.width} height={fittedImage.height}
                       className="tz-ge-object-click" busy={objectBusy}
-                      onPick={(x, y, exclude) => { void chooseObject(x, y, exclude); }} />
+                      onPick={(x, y) => { void chooseObject(x, y); }} />
                   )}
                   {(objectMode === 'add' || objectMode === 'subtract') && selectedObject && !showOriginal && (
                     <ManualBrush imgRef={canvasImgRef}

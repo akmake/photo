@@ -1381,7 +1381,8 @@ class Handler(BaseHTTPRequestHandler):
                 def work():
                     _, img, _ = _working_frame(path, object_remove.SELECT_MAX_DIM, None)
                     return object_remove.select(common.to_np(img), x, y, exclude,
-                                                key=(_photo_key(path), object_remove.SELECT_MAX_DIM))
+                                                key=(_photo_key(path), object_remove.SELECT_MAX_DIM),
+                                                index=body.get("index"))
             else:
                 if not body.get("image"):
                     raise ValueError("Photograph is required")

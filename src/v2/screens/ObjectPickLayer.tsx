@@ -4,15 +4,16 @@ import { hoverObjectAtPath } from '../../api';
 /** The click surface for object selection, shared by both editing screens.
  *
  *  While the pointer moves, a hairline shows what a click here would select —
- *  the outline only, never a fill over the picture. A click selects; Alt+click
- *  says "not this" and corrects the current selection. One hover question is
+ *  the outline only, never a fill over the picture. A click selects; a click
+ *  again at the same spot takes the next size (post, then the pipe on it).
+ *  No keys to remember. One hover question is
  *  in flight at a time: the engine holds the picture after the first one
  *  (object_remove._hold), so each answer is tens of milliseconds, and the
  *  pointer's latest position is asked next.
  */
 export default function ObjectPickLayer({ path, width, height, className, busy, onPick }: {
   path: string; width: number; height: number; className: string; busy: boolean;
-  onPick: (x: number, y: number, exclude: boolean) => void;
+  onPick: (x: number, y: number) => void;
 }) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const want = useRef<[number, number] | null>(null);
@@ -77,7 +78,7 @@ export default function ObjectPickLayer({ path, width, height, className, busy, 
 
   return (
     <div className={className} style={{ width, height }} role="button" tabIndex={0}
-      aria-label="בחר אובייקט בתמונה. Alt ולחיצה: לא את זה"
+      aria-label="בחר אובייקט בתמונה. לחיצה נוספת באותו מקום מחליפה גודל"
       onMouseMove={(event) => {
         if (busy) return;
         const rect = event.currentTarget.getBoundingClientRect();
@@ -89,10 +90,10 @@ export default function ObjectPickLayer({ path, width, height, className, busy, 
         if (busy) return;
         const rect = event.currentTarget.getBoundingClientRect();
         want.current = null; clear();
-        onPick((event.clientX - rect.left) / rect.width, (event.clientY - rect.top) / rect.height, event.altKey);
+        onPick((event.clientX - rect.left) / rect.width, (event.clientY - rect.top) / rect.height);
       }}
       onKeyDown={(event) => {
-        if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onPick(0.5, 0.5, false); }
+        if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onPick(0.5, 0.5); }
       }}>
       <canvas ref={canvasRef} style={{ width, height, pointerEvents: 'none', display: 'block' }} aria-hidden="true" />
     </div>

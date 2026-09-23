@@ -408,17 +408,20 @@ export async function renderRecipe(
 /** Select the object under a point on a photograph. Coordinates are fractions.
  *  `exclude` are "not this" points (Alt-click) that correct the guess. */
 export async function selectObjectAtPath(path: string, x: number, y: number,
-  exclude: Array<[number, number]> = []): Promise<{
+  exclude: Array<[number, number]> = [], index?: number): Promise<{
   maskPng: string; coverage: number; score: number; width: number; height: number;
   /** How far past the outline the engine grows the selection. Its decision, not ours. */
   margin: number;
   /** What the engine found standing behind the selected object, if anything. */
   behind?: { maskPng: string };
+  /** The three sizes the click could mean, and which one was taken. */
+  candidates: Array<{ coverage: number }>;
+  selectedIndex: number;
 }> {
   const response = await fetch(`${ENGINE}/object/select`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ path, x, y, exclude }),
+    body: JSON.stringify({ path, x, y, exclude, ...(index === undefined ? {} : { index }) }),
   });
   if (!response.ok) {
     const body = await response.json().catch(() => ({}));

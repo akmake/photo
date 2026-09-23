@@ -144,7 +144,7 @@ def _points(small: np.ndarray, clicks) -> tuple:
     return np.array(coords), np.array(labels)
 
 
-def _pick(small: np.ndarray, clicks, key):
+def _pick(small: np.ndarray, clicks, key, index=None):
     """-> (candidates, scores, chosen index) for these clicks. Under the lock."""
     _hold(small, key)
     coords, labels = _points(small, clicks)
@@ -162,6 +162,8 @@ def _pick(small: np.ndarray, clicks, key):
         raise RuntimeError("No object mask found at the selected point")
     if several:
         return candidates, scores, 0
+    if index is not None and 0 <= int(index) < len(candidates):
+        return candidates, scores, int(index)   # a repeat click asked for this size
     return candidates, scores, _choose_candidate(candidates, scores)
 
 
@@ -173,15 +175,17 @@ def hover(rgb: np.ndarray, x: float, y: float, key=None) -> dict:
     return {"maskPng": _mask_data(candidates[index])}
 
 
-def select(rgb: np.ndarray, x: float, y: float, exclude=(), key=None) -> dict:
+def select(rgb: np.ndarray, x: float, y: float, exclude=(), key=None, index=None) -> dict:
     """Choose a MobileSAM mask at a normalized click; the user must review it.
 
-    `exclude` — (x, y) points the photographer marked "not this" (Alt-click).
+    `index` — which of the three sizes to take (a repeat click at the same
+    spot steps through them: fence post, then the pipe on it). `exclude` —
+    "not this" points; kept for callers, the screens no longer send them.
     """
     small = _small(rgb)
     clicks = [(x, y, True)] + [(float(ex), float(ey), False) for ex, ey in exclude]
     with _predict_lock:
-        candidates, scores, index = _pick(small, clicks, key)
+        candidates, scores, index = _pick(small, clicks, key, index)
     mask = candidates[index].astype(np.uint8)
     if not mask.any():
         raise RuntimeError("No object mask found at the selected point")
