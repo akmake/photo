@@ -147,6 +147,8 @@ def _status() -> dict:
                 "ok": True, "mode": claims.get("plan", "licensed"),
                 "expires_at": claims.get("expires_at"),
                 "offline_until": claims["offline_until"],
+                # Past this and before expires_at: the one-day grace to renew.
+                "paid_until": claims.get("paid_until"),
             }
         except FileNotFoundError:
             return {"ok": False, "error": "נדרשת הפעלה ראשונה של התוכנה"}

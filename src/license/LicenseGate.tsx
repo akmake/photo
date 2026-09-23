@@ -1,8 +1,12 @@
 import { useCallback, useEffect, useState, type FormEvent, type ReactNode } from 'react';
 import './license-gate.css';
 
-type DesktopBridge = { desktop?: boolean; dev?: boolean; engineOrigin?: string };
-type State = { ok: boolean; mode?: string; error?: string; expires_at?: number };
+type DesktopBridge = {
+  desktop?: boolean; dev?: boolean; engineOrigin?: string;
+  getServer?: () => Promise<{ origin: string } | null>;
+  openExternal?: (url: string) => void;
+};
+type State = { ok: boolean; mode?: string; error?: string; expires_at?: number; paid_until?: number | null };
 
 const bridge = (window as Window & { teza?: DesktopBridge }).teza;
 const origin = bridge?.engineOrigin || 'http://127.0.0.1:8756';
@@ -36,7 +40,7 @@ export default function LicenseGate({ children }: { children: ReactNode }) {
   }, [check]);
 
   if (!bridge?.desktop || bridge.dev) return <>{children}</>;
-  if (state?.ok) return <>{children}</>;
+  if (state?.ok) return <>{children}<GraceNotice state={state} /></>;
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -86,5 +90,35 @@ export default function LicenseGate({ children }: { children: ReactNode }) {
         </>}
       </section>
     </main>
+  );
+}
+
+/* The paid period ran out and the one-day grace is running (the site's
+ * LICENSE_GRACE_DAYS; the lease carries paid_until). Say so, say until when,
+ * and offer the way out — never a silent lock the next morning. It stays until
+ * the grace ends or the renewed lease arrives (the engine checks in every 5
+ * minutes); closing it only hides it until the next launch. */
+function GraceNotice({ state }: { state: State }) {
+  const [hidden, setHidden] = useState(false);
+  const paid = state.paid_until;
+  const until = state.expires_at;
+  if (hidden || !paid || !until || Date.now() / 1000 < paid) return null;
+
+  const when = new Date(until * 1000).toLocaleString('he-IL', {
+    weekday: 'long', day: 'numeric', month: 'numeric', hour: '2-digit', minute: '2-digit',
+  });
+  async function renew() {
+    const server = await bridge?.getServer?.().catch(() => null);
+    if (server?.origin) bridge?.openExternal?.(`${server.origin}/portal`);
+  }
+  return (
+    <aside className="tz-grace" dir="rtl" role="alert">
+      <div>
+        <strong>המנוי שלך הסתיים</strong>
+        <span>אפשר להמשיך לעבוד עד {when}. אחרי זה התוכנה תינעל עד שהמנוי יחודש.</span>
+      </div>
+      <button type="button" className="tz-grace-renew" onClick={() => void renew()}>לחידוש המנוי</button>
+      <button type="button" className="tz-grace-close" onClick={() => setHidden(true)}>סגור</button>
+    </aside>
   );
 }

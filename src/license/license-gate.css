@@ -44,3 +44,27 @@
 .tz-license-error { margin: 0; color: #b62323; line-height: 1.4; }
 .tz-license-retry { display: block; margin: 16px auto; border: 0; background: none; color: #a84125; cursor: pointer; font: inherit; }
 .tz-license-card small { display: block; color: #8b8581; line-height: 1.5; }
+
+.tz-grace {
+  position: fixed;
+  inset-inline: 50% auto;
+  inset-block-start: 48px;
+  transform: translateX(50%);
+  z-index: 9001;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  max-width: min(640px, calc(100vw - 36px));
+  padding: 12px 14px;
+  border: 1px solid #e8b4a2;
+  border-radius: 12px;
+  background: #fff5f0;
+  color: #262626;
+  box-shadow: 0 12px 40px #0000001f;
+  font-family: 'Assistant', 'Segoe UI', sans-serif;
+}
+.tz-grace div { display: grid; gap: 2px; font-size: 13px; line-height: 1.4; }
+.tz-grace strong { font-size: 14px; color: #b33c1d; }
+.tz-grace button { flex: none; min-height: 34px; padding: 0 14px; border-radius: 8px; font: inherit; font-size: 13px; cursor: pointer; }
+.tz-grace-renew { border: 0; background: #e95d36; color: #fff; font-weight: 700; }
+.tz-grace-close { border: 1px solid #e5dfdc; background: transparent; color: #5d5754; }
