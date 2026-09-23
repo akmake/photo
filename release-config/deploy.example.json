@@ -1,0 +1,5 @@
+{
+  "host": "your-vps-address",
+  "user": "deploy",
+  "dir": "/srv/teza/updates"
+}

@@ -10,6 +10,7 @@ build/
 release/
 release-config/license.json
 release-config/license-public.pem
+release-config/deploy.json
 client/dist/
 server/dist/
 test-results/

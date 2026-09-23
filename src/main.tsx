@@ -2,6 +2,7 @@ import React from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App';
 import LicenseGate from './license/LicenseGate';
+import UpdateBar from './update/UpdateBar';
 import './index.css';
 /* Desktop-only behaviour (no text caret on labels, the top bar as the window's
  * title bar, no browser drag ghosts). Every rule inside is scoped to an
@@ -12,5 +13,6 @@ import './design/desktop.css';
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     <LicenseGate><App /></LicenseGate>
+    <UpdateBar />
   </React.StrictMode>,
 );

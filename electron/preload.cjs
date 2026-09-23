@@ -146,4 +146,19 @@ contextBridge.exposeInMainWorld('teza', {
   openClientGallery(slug) {
     ipcRenderer.send('gallery:open-preview', slug);
   },
+
+  /** A new version, already downloaded. `updateStatus` answers for one that
+   *  arrived before the page was listening; `onUpdateReady` for later ones.
+   *  See electron/updater.cjs. */
+  updateStatus() {
+    return ipcRenderer.invoke('update:status');
+  },
+  onUpdateReady(callback) {
+    const handler = (_e, info) => callback(info);
+    ipcRenderer.on('update:ready', handler);
+    return () => ipcRenderer.removeListener('update:ready', handler);
+  },
+  installUpdate() {
+    ipcRenderer.send('update:install');
+  },
 });

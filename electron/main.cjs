@@ -36,6 +36,7 @@ const fs = require('node:fs');
 const http = require('node:http');
 const net = require('node:net');
 const path = require('node:path');
+const { startUpdates } = require('./updater.cjs');
 
 const DEV = !app.isPackaged;
 
@@ -486,6 +487,12 @@ if (!app.requestSingleInstanceLock()) {
 
   app.whenReady().then(async () => {
     installMenu();
+    // The installer must not meet a running engine holding its own files.
+    startUpdates({
+      getWindow: () => mainWindow,
+      beforeInstall: () => { quitting = true; stopEngine(); },
+      logDir: LOG_DIR,
+    });
     openSplash();
     splashSay('מדליק את המנוע');
 
