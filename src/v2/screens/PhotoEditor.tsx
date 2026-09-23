@@ -78,12 +78,11 @@ const ADJUST: { title: string; controls: Control[] }[] = [
   },
 ];
 
-/* ---- "החל על כל המקבץ": everything the editor does except crop and object
- * removal — the התאמה sliders, the סנן, and the marks, erasures and background
- * (its brush included), which land at the same place on every frame. Crop and
- * the removed object are about this photograph's composition and contents. */
+/* ---- "החל על כל המקבץ": the התאמה sliders, the סנן, and the background (its
+ * brush included, landing at the same place on every frame). Crop, markup,
+ * erase and object removal stay on this photograph — as he decided. */
 const SHARED_TOOLS = [...new Set([
-  ...ADJUST.flatMap((s) => s.controls.map((c) => c.tool)), 'look', 'markup', 'manual-clean', 'background-replace',
+  ...ADJUST.flatMap((s) => s.controls.map((c) => c.tool)), 'look', 'background-replace',
 ])];
 
 /* ---- סנן: the looks engine/photo_tools.py knows, in its order. */
@@ -564,7 +563,7 @@ export default function PhotoEditor({
               onClick={saveToBatch}
               disabled={!sharedSteps.length}
               title={sharedSteps.length
-                ? `שומר את התמונה הזו, ונותן את העריכה שלה ל־${batch.others.length.toLocaleString('he-IL')} התמונות האחרות${batch.name ? ` ב„${batch.name}”` : ' במקבץ'}. חיתוך והסרת אובייקט נשארים רק בתמונה הזו.`
+                ? `שומר את התמונה הזו, ונותן את העריכה שלה ל־${batch.others.length.toLocaleString('he-IL')} התמונות האחרות${batch.name ? ` ב„${batch.name}”` : ' במקבץ'}. חיתוך, סימון, מחיקה והסרת אובייקט נשארים רק בתמונה הזו.`
                 : 'אין עדיין בתמונה הזו עריכה להעביר.'}
             >
               החל על כל המקבץ
