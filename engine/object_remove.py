@@ -479,6 +479,29 @@ def _layered(rgb: np.ndarray, hole: np.ndarray, behind: np.ndarray, front: np.nd
     return out, int(hidden.sum())
 
 
+#: Share of the hole's rim the object behind may occupy before the hole counts
+#: as lying inside that object rather than on its edge.
+INSIDE_SHARE = 0.6
+
+
+def _straddles(hole: np.ndarray, behind: np.ndarray) -> bool:
+    """Does the hole sit on the object's edge (object on one side, backdrop on
+    the other) — the only case the layered fill is for?
+
+    Layered filling separates two materials. A hole the object surrounds has
+    one material around it, and the plain fill continues it from every side:
+    the black pipe on the fence post in 321A5078, filled in layers, left a dark
+    slot through the post; filled plainly, the wood closes over it.
+    """
+    w = hole.shape[1]
+    r = max(3, round(0.004 * w))
+    rim = (cv2.dilate(hole.astype(np.uint8), cv2.getStructuringElement(
+        cv2.MORPH_ELLIPSE, (2 * r + 1, 2 * r + 1))) > 0) & ~hole
+    if not rim.any():
+        return False
+    return float((behind & rim).sum()) / float(rim.sum()) < INSIDE_SHARE
+
+
 def apply(rgb: np.ndarray, params: dict):
     selection = params.get("objectSelection")
     if not isinstance(selection, dict):
@@ -490,7 +513,8 @@ def apply(rgb: np.ndarray, params: dict):
     if not lama_fill.available():
         raise RuntimeError("LaMa model is unavailable for object removal")
     behind = selection.get("behind")
-    if isinstance(behind, dict) and behind.get("maskPng"):
+    if isinstance(behind, dict) and behind.get("maskPng") and _straddles(
+            mask > 0, _read_mask(behind["maskPng"], rgb.shape) > 0):
         front = _read_mask(selection["maskPng"], rgb.shape)
         radius = round(float(selection.get("margin", DEFAULT_MARGIN)) * rgb.shape[1])
         if radius:
