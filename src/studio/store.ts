@@ -1298,13 +1298,17 @@ export function setFrameStep(projectId: string, frame: string, step: ToolInstanc
 
 /** Copy one or more shareable steps to a precise list of photographs in a
  * single project write. This is what lets "apply to the client's choice" stay
- * honest: hidden, unselected photographs in the same batch are untouched. */
-export function setFrameSteps(projectId: string, frames: string[], steps: ToolInstance[]) {
+ * honest: hidden, unselected photographs in the same batch are untouched.
+ *
+ * `withHandwork` copies the steps AS THEY ARE, strokes included — the editor's
+ * "החל על כל המקבץ", where the photographer asked for his marks, erasures and
+ * background brush to land on every frame of the batch at the same place. */
+export function setFrameSteps(projectId: string, frames: string[], steps: ToolInstance[], withHandwork = false) {
   if (!frames.length || !steps.length) return;
   const current = stateOf(projectId);
   const recipe = current.recipe as ProjectRecipe;
   const perFrame = { ...recipe.perFrame };
-  const clean = steps.map(shareable);
+  const clean = withHandwork ? steps : steps.map(shareable);
   const before = new Map(frames.map((frame) => [frame, renderedAs(projectId, frame)]));
   for (const frame of frames) {
     const key = frameKey(frame);

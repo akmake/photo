@@ -78,10 +78,13 @@ const ADJUST: { title: string; controls: Control[] }[] = [
   },
 ];
 
-/* ---- "החל על כל המקבץ": what a look of light and colour is made of — the
- * התאמה sliders and the סנן. Crop, markup, erase, object and background are
- * about what is IN this photograph, and never travel to another one. */
-const SHARED_TOOLS = [...new Set([...ADJUST.flatMap((s) => s.controls.map((c) => c.tool)), 'look'])];
+/* ---- "החל על כל המקבץ": everything the editor does except crop and object
+ * removal — the התאמה sliders, the סנן, and the marks, erasures and background
+ * (its brush included), which land at the same place on every frame. Crop and
+ * the removed object are about this photograph's composition and contents. */
+const SHARED_TOOLS = [...new Set([
+  ...ADJUST.flatMap((s) => s.controls.map((c) => c.tool)), 'look', 'markup', 'manual-clean', 'background-replace',
+])];
 
 /* ---- סנן: the looks engine/photo_tools.py knows, in its order. */
 const LOOKS = [
@@ -294,7 +297,7 @@ export default function PhotoEditor({
   const saveToBatch = useCallback(() => {
     if (!batch || !sharedSteps.length) return;
     commit();
-    setFrameSteps(projectId, batch.others, sharedSteps);
+    setFrameSteps(projectId, batch.others, sharedSteps, true);
     onClose();
   }, [batch, commit, onClose, projectId, sharedSteps]);
 
@@ -561,8 +564,8 @@ export default function PhotoEditor({
               onClick={saveToBatch}
               disabled={!sharedSteps.length}
               title={sharedSteps.length
-                ? `שומר את התמונה הזו, ונותן את האור, הצבע והסנן שלה ל־${batch.others.length.toLocaleString('he-IL')} התמונות האחרות${batch.name ? ` ב„${batch.name}”` : ' במקבץ'}. חיתוך, סימון, מחיקה ורקע נשארים רק בתמונה הזו.`
-                : 'אין עדיין אור, צבע או סנן בתמונה הזו להעביר.'}
+                ? `שומר את התמונה הזו, ונותן את העריכה שלה ל־${batch.others.length.toLocaleString('he-IL')} התמונות האחרות${batch.name ? ` ב„${batch.name}”` : ' במקבץ'}. חיתוך והסרת אובייקט נשארים רק בתמונה הזו.`
+                : 'אין עדיין בתמונה הזו עריכה להעביר.'}
             >
               החל על כל המקבץ
             </button>
