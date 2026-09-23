@@ -620,3 +620,311 @@
   .gal-grid { padding: 6px; }
   .gal-stage { padding: 52px 24px 12px; }
 }
+
+
+/* ── Before / After compare & quick tags ────────────────────────────── */
+
+.gal-before-badge {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  z-index: 15;
+  background: rgba(0, 0, 0, 0.78);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 5px 12px;
+  border-radius: 20px;
+  letter-spacing: 0.02em;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4);
+  pointer-events: none;
+  animation: galFadeIn 0.15s ease-out;
+}
+
+@keyframes galFadeIn {
+  from { opacity: 0; transform: scale(0.96); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+.gal-compare-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  max-width: 28rem;
+  margin: 0 auto;
+  padding: 10px 12px;
+  background: var(--card);
+  border-radius: 14px;
+  box-shadow: var(--lit), 0 2px 8px rgba(0, 0, 0, 0.06);
+}
+
+.gal-compare-btn {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px 16px;
+  border: 1px solid var(--rim-2);
+  border-radius: 10px;
+  background: var(--card-2);
+  color: var(--ink);
+  font-size: 13.5px;
+  font-weight: 600;
+  cursor: pointer;
+  user-select: none;
+  -webkit-user-select: none;
+  transition: all 0.15s ease;
+}
+
+.gal-compare-btn:hover {
+  background: var(--card);
+  border-color: var(--brand);
+}
+
+.gal-compare-btn.active {
+  background: var(--brand);
+  color: #fff;
+  border-color: var(--brand);
+  box-shadow: 0 2px 10px rgba(232, 99, 56, 0.35);
+}
+
+.gal-compare-icon {
+  font-size: 14px;
+}
+
+.gal-updated-pill {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--brand);
+  background: var(--brand-wash);
+  padding: 3px 10px;
+  border-radius: 12px;
+}
+
+.gal-quick-tags {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.gal-quick-tags-title {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--ink-3);
+}
+
+.gal-quick-tags-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.gal-quick-tag-chip {
+  background: var(--card-2);
+  border: 1px solid var(--rim-2);
+  border-radius: 8px;
+  padding: 4px 9px;
+  font-size: 11.5px;
+  font-weight: 500;
+  color: var(--ink-2);
+  cursor: pointer;
+  transition: all 0.12s ease;
+}
+
+.gal-quick-tag-chip:hover {
+  border-color: var(--brand);
+  color: var(--brand);
+  background: var(--brand-wash);
+}
+
+
+/* ── Fullscreen Slideshow ───────────────────────────────────────────── */
+
+.gal-slideshow-trigger-btn {
+  background: var(--card);
+  border: 1px solid var(--rim-2);
+  border-radius: 12px;
+  padding: 6px 14px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  transition: all 0.15s ease;
+  box-shadow: var(--lit);
+}
+
+.gal-slideshow-trigger-btn:hover {
+  border-color: var(--brand);
+  color: var(--brand);
+  background: var(--brand-wash);
+}
+
+.gal-slideshow-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 85;
+  background: #0d0e12;
+  display: flex;
+  flex-direction: column;
+  color: #fff;
+  user-select: none;
+  animation: galFadeIn 0.2s ease-out;
+}
+
+.gal-slideshow-progress-track {
+  width: 100%;
+  height: 3.5px;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.gal-slideshow-progress-bar {
+  height: 100%;
+  width: 0%;
+  background: var(--brand);
+}
+
+.gal-slideshow-progress-bar.animate {
+  animation-name: slideshowProgress;
+  animation-timing-function: linear;
+  animation-fill-mode: forwards;
+}
+
+@keyframes slideshowProgress {
+  from { width: 0%; }
+  to { width: 100%; }
+}
+
+.gal-slideshow-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 14px 20px;
+  z-index: 10;
+}
+
+.gal-slideshow-counter {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.7);
+  font-family: var(--tz-font-mono, monospace);
+}
+
+.gal-slideshow-actions {
+  display: flex;
+  gap: 10px;
+}
+
+.gal-slideshow-btn {
+  background: rgba(255, 255, 255, 0.12);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: #fff;
+  padding: 7px 15px;
+  border-radius: 10px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.gal-slideshow-btn:hover {
+  background: rgba(255, 255, 255, 0.22);
+}
+
+.gal-slideshow-btn.close {
+  background: rgba(239, 68, 68, 0.2);
+  border-color: rgba(239, 68, 68, 0.3);
+  color: #fca5a5;
+}
+
+.gal-slideshow-btn.close:hover {
+  background: rgba(239, 68, 68, 0.35);
+}
+
+.gal-slideshow-stage {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  overflow: hidden;
+  padding: 10px 16px;
+}
+
+.gal-slideshow-img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  border-radius: 6px;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.6);
+  opacity: 0;
+  transform: scale(0.98);
+  transition: opacity 0.35s ease, transform 0.35s ease;
+}
+
+.gal-slideshow-img.is-loaded {
+  opacity: 1;
+  transform: scale(1);
+}
+
+.gal-slideshow-bottom {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 20px;
+  padding: 18px 20px 24px;
+  z-index: 10;
+}
+
+.gal-slideshow-nav-btn {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: #fff;
+  font-size: 20px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s ease;
+}
+
+.gal-slideshow-nav-btn:hover {
+  background: rgba(255, 255, 255, 0.25);
+  transform: scale(1.05);
+}
+
+.gal-slideshow-heart {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 11px 26px;
+  border-radius: 30px;
+  background: rgba(255, 255, 255, 0.14);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  color: #fff;
+  font-size: 14.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.gal-slideshow-heart:hover {
+  background: rgba(255, 255, 255, 0.22);
+}
+
+.gal-slideshow-heart.active {
+  background: var(--brand);
+  border-color: var(--brand);
+  box-shadow: 0 4px 18px rgba(232, 99, 56, 0.45);
+}

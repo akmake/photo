@@ -7,13 +7,15 @@ import type {
   AlbumPhoto, AlbumPhotoAnalysis, AlbumProject, AlbumSpread, LayoutSlot,
   PhotoFitMode, PhotoFrameSettings, PrintProductProfile,
 } from './model';
-import { FIRST_PRINT_PROFILE, PRINT_PROFILES, photoAdjustmentFilter } from './model';
+import {
+  FIRST_PRINT_PROFILE, PRINT_PROFILES, albumSizeLadder, albumSizeName, photoAdjustmentFilter,
+} from './model';
 import {
   buildAlbumLayoutCandidates, EMPTY_GENERATED_LAYOUT, type GeneratedAlbumLayout,
 } from './layoutEngine';
 import { assessCrop, type CropAssessment } from './cropEngine';
 import {
-  applyTemplate, findTemplate, newInstance, photoLayers, spreadTemplate, templateBackground, templateSlots,
+  applyTemplate, findTemplate, newInstance, photoLayers, shapeFill, spreadTemplate, templateBackground, templateSlots,
 } from './templates/library';
 import { rankTemplates } from './templates/choose';
 import { designFade } from './templates/fades';
@@ -50,6 +52,7 @@ import AlbumPreview from './AlbumPreview';
 import ReviewWorkspace from './ReviewWorkspace';
 import PreflightPanel from './PreflightPanel';
 import AlbumOverview from './AlbumOverview';
+import SpreadThumb from './SpreadThumb';
 import AlbumLibrary, { type AlbumCreateInput } from './AlbumLibrary';
 import { clientAlbumsOf } from '../studio/galleryLink';
 import { bringFramesUpToDate, framesOf, reloadFrames, staleFrames, useProjectFiles } from '../studio/store';
@@ -188,8 +191,21 @@ export default function AlbumStudio({ job, onBack }: {
   const [photoFilter, setPhotoFilter] = useState<PhotoTrayFilter>('unused');
   const [showGuides, setShowGuides] = useState(false);
   const [notice, setNotice] = useState('הטיוטה נשמרה מקומית');
+  /* A message is shown for as long as it is news, then the bar goes quiet. */
+  const [noticeShown, setNoticeShown] = useState(false);
+  const noticeIsFirst = useRef(true);
   const [photoLimit, setPhotoLimit] = useState(60);
   const [isExporting, setIsExporting] = useState(false);
+  /* Every message the album has to give — a save, a failure, a job running in
+   * the background — arrives through `notice`. It appears when it changes and
+   * clears itself, so nothing stands in the bar that is not news. The opening
+   * message is not news: the bar starts empty. */
+  useEffect(() => {
+    if (noticeIsFirst.current) { noticeIsFirst.current = false; return undefined; }
+    setNoticeShown(true);
+    const t = window.setTimeout(() => setNoticeShown(false), 6000);
+    return () => window.clearTimeout(t);
+  }, [notice]);
   const [showProfileEditor, setShowProfileEditor] = useState(false);
   /* `organize` is the album; `design` is one spread. The module opens on the
    * album, because that is the question a photographer actually asks first. */
@@ -210,10 +226,21 @@ export default function AlbumStudio({ job, onBack }: {
   const [showResizePanel, setShowResizePanel] = useState(false);
   const [settingsWidthCm, setSettingsWidthCm] = useState(30);
   const [settingsHeightCm, setSettingsHeightCm] = useState(30);
+  /* Changing the shape is a separate, named act — never a side effect of
+   * reaching for a size. Its own numbers, its own preview, its own yes. */
+  const [showShapePanel, setShowShapePanel] = useState(false);
+  const [shapeWidthCm, setShapeWidthCm] = useState(30);
+  const [shapeHeightCm, setShapeHeightCm] = useState(30);
   const [showPreflight, setShowPreflight] = useState(false);
   const [confirmAutoBuild, setConfirmAutoBuild] = useState(false);
   /** An element the photographer added to the spread (text, shape, artwork, import). */
   const [selectedElementId, setSelectedElementId] = useState<string | null>(null);
+  /** A band, panel or block that came with the designed page — selected only
+   *  to give it a colour. */
+  const [selectedDecorId, setSelectedDecorId] = useState<string | null>(null);
+  /** Whether that colour goes to this one element or to everything the design
+   *  painted in the same colour. */
+  const [decorScope, setDecorScope] = useState<'one' | 'all'>('one');
   /* A text the photographer is typing into, right where it sits on the spread.
    * Canva opens a caret in the words themselves; typing into a box off to the
    * side and watching the result somewhere else is the thing being replaced. */
@@ -269,7 +296,12 @@ export default function AlbumStudio({ job, onBack }: {
         spreadWidthMm: base.spreadWidthMm,
         spreadHeightMm: base.spreadHeightMm,
       }));
-      const custom = saved.filter((item) => !PRINT_PROFILES.some((base) => base.id === item.id));
+      /* A size made before the product settled on one way of writing a size
+       * carries the old name (the spread, doubled). The size itself was never
+       * wrong — only the word for it — so the name is written afresh. */
+      const custom = saved
+        .filter((item) => !PRINT_PROFILES.some((base) => base.id === item.id))
+        .map((item) => ({ ...item, name: albumSizeName(item.closedWidthMm, item.closedHeightMm) }));
       return [...builtIn, ...custom];
     } catch {
       return PRINT_PROFILES;
@@ -540,6 +572,7 @@ export default function AlbumStudio({ job, onBack }: {
         case 'G':         if (mode === 'design') { event.preventDefault(); setShowGuides((value) => !value); } break;
         case 'Escape':
           if (cropIndex !== null) setCropIndex(null);
+          else if (selectedDecorId) setSelectedDecorId(null);
           else if (selectedElementId) setSelectedElementId(null);
           else if (selectedSlotIndex !== null || selectedPhotoId) { setSelectedSlotIndex(null); setSelectedPhotoId(null); }
           else if (mode === 'design') setMode('organize');
@@ -563,6 +596,12 @@ export default function AlbumStudio({ job, onBack }: {
     ? -1
     : project.spreads.findIndex((item) => item.id === project.activeSpreadId);
   const spread = editingCover ? coverSheet : (project.spreads[spreadIndex] ?? project.spreads[0]);
+  /* What the shape dialog shows: a real spread of his own, with photographs on
+   * it — the one he is looking at when there is one, otherwise the first that
+   * has anything to show. */
+  const shapePreviewSpread = spread.photoIds?.some(Boolean)
+    ? spread
+    : project.spreads.find((item) => item.photoIds.some(Boolean));
   const sheetWidthMm = editingCover ? profile.coverSpec.totalWidthMm : profile.spreadWidthMm;
   const sheetHeightMm = editingCover ? profile.coverSpec.totalHeightMm : profile.spreadHeightMm;
   const sheetAspect = sheetWidthMm / Math.max(1, sheetHeightMm);
@@ -934,7 +973,7 @@ export default function AlbumStudio({ job, onBack }: {
     const custom: PrintProductProfile = {
       ...base,
       id: `custom-layflat-${width}x${height}`,
-      name: `אלבום ${(width * 2) / 10}×${height / 10}`,
+      name: albumSizeName(width, height),
       labName: 'מידה מותאמת — דורש אימות מול בית הדפוס',
       closedWidthMm: width,
       closedHeightMm: height,
@@ -1009,6 +1048,51 @@ export default function AlbumStudio({ job, onBack }: {
     setSettingsHeightCm(profile.closedHeightMm / 10);
     setShowResizePanel(true);
     setShowMoreMenu(false);
+  }
+
+  /* CHANGING THE SIZE IS NOT CHANGING THE SHAPE.
+   *
+   * The panel used to take a width and a height apart from one another, so
+   * "שינוי גודל" could hand back an album of different proportions and every
+   * spread would reflow to fit it. What is wanted is the same spread, larger
+   * or smaller. One number moves the other, and the shape is kept. */
+  function setSizeKeepingShape(side: 'width' | 'height', value: number) {
+    const shape = profile.closedWidthMm / Math.max(1, profile.closedHeightMm);
+    const exact = (n: number) => Math.round(n * 100) / 100;
+    if (!Number.isFinite(value) || value <= 0) {
+      if (side === 'width') setSettingsWidthCm(value); else setSettingsHeightCm(value);
+      return;
+    }
+    if (side === 'width') {
+      setSettingsWidthCm(value);
+      setSettingsHeightCm(exact(value / shape));
+    } else {
+      setSettingsHeightCm(value);
+      setSettingsWidthCm(exact(value * shape));
+    }
+  }
+
+  function openShapePanel() {
+    setShapeWidthCm(profile.closedWidthMm / 10);
+    setShapeHeightCm(profile.closedHeightMm / 10);
+    setShowResizePanel(false);
+    setShowShapePanel(true);
+  }
+
+  /** Three shapes, each at the album's present height so only the shape is the
+   *  question — and the album's own shape among them, so it is never lost. */
+  function shapeChoices(current: { closedWidthMm: number; closedHeightMm: number }) {
+    const height = current.closedHeightMm / 10;
+    const exact = (value: number) => Math.round(value * 100) / 100;
+    const out = [
+      { label: 'מרובע', width: height, height },
+      { label: 'אופקי', width: exact((height * 4) / 3), height },
+      { label: 'אנכי', width: exact((height * 3) / 4), height },
+    ].filter((item) => item.width >= 10 && item.width <= 100);
+    const own = { label: 'הצורה שלך', width: current.closedWidthMm / 10, height };
+    return out.some((item) => item.width === own.width && item.height === own.height)
+      ? out
+      : [own, ...out];
   }
 
   function applyAlbumDimensions(widthCm = settingsWidthCm, heightCm = settingsHeightCm) {
@@ -1510,16 +1594,55 @@ export default function AlbumStudio({ job, onBack }: {
       ShapeLayer | TextLayer | ImageLayer | undefined
     : undefined;
 
+  /* The designed page's own colour fields — bands, panels, blocks. Frames and
+   * lines are left out on purpose: they sit over the photos, and a click there
+   * belongs to the photo. Their colours are in the background tab. */
+  const colorableDecor = activeTemplate && spread.templateInstance
+    ? activeTemplate.layers.filter((layer): layer is ShapeLayer => layer.type === 'shape'
+      && (layer.shape === 'rect' || layer.shape === 'ellipse')
+      && Boolean(layer.fillToken)
+      && !addedElements.some((item) => item.id === layer.id))
+    : [];
+  const selectedDecor = colorableDecor.find((layer) => layer.id === selectedDecorId);
+  const decorSiblings = selectedDecor
+    ? colorableDecor.filter((layer) => layer.fillToken === selectedDecor.fillToken).length
+      + (selectedDecor.fillToken === activeTemplate?.backgroundToken ? 1 : 0)
+    : 0;
+
   /* Something on the spread is selected, so its tools are on the bar over the
    * canvas and the side panel can stand down to its rail. */
-  const selectionActive = Boolean((selectedSlot && selectedFrameSettings) || selectedElement);
+  const selectionActive = Boolean((selectedSlot && selectedFrameSettings) || selectedElement || selectedDecor);
 
   function clearSelection() {
     setSelectedSlotIndex(null);
     setCropIndex(null);
     setSelectedPhotoId(null);
     setSelectedElementId(null);
+    setSelectedDecorId(null);
     setEditingTextId(null);
+  }
+
+  /* Selecting a photo or an added element puts the designed element down. */
+  useEffect(() => {
+    if (selectedSlotIndex !== null || selectedElementId) setSelectedDecorId(null);
+  }, [selectedSlotIndex, selectedElementId]);
+
+  function colorDecor(layer: ShapeLayer, color: string) {
+    const token = layer.fillToken;
+    if (!token) return;
+    editTemplateInstance((instance) => {
+      const own = { ...(instance.layerColors ?? {}) };
+      if (decorScope === 'one') {
+        own[layer.id] = color;
+        return { ...instance, layerColors: own };
+      }
+      /* The whole colour: every element painted in it follows, including any
+       * that had been given a colour of its own. */
+      for (const other of activeTemplate?.layers ?? []) {
+        if (other.type === 'shape' && other.fillToken === token) delete own[other.id];
+      }
+      return { ...instance, colors: { ...instance.colors, [token]: color }, layerColors: own };
+    });
   }
 
   function addElement(element: ElementDef) {
@@ -2502,19 +2625,21 @@ export default function AlbumStudio({ job, onBack }: {
     <div className="album-studio">
       <header className={`album-topbar ${mode}`}>
         <div className="album-topbar-identity">
-          <button className="album-quiet-button" onClick={() => mode === 'design' ? setMode('organize') : closeAlbum()} title={mode === 'design' ? 'חזרה לאלבום' : 'חזרה לאלבומים'}>
-            <IcChevron size={15} style={{ transform: 'rotate(180deg)' }} />
-            {mode === 'design' ? 'האלבום' : 'האלבומים'}
+          {/* The way out, and nothing else. The arrow points the way Hebrew
+            * goes back — to the right — and sits on the leading edge. */}
+          <button
+            className="album-quiet-button album-back-button"
+            onClick={() => mode === 'design' ? setMode('organize') : closeAlbum()}
+            title={mode === 'design' ? 'חזרה לאלבום' : 'חזרה לאלבומים'}
+          >
+            <IcChevron size={17} />
+            {mode === 'design' ? 'חזרה לאלבום' : 'חזרה לאלבומים'}
           </button>
-          <div>
-            <h1>{mode !== 'design' ? project.name : editingCover ? 'כריכה' : `כפולה ${spreadIndex + 1}`}</h1>
-            <span>{mode !== 'design'
-              ? `${project.spreads.length} כפולות · ${usedIds.size} תמונות`
-              : editingCover
-                ? 'גב · שדרה · חזית'
-                : `עמודים ${spread.pageStart}–${spread.pageStart + 1}`}</span>
-          </div>
-          <span className="album-save-copy"><IcCheck size={11} /> {notice}</span>
+          {/* Nothing stands here permanently. A message — a save, a failure, a
+            * background job — speaks for a few seconds and the bar is clean
+            * again. The element is not removed, because every failure the
+            * album reports speaks through it. */}
+          {noticeShown && <span className="album-save-copy"><IcCheck size={11} /> {notice}</span>}
         </div>
 
         <div className="album-topbar-actions">
@@ -2560,7 +2685,7 @@ export default function AlbumStudio({ job, onBack }: {
                   <header>
                     <div>
                       <strong>שינוי גודל</strong>
-                      <span>כל העמודים יתאימו את עצמם למידה החדשה</span>
+                      <span>אותו אלבום, גדול יותר או קטן יותר</span>
                     </div>
                     <button type="button" aria-label="סגירה" onClick={() => setShowResizePanel(false)}>×</button>
                   </header>
@@ -2575,21 +2700,20 @@ export default function AlbumStudio({ job, onBack }: {
                   </div>
 
                   <section>
-                    <h3>מידות אלבום</h3>
+                    <h3>גדול יותר או קטן יותר</h3>
                     <div className="album-resize-presets">
-                      {printProfiles.map((item) => {
-                        const width = item.closedWidthMm / 10;
-                        const height = item.closedHeightMm / 10;
+                      {albumSizeLadder(profile).map(({ width, height }) => {
                         const selected = settingsWidthCm === width && settingsHeightCm === height;
+                        const now = profile.closedWidthMm / 10 === width && profile.closedHeightMm / 10 === height;
                         return (
                           <button
                             type="button"
-                            key={item.id}
+                            key={`${width}x${height}`}
                             className={selected ? 'on' : ''}
                             onClick={() => { setSettingsWidthCm(width); setSettingsHeightCm(height); }}
                           >
                             <i style={{ aspectRatio: `${width} / ${height}` }} />
-                            <span><strong dir="ltr">{width} × {height}</strong><small>ס״מ · {width === height ? 'מרובע' : width > height ? 'אופקי' : 'אנכי'}</small></span>
+                            <span><strong dir="ltr">{width} × {height}</strong><small>ס״מ{now ? ' · המידה שלך' : ''}</small></span>
                             {selected && <b>✓</b>}
                           </button>
                         );
@@ -2598,19 +2722,37 @@ export default function AlbumStudio({ job, onBack }: {
                   </section>
 
                   <section>
-                    <h3>מידה מותאמת אישית</h3>
+                    <h3>מידה מדויקת</h3>
+                    {/* One number moves the other. The album keeps its shape —
+                      * it only becomes a larger or a smaller book. */}
                     <div className="album-resize-custom">
-                      <label><span>רוחב</span><input type="number" min="10" max="100" step="0.5" value={settingsWidthCm} onChange={(event) => setSettingsWidthCm(Number(event.target.value))} /></label>
+                      <label>
+                        <span>רוחב</span>
+                        <input
+                          type="number" min="10" max="100" step="0.5" value={settingsWidthCm}
+                          onChange={(event) => setSizeKeepingShape('width', Number(event.target.value))}
+                        />
+                      </label>
                       <b>×</b>
-                      <label><span>גובה</span><input type="number" min="10" max="100" step="0.5" value={settingsHeightCm} onChange={(event) => setSettingsHeightCm(Number(event.target.value))} /></label>
+                      <label>
+                        <span>גובה</span>
+                        <input
+                          type="number" min="10" max="100" step="0.5" value={settingsHeightCm}
+                          onChange={(event) => setSizeKeepingShape('height', Number(event.target.value))}
+                        />
+                      </label>
                       <em>ס״מ</em>
                     </div>
                   </section>
 
                   <div className="album-resize-promise">
                     <span>✦</span>
-                    <p><strong>העיצוב נשמר</strong> תמונות, חיתוכים, טקסטים ומסגרות נשארים במקומם ומותאמים ליחס החדש.</p>
+                    <p><strong>אותה כפולה, בגודל אחר</strong> היחס נשמר, ואיתו כל מה שעיצבת — תמונות, חיתוכים, טקסטים ומסגרות במקומם.</p>
                   </div>
+
+                  <button type="button" className="album-shape-link" onClick={openShapePanel}>
+                    רוצה לשנות את צורת האלבום עצמה?
+                  </button>
 
                   <footer>
                     <button type="button" onClick={() => setShowResizePanel(false)}>ביטול</button>
@@ -2620,6 +2762,82 @@ export default function AlbumStudio({ job, onBack }: {
                       disabled={settingsWidthCm < 10 || settingsWidthCm > 100 || settingsHeightCm < 10 || settingsHeightCm > 100}
                       onClick={() => applyAlbumDimensions()}
                     >שינוי גודל</button>
+                  </footer>
+                </aside>
+              </>
+            )}
+            {/* CHANGING THE SHAPE IS ITS OWN ACT, and it says so. It is not
+              * hard to do — the page fitter has always been able to carry a
+              * design onto another shape — but it rearranges every spread, so
+              * it is never something that happens while reaching for a size.
+              * The photographer sees a real spread of his own in the new shape
+              * before he agrees to it. */}
+            {showShapePanel && (
+              <>
+                <button className="album-resize-dismiss" aria-label="סגירת שינוי צורה" onClick={() => setShowShapePanel(false)} />
+                <aside className="album-resize-panel album-shape-panel" role="dialog" aria-label="שינוי צורת האלבום">
+                  <header>
+                    <div>
+                      <strong>שינוי צורת האלבום</strong>
+                      <span>ממלבן למרובע, מאופקי לאנכי — הכפולות יסתדרו מחדש</span>
+                    </div>
+                    <button type="button" aria-label="סגירה" onClick={() => setShowShapePanel(false)}>×</button>
+                  </header>
+
+                  <div className="album-shape-choices" role="group" aria-label="צורה">
+                    {shapeChoices(profile).map((choice) => {
+                      const on = shapeWidthCm === choice.width && shapeHeightCm === choice.height;
+                      return (
+                        <button
+                          type="button"
+                          key={choice.label}
+                          className={on ? 'on' : ''}
+                          onClick={() => { setShapeWidthCm(choice.width); setShapeHeightCm(choice.height); }}
+                        >
+                          <i style={{ aspectRatio: `${choice.width} / ${choice.height}` }} />
+                          <span><strong>{choice.label}</strong><small dir="ltr">{choice.width} × {choice.height}</small></span>
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  <div className="album-resize-custom">
+                    <label><span>רוחב</span><input type="number" min="10" max="100" step="0.5" value={shapeWidthCm} onChange={(event) => setShapeWidthCm(Number(event.target.value))} /></label>
+                    <b>×</b>
+                    <label><span>גובה</span><input type="number" min="10" max="100" step="0.5" value={shapeHeightCm} onChange={(event) => setShapeHeightCm(Number(event.target.value))} /></label>
+                    <em>ס״מ</em>
+                  </div>
+
+                  <section className="album-shape-preview">
+                    <h3>כך תיראה הכפולה שלך</h3>
+                    {shapePreviewSpread && shapePreviewSpread.photoIds.some(Boolean) ? (
+                      <div className="album-shape-preview-sheet">
+                        <SpreadThumb
+                          spread={shapePreviewSpread}
+                          photos={photos}
+                          profile={profile}
+                          styleName={project.styleName}
+                          showPageNumbers={false}
+                          widthMm={Math.max(100, shapeWidthCm * 10) * 2}
+                          heightMm={Math.max(100, shapeHeightCm * 10)}
+                        />
+                      </div>
+                    ) : (
+                      <p className="album-shape-preview-none">אין עדיין כפולה עם תמונות להראות.</p>
+                    )}
+                  </section>
+
+                  <footer>
+                    <button type="button" onClick={() => setShowShapePanel(false)}>ביטול</button>
+                    <button
+                      type="button"
+                      className="primary"
+                      disabled={
+                        shapeWidthCm < 10 || shapeWidthCm > 100 || shapeHeightCm < 10 || shapeHeightCm > 100
+                        || (shapeWidthCm === profile.closedWidthMm / 10 && shapeHeightCm === profile.closedHeightMm / 10)
+                      }
+                      onClick={() => { applyAlbumDimensions(shapeWidthCm, shapeHeightCm); setShowShapePanel(false); }}
+                    >שנה צורה</button>
                   </footer>
                 </aside>
               </>
@@ -3227,6 +3445,44 @@ export default function AlbumStudio({ job, onBack }: {
               ]}
             />
           )}
+          {selectedDecor && spread.templateInstance && activeTemplate && (
+            <ContextToolbar
+              name={selectedDecor.name}
+              onDone={() => setSelectedDecorId(null)}
+              inline={(
+                <>
+                  {decorSiblings > 1 && (
+                    <ToolbarSegment<'one' | 'all'>
+                      label="על מה חל הצבע"
+                      value={decorScope}
+                      options={[['one', 'רק הזה'], ['all', 'כל מה שבצבע הזה']] as const}
+                      onChange={setDecorScope}
+                    />
+                  )}
+                  <ToolbarColor
+                    label="צבע"
+                    value={shapeFill(activeTemplate, spread.templateInstance, selectedDecor) ?? '#ffffff'}
+                    onChange={(color) => colorDecor(selectedDecor, color)}
+                    onDone={endTemplateEdit}
+                  />
+                </>
+              )}
+              menus={[]}
+              actions={spread.templateInstance.layerColors?.[selectedDecor.id] ? [
+                {
+                  id: 'reset-color', label: 'חזרה לצבע של העיצוב', icon: ToolIcons.color,
+                  onClick: () => {
+                    editTemplateInstance((instance) => {
+                      const own = { ...(instance.layerColors ?? {}) };
+                      delete own[selectedDecor.id];
+                      return { ...instance, layerColors: own };
+                    });
+                    endTemplateEdit();
+                  },
+                },
+              ] : []}
+            />
+          )}
           {selectedElement && (
             <ContextToolbar
               name={selectedElement.type === 'text' ? 'טקסט' : 'אלמנט'}
@@ -3606,7 +3862,7 @@ export default function AlbumStudio({ job, onBack }: {
           <div
             className="album-canvas-area"
             onClick={(event) => {
-              if (event.target === event.currentTarget) { setSelectedSlotIndex(null); setCropIndex(null); setSelectedElementId(null); }
+              if (event.target === event.currentTarget) { setSelectedSlotIndex(null); setCropIndex(null); setSelectedElementId(null); setSelectedDecorId(null); }
             }}
           >
             <div
@@ -3616,6 +3872,14 @@ export default function AlbumStudio({ job, onBack }: {
                 aspectRatio: `${sheetWidthMm} / ${sheetHeightMm}`,
                 '--spread-aspect': sheetAspect,
               } as React.CSSProperties}
+              onClick={(event) => {
+                /* The page itself — its paper and its designed bands, which let
+                 * the click through — is "outside" whatever is selected on it. */
+                const target = event.target as HTMLElement;
+                if (target === event.currentTarget || target.matches('.album-page, .album-gutter, .album-spine-band, .album-spine-band *')) {
+                  setSelectedSlotIndex(null); setCropIndex(null); setSelectedElementId(null); setSelectedDecorId(null);
+                }
+              }}
             >
               {editingCover ? (
                 /* A cover has no fold. It has a SPINE — a strip of board whose
@@ -3772,6 +4036,28 @@ export default function AlbumStudio({ job, onBack }: {
                 );
               })}
 
+              {colorableDecor.map((layer) => (
+                <div
+                  key={`decor-${layer.id}`}
+                  className={`tpl-hit tpl-decor-hit ${selectedDecorId === layer.id ? 'selected' : ''}`}
+                  title={`${layer.name} · לחיצה לשינוי הצבע`}
+                  style={{
+                    left: `${layer.box.x * 100}%`,
+                    top: `${layer.box.y * 100}%`,
+                    width: `${layer.box.width * 100}%`,
+                    height: `${layer.box.height * 100}%`,
+                    zIndex: templateZOrder.get(layer.id),
+                    transform: layer.rotation ? `rotate(${layer.rotation}deg)` : undefined,
+                  }}
+                  onClick={() => {
+                    if (selectedPhotoId) return;
+                    setSelectedSlotIndex(null);
+                    setCropIndex(null);
+                    setSelectedElementId(null);
+                    setSelectedDecorId(layer.id);
+                  }}
+                />
+              ))}
               {activeTemplate && addedElements.map((item) => {
                 const layer = activeTemplate.layers.find((candidate) => candidate.id === item.id) as ShapeLayer | TextLayer | ImageLayer | undefined;
                 if (!layer) return null;

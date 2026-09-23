@@ -5,6 +5,7 @@ import TemplatePanel from './TemplatePanel';
 import { BASIC_ELEMENTS, TEXT_PRESETS, vaultElements, type ElementDef } from './elements';
 import { iconElements } from './iconElements';
 import { elementUrl } from './elementStore';
+import { colorOf } from './library';
 import type { FontEntry } from './fonts';
 import type { AlbumTemplate } from './types';
 
@@ -87,11 +88,11 @@ const tabInfo = (sheet: 'כפולה' | 'כריכה'): Record<Tab, {
     icon: <svg viewBox="0 0 24 24"><path d="M5 6V4h14v2M12 4v16M9 20h6" /></svg>,
   },
   background: {
-    label: 'רקע', title: `רקע ה${sheet}`, hint: `צבע הרקע של ה${sheet}.`,
+    label: 'רקע', title: `רקע ה${sheet}`, hint: `צבע הרקע וצבעי העמוד של ה${sheet}.`,
     icon: <svg viewBox="0 0 24 24"><path d="M12 3C9.4 6.7 6 10.3 6 14a6 6 0 0 0 12 0c0-3.7-3.4-7.3-6-11Z" /><path d="M8.5 15.5c.5 1.5 1.7 2.5 3.5 2.5" /></svg>,
   },
   brand: {
-    label: 'מותג', title: 'מותג', hint: 'צבעים וגופנים קבועים לאלבום.',
+    label: 'מותג', title: 'מותג', hint: `צבעי ה${sheet} וגופנים.`,
     icon: <svg viewBox="0 0 24 24"><path d="M7 4h10l3 4-8 12L4 8Z" /><path d="m4 8 8 4 8-4M12 12V4" /></svg>,
   },
   uploads: {
@@ -363,6 +364,26 @@ function BackgroundTab(props: Props) {
       <strong className="sp-sub">צבעים מוצעים</strong>
       {swatches(suggested)}
       {recent.length > 0 && <><strong className="sp-sub">בשימוש לאחרונה</strong>{swatches(recent)}</>}
+
+      {props.template && props.spread.templateInstance && props.template.colors.length > 1 && (
+        <>
+          <strong className="sp-sub">צבעי העמוד</strong>
+          <div className="sp-page-colors">
+            {props.template.colors.filter((token) => token.id !== props.template!.backgroundToken).map((token) => (
+              <label key={token.id}>
+                <input
+                  type="color"
+                  value={colorOf(props.template!, props.spread.templateInstance!, token.id)}
+                  onChange={(event) => props.onColor(token.id, event.target.value)}
+                  onBlur={props.onEditEnd}
+                />
+                <span>{token.label}</span>
+              </label>
+            ))}
+          </div>
+          <p className="sp-note">לצבע אלמנט אחד בלבד — לחץ עליו בעמוד.</p>
+        </>
+      )}
 
       {sheet === 'כפולה' && (
         <div className="sp-background-all">

@@ -17,6 +17,15 @@ import { Heart } from './Grid';
 
 const SWIPE = 45; // px before a drag counts as "next frame"
 
+const RETOUCH_TAGS = [
+  'הסרת אובייקט/אדם',
+  'ניקוי עור ופנים',
+  'שיער פרוע',
+  'הבהרה / הכהיה',
+  'עיניים / הבעה',
+  'יישור וקרופ',
+];
+
 export default function Lightbox({
   items,
   index,
@@ -47,11 +56,13 @@ export default function Lightbox({
   const [pin, setPin] = useState<{ x: number; y: number } | null>(null);
   const [text, setText] = useState('');
   const [sending, setSending] = useState(false);
+  const [showOriginal, setShowOriginal] = useState(false);
 
   useEffect(() => {
     setLoaded(false);
     setPin(null);
     setText('');
+    setShowOriginal(false);
   }, [index]);
 
   useEffect(() => {
@@ -68,16 +79,22 @@ export default function Lightbox({
   }, [index, items.length, onIndex, onClose]);
 
   /* The next frame and the previous one, fetched while this one is being
-   * looked at. A swipe that waits for a download reads as a slow gallery. */
+   * looked at. Preload previous version as well for instantaneous Before/After. */
   useEffect(() => {
-    [index - 1, index + 1].forEach((n) => {
-      if (n >= 0 && n < items.length) new Image().src = items[n].preview;
+    [index - 1, index, index + 1].forEach((n) => {
+      if (n >= 0 && n < items.length) {
+        new Image().src = items[n].preview;
+        if (items[n].originalPreview) {
+          new Image().src = items[n].originalPreview!;
+        }
+      }
     });
   }, [index, items]);
 
   if (!item) return null;
   const chosen = item.albumIds.length > 0;
   const all = albums.map((a) => a.id);
+  const activeImageSrc = showOriginal && item.originalPreview ? item.originalPreview : item.preview;
 
   const toggleHeart = () => onSelect(item, chosen ? [] : all);
 
@@ -140,8 +157,8 @@ export default function Lightbox({
       >
         <div className="gal-frame">
           <img
-            key={item.id}
-            src={item.preview}
+            key={item.id + (showOriginal ? '-orig' : '-cur')}
+            src={activeImageSrc}
             alt=""
             draggable={false}
             className={loaded ? 'is-loaded' : ''}
@@ -149,6 +166,9 @@ export default function Lightbox({
             onLoad={() => setLoaded(true)}
             onClick={place}
           />
+          {showOriginal && (
+            <span className="gal-before-badge">המקור (לפני התיקון)</span>
+          )}
           {/* Rings, never filled blobs: a mark that covers what it points at
               is worse than no mark. Numbered, so with three notes on one frame
               each ring says which sentence below it belongs to. */}
@@ -171,6 +191,26 @@ export default function Lightbox({
 
       <div className="gal-controls">
         {notice && <p className="gal-notice">{notice}</p>}
+
+        {/* Before / After comparison for edited versions */}
+        {item.originalPreview && item.version > 1 && (
+          <div className="gal-compare-card">
+            <button
+              type="button"
+              className={`gal-compare-btn ${showOriginal ? 'active' : ''}`}
+              onMouseDown={() => setShowOriginal(true)}
+              onMouseUp={() => setShowOriginal(false)}
+              onMouseLeave={() => setShowOriginal(false)}
+              onTouchStart={(e) => { e.preventDefault(); setShowOriginal(true); }}
+              onTouchEnd={() => setShowOriginal(false)}
+              onClick={() => setShowOriginal((prev) => !prev)}
+            >
+              <span className="gal-compare-icon">⚡</span>
+              {showOriginal ? 'מציג מקור (לפני) — שחררו לחזרה' : 'החזיקו להשוואת לפני / אחרי'}
+            </button>
+            <span className="gal-updated-pill">עודכן ע״י הצלם · גרסה {item.version}</span>
+          </div>
+        )}
 
         {!locked && (
           <>
@@ -208,7 +248,7 @@ export default function Lightbox({
         {/* Notes live beside the heart, not after the lock: "this one, but
             without the chair" is said while choosing. */}
         <div className="gal-notes">
-            {item.version > 1 && (
+            {item.version > 1 && !item.originalPreview && (
               <p className="gal-updated">עודכן · גרסה {item.version}</p>
             )}
 
@@ -221,12 +261,35 @@ export default function Lightbox({
 
             {pin ? (
               <div className="gal-write">
+                <div className="gal-quick-tags">
+                  <span className="gal-quick-tags-title">תגית מהירה:</span>
+                  <div className="gal-quick-tags-list">
+                    {RETOUCH_TAGS.map((tag) => (
+                      <button
+                        key={tag}
+                        type="button"
+                        className="gal-quick-tag-chip"
+                        onClick={() => {
+                          setText((curr) => {
+                            const trimmed = curr.trim();
+                            if (!trimmed) return tag;
+                            if (trimmed.includes(tag)) return trimmed;
+                            return `${tag}: ${trimmed}`;
+                          });
+                        }}
+                      >
+                        + {tag}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
                 <textarea
                   value={text}
                   autoFocus
                   rows={2}
                   maxLength={2000}
-                  placeholder="מה לתקן כאן?"
+                  placeholder="מה לתקן כאן? לחצו על תגית מהירה או כתבו במילים שלכם"
                   onChange={(e) => setText(e.target.value)}
                 />
                 <div className="gal-write-row">
@@ -245,7 +308,7 @@ export default function Lightbox({
               </div>
             ) : (
               <>
-                <p className="gal-hint">געו במקום בתמונה כדי להעיר עליו</p>
+                <p className="gal-hint">געו במקום בתמונה כדי להעיר עליו לצלם</p>
                 {locked && (
                   <button
                     type="button"

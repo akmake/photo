@@ -10,6 +10,7 @@ import * as api from './api';
 import type { Album, Item, Manifest } from './api';
 import Grid from './Grid';
 import Lightbox from './Lightbox';
+import Slideshow from './Slideshow';
 import { groupGalleryItems } from './groups';
 import './gallery.css';
 
@@ -23,6 +24,7 @@ export default function App() {
   const [fatal, setFatal] = useState('');
   const [notice, setNotice] = useState('');
   const [open, setOpen] = useState<number | null>(null);
+  const [slideshow, setSlideshow] = useState(false);
   const [asking, setAsking] = useState(false);
   const noticeTimer = useRef<number>();
 
@@ -242,6 +244,15 @@ export default function App() {
           <span className="gal-sub">
             {locked ? 'הבחירה נשלחה לצלם' : `${chosen} נבחרו מתוך ${items.length}`}
           </span>
+          <button
+            type="button"
+            className="gal-slideshow-trigger-btn"
+            onClick={() => setSlideshow(true)}
+            title="צפה בכל התמונות כמצגת חגיגית"
+          >
+            <span>🎬</span>
+            <span>צפה במצגת</span>
+          </button>
         </div>
         <div className="gal-meters">
           {albums.map((album) => (
@@ -309,6 +320,15 @@ export default function App() {
           onSelect={choose}
           onComment={addNote}
           onDone={setDone}
+        />
+      )}
+
+      {slideshow && (
+        <Slideshow
+          items={visible}
+          albums={albums}
+          onClose={() => setSlideshow(false)}
+          onSelect={choose}
         />
       )}
 

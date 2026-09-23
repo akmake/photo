@@ -1,7 +1,8 @@
-import { useMemo, useState } from 'react';
+﻿import { useMemo, useState } from 'react';
 import { IcBook, IcChevron, IcSparkle } from '../design/Icons';
 import type { AlbumSummary } from './albumStorage';
 import type { AlbumPhoto, PrintProductProfile } from './model';
+import { smallUrl } from './projectPool';
 import { STANDARD_PRINT_PROFILES } from './model';
 
 interface Props {
@@ -62,10 +63,13 @@ export default function AlbumLibrary({
   const [renameId, setRenameId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState('');
   const [deleteId, setDeleteId] = useState<string | null>(null);
-  const [customWidthCm, setCustomWidthCm] = useState(56);
+  /* The album as it sits CLOSED, like every other size in the product. This
+   * field used to ask for the spread and quietly halve it, so the same album
+   * was 56 here and 28 in the resize panel. */
+  const [customWidthCm, setCustomWidthCm] = useState(28);
   const [customHeightCm, setCustomHeightCm] = useState(21);
   const isCustom = profileId === 'custom';
-  const customValid = customWidthCm >= 20 && customWidthCm <= 200 && customHeightCm >= 10 && customHeightCm <= 100;
+  const customValid = customWidthCm >= 10 && customWidthCm <= 100 && customHeightCm >= 10 && customHeightCm <= 100;
 
   const selectedProfile = standardProfiles.find((profile) => profile.id === profileId) ?? defaultProfile;
   const defaultName = useMemo(
@@ -92,8 +96,7 @@ export default function AlbumLibrary({
     onCreate({
       name: cleanName,
       baseProfileId: selectedProfile.id,
-      // a spread is two pages: the album's closed width is half the spread
-      closedWidthMm: isCustom ? Math.round((customWidthCm * 10) / 2) : selectedProfile.closedWidthMm,
+      closedWidthMm: isCustom ? Math.round(customWidthCm * 10) : selectedProfile.closedWidthMm,
       closedHeightMm: isCustom ? Math.round(customHeightCm * 10) : selectedProfile.closedHeightMm,
       styleName: 'Fine Art',
       background: '#f8f6f1',
@@ -136,34 +139,90 @@ export default function AlbumLibrary({
       </header>
 
       {albums.length ? (
-        <main className="album-library-list">
+        <main className="album-library-grid">
           {albums.map((album) => {
             const profile = profiles.find((item) => item.id === album.productProfileId);
             const isLegacy = projectScoped && !album.projectId;
+            /* Only a photograph the album genuinely places, and only one the
+             * project still holds. No stand-in, no borrowed picture. */
+            const cover = album.coverPhotoId
+              ? photos.find((photo) => photo.id === album.coverPhotoId)
+              : undefined;
             return (
-              <article className="album-library-row" key={album.id}>
-                <button className="album-library-row-main" onClick={() => onOpen(album.id)}>
-                  <span className="album-library-thumb" aria-hidden="true"><span><IcBook size={22} /></span></span>
-                  <span className="album-library-row-copy">
-                    <strong>{album.name}</strong>
-                    <span>{profile?.name ?? 'מוצר לא ידוע'} · {album.spreadCount} כפולות</span>
-                  </span>
-                  <span className="album-library-row-state">
-                    <b>{isLegacy ? 'אלבום ישן' : 'טיוטה'}</b>
-                    <time dateTime={album.updatedAt}>עודכן {whenLabel(album.updatedAt)}</time>
-                  </span>
-                </button>
-                <div className="album-library-row-actions">
-                  <button className="album-icon-button" aria-label={`פעולות נוספות עבור ${album.name}`} aria-expanded={openMenu === album.id} onClick={() => setOpenMenu((current) => current === album.id ? null : album.id)}>•••</button>
-                  {openMenu === album.id && (
-                    <div className="album-context-menu" role="menu">
-                      <button role="menuitem" onClick={() => startRename(album)}>שינוי שם</button>
-                      <button role="menuitem" onClick={() => { onDuplicate(album.id); setOpenMenu(null); }}>שכפול</button>
-                      <button role="menuitem" className="danger" onClick={() => { setDeleteId(album.id); setOpenMenu(null); }}>מחיקה</button>
+              <div
+                className="album-card"
+                key={album.id}
+                role="button"
+                tabIndex={0}
+                onClick={() => onOpen(album.id)}
+                onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') onOpen(album.id); }}
+              >
+                <div className="album-card-img-wrap">
+                  {cover?.url ? (
+                    <img className="album-card-img" src={smallUrl(cover.url)} alt="" loading="lazy" decoding="async" />
+                  ) : (
+                    <div className="album-card-img album-card-img-empty">
+                      <span><IcBook size={26} /></span>
+                      <small>טרם שובצו תמונות</small>
                     </div>
                   )}
+                  <div className="album-card-img-overlay" />
+
+                  <div className="album-card-badges">
+                    <span className={`album-card-badge${isLegacy ? ' is-legacy' : ''}`}>
+                      <span className="album-card-dot" />
+                      {isLegacy ? 'אלבום ישן' : 'טיוטה'}
+                    </span>
+                    {profile && (
+                      <span className="album-card-size-badge" dir="ltr">
+                        {profile.closedWidthMm / 10}×{profile.closedHeightMm / 10} ס״מ
+                      </span>
+                    )}
+                  </div>
+
+                  <div className="album-card-menu">
+                    <button
+                      type="button"
+                      className="album-card-menu-btn"
+                      aria-label={`פעולות נוספות עבור ${album.name}`}
+                      aria-expanded={openMenu === album.id}
+                      onClick={(event) => { event.stopPropagation(); setOpenMenu((current) => current === album.id ? null : album.id); }}
+                    >•••</button>
+                    {openMenu === album.id && (
+                      <div className="album-context-menu" role="menu" onClick={(event) => event.stopPropagation()}>
+                        <button role="menuitem" onClick={() => startRename(album)}>שינוי שם</button>
+                        <button role="menuitem" onClick={() => { onDuplicate(album.id); setOpenMenu(null); }}>שכפול</button>
+                        <button role="menuitem" className="danger" onClick={() => { setDeleteId(album.id); setOpenMenu(null); }}>מחיקה</button>
+                      </div>
+                    )}
+                  </div>
+
+                  <time className="album-card-when" dateTime={album.updatedAt}>עודכן {whenLabel(album.updatedAt)}</time>
+
+                  <div className="album-card-hover-action">
+                    <span>פתח אלבום</span>
+                    <IcChevron size={14} style={{ transform: 'rotate(180deg)' }} />
+                  </div>
                 </div>
-              </article>
+
+                <div className="album-card-body">
+                  <div className="album-card-title-row">
+                    <h3>{album.name}</h3>
+                    <span className="album-card-arrow" aria-hidden="true"><IcChevron size={16} style={{ transform: 'rotate(180deg)' }} /></span>
+                  </div>
+
+                  <div className="album-card-stats">
+                    <div><span className="album-card-stat-val">{album.spreadCount}</span><span className="album-card-stat-lbl">כפולות</span></div>
+                    <div><span className="album-card-stat-val">{album.photoCount}</span><span className="album-card-stat-lbl">תמונות</span></div>
+                    <div>
+                      <span className={`album-card-stat-val${album.photoCount && album.placedCount >= album.photoCount ? ' is-done' : ''}`}>
+                        {album.placedCount}
+                      </span>
+                      <span className="album-card-stat-lbl">שובצו</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
             );
           })}
         </main>
@@ -189,11 +248,11 @@ export default function AlbumLibrary({
                 <input autoFocus value={name} onChange={(event) => setName(event.target.value)} onKeyDown={(event) => event.key === 'Enter' && submit()} />
               </label>
               <label>
-                <span>גודל כפולה</span>
+                <span>גודל האלבום</span>
                 <select value={isCustom ? 'custom' : selectedProfile?.id ?? ''} onChange={(event) => setProfileId(event.target.value)}>
                   {standardProfiles.map((profile) => (
                     <option key={profile.id} value={profile.id}>
-                      {`${profile.spreadWidthMm / 10}×${profile.spreadHeightMm / 10} ס״מ`}
+                      {`${profile.closedWidthMm / 10}×${profile.closedHeightMm / 10} ס״מ`}
                     </option>
                   ))}
                   <option value="custom">מידה אחרת…</option>
@@ -202,15 +261,15 @@ export default function AlbumLibrary({
               {isCustom && (
                 <div className="album-create-size">
                   <label>
-                    <span>רוחב כפולה</span>
-                    <input type="number" min="20" max="200" step="0.5" value={customWidthCm} onChange={(event) => setCustomWidthCm(Number(event.target.value))} />
+                    <span>רוחב</span>
+                    <input type="number" min="10" max="100" step="0.5" value={customWidthCm} onChange={(event) => setCustomWidthCm(Number(event.target.value))} />
                   </label>
                   <i aria-hidden="true">×</i>
                   <label>
                     <span>גובה</span>
                     <input type="number" min="10" max="100" step="0.5" value={customHeightCm} onChange={(event) => setCustomHeightCm(Number(event.target.value))} />
                   </label>
-                  <small>{customValid ? 'ס״מ' : 'רוחב 20–200 ס״מ, גובה 10–100 ס״מ'}</small>
+                  <small>{customValid ? 'ס״מ · האלבום סגור' : 'רוחב וגובה 10–100 ס״מ'}</small>
                 </div>
               )}
               <fieldset>

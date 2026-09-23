@@ -18,6 +18,7 @@ export default function NoteViewer({
   busyId,
   onResolve,
   onClose,
+  onEdit,
 }: {
   frameId: string;
   src: string;
@@ -26,6 +27,7 @@ export default function NoteViewer({
   busyId: string | null;
   onResolve: (c: GalleryComment) => void;
   onClose: () => void;
+  onEdit?: (frameId: string) => void;
 }) {
   const [active, setActive] = useState<string | null>(null);
   const [loaded, setLoaded] = useState(false);
@@ -68,9 +70,24 @@ export default function NoteViewer({
         <aside className="nv-side">
           <div className="nv-head">
             <code className="nv-file">{frameId}</code>
-            <button type="button" className="nv-x" onClick={onClose} aria-label="סגור">
-              ✕
-            </button>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              {onEdit && (
+                <button
+                  type="button"
+                  className="nv-edit-btn"
+                  onClick={() => {
+                    onClose();
+                    onEdit(frameId);
+                  }}
+                  title="עבור לעריכת התמונה בסטודיו"
+                >
+                  ערוך בסטודיו ←
+                </button>
+              )}
+              <button type="button" className="nv-x" onClick={onClose} aria-label="סגור">
+                ✕
+              </button>
+            </div>
           </div>
           <ol className="nv-list">
             {notes.map((c, n) => {

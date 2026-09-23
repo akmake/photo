@@ -149,3 +149,18 @@
   .nv-frame img { max-height: 55vh; }
   .nv-side { max-height: 40vh; }
 }
+
+
+.nv-edit-btn {
+  background: var(--tz-brand, #e86338);
+  border: 0;
+  border-radius: 8px;
+  color: #fff;
+  padding: 5px 12px;
+  font: 700 12px Assistant, system-ui, sans-serif;
+  cursor: pointer;
+  transition: opacity 0.15s ease;
+}
+.nv-edit-btn:hover {
+  opacity: 0.9;
+}

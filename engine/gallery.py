@@ -645,6 +645,101 @@ def sweep(days=FREEZE_DAYS, dry_run=True):
     return {"days": days, "dryRun": bool(dry_run), "removed": out}
 
 
+def update_albums(gallery_id, albums):
+    """Update album names and quotas for a live gallery."""
+    gallery = _gallery(gallery_id)
+    if not albums:
+        raise GalleryError(400, "גלריה חייבת להכיל לפחות אלבום אחד")
+    clean = []
+    for n, a in enumerate(albums):
+        name = (a.get("name") or f"אלבום {n + 1}").strip()
+        quota = max(1, int(a.get("quota") or 1))
+        album_id = a.get("id") or secrets.token_hex(4)
+        clean.append({
+            "id": album_id,
+            "name": name,
+            "quota": quota,
+            "nameSetByClient": bool(a.get("nameSetByClient", False)),
+        })
+    gallery["albums"] = clean
+    _r().save("galleries", gallery)
+    return {"ok": True, "albums": clean}
+
+
+def lock_gallery(gallery_id):
+    """The photographer closes choosing manually from the studio."""
+    gallery = _gallery(gallery_id)
+    if not gallery.get("lockedAt"):
+        gallery["lockedAt"] = time.time()
+        _r().save("galleries", gallery)
+    return {"ok": True, "lockedAt": gallery["lockedAt"]}
+
+
+def purge_unselected(gallery_id):
+    """Remove preview/thumb files and records of unselected frames to free storage."""
+    gallery = _gallery(gallery_id)
+    items = _items(gallery_id)
+    store = gallery_store.store()
+    purged = 0
+    freed_bytes = 0
+
+    for it in items:
+        if not it.get("albumIds"):
+            prefix = f"gal/{gallery['id']}/{it['id']}"
+            freed_bytes += getattr(store, "size_prefix", lambda p: 0)(prefix)
+            store.delete_prefix(prefix)
+            _r().remove_where("galleryItems", {"id": it["id"]})
+            _r().remove_where("galleryComments", {"itemId": it["id"]})
+            purged += 1
+
+    return {"ok": True, "purgedCount": purged, "freedBytes": freed_bytes}
+
+
+def storage_stats():
+    """Summary of all galleries and cloud/disk storage used."""
+    galleries = _r().find("galleries", {})
+    store = gallery_store.store()
+    items_all = _r().find("galleryItems", {})
+
+    items_by_gal = {}
+    for it in items_all:
+        items_by_gal.setdefault(it.get("galleryId"), []).append(it)
+
+    gallery_list = []
+    total_bytes = 0
+
+    for g in galleries:
+        gid = g["id"]
+        g_items = items_by_gal.get(gid, [])
+        photo_count = len(g_items)
+        chosen_count = len([it for it in g_items if it.get("albumIds")])
+        bytes_used = getattr(store, "size_prefix", lambda p: 0)(f"gal/{gid}")
+        total_bytes += bytes_used
+
+        gallery_list.append({
+            "id": gid,
+            "name": g.get("name") or "גלריה",
+            "slug": g.get("slug"),
+            "projectId": g.get("projectId"),
+            "createdAt": g.get("createdAt"),
+            "status": g.get("status") or "active",
+            "lockedAt": g.get("lockedAt"),
+            "photoCount": photo_count,
+            "chosenCount": chosen_count,
+            "bytes": bytes_used,
+            "albums": g.get("albums") or [],
+        })
+
+    gallery_list.sort(key=lambda x: x.get("createdAt") or 0, reverse=True)
+    return {
+        "totalBytes": total_bytes,
+        "totalGalleries": len(galleries),
+        "activeGalleries": len([g for g in galleries if g.get("status") == "active"]),
+        "storageLimitBytes": 15 * 1024 * 1024 * 1024,  # 15 GB default tier
+        "galleries": gallery_list,
+    }
+
+
 # --------------------------------------------------------------------------
 # sessions
 # --------------------------------------------------------------------------
@@ -737,6 +832,7 @@ def manifest(token):
                 "thumb": store.url(i["thumbKey"]),
                 "preview": store.url(i["versions"][-1]["key"]),
                 "version": i["versions"][-1]["n"],
+                "originalPreview": store.url(i["versions"][0]["key"]) if len(i.get("versions") or []) > 1 else None,
                 "albumIds": i.get("albumIds") or [],
                 "clientDone": bool(i.get("clientDone")),
                 "notes": notes.get(i["id"]) or [],
@@ -977,6 +1073,14 @@ def _admin_route(method, path, body):
         )
     if action == "unlock" and method == "POST":
         return unlock(body.get("galleryId"))
+    if action == "lock" and method == "POST":
+        return lock_gallery(body.get("galleryId"))
+    if action == "update-albums" and method == "POST":
+        return update_albums(body.get("galleryId"), body.get("albums") or [])
+    if action == "purge-unselected" and method == "POST":
+        return purge_unselected(body.get("galleryId"))
+    if action == "storage-stats":
+        return storage_stats()
     if action == "delete" and method == "POST":
         return delete_gallery(body.get("galleryId"))
     raise GalleryError(404, "not found")

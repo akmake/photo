@@ -1,4 +1,4 @@
-import type { PhotoPalette } from '../api';
+﻿import type { PhotoPalette } from '../api';
 import type { SpreadTemplateInstance } from './templates/types';
 
 export type PhotoOrientation = 'portrait' | 'landscape' | 'square';
@@ -230,9 +230,52 @@ export interface AlbumProject {
 
 /* Profile names follow how studios speak about albums: the open SPREAD,
  * width × height in cm. */
+/* HOW AN ALBUM'S SIZE IS WRITTEN, EVERYWHERE, ONCE.
+ *
+ * An album is named by the book AS IT SITS CLOSED — the way a photographer and
+ * a client speak about it ("אלבום 30 על 30") and the way a lab quotes one. The
+ * spread is simply twice that. The product used to say both: an album made at
+ * "56 wide" was listed as 28 wide in the resize panel, and typing its own name
+ * back into that panel doubled the book. */
+export function albumSizeName(closedWidthMm: number, closedHeightMm: number): string {
+  return `אלבום ${closedWidthMm / 10}×${closedHeightMm / 10}`;
+}
+
+/** The same album offered larger and smaller. Every step keeps the book's own
+ *  proportion exactly — a resize makes a bigger or a smaller book, never a
+ *  differently shaped one. Stepped on the longer side, so a portrait album and
+ *  a landscape album both get a sensible ladder, and the album's own size is
+ *  always one of the steps. */
+export function albumSizeLadder(
+  profile: { closedWidthMm: number; closedHeightMm: number },
+): { width: number; height: number }[] {
+  const shape = profile.closedWidthMm / Math.max(1, profile.closedHeightMm);
+  const wide = profile.closedWidthMm >= profile.closedHeightMm;
+  /* The stepped side lands on a round number; the other side follows the
+   * album's shape EXACTLY. Rounding it too would bend the proportion by a
+   * percent or so on every step — and a bent proportion is the one thing a
+   * resize must never do. */
+  const exact = (value: number) => Math.round(value * 100) / 100;
+  const own = Math.round((wide ? profile.closedWidthMm : profile.closedHeightMm) / 10);
+  const steps = [...new Set([20, 24, 28, 30, 35, 40, own])].sort((a, b) => a - b);
+  const seen = new Set<string>();
+  const out: { width: number; height: number }[] = [];
+  for (const step of steps) {
+    const size = wide
+      ? { width: step, height: exact(step / shape) }
+      : { width: exact(step * shape), height: step };
+    const key = `${size.width}x${size.height}`;
+    if (seen.has(key)) continue;
+    if (size.width < 10 || size.width > 100 || size.height < 10 || size.height > 100) continue;
+    seen.add(key);
+    out.push(size);
+  }
+  return out;
+}
+
 export const FIRST_PRINT_PROFILE: PrintProductProfile = {
   id: 'lab-proof-28-landscape',
-  name: 'אלבום 56×21',
+  name: 'אלבום 28×21',
   labName: 'פרופיל בדיקה — דורש אימות מול בית הדפוס',
   productType: 'layflat',
   closedWidthMm: 280,
@@ -263,7 +306,7 @@ export const FIRST_PRINT_PROFILE: PrintProductProfile = {
 const square = (id: string, sideMm: number): PrintProductProfile => ({
   ...FIRST_PRINT_PROFILE,
   id,
-  name: `אלבום ${(sideMm * 2) / 10}×${sideMm / 10}`,
+  name: albumSizeName(sideMm, sideMm),
   closedWidthMm: sideMm,
   closedHeightMm: sideMm,
   spreadWidthMm: sideMm * 2,
@@ -288,7 +331,7 @@ export const PRINT_PROFILES: PrintProductProfile[] = [
   {
     ...FIRST_PRINT_PROFILE,
     id: 'lab-proof-30-landscape',
-    name: 'אלבום 60×20',
+    name: 'אלבום 30×20',
     closedWidthMm: 300,
     closedHeightMm: 200,
     spreadWidthMm: 600,
@@ -298,7 +341,7 @@ export const PRINT_PROFILES: PrintProductProfile[] = [
   {
     ...FIRST_PRINT_PROFILE,
     id: 'lab-proof-30-portrait',
-    name: 'אלבום 40×30',
+    name: 'אלבום 20×30',
     closedWidthMm: 200,
     closedHeightMm: 300,
     spreadWidthMm: 400,

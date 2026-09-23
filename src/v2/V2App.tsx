@@ -1,4 +1,4 @@
-﻿import React, { Suspense, lazy, useMemo, useState } from 'react';
+import React, { Suspense, lazy, useMemo, useState } from 'react';
 import { useStudio } from '../studio/store';
 import NewProject from '../studio/screens/NewProject';
 import TzStatusScreen from './screens/TzStatusScreen';
@@ -60,6 +60,7 @@ export default function V2App({ onSwitchToV1, onOpenProjectV1 }: V2AppProps) {
   const [activeNav, setActiveNav] = useState<'today' | 'projects' | 'project-detail' | string>('today');
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
   const [activeStage, setActiveStage] = useState('client-status');
+  const [editTargetFrame, setEditTargetFrame] = useState<string | null>(null);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   /* פרויקט חדש opens here rather than on the projects screen, so the button on
    * the dashboard opens the form instead of merely walking you to the screen
@@ -258,6 +259,11 @@ export default function V2App({ onSwitchToV1, onOpenProjectV1 }: V2AppProps) {
             project={proj}
             onNext={() => setActiveStage('gallery-edit')}
             onBack={() => setActiveStage('work')}
+            onNavigateToEdit={(frameName) => {
+              setEditTargetFrame(frameName ?? null);
+              setActiveStage('gallery-edit');
+            }}
+            onNavigateToAlbum={() => setActiveStage('album-design')}
           />
         );
       }
@@ -266,6 +272,7 @@ export default function V2App({ onSwitchToV1, onOpenProjectV1 }: V2AppProps) {
         return (
           <GalleryEditV2
             project={proj}
+            initialFrameName={editTargetFrame}
             onNext={() => setActiveStage('album-design')}
             onBack={() => setActiveStage('send-to-client')}
             onExitGeneral={() => setActiveStage('client-status')}

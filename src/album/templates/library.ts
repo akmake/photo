@@ -1,6 +1,6 @@
 ﻿import type { AlbumSpread, LayoutSlot } from '../model';
 import type {
-  AlbumTemplate, LayerBox, PhotoLayer, SpreadTemplateInstance, TemplateLayer, TextLayer,
+  AlbumTemplate, LayerBox, PhotoLayer, ShapeLayer, SpreadTemplateInstance, TemplateLayer, TextLayer,
 } from './types';
 import { VAULT_TEMPLATES } from './vaultLibrary.ts';
 import { fittedTemplate } from './adapt.ts';
@@ -112,6 +112,29 @@ export function colorOf(
   return instance.colors[token]
     ?? template.colors.find((color) => color.id === token)?.value
     ?? MISSING_COLOR;
+}
+
+/** A designed shape's own colour when the photographer gave it one, else its
+ *  token's. It paints the fill of a filled shape and the line of a line. */
+export function shapeFill(
+  template: AlbumTemplate,
+  instance: SpreadTemplateInstance,
+  layer: ShapeLayer,
+): string | null {
+  if (layer.fillColor) return layer.fillColor;
+  if (!layer.fillToken) return null;
+  return instance.layerColors?.[layer.id] ?? colorOf(template, instance, layer.fillToken);
+}
+
+export function shapeStroke(
+  template: AlbumTemplate,
+  instance: SpreadTemplateInstance,
+  layer: ShapeLayer,
+): string | null {
+  if (layer.strokeColor) return layer.strokeColor;
+  if (!layer.strokeToken) return null;
+  const own = layer.fillToken ? undefined : instance.layerColors?.[layer.id];
+  return own ?? colorOf(template, instance, layer.strokeToken);
 }
 
 export function templateBackground(

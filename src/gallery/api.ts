@@ -37,6 +37,7 @@ export interface Item {
   aspect: number;
   thumb: string;
   preview: string;
+  originalPreview?: string | null;
   version: number;
   albumIds: string[];
   clientDone: boolean;
@@ -185,6 +186,7 @@ export const manifest = async (slug: string, token: string): Promise<Manifest> =
       ...i,
       thumb: abs(i.thumb),
       preview: abs(i.preview),
+      originalPreview: i.originalPreview ? abs(i.originalPreview) : null,
     })),
   };
 };

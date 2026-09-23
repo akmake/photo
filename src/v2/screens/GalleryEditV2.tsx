@@ -21,7 +21,16 @@ import {
   useDiskFault,
   retrySave,
 } from '../../studio/store';
-import { EDIT_WIDTH, learnColorModel, prepareFrames, renderRecipeAtPath, selectObjectAtPath, Superseded, thumbUrl } from '../../api';
+import {
+  EDIT_WIDTH,
+  galleryResolve,
+  learnColorModel,
+  prepareFrames,
+  renderRecipeAtPath,
+  selectObjectAtPath,
+  Superseded,
+  thumbUrl,
+} from '../../api';
 import type { LearnColorResponse } from '../../api';
 import type { LearnedColorModel, ManualStroke, ToolInstance, ToolMask } from '../../types';
 import { defaultParams, getTool, isRawFile, isToolAtDefault } from '../../toolRegistry';
@@ -68,11 +77,13 @@ export default function GalleryEditV2({
   onNext,
   onBack,
   onExitGeneral,
+  initialFrameName,
 }: {
   project: Project;
   onNext?: () => void;
   onBack?: () => void;
   onExitGeneral?: () => void;
+  initialFrameName?: string | null;
 }) {
   const batches = useBatches(project.id);
   const { frames, ready } = useProjectFiles(project.id);
@@ -348,6 +359,18 @@ export default function GalleryEditV2({
     setActiveSlideIndex(0);
   }, [selectedOnly, choseBatch, at, visibleBatches, visibleUnassigned.length]);
 
+  // When opened targeting a specific frame (e.g. from client feedback queue)
+  useEffect(() => {
+    if (!initialFrameName || !ready || frames.length === 0) return;
+    const targetKey = frameKey(initialFrameName);
+    setAt('__all__');
+    setChoseBatch(true);
+    const idx = visibleAll.findIndex((f) => frameKey(f.name) === targetKey);
+    if (idx >= 0) {
+      setActiveSlideIndex(idx);
+    }
+  }, [initialFrameName, ready, frames.length, visibleAll]);
+
   // Slides for current batch
   const currentBatch = batches.find((b) => b.id === at) ?? null;
   const slideFrames = useMemo(() => {
@@ -425,6 +448,14 @@ export default function GalleryEditV2({
   // Active frame
   const currentFrame = slideFrames[activeSlideIndex] ?? slideFrames[0] ?? null;
 
+  // Client comments and pinpoints on current frame
+  const currentFrameComments = useMemo(() => {
+    if (!currentFrame || !galleryWatch.state?.comments) return [];
+    return galleryWatch.state.comments.filter(
+      (c) => c.frameId === currentFrame.name && !c.resolvedAt,
+    );
+  }, [currentFrame, galleryWatch.state?.comments]);
+
   /* סיימתי — this photograph is finished. The edit itself is already on disk
    * (every change is); this records the photographer's word that it is DONE,
    * and moves on to the next frame in this view that is not. */
@@ -437,11 +468,22 @@ export default function GalleryEditV2({
     setPhotoStatus(project.id, currentFrame.name, 'ready');
     // The finished file goes to the album and to the client's gallery.
     const finished = currentFrame.name;
+    const commentsToResolve = currentFrameComments;
     setFinishNotes((n) => ({ ...n, [finished]: 'שומר את התמונה הערוכה…' }));
-    void publishFinished(project.id, finished).then((out) => {
+    void publishFinished(project.id, finished).then(async (out) => {
+      if (out.gallery === 'sent' && galleryWatch.link && commentsToResolve.length > 0) {
+        for (const c of commentsToResolve) {
+          try {
+            await galleryResolve(galleryWatch.link.galleryId, c.id);
+          } catch {
+            // ignore
+          }
+        }
+        galleryWatch.refresh();
+      }
       const words = out.fileError
         ? `לא נשמרה: ${out.fileError}`
-        : out.gallery === 'sent' ? 'נשמרה לאלבום · נשלחה ללקוח'
+        : out.gallery === 'sent' ? 'נשמרה לאלבום · עודכנה ללקוח (v2) ✓'
         : out.gallery === 'failed' ? `נשמרה לאלבום · לא נשלחה ללקוח: ${out.galleryError ?? ''}`
         : out.gallery === 'not-in-gallery' ? 'נשמרה לאלבום · לא בגלריה של הלקוח'
         : 'נשמרה לאלבום';
@@ -450,7 +492,7 @@ export default function GalleryEditV2({
     const after = slideFrames.findIndex((f, i) => i > activeSlideIndex && !isDone(f.name));
     if (after >= 0) setActiveSlideIndex(after);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentFrame, slideFrames, activeSlideIndex, statuses, project.id]);
+  }, [currentFrame, slideFrames, activeSlideIndex, statuses, project.id, currentFrameComments, galleryWatch]);
   const finishRef = useRef(finishCurrent);
   finishRef.current = finishCurrent;
 
@@ -1416,6 +1458,15 @@ export default function GalleryEditV2({
             </div>
 
             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              {currentFrameComments.length > 0 && (
+                <div
+                  className="tz-ge-comments-badge"
+                  title={currentFrameComments.map((c, i) => `#${i + 1}: ${c.text}`).join('\n')}
+                >
+                  <span style={{ color: '#e86338' }}>💬</span>
+                  <span>{currentFrameComments.length} הערות לקוח</span>
+                </div>
+              )}
               {currentFrame && <button
                 type="button"
                 className={`tz-ge-object-entry${objectMode ? ' is-active' : ''}`}
@@ -1435,6 +1486,17 @@ export default function GalleryEditV2({
                     : 'סיימתי לערוך את התמונה — עוברים לבאה שלא הסתיימה (Ctrl+Enter)'}
                 >
                   {isDone(currentFrame.name) ? 'הסתיימה ✓ · החזר לעריכה' : 'סיימתי ✓'}
+                </button>
+              )}
+              {currentFrame && galleryWatch.link && (
+                <button
+                  type="button"
+                  className="tz-ge-push-btn"
+                  onClick={finishCurrent}
+                  title="עדכן גרסה חדשה ישירות לגלריית הלקוח (v2)"
+                >
+                  <span>🚀</span>
+                  <span>עדכן ללקוח (v2)</span>
                 </button>
               )}
               {currentFrame && finishNotes[currentFrame.name] && isDone(currentFrame.name) && (
@@ -1605,6 +1667,23 @@ export default function GalleryEditV2({
                       tint="59, 130, 246"
                     />
                   )}
+                  {/* Client Feedback Pins on Canvas */}
+                  {fittedImage && !showOriginal && currentFrameComments.map((note, n) => (
+                    <div
+                      key={note.id}
+                      className="tz-ge-client-pin"
+                      style={{
+                        left: 16 + note.x * fittedImage.width,
+                        top: 16 + note.y * fittedImage.height,
+                      }}
+                    >
+                      <span className="tz-ge-pin-num">{n + 1}</span>
+                      <div className="tz-ge-pin-bubble">
+                        <b>הערת לקוח #{n + 1}</b>
+                        <p>{note.text}</p>
+                      </div>
+                    </div>
+                  ))}
                 </div>
                 {showOriginal && (
                   <div className="tz-ge-canvas-badge-original">

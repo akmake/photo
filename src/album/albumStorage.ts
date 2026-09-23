@@ -1,4 +1,4 @@
-import type { AlbumPhoto, AlbumProject } from './model';
+﻿import type { AlbumPhoto, AlbumProject } from './model';
 
 const DB_NAME = 'teza-album-local';
 const DB_VERSION = 1;
@@ -30,6 +30,10 @@ export interface AlbumSummary {
   spreadCount: number;
   photoCount: number;
   placedCount: number;
+  /** The first photograph the album actually places — what the library shows
+   *  as its cover. Absent on an album saved before covers were listed, and on
+   *  an album with nothing placed yet. */
+  coverPhotoId?: string;
   updatedAt: string;
   createdAt: string;
 }
@@ -139,6 +143,9 @@ function migrateLegacyWorkspace(): void {
 
 function summarize(saved: SavedAlbum, createdAt?: string): AlbumSummary {
   const placed = new Set(saved.project.spreads.flatMap((spread) => spread.photoIds));
+  const cover = saved.project.spreads
+    .flatMap((spread) => spread.photoIds)
+    .find((id) => id && saved.photos.some((photo) => photo.id === id));
   return {
     id: saved.project.id,
     projectId: saved.project.projectId ?? null,
@@ -147,6 +154,7 @@ function summarize(saved: SavedAlbum, createdAt?: string): AlbumSummary {
     spreadCount: saved.project.spreads.length,
     photoCount: saved.photos.length,
     placedCount: placed.size,
+    coverPhotoId: cover || undefined,
     updatedAt: saved.savedAt,
     createdAt: createdAt ?? saved.savedAt,
   };

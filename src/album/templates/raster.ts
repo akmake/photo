@@ -1,6 +1,6 @@
 import { assessCrop } from '../cropEngine';
 import type { AlbumPhoto, AlbumSpread, PhotoFrameSettings } from '../model';
-import { colorOf, paintOrder, photoLayers, templateBackground, textOf, usesSourceLettering } from './library';
+import { colorOf, paintOrder, photoLayers, shapeFill, shapeStroke, templateBackground, textOf, usesSourceLettering } from './library';
 import type {
   AlbumTemplate, ImageLayer, LayerBox, PhotoLayer, ShapeLayer, SpreadTemplateInstance, TextLayer,
 } from './types';
@@ -179,8 +179,8 @@ function drawShape(
   instance: SpreadTemplateInstance,
   viewWidth: number,
 ): void {
-  const fill = layer.fillColor ?? (layer.fillToken ? colorOf(template, instance, layer.fillToken) : null);
-  const stroke = layer.strokeColor ?? (layer.strokeToken ? colorOf(template, instance, layer.strokeToken) : null);
+  const fill = shapeFill(template, instance, layer);
+  const stroke = shapeStroke(template, instance, layer);
   const { x, y, width, height } = layer.box;
   const left = x * viewWidth;
   const top = y * VIEW_HEIGHT;

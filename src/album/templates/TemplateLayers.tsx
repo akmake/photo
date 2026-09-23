@@ -1,7 +1,7 @@
 import { useId, type CSSProperties } from 'react';
 import { assessCrop } from '../cropEngine';
 import { photoAdjustmentFilter, type AlbumPhoto, type AlbumSpread, type PhotoFrameSettings } from '../model';
-import { colorOf, paintOrder, textOf, usesSourceLettering } from './library';
+import { colorOf, paintOrder, shapeFill, shapeStroke, textOf, usesSourceLettering } from './library';
 import type {
   AlbumTemplate, ImageLayer, LayerOutline, PhotoLayer, ShapeLayer, SpreadTemplateInstance, TemplateLayer,
   TextLayer,
@@ -108,8 +108,8 @@ function Shape({ layer, template, instance, viewWidth }: {
   viewWidth: number;
 }) {
   const common = {
-    fill: layer.fillColor ?? (layer.fillToken ? colorOf(template, instance, layer.fillToken) : 'none'),
-    stroke: layer.strokeColor ?? (layer.strokeToken ? colorOf(template, instance, layer.strokeToken) : undefined),
+    fill: shapeFill(template, instance, layer) ?? 'none',
+    stroke: shapeStroke(template, instance, layer) ?? undefined,
     strokeWidth: layer.strokeWidth ? layer.strokeWidth * VIEW_HEIGHT : undefined,
   };
   const rotation = svgRotation(layer, viewWidth);

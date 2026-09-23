@@ -1406,6 +1406,47 @@ export const gallerySetStatus = (
 export const galleryUnlock = (galleryId: string) =>
   post<{ ok: boolean }>('/api/gallery/unlock', { galleryId });
 
+export const galleryLock = (galleryId: string) =>
+  post<{ ok: boolean; lockedAt: number }>('/api/gallery/lock', { galleryId });
+
+export const galleryUpdateAlbums = (
+  galleryId: string,
+  albums: { id?: string; name: string; quota: number; nameSetByClient?: boolean }[],
+) => post<{ ok: boolean; albums: { id: string; name: string; quota: number }[] }>('/api/gallery/update-albums', {
+  galleryId,
+  albums,
+});
+
+export const galleryPurgeUnselected = (galleryId: string) =>
+  post<{ ok: boolean; purgedCount: number; freedBytes: number }>('/api/gallery/purge-unselected', {
+    galleryId,
+  });
+
+export interface GalleryStorageItem {
+  id: string;
+  name: string;
+  slug: string;
+  projectId?: string;
+  createdAt?: number;
+  status: 'active' | 'frozen' | 'archived';
+  lockedAt?: number | null;
+  photoCount: number;
+  chosenCount: number;
+  bytes: number;
+  albums?: { id: string; name: string; quota: number }[];
+}
+
+export interface GalleryStorageStats {
+  totalBytes: number;
+  totalGalleries: number;
+  activeGalleries: number;
+  storageLimitBytes: number;
+  galleries: GalleryStorageItem[];
+}
+
+export const galleryStorageStats = () =>
+  post<GalleryStorageStats>('/api/gallery/storage-stats', {});
+
 export const galleryDelete = (galleryId: string) =>
   post<{ ok: boolean }>('/api/gallery/delete', { galleryId });
 

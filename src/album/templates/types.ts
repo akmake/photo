@@ -162,6 +162,9 @@ export interface SpreadTemplateInstance {
   templateVersion: number;
   /** token id → colour. Colours belong to the spread, chosen for its photos. */
   colors: Record<string, string>;
+  /** designed shape id → its own colour, overriding its token. Lets one band
+   *  differ from another band the design painted in the same colour. */
+  layerColors?: Record<string, string>;
   /** text layer id → text. */
   texts: Record<string, string>;
   /** photo place id → where the photographer dragged or resized it, as

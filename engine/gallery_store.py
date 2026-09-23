@@ -139,6 +139,24 @@ class LocalStore:
             except OSError:
                 pass  # a stale object is not worth failing a delete over
 
+    def size_prefix(self, prefix):
+        """Total size in bytes of files under this prefix."""
+        path = self._path(prefix)
+        total = 0
+        if os.path.isdir(path):
+            for root, _, files in os.walk(path):
+                for f in files:
+                    try:
+                        total += os.path.getsize(os.path.join(root, f))
+                    except OSError:
+                        pass
+        elif os.path.isfile(path):
+            try:
+                total += os.path.getsize(path)
+            except OSError:
+                pass
+        return total
+
 
 class S3Store:
     """Any S3-compatible bucket. Verified against the B2 and R2 API shapes.
@@ -236,6 +254,17 @@ class S3Store:
                     )
         except Exception as e:  # noqa: BLE001
             raise StoreUnavailable(f"cannot delete {prefix}: {e}") from e
+
+    def size_prefix(self, prefix):
+        try:
+            paginator = self._s3.get_paginator("list_objects_v2")
+            total = 0
+            for page in paginator.paginate(Bucket=self.bucket, Prefix=prefix):
+                for o in page.get("Contents", []):
+                    total += o.get("Size", 0)
+            return total
+        except Exception:
+            return 0
 
 
 _store = None

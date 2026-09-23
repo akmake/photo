@@ -353,6 +353,29 @@ def main():
         check("the rest of the batch still landed",
               len(gallery.manifest(back["token"])["items"]) == 6)
 
+        print("\ndynamic albums and storage")
+        status, alb_out = gallery.handle("POST", "/api/gallery/update-albums", {
+            "galleryId": gid,
+            "albums": [
+                {"name": "אלבום מעודכן", "quota": 50},
+                {"name": "אלבום הגדלות", "quota": 5},
+            ],
+        })
+        check("albums updated dynamically", status == 200 and len(alb_out["albums"]) == 2)
+        check("quota reflected in gallery state",
+              gallery.state(gid)["gallery"]["albums"][0]["quota"] == 50)
+
+        status, stat_out = gallery.handle("POST", "/api/gallery/storage-stats", {})
+        check("storage stats reports galleries and bytes",
+              status == 200 and stat_out["totalGalleries"] >= 1 and stat_out["totalBytes"] > 0,
+              str(stat_out))
+
+        status, purge_out = gallery.handle("POST", "/api/gallery/purge-unselected", {
+            "galleryId": gid,
+        })
+        check("purge removes unselected frames to free storage",
+              status == 200 and purge_out["purgedCount"] > 0)
+
         print("\ndeleting")
         gallery.delete_gallery(gid)
         check("the objects are gone", not os.path.isdir(stored))

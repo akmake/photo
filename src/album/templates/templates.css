@@ -159,6 +159,10 @@
 
 /* invisible hit area over an added element, in its paint order */
 .tpl-hit { position: absolute; cursor: move; background: transparent; }
+/* a band or panel of the designed page — it is not moved, only coloured */
+.tpl-hit.tpl-decor-hit { cursor: pointer; }
+.tpl-hit.tpl-decor-hit:hover { outline: 1px solid var(--accent); outline-offset: -1px; }
+.tpl-hit.tpl-decor-hit.selected { outline: 2px solid var(--accent); outline-offset: -2px; }
 .album-frame-selection.element { outline-style: dashed; }
 
 /* ---------- Spread side panel: rail of tabs + one job per tab ---------- */
@@ -326,3 +330,8 @@
 /* a text says it can be typed into before anyone double-clicks it */
 .tpl-hit.text { cursor: text; }
 .tpl-hit.text:active { cursor: move; }
+
+/* ---------- the page's own colours, in the background tab ---------- */
+.sp-page-colors { display: grid; gap: 6px; }
+.sp-page-colors label { display: flex; align-items: center; gap: 10px; font-size: 11px; cursor: pointer; }
+.sp-page-colors input[type="color"] { width: 34px; height: 26px; padding: 0; border: 1px solid rgb(0 0 0 / .15); border-radius: 6px; background: none; cursor: pointer; }
