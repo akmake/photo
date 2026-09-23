@@ -18,7 +18,7 @@
  */
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { autoEnhance, paintObjectAtPath, renderRecipeAtPath, selectObjectAtPath, Superseded, thumbUrl } from '../../api';
+import { autoEnhance, EDIT_WIDTH, paintObjectAtPath, renderRecipeAtPath, selectObjectAtPath, Superseded, thumbUrl } from '../../api';
 import type { Frame } from '../../api';
 import { effectiveRecipe, removeFrameStep, setFrameStep } from '../../studio/store';
 import type { ManualStroke, ToolInstance } from '../../types';
@@ -209,21 +209,14 @@ export default function PhotoEditor({
   }, [recipe, tab, objectSelecting, objectDraft]);
   const stageSig = useMemo(() => JSON.stringify(stageRecipe), [stageRecipe]);
 
-  const width = useMemo(() => {
-    const w = typeof window !== 'undefined' ? window.innerWidth * (window.devicePixelRatio || 1) : 1600;
-    return Math.min(2400, Math.max(1200, Math.round(w * 0.7)));
-  }, []);
-
-  // "לפני": the frame as it was when the editor opened.
-  useEffect(() => {
-    let alive = true;
-    renderRecipeAtPath(frame.path, saved, width)
-      .then((r) => { if (alive) setBefore(r.image); })
-      .catch(() => undefined);
-    return () => { alive = false; };
-  }, [frame.path, saved, width]);
+  // The size import prepared every frame at (masks included). Any other size
+  // misses all of it and starts the frame from the file.
+  const width = EDIT_WIDTH;
+  const savedSig = useMemo(() => JSON.stringify(saved), [saved]);
 
   // The stage — the last finished render stays up while the next is made.
+  // Its first render IS "לפני" when it is the frame as saved, so opening the
+  // editor makes one picture, not the same picture twice in a row.
   const timer = useRef<number | undefined>(undefined);
   useEffect(() => {
     window.clearTimeout(timer.current);
@@ -231,7 +224,11 @@ export default function PhotoEditor({
     timer.current = window.setTimeout(() => {
       setBusy(true);
       renderRecipeAtPath(frame.path, JSON.parse(stageSig) as ToolInstance[], width, false, 'ws-editor')
-        .then((r) => { if (alive) { setImage(r.image); setImageFor(stageSig); setFault(null); } })
+        .then((r) => {
+          if (!alive) return;
+          setImage(r.image); setImageFor(stageSig); setFault(null);
+          if (stageSig === savedSig) setBefore((b) => b ?? r.image);
+        })
         .catch((e) => { if (alive && !(e instanceof Superseded)) setFault(e instanceof Error ? e.message : 'הרינדור נכשל'); })
         .finally(() => { if (alive) setBusy(false); });
     }, image ? 90 : 0);
@@ -240,6 +237,19 @@ export default function PhotoEditor({
   }, [frame.path, stageSig, width]);
 
   const dirty = Object.keys(edits).length > 0;
+
+  // "לפני" when the stage never showed the saved frame (opened on another tab,
+  // or edited before the first picture arrived): made once, only when its
+  // button can appear, and only after the stage has its picture.
+  const wantsBefore = !before && dirty && !busy && (tab === 'adjust' || tab === 'filter');
+  const beforeAsked = useRef(false);
+  useEffect(() => {
+    if (!wantsBefore || beforeAsked.current) return;
+    beforeAsked.current = true;
+    renderRecipeAtPath(frame.path, saved, width)
+      .then((r) => setBefore(r.image))
+      .catch(() => { beforeAsked.current = false; });
+  }, [wantsBefore, frame.path, saved, width]);
 
   const save = useCallback(() => {
     for (const toolId of Object.keys(edits)) {
