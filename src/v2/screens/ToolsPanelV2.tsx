@@ -263,7 +263,7 @@ export default function ToolsPanelV2({
                     <div className="tz-tp-body">
                       {def.id === 'object-remove' ? (
                         <div className="tz-tp-object">
-                          <p className="tz-tp-note">בחרו אובייקט בתמונה, בדקו את המסכה ותקנו אותה לפני ההסרה. השלמת אדם או בעל חיים מוסתר עדיין דורשת בדיקה מקרוב.</p>
+                          <p className="tz-tp-note">העבירו את העכבר על התמונה — קו לבן מראה מה ייבחר. לחצו לבחירה; תפס יותר מדי? Alt ולחיצה על מה שלא רציתם. בדקו את המסכה לפני ההסרה.</p>
                           <button type="button" className="tz-tp-brush" disabled={objectBusy}
                             onClick={() => onObjectMode?.(objectMode === 'select' ? null : 'select')}>
                             {objectMode === 'select' ? 'בטל בחירה' : 'בחר בלחיצה על התמונה'}

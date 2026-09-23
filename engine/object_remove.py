@@ -99,45 +99,96 @@ def _read_mask(data: str, shape: tuple) -> np.ndarray:
     return (cv2.resize(mask, (w, h), interpolation=cv2.INTER_NEAREST) > 127).astype(np.uint8)
 
 
-def select(rgb: np.ndarray, x: float, y: float) -> dict:
-    """Choose a MobileSAM mask at a normalized click; the user must review it."""
-    if not (0 <= x <= 1 and 0 <= y <= 1):
-        raise ValueError("Selection point must be inside the photograph")
+_image_key = None  # which picture the predictor holds; None = unknown
+
+
+def _small(rgb: np.ndarray) -> np.ndarray:
     if rgb.ndim != 3 or rgb.shape[2] != 3:
         raise ValueError("Selection requires an RGB photograph")
     h, w = rgb.shape[:2]
     scale = min(1.0, SELECT_MAX_DIM / max(h, w))
-    small = cv2.resize(rgb, (max(1, round(w * scale)), max(1, round(h * scale))),
-                       interpolation=cv2.INTER_AREA) if scale < 1 else rgb
-    global _predictor
-    with _predict_lock:
-        if _predictor is None:
-            from mobile_sam import SamPredictor, sam_model_registry
+    return cv2.resize(rgb, (max(1, round(w * scale)), max(1, round(h * scale))),
+                      interpolation=cv2.INTER_AREA) if scale < 1 else rgb
 
-            import os
-            checkpoint = os.path.join(paths.models_dir(), "mobile_sam.pt")
-            if not os.path.isfile(checkpoint):
-                raise RuntimeError("MobileSAM model is unavailable")
-            model = sam_model_registry["vit_t"](checkpoint=checkpoint).eval()
-            _predictor = SamPredictor(model)
+
+def _hold(small: np.ndarray, key) -> None:
+    """Make the predictor hold this picture. Call under _predict_lock.
+
+    Reading a picture costs ~0.3s; each question about it after that costs
+    milliseconds. Hovering asks dozens of questions about one picture, so a
+    picture with a key is read once and kept until another replaces it.
+    """
+    global _predictor, _image_key
+    if _predictor is None:
+        from mobile_sam import SamPredictor, sam_model_registry
+
+        import os
+        checkpoint = os.path.join(paths.models_dir(), "mobile_sam.pt")
+        if not os.path.isfile(checkpoint):
+            raise RuntimeError("MobileSAM model is unavailable")
+        model = sam_model_registry["vit_t"](checkpoint=checkpoint).eval()
+        _predictor = SamPredictor(model)
+    if key is None or key != _image_key:
         _predictor.set_image(small)
-        sh, sw = small.shape[:2]
-        point = np.array([[min(sw - 1, round(x * (sw - 1))),
-                           min(sh - 1, round(y * (sh - 1)))]])
-        raw, scores, _ = _predictor.predict(
-            point_coords=point, point_labels=np.array([1]), multimask_output=True,
-            return_logits=True,
-        )
+        _image_key = key
+
+
+def _points(small: np.ndarray, clicks) -> tuple:
+    sh, sw = small.shape[:2]
+    coords, labels = [], []
+    for x, y, keep in clicks:
+        if not (0 <= x <= 1 and 0 <= y <= 1):
+            raise ValueError("Selection point must be inside the photograph")
+        coords.append([min(sw - 1, round(x * (sw - 1))), min(sh - 1, round(y * (sh - 1)))])
+        labels.append(1 if keep else 0)
+    return np.array(coords), np.array(labels)
+
+
+def _pick(small: np.ndarray, clicks, key):
+    """-> (candidates, scores, chosen index) for these clicks. Under the lock."""
+    _hold(small, key)
+    coords, labels = _points(small, clicks)
+    # One click is ambiguous (pipe, post, post and fence) and gets three
+    # answers. With a "not this" click the prompt is no longer ambiguous, and
+    # the segmenter's authors ask for its single answer then: on 321A5078 the
+    # three-answer head still ranked post-and-fence first (0.882 vs 0.880 for
+    # the pipe); the single answer is the pipe. No growth toward an enclosing
+    # object either — the photographer has just said what it is not.
+    several = len(clicks) > 1
+    raw, scores, _ = _predictor.predict(point_coords=coords, point_labels=labels,
+                                        multimask_output=not several, return_logits=True)
     candidates = (raw > MASK_THRESHOLD).astype(np.uint8)
     if len(candidates) == 0:
         raise RuntimeError("No object mask found at the selected point")
-    index = _choose_candidate(candidates, scores)
+    if several:
+        return candidates, scores, 0
+    return candidates, scores, _choose_candidate(candidates, scores)
+
+
+def hover(rgb: np.ndarray, x: float, y: float, key=None) -> dict:
+    """What a click here would select — shown before the click."""
+    small = _small(rgb)
+    with _predict_lock:
+        candidates, _, index = _pick(small, [(x, y, True)], key)
+    return {"maskPng": _mask_data(candidates[index])}
+
+
+def select(rgb: np.ndarray, x: float, y: float, exclude=(), key=None) -> dict:
+    """Choose a MobileSAM mask at a normalized click; the user must review it.
+
+    `exclude` — (x, y) points the photographer marked "not this" (Alt-click).
+    """
+    small = _small(rgb)
+    clicks = [(x, y, True)] + [(float(ex), float(ey), False) for ex, ey in exclude]
+    with _predict_lock:
+        candidates, scores, index = _pick(small, clicks, key)
     mask = candidates[index].astype(np.uint8)
     if not mask.any():
         raise RuntimeError("No object mask found at the selected point")
     with _predict_lock:
-        _predictor.set_image(small)  # another request may have set its own meanwhile
+        _hold(small, key)  # another request may have set its own meanwhile
         behind = _find_behind(small, mask.astype(bool))
+    sh, sw = small.shape[:2]
     alternatives = [
         {"maskPng": _mask_data(candidate), "coverage": round(float(candidate.mean()), 5),
          "score": round(float(score), 4)}

@@ -24,6 +24,7 @@ import { effectiveRecipe, removeFrameStep, setFrameStep } from '../../studio/sto
 import type { ManualStroke, ToolInstance } from '../../types';
 import { defaultParams, getTool } from '../../toolRegistry';
 import ManualBrush, { DEFAULT_R, MAX_R, MIN_R } from './ManualBrush';
+import ObjectPickLayer from './ObjectPickLayer';
 import ObjectMaskPreview from './ObjectMaskPreview';
 import './photo-editor.css';
 
@@ -135,13 +136,15 @@ export default function PhotoEditor({
   frame,
   name,
   onClose,
+  initialTab = 'adjust',
 }: {
   projectId: string;
   frame: Frame;
   name: string;
   onClose: () => void;
+  initialTab?: EditorTab;
 }) {
-  const [tab, setTab] = useState<EditorTab>('adjust');
+  const [tab, setTab] = useState<EditorTab>(initialTab);
   const [edits, setEdits] = useState<Edits>({});
   const [image, setImage] = useState<string | null>(null);
   const [imageFor, setImageFor] = useState('');
@@ -155,6 +158,8 @@ export default function PhotoEditor({
   const [objectBusy, setObjectBusy] = useState(false);
   const [objectFault, setObjectFault] = useState<string | null>(null);
   const [objectBox, setObjectBox] = useState<{ w: number; h: number } | null>(null);
+  // the click that chose the object, and the "not this" clicks that corrected it
+  const objectClicks = useRef<{ at: [number, number]; exclude: Array<[number, number]> } | null>(null);
 
   // What the frame renders through now — the starting point of every control.
   const saved = useMemo(() => effectiveRecipe(projectId, name).filter((t) => t.enabled), [projectId, name]);
@@ -364,15 +369,19 @@ export default function PhotoEditor({
   const objectEdit = edits['object-remove']?.objectSelection;
   const savedObject = saved.find((step) => step.toolId === 'object-remove')?.objectSelection;
   const selectedObject = objectDraft ?? (objectEdit === null ? undefined : objectEdit ?? savedObject);
-  const chooseObject = async (x: number, y: number) => {
+  const chooseObject = async (x: number, y: number, exclude = false) => {
+    const prev = objectClicks.current;
+    const clicks = exclude && prev
+      ? { at: prev.at, exclude: [...prev.exclude, [x, y] as [number, number]] }
+      : { at: [x, y] as [number, number], exclude: [] };
     setObjectBusy(true);
     setObjectFault(null);
     try {
-      const result = await selectObjectAtPath(frame.path, x, y);
+      const result = await selectObjectAtPath(frame.path, clicks.at[0], clicks.at[1], clicks.exclude);
+      objectClicks.current = clicks;
       // the engine names what stands behind on its own (object_remove._find_behind)
-      const behind = (result as { behind?: { maskPng: string } }).behind;
+      const behind = result.behind;
       setObjectDraft({ maskPng: result.maskPng, margin: result.margin, add: [], subtract: [], ...(behind ? { behind } : {}) });
-      setObjectSelecting(false);
       setObjectPaint(null);
     } catch (error) {
       setObjectFault(error instanceof Error ? error.message : 'בחירת האובייקט נכשלה');
@@ -480,18 +489,9 @@ export default function PhotoEditor({
                 <ObjectMaskPreview selection={objectDraft} width={objectBox.w} height={objectBox.h} />
               )}
               {tab === 'object' && objectSelecting && objectBox && !showBefore && (
-                <div className="tz-pe-object-click" style={{ width: objectBox.w, height: objectBox.h }}
-                  role="button" tabIndex={0} aria-label="בחר אובייקט בתמונה"
-                  onClick={(event) => {
-                    const rect = event.currentTarget.getBoundingClientRect();
-                    void chooseObject((event.clientX - rect.left) / rect.width, (event.clientY - rect.top) / rect.height);
-                  }}
-                  onKeyDown={(event) => {
-                    if (event.key === 'Enter' || event.key === ' ') {
-                      event.preventDefault();
-                      void chooseObject(0.5, 0.5);
-                    }
-                  }} />
+                <ObjectPickLayer path={frame.path} width={objectBox.w} height={objectBox.h}
+                  className="tz-pe-object-click" busy={objectBusy}
+                  onPick={(x, y, exclude) => { void chooseObject(x, y, exclude); }} />
               )}
               {tab === 'object' && objectPaint && selectedObject && !showBefore && (
                 <ManualBrush imgRef={imgRef} pending={selectedObject[objectPaint] ?? []}
@@ -699,7 +699,7 @@ export default function PhotoEditor({
             {tab === 'object' && (
               <>
                 <h3 className="tz-pe-h">הסרת אובייקט</h3>
-                <p className="tz-pe-help">לחץ על האדם או החפץ בתמונה. בדוק את המסכה הכחולה, תקן אותה במידת הצורך, ואז הסר.</p>
+                <p className="tz-pe-help">העבר את העכבר על התמונה — קו לבן מראה מה ייבחר. לחץ לבחירה. תפס יותר מדי? Alt ולחיצה על מה שלא רצית.</p>
                 <button type="button" className={`tz-pe-btn tz-pe-object-action${objectSelecting ? ' is-on' : ''}`}
                   disabled={objectBusy} onClick={() => { setObjectSelecting((v) => !v); setObjectPaint(null); setObjectFault(null); }}>
                   {objectSelecting ? 'בטל בחירה' : 'בחר בלחיצה על התמונה'}

@@ -405,16 +405,36 @@ export async function renderRecipe(
   return r.json();
 }
 
-/** Select the object under a point on a photograph. Coordinates are fractions. */
-export async function selectObjectAtPath(path: string, x: number, y: number): Promise<{
+/** Select the object under a point on a photograph. Coordinates are fractions.
+ *  `exclude` are "not this" points (Alt-click) that correct the guess. */
+export async function selectObjectAtPath(path: string, x: number, y: number,
+  exclude: Array<[number, number]> = []): Promise<{
   maskPng: string; coverage: number; score: number; width: number; height: number;
   /** How far past the outline the engine grows the selection. Its decision, not ours. */
   margin: number;
+  /** What the engine found standing behind the selected object, if anything. */
+  behind?: { maskPng: string };
 }> {
   const response = await fetch(`${ENGINE}/object/select`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ path, x, y, exclude }),
+  });
+  if (!response.ok) {
+    const body = await response.json().catch(() => ({}));
+    throw new Error(body.error || `engine ${response.status}`);
+  }
+  return response.json();
+}
+
+/** The outline a click at this point would select — shown while hovering. */
+export async function hoverObjectAtPath(path: string, x: number, y: number,
+  signal?: AbortSignal): Promise<{ maskPng: string }> {
+  const response = await fetch(`${ENGINE}/object/hover`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ path, x, y }),
+    signal,
   });
   if (!response.ok) {
     const body = await response.json().catch(() => ({}));

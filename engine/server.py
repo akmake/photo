@@ -1126,6 +1126,9 @@ class Handler(BaseHTTPRequestHandler):
         if self.path == "/object/select":
             self._object_select()
             return
+        if self.path == "/object/hover":
+            self._object_hover()
+            return
         if self.path == "/albumdesk/export":
             self._albumdesk_export()
             return
@@ -1364,23 +1367,46 @@ class Handler(BaseHTTPRequestHandler):
             self._json(500, {"error": str(e)})
 
     def _object_select(self):
-        """POST {path|image, x, y, w?}; returns a persisted selection mask."""
+        """POST {path|image, x, y, exclude?:[[x,y],...]}; returns a persisted selection mask.
+
+        `exclude` are the photographer's "not this" points (Alt-click)."""
         try:
             body = self._body()
             x, y = float(body["x"]), float(body["y"])
+            exclude = [(float(p[0]), float(p[1])) for p in (body.get("exclude") or [])][:12]
             if body.get("path"):
                 path = body["path"]
                 if not os.path.isfile(path):
                     raise ValueError("Photograph not found")
                 def work():
                     _, img, _ = _working_frame(path, object_remove.SELECT_MAX_DIM, None)
-                    return object_remove.select(common.to_np(img), x, y)
+                    return object_remove.select(common.to_np(img), x, y, exclude,
+                                                key=(_photo_key(path), object_remove.SELECT_MAX_DIM))
             else:
                 if not body.get("image"):
                     raise ValueError("Photograph is required")
                 def work():
-                    return object_remove.select(common.to_np(common.b64_to_image(body["image"])), x, y)
+                    return object_remove.select(common.to_np(common.b64_to_image(body["image"])), x, y, exclude)
             self._json(200, on_worker(work))
+        except (KeyError, ValueError) as exc:
+            self._json(400, {"error": str(exc)})
+        except Exception as exc:  # noqa: BLE001
+            self._json(503, {"error": str(exc)})
+
+    def _object_hover(self):
+        """POST {path, x, y}; the outline a click at this point would select.
+
+        Asked many times a second while the pointer moves, so it never queues
+        behind the render worker: the picture is read once (object_remove._hold)
+        and each question after that is milliseconds."""
+        try:
+            body = self._body()
+            path = body["path"]
+            if not os.path.isfile(path):
+                raise ValueError("Photograph not found")
+            _, img, _ = _working_frame(path, object_remove.SELECT_MAX_DIM, None)
+            self._json(200, object_remove.hover(common.to_np(img), float(body["x"]), float(body["y"]),
+                                                key=(_photo_key(path), object_remove.SELECT_MAX_DIM)))
         except (KeyError, ValueError) as exc:
             self._json(400, {"error": str(exc)})
         except Exception as exc:  # noqa: BLE001

@@ -27,6 +27,7 @@ import type { LearnedColorModel, ManualStroke, ToolInstance, ToolMask } from '..
 import { defaultParams, getTool, isRawFile, isToolAtDefault } from '../../toolRegistry';
 import ManualBrush, { DEFAULT_R, MAX_R, MIN_R } from './ManualBrush';
 import ObjectMaskPreview from './ObjectMaskPreview';
+import ObjectPickLayer from './ObjectPickLayer';
 import ToolsPanelV2 from './ToolsPanelV2';
 import ColorMatchPanel from './ColorMatchPanel';
 import ExportDialog from './ExportDialog';
@@ -253,6 +254,8 @@ export default function GalleryEditV2({
   const [objectBusy, setObjectBusy] = useState(false);
   const [objectError, setObjectError] = useState<string | null>(null);
   const objectRequest = useRef(0);
+  // the click that chose the object, and the "not this" clicks that corrected it
+  const objectClicks = useRef<{ at: [number, number]; exclude: Array<[number, number]> } | null>(null);
   const [brushErase, setBrushErase] = useState(false);
   /* The tool whose REGION is being painted, if any. Null means the brush on
    * the picture — when there is one — is the cleaning brush. */
@@ -749,18 +752,23 @@ export default function GalleryEditV2({
     setObjectBusy(false);
     setObjectError(null);
   }, [currentPath]);
-  const chooseObject = async (x: number, y: number) => {
+  const chooseObject = async (x: number, y: number, exclude = false) => {
     if (!currentPath) return;
+    const prev = objectClicks.current;
+    const clicks = exclude && prev
+      ? { at: prev.at, exclude: [...prev.exclude, [x, y] as [number, number]] }
+      : { at: [x, y] as [number, number], exclude: [] };
     const request = ++objectRequest.current;
     setObjectBusy(true);
     setObjectError(null);
     try {
-      const result = await selectObjectAtPath(currentPath, x, y);
+      const result = await selectObjectAtPath(currentPath, clicks.at[0], clicks.at[1], clicks.exclude);
       if (request !== objectRequest.current) return;
+      objectClicks.current = clicks;
       // the engine names what stands behind on its own (object_remove._find_behind)
-      const behind = (result as { behind?: { maskPng: string } }).behind;
+      const behind = result.behind;
+      // selection stays on: an Alt-click next corrects what was just chosen
       setObjectDraft({ maskPng: result.maskPng, margin: result.margin, add: [], subtract: [], ...(behind ? { behind } : {}) });
-      setObjectMode(null);
     } catch (error) {
       if (request === objectRequest.current) setObjectError(error instanceof Error ? error.message : 'בחירת האובייקט נכשלה');
     } finally {
@@ -1511,19 +1519,10 @@ export default function GalleryEditV2({
                   {selectedObject && objectDraft && fittedImage && !showOriginal && (
                     <ObjectMaskPreview selection={selectedObject} width={fittedImage.width} height={fittedImage.height} />
                   )}
-                  {objectMode === 'select' && fittedImage && !showOriginal && (
-                    <div className="tz-ge-object-click" style={{ width: fittedImage.width, height: fittedImage.height }}
-                      role="button" tabIndex={0} aria-label="בחר אובייקט בתמונה"
-                      onClick={(event) => {
-                        const box = event.currentTarget.getBoundingClientRect();
-                        void chooseObject((event.clientX - box.left) / box.width, (event.clientY - box.top) / box.height);
-                      }}
-                      onKeyDown={(event) => {
-                        if (event.key === 'Enter' || event.key === ' ') {
-                          event.preventDefault();
-                          void chooseObject(0.5, 0.5);
-                        }
-                      }} />
+                  {objectMode === 'select' && fittedImage && !showOriginal && currentPath && (
+                    <ObjectPickLayer path={currentPath} width={fittedImage.width} height={fittedImage.height}
+                      className="tz-ge-object-click" busy={objectBusy}
+                      onPick={(x, y, exclude) => { void chooseObject(x, y, exclude); }} />
                   )}
                   {(objectMode === 'add' || objectMode === 'subtract') && selectedObject && !showOriginal && (
                     <ManualBrush imgRef={canvasImgRef}
