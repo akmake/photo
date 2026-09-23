@@ -183,6 +183,10 @@ export interface ToolInstance {
     margin?: number;
     add?: ManualStroke[];
     subtract?: ManualStroke[];
+    /** What stands behind the removed object (a second click). With it the
+     *  engine completes that object's outline under the hole and fills each
+     *  side from its own material (engine/object_remove.py::_layered). */
+    behind?: { maskPng: string };
   };
   /** A fitted model this step applies instead of sliders — `pixel-color` only.
    *  Kept out of `params` because params are numbers by contract, and the

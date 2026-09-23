@@ -70,6 +70,32 @@ export default function ObjectMaskPreview({ selection, width, height }: {
       ctx.strokeStyle = '#fff';
       draw(selection.subtract ?? []);
       ctx.globalCompositeOperation = 'source-over';
+      if (selection.behind) {
+        // What stands behind: its outline only, a hairline — never a fill over it.
+        const behind = new Image();
+        behind.onload = () => {
+          if (!live) return;
+          const off = document.createElement('canvas');
+          off.width = canvas.width; off.height = canvas.height;
+          const octx = off.getContext('2d');
+          if (!octx) return;
+          octx.drawImage(behind, 0, 0, off.width, off.height);
+          const src = octx.getImageData(0, 0, off.width, off.height).data;
+          const line = ctx.getImageData(0, 0, canvas.width, canvas.height);
+          const w = off.width; const h = off.height;
+          const inside = (x: number, y: number) => src[(y * w + x) * 4] > 127;
+          for (let y = 1; y < h - 1; y += 1) {
+            for (let x = 1; x < w - 1; x += 1) {
+              if (inside(x, y) && (!inside(x - 1, y) || !inside(x + 1, y) || !inside(x, y - 1) || !inside(x, y + 1))) {
+                const i = (y * w + x) * 4;
+                line.data[i] = 52; line.data[i + 1] = 211; line.data[i + 2] = 153; line.data[i + 3] = 255;
+              }
+            }
+          }
+          ctx.putImageData(line, 0, 0);
+        };
+        behind.src = selection.behind.maskPng;
+      }
     };
     image.src = selection.maskPng;
     return () => { live = false; };

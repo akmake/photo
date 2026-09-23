@@ -227,7 +227,7 @@ def _regrain(win: np.ndarray, coarse: np.ndarray, m: np.ndarray,
     return np.clip(out, 0, 255).astype(np.uint8)
 
 
-def _fill_window(net, win: np.ndarray, m: np.ndarray) -> np.ndarray:
+def _fill_window(net, win: np.ndarray, m: np.ndarray, work_hole: int = WORK_HOLE) -> np.ndarray:
     """Rebuild one window, at the size the network reads a hole that big.
 
     WHY NOT ALWAYS NATIVE. The network was trained to see a hole against its
@@ -241,12 +241,15 @@ def _fill_window(net, win: np.ndarray, m: np.ndarray) -> np.ndarray:
     So the hole, not the frame, sets the working size, and _regrain puts the
     fine detail back afterwards. A mark small enough to begin with is untouched
     by all of this and goes through exactly as before.
+
+    `work_hole` lets a caller that has already taken the object out of the
+    context (object_remove's layered fill) ask for a smaller working size.
     """
     ys, xs = np.nonzero(m)
     span = max(int(xs.max() - xs.min()), int(ys.max() - ys.min())) + 1
-    if span <= WORK_HOLE:
+    if span <= work_hole:
         return _infer(net, win, m)
-    scale = WORK_HOLE / span
+    scale = work_hole / span
     hh, ww = m.shape
     sw, sh = max(8, round(ww * scale)), max(8, round(hh * scale))
     small = cv2.resize(win, (sw, sh), interpolation=cv2.INTER_AREA)

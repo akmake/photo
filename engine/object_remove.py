@@ -167,6 +167,168 @@ def repair_mask(shape: tuple, selection: dict) -> np.ndarray:
     return mask
 
 
+#: The layered fill's working size for the background. Measured on 321A5078:
+#: with the horse taken out of the context, 900 returned a grey-green fog where
+#: the man stood; 512 returned bamboo, fence and soil. 320 broke into blocks.
+LAYERED_WORK_HOLE = 512
+
+
+def _complete_outline(behind: np.ndarray, hole: np.ndarray) -> np.ndarray:
+    """Where the object behind continues under the removed one.
+
+    The object's outline disappears into the hole at one point and comes out
+    at another. Among the curves that join the two, keep their directions and
+    stay hidden inside the hole (anything outside would have been visible in
+    the photograph), take the one that bends least — the classical rule for
+    completing an occluded contour. On 321A5078 a fuller, hand-picked rump
+    left the hole on an eighth of its length and was judged wrong on sight.
+
+    -> bool mask of the hidden part of `behind`. Empty when there is no clean
+    single entry/exit (the object is only touched, not crossed).
+    """
+    h, w = hole.shape
+    empty = np.zeros_like(hole, dtype=bool)
+    vis = cv2.morphologyEx((behind & ~hole).astype(np.uint8), cv2.MORPH_OPEN,
+                           np.ones((5, 5), np.uint8))
+    contours, _ = cv2.findContours(vis, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
+    if not contours:
+        return empty
+    c = max(contours, key=cv2.contourArea)[:, 0, :]
+    dist = cv2.distanceTransform((~hole).astype(np.uint8), cv2.DIST_L2, 5)
+    adj = dist[c[:, 1], c[:, 0]] <= max(3, 0.0008 * w)
+    n = len(c)
+    if adj.all() or not adj.any():
+        return empty
+    start = int(np.argmax(~adj))
+    cc, aa = np.roll(c, -start, 0), np.roll(adj, -start)
+    runs, i = [], 0
+    while i < n:
+        if aa[i]:
+            j = i
+            while j < n and aa[j]:
+                j += 1
+            runs.append((i, j - 1))
+            i = j
+        else:
+            i += 1
+    i0, i1 = max(runs, key=lambda r: r[1] - r[0])
+    k = max(6, round(0.015 * w))
+    if i0 - 1 - k < 0 or i1 + 1 + k >= n + i0:
+        return empty
+    A, B = cc[i0 - 1].astype(float), cc[(i1 + 1) % n].astype(float)
+    ta, tb = A - cc[i0 - 1 - k], B - cc[(i1 + 1 + k) % n]
+    if not np.linalg.norm(ta) or not np.linalg.norm(tb):
+        return empty
+    ta, tb = ta / np.linalg.norm(ta), tb / np.linalg.norm(tb)
+    span = np.linalg.norm(A - B)
+    t = np.linspace(0, 1, 400)[:, None]
+    h00, h10 = 2 * t**3 - 3 * t**2 + 1, t**3 - 2 * t**2 + t
+    h01, h11 = -2 * t**3 + 3 * t**2, t**3 - t**2
+
+    def bend(curve):
+        d1 = np.gradient(curve, axis=0)
+        d2 = np.gradient(d1, axis=0)
+        speed = np.maximum(np.linalg.norm(d1, axis=1), 1e-9)
+        kappa = (d1[:, 0] * d2[:, 1] - d1[:, 1] * d2[:, 0]) / speed**3
+        return float(np.sum(kappa**2 * speed))
+
+    best = None
+    for a in np.linspace(0.1, 2.5, 25):
+        for b in np.linspace(0.1, 2.5, 25):
+            curve = h00 * A + h10 * (ta * a * span) + h01 * B + h11 * (-tb * b * span)
+            pts = np.clip(np.rint(curve[12:-12]).astype(int), 0, [w - 1, h - 1])
+            if hole[pts[:, 1], pts[:, 0]].mean() < 0.99:
+                continue
+            e = bend(curve)
+            if best is None or e < best[0]:
+                best = (e, curve)
+    if best is None:
+        return empty
+    poly = np.vstack([best[1], cc[i0:i1 + 1][::-1]]).astype(np.int32)
+    out = np.zeros((h, w), np.uint8)
+    cv2.fillPoly(out, [poly], 1)
+    return (out > 0) & hole
+
+
+def _push_pull(img: np.ndarray, known: np.ndarray) -> np.ndarray:
+    """A smooth membrane through the known pixels (normalized-convolution pyramid)."""
+    if min(img.shape[:2]) < 4:
+        weight = max(float(known.sum()), 1e-6)
+        mean = (img * known[..., None]).sum((0, 1)) / weight
+        return np.broadcast_to(mean, img.shape).astype(np.float32).copy()
+    k = known.astype(np.float32)
+    num, den = cv2.pyrDown(img * k[..., None]), cv2.pyrDown(k)
+    coarse_known = den > 1e-3
+    coarse = np.where(coarse_known[..., None], num / np.maximum(den, 1e-6)[..., None], 0)
+    up = cv2.pyrUp(_push_pull(coarse.astype(np.float32), coarse_known),
+                   dstsize=(img.shape[1], img.shape[0]))
+    return np.where(known[..., None], img, up)
+
+
+def _layered(rgb: np.ndarray, hole: np.ndarray, behind: np.ndarray, front: np.ndarray):
+    """Remove `hole`, filling each side from its own material.
+
+    One fill across the whole hole mixes the object behind with the
+    background: on 321A5078 that gave a fog, a ghost leg and a grey stain on
+    the horse. Split it instead: complete the object's outline under the
+    hole, fill the background part from background only, the object part from
+    the object only (its light carried in smoothly, its own grain borrowed),
+    and meet at an edge as soft as the object's photographed edge.
+
+    `front` is what stands in front of the object — the clicked selection.
+    Brush additions are erased too but are not assumed to be in front: on
+    321A5078 the tail, added by hand, hangs behind the horse's leg, and
+    counting it as an occluder ran the horse's outline down to the hoof.
+    """
+    h, w = hole.shape
+    hidden = _complete_outline(behind, front & hole) & hole
+    obj = (behind & ~hole) | hidden
+    ys, xs = np.nonzero(hole)
+    pad = int(0.35 * max(xs.max() - xs.min(), ys.max() - ys.min()))
+    x0, x1 = max(0, xs.min() - pad), min(w, xs.max() + pad + 1)
+    y0, y1 = max(0, ys.min() - pad), min(h, ys.max() + pad + 1)
+    win = rgb[y0:y1, x0:x1]
+    sl = (slice(y0, y1), slice(x0, x1))
+
+    near_obj = cv2.dilate(obj.astype(np.uint8), np.ones((7, 7), np.uint8)) > 0
+    bg_unknown = (hole | near_obj)[sl].astype(np.uint8)
+    background = lama_fill._fill_window(lama_fill._model(), win, bg_unknown, LAYERED_WORK_HOLE)
+
+    comp = background.astype(np.float32)
+    if hidden.any():
+        core = (behind & ~hole) & ~(cv2.dilate(hole.astype(np.uint8), np.ones((9, 9), np.uint8)) > 0)
+        unknown = (~core[sl]).astype(np.uint8)
+        hy, hx = np.nonzero(hidden[sl])
+        f = min(1.0, 256.0 / max(1, hx.max() - hx.min(), hy.max() - hy.min()))
+        small = cv2.resize(win, None, fx=f, fy=f, interpolation=cv2.INTER_AREA).astype(np.float32)
+        us = cv2.resize(unknown, (small.shape[1], small.shape[0]), interpolation=cv2.INTER_NEAREST) > 0
+        us = cv2.dilate(us.astype(np.uint8), np.ones((3, 3), np.uint8)) > 0
+        low = cv2.GaussianBlur(small, (0, 0), 3)
+        smooth = _push_pull(low, ~us)
+        for _ in range(3):
+            smooth = np.where(us[..., None], cv2.GaussianBlur(smooth, (0, 0), 6), low)
+        smooth = cv2.resize(np.clip(smooth, 0, 255).astype(np.uint8), (win.shape[1], win.shape[0]),
+                            interpolation=cv2.INTER_CUBIC)
+        base = np.where(unknown[..., None] > 0, smooth, win)
+        # grain borrowed only into the hidden part, from the object around it
+        bh, bw = hy.max() - hy.min() + 1, hx.max() - hx.min() + 1
+        sy0, sy1 = max(0, hy.min() - 2 * bh), min(win.shape[0], hy.max() + 2 * bh)
+        sx0, sx1 = max(0, hx.min() - 2 * bw), min(win.shape[1], hx.max() + 2 * bw)
+        textured = base.copy()
+        textured[sy0:sy1, sx0:sx1] = lama_fill._regrain(
+            win[sy0:sy1, sx0:sx1], base[sy0:sy1, sx0:sx1],
+            hidden[sl][sy0:sy1, sx0:sx1].astype(np.uint8), 1.0 / f)
+        edge = max(0.6, 0.00027 * w)   # the photographed horse's own edge, 1.5px at 5472
+        alpha = cv2.GaussianBlur(obj[sl].astype(np.float32), (0, 0), edge)[..., None]
+        comp = comp * (1 - alpha) + textured.astype(np.float32) * alpha
+
+    m = hole[sl].astype(np.float32)
+    blend = np.maximum(m, cv2.GaussianBlur(m, (0, 0), max(1.0, 0.00055 * w)))[..., None]
+    out = rgb.copy()
+    out[sl] = np.clip(np.rint(win.astype(np.float32) * (1 - blend) + comp * blend), 0, 255).astype(np.uint8)
+    return out, int(hidden.sum())
+
+
 def apply(rgb: np.ndarray, params: dict):
     selection = params.get("objectSelection")
     if not isinstance(selection, dict):
@@ -177,6 +339,15 @@ def apply(rgb: np.ndarray, params: dict):
         return rgb, {"removedPx": 0, "filler": "none"}
     if not lama_fill.available():
         raise RuntimeError("LaMa model is unavailable for object removal")
+    behind = selection.get("behind")
+    if isinstance(behind, dict) and behind.get("maskPng"):
+        front = _read_mask(selection["maskPng"], rgb.shape)
+        radius = round(float(selection.get("margin", DEFAULT_MARGIN)) * rgb.shape[1])
+        if radius:
+            front = cv2.dilate(front, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2 * radius + 1, 2 * radius + 1)))
+        out, hidden = _layered(rgb, mask > 0, _read_mask(behind["maskPng"], rgb.shape) > 0, front > 0)
+        return out, {"removedPx": count, "filler": "layered", "hiddenPx": hidden,
+                     "coverage": round(count / mask.size, 5)}
     out = lama_fill.fill(rgb, mask, context=1.0)
     return out, {"removedPx": count, "filler": "lama",
                  "coverage": round(count / mask.size, 5)}
