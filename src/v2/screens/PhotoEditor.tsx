@@ -21,7 +21,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { autoEnhance, EDIT_WIDTH, paintObjectAtPath, renderRecipeAtPath, selectObjectAtPath, Superseded, thumbUrl } from '../../api';
 import type { Frame } from '../../api';
 import {
-  batchesOf, batchOfFrame, effectiveRecipe, frameSteps, framesInBatch, removeFrameStep, setFrameStep, setFrameSteps,
+  batchesOf, batchOfFrame, effectiveRecipe, frameSteps, framesInBatch, removeFrameStep, restoreFrameSteps, setFrameStep, setFrameSteps,
 } from '../../studio/store';
 import type { ManualStroke, ToolInstance } from '../../types';
 import { defaultParams, getTool } from '../../toolRegistry';
@@ -145,6 +145,7 @@ export default function PhotoEditor({
   frame,
   name,
   onClose,
+  onAppliedToBatch,
   initialTab = 'adjust',
   placeholder,
 }: {
@@ -152,6 +153,11 @@ export default function PhotoEditor({
   frame: Frame;
   name: string;
   onClose: () => void;
+  /** "החל על כל המקבץ" happened: how many other frames, which batch, and how to
+   *  put them back. The caller SAYS so — the editor closes at once, and the
+   *  other frames re-render one by one over seconds, so without a word the
+   *  press looked like it did nothing. */
+  onAppliedToBatch?: (applied: { count: number; batchName: string; undo: () => void }) => void;
   /** A picture of this frame the caller already has loaded — shown at once,
    *  undimmed, until the editor's own render arrives. */
   placeholder?: string;
@@ -303,9 +309,15 @@ export default function PhotoEditor({
   const saveToBatch = useCallback(() => {
     if (!batch || !sharedSteps.length) return;
     commit();
+    const before = Object.fromEntries(batch.others.map((n) => [n, frameSteps(projectId, n)]));
     setFrameSteps(projectId, batch.others, sharedSteps, true);
+    onAppliedToBatch?.({
+      count: batch.others.length,
+      batchName: batch.name,
+      undo: () => restoreFrameSteps(projectId, before),
+    });
     onClose();
-  }, [batch, commit, onClose, projectId, sharedSteps]);
+  }, [batch, commit, onAppliedToBatch, onClose, projectId, sharedSteps]);
 
   const cancel = useCallback(() => {
     if (dirty && !window.confirm('לצאת בלי לשמור את השינויים?')) return;

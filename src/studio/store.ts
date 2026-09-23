@@ -1321,6 +1321,24 @@ export function setFrameSteps(projectId: string, frames: string[], steps: ToolIn
   for (const frame of frames) afterFrameEdit(projectId, frame, before.get(frame) ?? '');
 }
 
+/** Put frames' own steps back EXACTLY as they were — the undo of
+ *  setFrameSteps. `before` is what frameSteps() returned for each frame. */
+export function restoreFrameSteps(projectId: string, before: Record<string, ToolInstance[]>) {
+  const frames = Object.keys(before);
+  if (!frames.length) return;
+  const current = stateOf(projectId);
+  const recipe = current.recipe as ProjectRecipe;
+  const perFrame = { ...recipe.perFrame };
+  const rendered = new Map(frames.map((frame) => [frame, renderedAs(projectId, frame)]));
+  for (const frame of frames) {
+    const key = frameKey(frame);
+    if (before[frame].length) perFrame[key] = before[frame];
+    else delete perFrame[key];
+  }
+  write(projectId, { ...current, recipe: { ...recipe, perFrame } });
+  for (const frame of frames) afterFrameEdit(projectId, frame, rendered.get(frame) ?? '');
+}
+
 export function removeFrameStep(projectId: string, frame: string, toolId: string) {
   const current = stateOf(projectId);
   const recipe = current.recipe as ProjectRecipe;

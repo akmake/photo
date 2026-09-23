@@ -56,10 +56,11 @@ const DECISIONS: { id: CullDecision; label: string; key: string; mark: string }[
 
 const WORD: Record<CullDecision, string> = { keep: 'נשמרה', maybe: 'מתלבט', reject: 'הוסרה' };
 
+/** One level of undo, for a decision or for an edit given to a whole batch:
+ *  what it says, and how to put things back. */
 interface Undo {
-  frames: string[];
-  before: Record<string, CullDecision | undefined>;
   label: string;
+  restore: () => void;
 }
 
 export default function WorkStageV2({
@@ -304,19 +305,24 @@ export default function WorkStageV2({
     const before: Record<string, CullDecision | undefined> = {};
     for (const n of names) before[n] = cull[n];
     setCull(projectId, names, decision);
-    setUndo({ frames: names, before, label });
+    setUndo({
+      label,
+      restore: () => {
+        const back: Record<string, string[]> = { keep: [], maybe: [], reject: [], none: [] };
+        for (const n of names) back[before[n] ?? 'none'].push(n);
+        setCull(projectId, back.keep, 'keep');
+        setCull(projectId, back.maybe, 'maybe');
+        setCull(projectId, back.reject, 'reject');
+        setCull(projectId, back.none, null);
+      },
+    });
   }, [cull, projectId]);
 
   const undoLast = useCallback(() => {
     if (!undo) return;
-    const back: Record<string, string[]> = { keep: [], maybe: [], reject: [], none: [] };
-    for (const n of undo.frames) back[undo.before[n] ?? 'none'].push(n);
-    setCull(projectId, back.keep, 'keep');
-    setCull(projectId, back.maybe, 'maybe');
-    setCull(projectId, back.reject, 'reject');
-    setCull(projectId, back.none, null);
+    undo.restore();
     setUndo(null);
-  }, [projectId, undo]);
+  }, [undo]);
 
   const step = useCallback((delta: number) => {
     if (!flat.length) return;
@@ -445,7 +451,8 @@ export default function WorkStageV2({
 
   useEffect(() => {
     if (!undo) return undefined;
-    const t = window.setTimeout(() => setUndo(null), 6000);
+    // Long enough to read a sentence and reach the button.
+    const t = window.setTimeout(() => setUndo(null), 10000);
     return () => window.clearTimeout(t);
   }, [undo]);
 
@@ -622,6 +629,10 @@ export default function WorkStageV2({
           name={sel}
           placeholder={editFrom ?? undefined}
           onClose={() => setEditing(false)}
+          onAppliedToBatch={({ count, batchName, undo: restore }) => setUndo({
+            label: `העריכה הוחלה על ${count.toLocaleString('he-IL')} תמונות נוספות${batchName ? ` בסשן „${batchName}”` : ' בסשן'}`,
+            restore,
+          })}
         />
       )}
     </div>
