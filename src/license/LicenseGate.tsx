@@ -67,8 +67,8 @@ export default function LicenseGate({ children }: { children: ReactNode }) {
   return (
     <main className="tz-license-screen" dir="rtl">
       <section className="tz-license-card" aria-labelledby="tz-license-title">
-        <div className="tz-license-mark">T</div>
-        <p className="tz-license-eyebrow">TEZA STUDIO</p>
+        <img className="tz-license-mark" src={`${import.meta.env.BASE_URL}frameops-mark.png`} alt="FrameOps" />
+        <p className="tz-license-eyebrow">FrameOps</p>
         <h1 id="tz-license-title">{state === null ? 'בודקים את הרישיון…' : 'הפעלת התוכנה'}</h1>
         {state === null ? <p>עוד רגע ואפשר להתחיל.</p> : <>
           <p className="tz-license-desc">
@@ -83,7 +83,7 @@ export default function LicenseGate({ children }: { children: ReactNode }) {
             <label>כתובת מייל<input type="email" autoComplete="email" required value={email} onChange={e => setEmail(e.target.value)} /></label>
             <label>סיסמה<input type="password" autoComplete={register ? 'new-password' : 'current-password'} required minLength={8} value={password} onChange={e => setPassword(e.target.value)} /></label>
             {error && <p className="tz-license-error" role="alert">{error}</p>}
-            <button className="tz-license-submit" type="submit" disabled={busy}>{busy ? 'מפעילים…' : 'הפעל את TEZA'}</button>
+            <button className="tz-license-submit" type="submit" disabled={busy}>{busy ? 'מפעילים…' : 'הפעל את FrameOps'}</button>
           </form>
           <button className="tz-license-retry" type="button" onClick={() => void check()}>בדוק רישיון שוב</button>
           <small>הפעלה ראשונה דורשת חיבור לאינטרנט. התמונות המקוריות נשארות במחשב שלך.</small>

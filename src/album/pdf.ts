@@ -108,7 +108,7 @@ export async function jpegPagesToPdf(pages: PdfPage[], meta: PdfMeta): Promise<B
   openObject(3);
   push(`<< /Title ${pdfText(meta.title)}${
     meta.subject ? ` /Subject ${pdfText(meta.subject)}` : ''
-  } /Producer ${pdfText('TEZA')} /CreationDate (${pdfDate(new Date())}) >>\nendobj\n`);
+  } /Producer ${pdfText('FrameOps')} /CreationDate (${pdfDate(new Date())}) >>\nendobj\n`);
 
   pages.forEach((page, index) => {
     const id = pageId(index);

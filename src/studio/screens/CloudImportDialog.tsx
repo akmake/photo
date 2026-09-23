@@ -146,21 +146,21 @@ export default function CloudImportDialog({
           </div>
         ) : !connection ? (
           <div className="cloud-message cloud-message-failed">
-            <strong>לא הצלחנו להגיע למנוע המקומי של TEZA</strong>
-            <p>הייבוא מהענן זמין רק כשהמנוע המקומי פועל. אפשר להפעיל מחדש את TEZA ולנסות שוב.</p>
+            <strong>לא הצלחנו להגיע למנוע המקומי של FrameOps</strong>
+            <p>הייבוא מהענן זמין רק כשהמנוע המקומי פועל. אפשר להפעיל מחדש את FrameOps ולנסות שוב.</p>
             {error && <p className="cloud-message-detail">{error}</p>}
             <button className="btn btn-primary" onClick={checkConnection}>נסה שוב</button>
           </div>
         ) : !connection.configured ? (
           <div className="cloud-message">
             <strong>הייבוא מהענן עדיין אינו פעיל בהתקנה הזאת</strong>
-            <p>זו הגדרת התקנה של TEZA, ולא בעיה בחשבון שלך. לאחר שהחיבור יוגדר, כפתור ההתחברות יופיע כאן.</p>
+            <p>זו הגדרת התקנה של FrameOps, ולא בעיה בחשבון שלך. לאחר שהחיבור יוגדר, כפתור ההתחברות יופיע כאן.</p>
             <button className="btn" onClick={onClose}>סגור</button>
           </div>
         ) : !connection.connected ? (
           <div className="cloud-message">
             <strong>מחברים פעם אחת, ומייבאים בכל פרויקט</strong>
-            <p>TEZA תבקש הרשאת קריאה בלבד. שום קובץ בענן לא יימחק או ישתנה.</p>
+            <p>FrameOps תבקש הרשאת קריאה בלבד. שום קובץ בענן לא יימחק או ישתנה.</p>
             <button className="btn btn-primary" onClick={connect} disabled={connecting}>
               <IcCloud size={16} />
               {connecting ? 'ממתין לאישור…' : `חבר את ${NAMES[provider]}`}

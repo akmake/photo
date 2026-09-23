@@ -388,12 +388,12 @@ export default function V2App({ onSwitchToV1, onOpenProjectV1 }: V2AppProps) {
           title="FrameOps — חזרה לדף היום"
         >
           <img
-            src="/frameops-logo.png"
+            src={`${import.meta.env.BASE_URL}frameops-logo.png`}
             alt="FrameOps — studio operations for photographers"
             className="tz-logo-full"
           />
           <img
-            src="/frameops-mark.png"
+            src={`${import.meta.env.BASE_URL}frameops-mark.png`}
             alt="FrameOps"
             className="tz-logo-mark"
           />

@@ -112,7 +112,7 @@ export default function TodayV2({ onNavigate, onOpenProject, onNewProject }: Das
     <div className="tdash" dir="rtl">
       <header className="tdash-header">
         <div>
-          <div className="tdash-eyebrow">TEZA / סקירת סטודיו <span>·</span> {today.toLocaleDateString('he-IL', { weekday: 'long', day: 'numeric', month: 'long' })}</div>
+          <div className="tdash-eyebrow">FrameOps / סקירת סטודיו <span>·</span> {today.toLocaleDateString('he-IL', { weekday: 'long', day: 'numeric', month: 'long' })}</div>
           <h1>{greeting}. זה הסטודיו שלך.</h1>
           <p>העבודה הפתוחה, מה שמחכה לך והצילומים הבאים — במקום אחד.</p>
         </div>

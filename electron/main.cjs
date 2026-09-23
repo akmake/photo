@@ -143,7 +143,7 @@ function engineCommand() {
  * "port already in use" every time it was opened here. */
 async function startEngine(onLine) {
   if (!DEV && await portAnswers()) {
-    onLine('פורט המנוע תפוס; סגור גרסה אחרת של TEZA');
+    onLine('פורט המנוע תפוס; סגור גרסה אחרת של FrameOps');
     return false;
   }
   if (DEV && await engineAnswers()) {
@@ -321,7 +321,7 @@ function openSplash() {
     show: false,
     backgroundColor: SURFACE,
     skipTaskbar: false,
-    title: 'TEZA',
+    title: 'FrameOps',
   });
   splashWindow.loadFile(path.join(__dirname, 'splash.html'));
   splashWindow.once('ready-to-show', () => splashWindow && splashWindow.show());
@@ -353,7 +353,7 @@ function createWindow() {
     minHeight: 680,
     show: false,                 // revealed on ready-to-show: no white flash
     backgroundColor: SURFACE,
-    title: 'TEZA',
+    title: 'FrameOps',
     autoHideMenuBar: true,
     titleBarStyle: 'hidden',
     titleBarOverlay: {
@@ -501,9 +501,9 @@ if (!app.requestSingleInstanceLock()) {
     if (!startedEngine) {
       closeSplash();
       await dialog.showMessageBox({
-        type: 'error', title: 'TEZA לא נפתחה',
-        message: 'לא ניתן להפעיל את מנוע TEZA.',
-        detail: 'בדוק שההתקנה מלאה ושאין גרסה אחרת של TEZA פתוחה, ואז נסה שוב.',
+        type: 'error', title: 'FrameOps לא נפתחה',
+        message: 'לא ניתן להפעיל את מנוע FrameOps.',
+        detail: 'בדוק שההתקנה מלאה ושאין גרסה אחרת של FrameOps פתוחה, ואז נסה שוב.',
       });
       app.quit();
       return;

@@ -77,10 +77,10 @@ function createServerOrigin({ defaultOrigin, publicKeyPem, stateFile, fetchImpl 
       throw new Error('לא ניתן להתחבר לכתובת הזו. בדוק שהיא נכונה ושיש חיבור לאינטרנט.');
     }
     if (!health || health.service !== 'teza-platform' || health.env === 'dev') {
-      throw new Error('בכתובת הזו אין שרת של TEZA.');
+      throw new Error('בכתובת הזו אין שרת של FrameOps.');
     }
     if (String(key && key.public_key_pem || '').trim() !== String(publicKeyPem).trim()) {
-      throw new Error('השרת בכתובת הזו אינו השרת של TEZA (מפתח הרישוי לא תואם).');
+      throw new Error('השרת בכתובת הזו אינו השרת של FrameOps (מפתח הרישוי לא תואם).');
     }
   }
 

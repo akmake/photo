@@ -244,7 +244,7 @@ export default function App() {
   }
 
   let body: JSX.Element;
-  let title = 'TEZA';
+  let title = 'FrameOps';
 
   if (openedProject && colorMatch) {
     body = (
@@ -321,7 +321,7 @@ export default function App() {
     title = 'כלים בניסיון';
   } else if (Standalone) {
     body = <Standalone />;
-    title = SECTION_TITLE[section] ?? 'TEZA';
+    title = SECTION_TITLE[section] ?? 'FrameOps';
   } else if (isEditor) {
     body = <GalleryEdit />;
     title = 'עריכת גלריה';

@@ -174,7 +174,7 @@ export function Shell({
 }) {
   // The window title is where "which screen am I on" belongs.
   useEffect(() => {
-    document.title = title ? `${title} · TEZA` : 'TEZA';
+    document.title = title ? `${title} · FrameOps` : 'FrameOps';
   }, [title]);
 
   return (

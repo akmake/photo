@@ -31,7 +31,7 @@ export default function UpdateBar() {
   return (
     <aside className="tz-update" dir="rtl" role="status">
       <div className="tz-update-text">
-        <strong>גרסה חדשה של TEZA מוכנה</strong>
+        <strong>גרסה חדשה של FrameOps מוכנה</strong>
         <span>היא תותקן כשתסגור את התוכנה.</span>
       </div>
       <button

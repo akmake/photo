@@ -19,14 +19,10 @@
 }
 
 .tz-license-mark {
-  width: 42px;
-  height: 42px;
-  display: grid;
-  place-items: center;
-  border-radius: 12px;
-  background: #e95d36;
-  color: white;
-  font: 700 27px/1 Georgia, serif;
+  display: block;
+  width: 48px;
+  height: 48px;
+  object-fit: contain;
 }
 
 .tz-license-eyebrow { margin: 22px 0 4px; color: #e95d36; font-size: 12px; font-weight: 700; letter-spacing: .13em; }

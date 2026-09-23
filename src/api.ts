@@ -1459,7 +1459,7 @@ async function post<T>(path: string, body: unknown): Promise<T> {
       body: JSON.stringify(body ?? {}),
     });
   } catch {
-    throw new Error('לא ניתן להתחבר למנוע המקומי של TEZA');
+    throw new Error('לא ניתן להתחבר למנוע המקומי של FrameOps');
   }
   const j = await r.json().catch(() => ({}));
   if (!r.ok) throw new Error(j?.error ?? `engine ${r.status}`);

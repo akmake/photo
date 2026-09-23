@@ -54,7 +54,7 @@ function ServerAddress() {
     <form className="settings-server" onSubmit={submit}>
       <label htmlFor="settings-server-origin">כתובת השרת</label>
       <p className="settings-note">
-        מכאן TEZA מקבלת את הרישיון ואת העדכונים. אין צורך לשנות אותה — אם הכתובת
+        מכאן FrameOps מקבלת את הרישיון ואת העדכונים. אין צורך לשנות אותה — אם הכתובת
         תשתנה, התוכנה תעבור אליה לבד. שנה רק אם קיבלת כתובת חדשה והתוכנה לא מתחברת.
       </p>
       <div className="settings-server-row">

@@ -57,7 +57,7 @@ run('ssh', [target, `mkdir -p '${dir}'`]);
 run('scp', [exe, blockmap, `${target}:${dir}/`]);
 run('scp', [manifest, `${target}:${dir}/latest.yml.uploading`]);
 run('ssh', [target, `mv -f '${dir}/latest.yml.uploading' '${dir}/latest.yml'`]);
-// The website's download button always asks for TEZA-Setup.exe; point that name
+// The website's download button always asks for FrameOps-Setup.exe; point that name
 // at the installer just published (a link, not a second 1.8GB copy).
-run('ssh', [target, `ln -sfn '${installer}' '${dir}/TEZA-Setup.exe'`]);
+run('ssh', [target, `ln -sfn '${installer}' '${dir}/FrameOps-Setup.exe'`]);
 process.stdout.write(`גרסה ${version} פורסמה. תוכנות פתוחות ימצאו אותה תוך כמה שעות, ובפתיחה הבאה תוך דקה.\n`);

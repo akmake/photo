@@ -64,7 +64,7 @@
   },
   "build": {
     "appId": "com.teza.studio",
-    "productName": "TEZA",
+    "productName": "FrameOps",
     "asar": true,
     "directories": {
       "output": "release"
@@ -121,16 +121,17 @@
           ]
         }
       ],
-      "executableName": "TEZA"
+      "executableName": "FrameOps",
+      "icon": "public/frameops-app-icon.png"
     },
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "shortcutName": "TEZA",
+      "shortcutName": "FrameOps",
       "deleteAppDataOnUninstall": false,
-      "artifactName": "TEZA-Setup-${version}.${ext}"
+      "artifactName": "FrameOps-Setup-${version}.${ext}"
     }
   }
 }

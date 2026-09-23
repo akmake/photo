@@ -231,7 +231,7 @@ function stampProof(context: CanvasRenderingContext2D, width: number, height: nu
   context.textBaseline = 'middle';
   context.direction = 'rtl';
   context.font = `${Math.max(12, Math.round(stripHeight * 0.45))}px Arial`;
-  context.fillText('TEZA PROOF • הגהה בלבד • לא לדפוס', width / 2, stripHeight / 2);
+  context.fillText('FrameOps PROOF • הגהה בלבד • לא לדפוס', width / 2, stripHeight / 2);
   context.restore();
 }
 
