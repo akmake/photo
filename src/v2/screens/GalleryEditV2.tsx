@@ -1359,7 +1359,7 @@ export default function GalleryEditV2({
                       * name is not what a photographer recognises a frame by —
                       * it stays on hover, where it costs no room. */}
                     <img
-                      className={`tz-ge-slide-thumb${stripPreview.pending(f.path, f.name) ? ' is-pending' : ''}`}
+                      className={`tz-ge-slide-thumb${stripPreview.showsRaw(f.path, f.name) ? ' is-pending' : ''}`}
                       src={stripPreview.url(f.path, f.name, 320)}
                       alt={f.name}
                       title={f.name}

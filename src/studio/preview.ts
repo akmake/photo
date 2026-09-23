@@ -185,13 +185,32 @@ export function useSetPreview(projectId: string): SetPreview {
  * distinct recipe once: frames with no steps of their own share their batch's
  * key, so the number of registrations is the number of distinct results.
  *
- * Same contract as useSetPreview: `url` may serve the raw file while the
- * edited render is queued, and `pending` says so — a caller that shows one
- * shows the other.
+ * Same contract as useSetPreview: `url` may serve something other than the
+ * current edit while its render is queued, and `pending` says so — a caller
+ * that shows one shows the other.
+ *
+ * THREE THINGS THIS GOT WRONG, all seen in the edit screen's strip after a
+ * colour look was applied (2026-09-23):
+ *
+ *  - A NEW LOOK WAS NEVER WATCHED. `want` could only watch frames whose key it
+ *    already had, and a new look's key arrives a moment later — so those frames
+ *    stayed on the raw file until the photographer happened to step to another
+ *    one and `want` ran again. Now the frames last asked for are kept, and are
+ *    watched and warmed again the moment their key lands.
+ *  - EVERY EDIT FLASHED THE STRIP BACK TO RAW. A frame with a new key was served
+ *    the raw file until the render existed. It now keeps showing its PREVIOUS
+ *    edit — still marked pending — and changes straight to the new one.
+ *    `showsRaw` says when there is no previous edit to keep.
+ *  - THE FAR END RENDERED FIRST. The engine's warm queue serves the last frame
+ *    handed to it first; the list is handed over nearest-last now, so the frame
+ *    being edited and its neighbours come back first.
  */
 export interface FramePreview {
   url: (path: string, name: string, width?: number) => string;
   pending: (path: string, name: string) => boolean;
+  /** Pending AND there is no earlier edit of this frame to show meanwhile —
+   *  `url` is the raw file right now. */
+  showsRaw: (path: string, name: string) => boolean;
   /** Ask for these frames' keys and renders ahead of being looked at. */
   want: (frames: { path: string; name: string }[]) => void;
   /** False when nothing at all applies to this frame — it IS its raw file. */
@@ -205,7 +224,14 @@ export function useFramePreview(projectId: string): FramePreview {
   const [ready, setReady] = useState<Record<string, boolean>>({});  // `${key}|${path}` -> true
   const [stale, setStale] = useState(false);
   const asked = useRef<Set<string>>(new Set());
+  /** path -> the key its CURRENT edit renders under. One per frame: a look
+   *  replaced before it finished is no longer worth asking about. */
   const watching = useRef<Map<string, { key: string; path: string }>>(new Map());
+  /** The frames most recently asked for, in the order asked — kept so that a
+   *  key arriving after `want` still gets its frames watched and warmed. */
+  const wanted = useRef<{ path: string; name: string }[]>([]);
+  /** path -> the key of the last edit of it that was fully rendered. */
+  const lastReady = useRef<Map<string, string>>(new Map());
 
   // Any edit anywhere can change any frame's effective recipe.
   useEffect(() => { asked.current.clear(); }, [recipe]);
@@ -216,7 +242,24 @@ export function useFramePreview(projectId: string): FramePreview {
     [projectId, recipe],
   );
 
+  /** Watch and warm every wanted frame whose key is known. Handed to the
+   *  engine nearest-LAST: its warm queue serves the last one first. */
+  const schedule = useCallback((frames: { path: string; name: string }[]) => {
+    const byKey = new Map<string, string[]>();
+    for (const f of frames) {
+      const k = keys[textOf(f.name)];
+      if (!k) continue;
+      watching.current.set(f.path, { key: k, path: f.path });
+      byKey.set(k, [...(byKey.get(k) ?? []), f.path]);
+    }
+    for (const [k, ps] of byKey) warmPreviews(k, [...ps].reverse());
+  }, [keys, textOf]);
+
+  // A key that landed after `want` ran: its frames are watched from now on.
+  useEffect(() => { schedule(wanted.current); }, [schedule]);
+
   const want = useCallback((frames: { path: string; name: string }[]) => {
+    wanted.current = frames;
     const fresh = new Map<string, string[]>();
     for (const f of frames) {
       const text = textOf(f.name);
@@ -231,22 +274,21 @@ export function useFramePreview(projectId: string): FramePreview {
         .then((k) => { setKeys((m) => ({ ...m, [text]: k })); setStale(false); })
         .catch(() => { asked.current.delete(text); setStale(true); });
     }
-    const byKey = new Map<string, string[]>();
-    for (const f of frames) {
-      const k = keys[textOf(f.name)];
-      if (!k) continue;
-      watching.current.set(`${k}|${f.path}`, { key: k, path: f.path });
-      byKey.set(k, [...(byKey.get(k) ?? []), f.path]);
-    }
-    for (const [k, ps] of byKey) warmPreviews(k, ps);
-  }, [keys, textOf]);
+    schedule(frames);
+  }, [keys, textOf, schedule]);
 
   useEffect(() => {
     let alive = true;
     let timer: number | undefined;
     const tick = async () => {
-      const outstanding = [...watching.current.entries()].filter(([id]) => !ready[id]);
-      if (!outstanding.length) return;
+      const outstanding = [...watching.current.entries()].filter(([, v]) => !ready[`${v.key}|${v.path}`]);
+      // Nothing out right now is not "never again": stepping to another batch
+      // adds frames to watch without changing a key, and a loop that had
+      // stopped left them on the raw file. Idle ticks send nothing.
+      if (!outstanding.length) {
+        if (alive) timer = window.setTimeout(tick, 600);
+        return;
+      }
       const byKey = new Map<string, string[]>();
       for (const [, v] of outstanding) byKey.set(v.key, [...(byKey.get(v.key) ?? []), v.path]);
       try {
@@ -256,19 +298,41 @@ export function useFramePreview(projectId: string): FramePreview {
         for (const [k, a] of answers) for (const [p, ok] of Object.entries(a.ready)) if (ok) merged[`${k}|${p}`] = true;
         if (Object.keys(merged).length) setReady((r) => ({ ...r, ...merged }));
       } catch { /* asked again next tick */ }
-      if (alive) timer = window.setTimeout(tick, 1500);
+      // A render is ~0.5s; asking every 1.5s made each one look three times
+      // slower than it was. The question is a file-exists check per frame.
+      if (alive) timer = window.setTimeout(tick, 600);
     };
-    timer = window.setTimeout(tick, 500);
+    timer = window.setTimeout(tick, 250);
     return () => { alive = false; window.clearTimeout(timer); };
   }, [keys, ready]);
+
+  /** The key this frame shows while its current edit renders: the last one
+   *  that finished, if any. */
+  const previous = (path: string, current: string | undefined) => {
+    const k = lastReady.current.get(path);
+    return k && k !== current ? k : undefined;
+  };
 
   return {
     url: (path, name, width = 1600) => {
       const text = textOf(name);
       if (text === '[]') return previewUrl(path, width, '');
       const k = keys[text];
+      if (k && ready[`${k}|${path}`]) {
+        lastReady.current.set(path, k);
+        return previewUrl(path, width, k);
+      }
+      const before = previous(path, k);
+      if (before) return previewUrl(path, width, before);
       if (!k) return previewUrl(path, width, '');
-      return previewUrl(path, width, k, !ready[`${k}|${path}`]);
+      return previewUrl(path, width, k, true);
+    },
+    showsRaw: (path, name) => {
+      const text = textOf(name);
+      if (text === '[]') return false;
+      const k = keys[text];
+      if (k && ready[`${k}|${path}`]) return false;
+      return !previous(path, k);
     },
     pending: (path, name) => {
       const text = textOf(name);
