@@ -1,4 +1,4 @@
-import React, { Suspense, lazy, useMemo, useState } from 'react';
+﻿import React, { Suspense, lazy, useMemo, useState } from 'react';
 import { useStudio } from '../studio/store';
 import NewProject from '../studio/screens/NewProject';
 import TzStatusScreen from './screens/TzStatusScreen';
@@ -74,6 +74,8 @@ export default function V2App({ onSwitchToV1, onOpenProjectV1 }: V2AppProps) {
   // סינון wants every pixel for pictures, but scrolls like a page.
   const isWorking = activeNav === 'project-detail' && activeStage === 'work';
   const isAlbumMode = activeNav === 'project-detail' && activeStage === 'album-design';
+  // ייבוא is the gallery itself: it owns the whole area and the only scroll.
+  const isImporting = activeNav === 'project-detail' && activeStage === 'gallery-upload';
   const isSidebarCollapsed = sidebarCollapsed || isEditing || isGrouping || isWorking || isAlbumMode;
 
   // Active project selection
@@ -482,7 +484,7 @@ export default function V2App({ onSwitchToV1, onOpenProjectV1 }: V2AppProps) {
         )}
 
         {/* Content Area */}
-        <main className={`tz-content-scroll ${isAlbumMode ? 'album-mode' : ''} ${isGrouping ? 'groups-mode' : ''}`}>
+        <main className={`tz-content-scroll ${isAlbumMode ? 'album-mode' : ''} ${isGrouping ? 'groups-mode' : ''} ${isImporting ? 'import-mode' : ''}`}>
           {renderMainContent()}
         </main>
       </div>

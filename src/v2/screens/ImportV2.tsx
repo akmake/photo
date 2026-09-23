@@ -170,11 +170,12 @@ export default function ImportV2({
       setBusy(false);
     }
   }, [project, projectId]);
-
   const percent = total > 0 ? Math.round((done / total) * 100) : 0;
 
-  return (
-    <div className="tz-import-container">
+  /* Everything above the photographs rides INSIDE the gallery's own scroll,
+   * so the screen has one scrollbar and the pictures fill the window. */
+  const chrome = (
+    <div className="tz-import-head">
       {/* 1. Header & Actions */}
       <section className="tz-import-header">
         <div className="tz-import-header-copy">
@@ -285,98 +286,97 @@ export default function ImportV2({
         </div>
       )}
 
-      {/* 5. Cloud Dialog */}
+      {/* 5. The one line above the photographs */}
+      {ready && frames.length > 0 && (
+        <div className="tz-import-results-head">
+          <div className="tz-import-results-title">
+            <TzIconGallery size={17} />
+            <span>תמונות שיובאו לפרויקט ({frames.length.toLocaleString('he-IL')})</span>
+          </div>
+          {preview.graded && (
+            <span className="tz-import-graded-tag">מוצג עם פרופיל צבע של הסט</span>
+          )}
+        </div>
+      )}
+    </div>
+  );
+
+  return (
+    <div className="tz-import-screen">
+      {/* The same gallery as everywhere: justified, in true proportions — and
+        * here it IS the screen: it holds the whole area and the only scroll. */}
+      <PhotoGrid
+        className="tz-import-pg"
+        header={chrome}
+        sections={[{
+          id: 'imported',
+          items: frames.map((frame) => ({
+            id: frame.name,
+            alt: frame.name,
+            aspect: dims.get(frame.path),
+            src: (w: number) => preview.url(frame.path, w),
+          })),
+        }]}
+        targetHeight={190}
+        empty={!ready ? (
+          <div className="tz-import-empty-box">
+            <p>בודק את תיקיית הפרויקט…</p>
+          </div>
+        ) : busy ? null : (
+          <div className="tz-import-empty-box">
+            <div className="tz-import-empty-icon">
+              <TzIconUpload size={40} />
+            </div>
+            <h3>טרם יובאו תמונות לפרויקט</h3>
+            <p>
+              לחץ על הכפתור למעלה ובחר את תיקיית הצילום או את כרטיס ה-SD. הקבצים יועתקו בבטחה
+              אל המחשב המקומי של הסטודיו.
+            </p>
+            <button
+              className="tz-btn-projects-primary"
+              type="button"
+              onClick={runImport}
+              style={{ marginTop: '8px' }}
+            >
+              <TzIconFolder size={16} /> בחר תיקיית תמונות לייבוא
+            </button>
+          </div>
+        )}
+        tileClass={(item) => `s-${(statuses[item.id] as PhotoStatus) ?? 'raw'}`}
+        renderOverlay={(item, state) => {
+          const status = (statuses[item.id] as PhotoStatus) ?? 'raw';
+          const path = frames.find((f) => f.name === item.id)?.path ?? '';
+          return (
+            <>
+              {preview.pending(path) && <span className="tz-frame-pending-badge">טוען…</span>}
+              <div className={`tz-import-pg-bar${state.hovered ? ' is-on' : ''}`}>
+                {state.width > 170 && <span className="tz-import-pg-name" dir="ltr">{item.id}</span>}
+                <div className="tz-frame-statuses">
+                  {PHOTO_STATUS.map((st) => (
+                    <button
+                      key={st.id}
+                      type="button"
+                      className={`tz-frame-status-btn ${st.id === status ? 'active' : ''}`}
+                      onClick={(e) => { e.stopPropagation(); setPhotoStatus(projectId, item.id, st.id); }}
+                      title={st.label}
+                    >
+                      {st.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </>
+          );
+        }}
+      />
+
+      {/* 6. Cloud Dialog */}
       {cloud && (
         <CloudImportDialog
           provider={cloud}
           onClose={() => setCloud(null)}
           onImport={(files) => runCloudImport(cloud, files)}
         />
-      )}
-
-      {/* 6. Files Grid or Empty State */}
-      {!ready && (
-        <div className="tz-import-empty-box">
-          <p>בודק את תיקיית הפרויקט…</p>
-        </div>
-      )}
-
-      {ready && frames.length === 0 && !busy && (
-        <div className="tz-import-empty-box">
-          <div className="tz-import-empty-icon">
-            <TzIconUpload size={40} />
-          </div>
-          <h3>טרם יובאו תמונות לפרויקט</h3>
-          <p>
-            לחץ על הכפתור למעלה ובחר את תיקיית הצילום או את כרטיס ה-SD. הקבצים יועתקו בבטחה
-            אל המחשב המקומי של הסטודיו.
-          </p>
-          <button
-            className="tz-btn-projects-primary"
-            type="button"
-            onClick={runImport}
-            style={{ marginTop: '8px' }}
-          >
-            <TzIconFolder size={16} /> בחר תיקיית תמונות לייבוא
-          </button>
-        </div>
-      )}
-
-      {ready && frames.length > 0 && (
-        <section className="tz-import-results">
-          <div className="tz-import-results-head">
-            <div className="tz-import-results-title">
-              <TzIconGallery size={17} />
-              <span>תמונות שיובאו לפרויקט ({frames.length.toLocaleString('he-IL')})</span>
-            </div>
-            {preview.graded && (
-              <span className="tz-import-graded-tag">מוצג עם פרופיל צבע של הסט</span>
-            )}
-          </div>
-
-          {/* The same gallery as everywhere: justified, in true proportions. */}
-          <div className="tz-import-grid">
-            <PhotoGrid
-              className="tz-import-pg"
-              sections={[{
-                id: 'imported',
-                items: frames.map((frame) => ({
-                  id: frame.name,
-                  alt: frame.name,
-                  aspect: dims.get(frame.path),
-                  src: (w: number) => preview.url(frame.path, w),
-                })),
-              }]}
-              targetHeight={190}
-              tileClass={(item) => `s-${(statuses[item.id] as PhotoStatus) ?? 'raw'}`}
-              renderOverlay={(item, state) => {
-                const status = (statuses[item.id] as PhotoStatus) ?? 'raw';
-                const path = frames.find((f) => f.name === item.id)?.path ?? '';
-                return (
-                  <>
-                    {preview.pending(path) && <span className="tz-frame-pending-badge">טוען…</span>}
-                    <div className={`tz-import-pg-bar${state.hovered ? ' is-on' : ''}`}>
-                      {state.width > 170 && <span className="tz-import-pg-name" dir="ltr">{item.id}</span>}
-                      <div className="tz-frame-statuses">
-                        {PHOTO_STATUS.map((st) => (
-                          <button
-                            key={st.id}
-                            type="button"
-                            className={`tz-frame-status-btn ${st.id === status ? 'active' : ''}`}
-                            onClick={(e) => { e.stopPropagation(); setPhotoStatus(projectId, item.id, st.id); }}
-                            title={st.label}
-                          >
-                            {st.label}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  </>
-                );
-              }}
-            />
-          </div>
-        </section>
       )}
     </div>
   );

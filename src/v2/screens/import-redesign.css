@@ -2,13 +2,30 @@
    IMPORT V2 — ORIGINAL ENGINE HOOKED INTO TEZA AI DESIGN
    ========================================================================== */
 
-.tz-import-container {
+/* The screen IS the gallery: it takes the whole content area, and the gallery
+ * inside it is the only thing that scrolls. Everything that used to sit on a
+ * scrolling page above it now rides along inside that one scroll. */
+.tz-content-scroll.import-mode {
+  padding: 0;
+  overflow: hidden;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.tz-import-screen {
+  flex: 1;
+  min-height: 0;
+  height: 100%;
+}
+
+.tz-import-head {
   display: flex;
   flex-direction: column;
   gap: 20px;
-  max-width: 1400px;
-  margin: 0 auto;
-  padding-bottom: 48px;
+  /* The 16px gutter is the gallery's own, so the title stands over the first
+   * column of photographs and not to one side of it. */
+  padding: 24px 16px 14px;
 }
 
 /* 1. Header */
@@ -211,13 +228,7 @@
   line-height: 1.55;
 }
 
-/* 6. Results & Frame Grid */
-.tz-import-results {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-}
-
+/* 6. The line above the photographs */
 .tz-import-results-head {
   display: flex;
   align-items: center;
@@ -243,13 +254,9 @@
   border-radius: 20px;
 }
 
-.tz-import-grid {
-  /* A bounded room for the shared gallery: it scrolls inside, so a set of
-   * thousands never becomes a page thousands of rows tall. */
-  height: max(460px, calc(100vh - 300px));
-  margin-inline: -16px;
-}
-.tz-import-pg { --pg-bg: transparent; }
+.tz-import-pg { --pg-bg: transparent; padding-bottom: 40px; }
+/* The empty word sits under the header, not a fifth of a window below it. */
+.tz-import-pg .tz-pg-empty { padding: 8px 16px 0; text-align: start; }
 .tz-import-pg .tz-pg-tile.s-ready { box-shadow: inset 0 -3px 0 #16a34a; }
 .tz-import-pg .tz-pg-tile.s-working { box-shadow: inset 0 -3px 0 #e0864f; }
 .tz-import-pg .tz-frame-pending-badge { position: absolute; top: 8px; inset-inline-end: 8px; z-index: 3; }
