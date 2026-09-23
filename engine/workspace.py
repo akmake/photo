@@ -23,10 +23,13 @@ A file deleted in Explorer is gone and its entry reads as missing; a file that
 appears is an unassigned frame. Neither is an error.
 """
 
+import hashlib
 import json
 import os
 import shutil
 import time
+
+from PIL import Image
 
 import raw
 
@@ -270,6 +273,52 @@ def edited_path(edited_dir, raw_name):
     if os.path.isfile(same):
         return same
     return os.path.join(edited_dir, stem + ".jpg")
+
+
+# ------------------------------------------------- is the edited file current?
+#
+# The file in `תמונות` is a copy of the recipe, and the recipe changes from
+# three layers — the frame's own, its batch's look, the whole set's. Only the
+# first ever re-rendered the file, so a batch look reached the album (and its
+# print) missing, with nothing to say so. (docs/EDIT-TO-ALBUM.md)
+#
+# The file therefore carries the name of the recipe it was rendered from, in
+# its own JPEG comment: it travels with the folder, cannot drift from a side
+# file, and reading it is a header read — milliseconds for a whole album.
+
+STAMP_PREFIX = b"teza-recipe:"
+
+
+def recipe_fingerprint(recipe):
+    """The name of what a recipe produces. Same recipe, same name."""
+    blob = json.dumps(recipe or [], sort_keys=True, separators=(",", ":"))
+    return hashlib.sha1(blob.encode("utf-8")).hexdigest()[:16]
+
+
+def file_fingerprint(path):
+    """-> the fingerprint an edited file was rendered with, or None when it
+    carries none (rendered before files were stamped, or not by us)."""
+    try:
+        with Image.open(path) as im:  # header only; the pixels are never read
+            comment = im.info.get("comment") or b""
+    except Exception:  # noqa: BLE001 - unreadable is "not current", not a crash
+        return None
+    if isinstance(comment, str):
+        comment = comment.encode("utf-8", "ignore")
+    if not comment.startswith(STAMP_PREFIX):
+        return None
+    return comment[len(STAMP_PREFIX):].decode("ascii", "ignore")
+
+
+def is_current(src, edited_dir, recipe):
+    """Does `תמונות` already hold exactly what `recipe` makes of `src`?
+
+    No file is current only for an empty recipe — then the raw IS the picture.
+    A file under an empty recipe is a leftover edit, and is not."""
+    target = edited_path(edited_dir, os.path.basename(src))
+    if not os.path.isfile(target):
+        return not recipe
+    return file_fingerprint(target) == recipe_fingerprint(recipe)
 
 
 def _file_version(path):

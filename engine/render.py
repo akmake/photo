@@ -17,10 +17,13 @@ from collections import OrderedDict
 
 import cv2
 import numpy as np
+from PIL import Image
 
 import common
 import masks
 import raw
+import previews
+import workspace
 
 import abpn
 import background
@@ -650,8 +653,20 @@ def export(
     dest_dir: str,
     fmt: str = "jpeg",
     quality: int = DEFAULT_QUALITY,
+    max_edge: int = 0,
+    stamp: bool = False,
+    keep=None,
 ):
     """Render one file from disk and write the result. -> (path, meta).
+
+    `stamp` writes the recipe's fingerprint into the JPEG, which is how the
+    project's edited copy says what it is a copy of (workspace.is_current).
+    `keep`, when given, is asked once the pixels exist and before the file is
+    replaced: False means a newer recipe arrived meanwhile, and this older
+    result is dropped instead of overwriting it. Then the path is None.
+
+    The file is written beside the target and swapped in whole, so a screen
+    reading `תמונות` never meets half a photograph.
 
     A raw frame is developed on the way in: the white-balance step of the
     recipe is spent on the DECODER, where it costs the picture nothing, and
@@ -672,25 +687,66 @@ def export(
     ):
         raise ValueError("היעד הוא התיקייה של המקור — הייצוא היה דורס את הקובץ המקורי")
 
-    img = common.load_image(src_path, develop=raw.develop_of(recipe_tools))
-    out, meta = render(img, recipe_tools)
+    develop = raw.develop_of(recipe_tools)
+    if max_edge > 0:
+        # Work at the requested delivery size, not at 24MP only to throw most
+        # pixels away afterwards. This is the difference between a web export
+        # being a fast delivery and taking as long as a print master.
+        img, source_long = previews.decode_small(src_path, max_edge, develop)
+        fitted = previews.fit_size(img.size, max_edge)
+        if fitted != img.size:
+            img = img.resize(fitted, Image.Resampling.LANCZOS)
+        source_scale = source_long / float(max(1, max(img.size)))
+    else:
+        img = common.load_image(src_path, develop=develop)
+        source_scale = 1.0
+    out, meta = render(
+        img,
+        recipe_tools,
+        source_scale=source_scale,
+        key=previews.photo_key(src_path),
+    )
 
     os.makedirs(dest_dir, exist_ok=True)
+    final, dest = dest, dest + ".part"
 
+    try:
+        _write(out, img, dest, ext, quality, recipe_tools if stamp else None)
+        if keep is not None and not keep():
+            os.remove(dest)
+            meta["output"] = None
+            return None, meta
+        os.replace(dest, final)
+    except BaseException:
+        if os.path.exists(dest):
+            os.remove(dest)
+        raise
+
+    meta["output"] = final
+    return final, meta
+
+
+def _write(out, img, dest, ext, quality, stamp_recipe):
     if ext == "jpg":
+        extra = {}
+        if stamp_recipe is not None:
+            extra["comment"] = workspace.STAMP_PREFIX + workspace.recipe_fingerprint(
+                stamp_recipe
+            ).encode("ascii")
         out.save(
             dest,
             format="JPEG",
+            **extra,
             quality=int(quality),
             subsampling=0,  # 4:4:4 — never throw away colour resolution
-            optimize=True,
-            progressive=True,
+            # Pillow's optimisation/progressive passes scan a large photograph
+            # again. They save some disk space but do not improve a pixel; a
+            # delivery should finish promptly, so encode it once.
+            optimize=False,
+            progressive=False,
             icc_profile=img.info.get("icc_profile"),
         )
     elif ext == "png":
-        out.save(dest, format="PNG", compress_level=6)
+        out.save(dest, format="PNG", compress_level=4)
     else:  # tiff — lossless master
         out.save(dest, format="TIFF", compression="tiff_lzw")
-
-    meta["output"] = dest
-    return dest, meta

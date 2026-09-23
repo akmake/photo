@@ -1082,11 +1082,13 @@ export async function exportFiles(
   dest: string,
   perFile?: Record<string, ToolInstance[]>,
   quality?: number,
+  format: 'jpeg' | 'png' | 'tiff' = 'jpeg',
+  maxEdge = 0,
 ): Promise<{ written: string[]; errors: { file: string; error: string }[]; count: number }> {
   const r = await fetch(`${ENGINE}/export`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ files, recipe, perFile, dest, format: 'jpeg', quality }),
+    body: JSON.stringify({ files, recipe, perFile, dest, format, quality, maxEdge }),
   });
   const j = await r.json().catch(() => ({}));
   if (!r.ok) throw new Error(j?.error ?? `engine ${r.status}`);
@@ -1472,6 +1474,31 @@ export async function applyToFrame(
   quality?: number,
 ): Promise<{ file: string }> {
   return post('/project/apply', { src, editedDir, recipe, quality });
+}
+
+/** Which of these frames' files in תמונות no longer match their recipe — a
+ *  header read per file, no pixel decoded. With `queue`, the engine's
+ *  background preparer brings them up to date, in the order given, at a
+ *  priority that never holds up the screen. Each distinct recipe is sent once. */
+export async function staleEditedFiles(
+  editedDir: string,
+  items: { src: string; recipe: ToolInstance[] }[],
+  queue = false,
+): Promise<string[]> {
+  const recipes: ToolInstance[][] = [];
+  const indexOf = new Map<string, number>();
+  const refs = items.map(({ src, recipe }) => {
+    const text = JSON.stringify(recipe);
+    let r = indexOf.get(text);
+    if (r === undefined) {
+      r = recipes.length;
+      indexOf.set(text, r);
+      recipes.push(recipe);
+    }
+    return { src, r };
+  });
+  const j = await post<{ stale: string[] }>('/project/files', { editedDir, recipes, items: refs, queue });
+  return j.stale;
 }
 
 /** Open the operating system's own folder dialog and return what was chosen.

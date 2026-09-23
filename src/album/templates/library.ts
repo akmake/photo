@@ -1,4 +1,4 @@
-import type { AlbumSpread, LayoutSlot } from '../model';
+﻿import type { AlbumSpread, LayoutSlot } from '../model';
 import type {
   AlbumTemplate, LayerBox, PhotoLayer, SpreadTemplateInstance, TemplateLayer, TextLayer,
 } from './types';
@@ -14,8 +14,43 @@ export { fitTemplate, fittedTemplate } from './adapt.ts';
  * screen uses to read them. No React here, so the rules are testable without a
  * browser (tests/albumTemplates.test.ts). */
 
-/** The whole library. The Vault is every design the product offers. */
-export const TEMPLATE_LIBRARY: AlbumTemplate[] = VAULT_TEMPLATES;
+/* THE DESIGNS ARRIVE WITHOUT THEIR DRAWN ORNAMENTS.
+ *
+ * A Vault page's structure — the photo places, the frames, the bands, the
+ * rules and the words — IS the design and stays. The free-drawn artwork laid
+ * over it is decoration, and decoration is the photographer's to add: every
+ * one of these ornaments is offered, one by one, in the elements panel.
+ *
+ * Taken off here and not out of the generated file, because that file is
+ * generated from the InDesign source and must stay faithful to it — and
+ * because the elements panel reads VAULT_AS_DRAWN to offer them. */
+function isDrawnOrnament(layer: TemplateLayer): boolean {
+  return layer.type === 'shape' && (layer.shape === 'path' || layer.shape === 'polyline');
+}
+
+function withoutOrnaments(template: AlbumTemplate): AlbumTemplate {
+  const layers = template.layers.filter((layer) => !isDrawnOrnament(layer));
+  if (layers.length === template.layers.length) return template;
+  /* A swatch that paints nothing is a control that lies: a page keeps only the
+   * colours something left on it still uses. */
+  const used = new Set<string>([template.backgroundToken]);
+  for (const layer of layers) {
+    if (layer.type === 'shape') {
+      if (layer.fillToken) used.add(layer.fillToken);
+      if (layer.strokeToken) used.add(layer.strokeToken);
+    }
+    if (layer.type === 'text') used.add(layer.colorToken);
+  }
+  return { ...template, layers, colors: template.colors.filter((color) => used.has(color.id)) };
+}
+
+/** The Vault exactly as the designer drew it, ornaments included. Only the
+ *  element library reads this — to lift those ornaments off and offer them. */
+export const VAULT_AS_DRAWN: AlbumTemplate[] = VAULT_TEMPLATES;
+
+/** The whole library as the album uses it. The Vault is every design the
+ *  product offers, each one without its drawn ornaments. */
+export const TEMPLATE_LIBRARY: AlbumTemplate[] = VAULT_TEMPLATES.map(withoutOrnaments);
 
 const BY_ID = new Map(TEMPLATE_LIBRARY.map((template) => [template.id, template]));
 

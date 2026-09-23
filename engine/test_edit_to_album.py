@@ -89,6 +89,24 @@ def main() -> int:
                     "the engine's thumbnail cache serves the NEW file, not the old one")
         ok &= check(isinstance(frame["version"], str),
                     "version is a string (a nanosecond mtime overflows a JS number)")
+
+        # --- a batch look changed: the file must SAY it is no longer current -
+        # /project/apply stamps the file with the recipe it came from; the
+        # album asks /project/files and re-renders what does not match.
+        render.export(raw, light, edited_dir, "jpeg", render.DEFAULT_QUALITY, stamp=True)
+        ok &= check(workspace.is_current(raw, edited_dir, light),
+                    "a stamped file is current for the recipe it was rendered from")
+        batch_look = light + [{"toolId": "glow", "params": {"amount": 40}, "enabled": True}]
+        ok &= check(not workspace.is_current(raw, edited_dir, batch_look),
+                    "and stale once a batch look joins that recipe")
+        ok &= check(not workspace.is_current(raw, edited_dir, []),
+                    "a file left over after every edit was removed is stale too")
+        kept, _ = render.export(raw, batch_look, edited_dir, "jpeg",
+                                render.DEFAULT_QUALITY, stamp=True, keep=lambda: False)
+        ok &= check(kept is None and workspace.is_current(raw, edited_dir, light),
+                    "a render overtaken by a newer recipe leaves the file alone")
+        ok &= check(not [n for n in os.listdir(edited_dir) if n.endswith(".part")],
+                    "and leaves no half-written file behind")
     finally:
         shutil.rmtree(home, ignore_errors=True)
 

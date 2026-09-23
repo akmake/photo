@@ -25,7 +25,8 @@
 
 import { useEffect, useMemo, useState, useSyncExternalStore } from 'react';
 import {
-  applyToFrame, galleryPublishVersion, galleryState, initProject, projectFrames, projectState, workspaceRoot,
+  applyToFrame, galleryPublishVersion, galleryState, initProject, projectFrames, projectState,
+  staleEditedFiles, workspaceRoot,
 } from '../api';
 import { createEditSync } from './editSync';
 import type { SyncStatus } from './editSync';
@@ -1386,10 +1387,13 @@ export function activeSteps(projectId: string, frame?: string): ToolInstance[] {
  * recipe really changes, its file is re-rendered from the raw through the full
  * layered recipe. See editSync.ts and docs/EDIT-TO-ALBUM.md.
  *
- * Only the FRAME layer triggers this. A change to a batch's look reaches its
- * files through "apply to set", explicitly: re-rendering every photograph in a
- * batch on each move of its look would hold the processor for tens of minutes
- * at a time. */
+ * Only the FRAME layer triggers this here. A change to a batch's look or to the
+ * whole set's is caught where the file is used: the album asks which of its
+ * photographs no longer match their recipe (`staleFrames`), has the engine's
+ * background preparer re-render those, and brings any still missing up to date
+ * before it exports (`bringFramesUpToDate`). Re-rendering every photograph of
+ * a batch on each move of its look would hold the processor for tens of
+ * minutes; this renders only what is printed, and only once per look. */
 
 /** Where a project's rendered files live. One place, so the folder name cannot
  *  drift between the screens that write there. Matches workspace.EDITED_DIR. */
@@ -1459,6 +1463,50 @@ export async function publishFinished(projectId: string, frame: string): Promise
   } catch (e) {
     return { file, gallery: 'failed', galleryError: e instanceof Error ? e.message : 'הגלריה לא ענתה' };
   }
+}
+
+/** The frames among `names` whose file in תמונות is not what their current
+ *  recipe (base → batch → own) makes of them. With `queue`, the engine's
+ *  background preparer re-renders them — below the screen's priority, in the
+ *  order given. Frames the project no longer has are skipped. */
+export async function staleFrames(projectId: string, names: string[], queue = false): Promise<string[]> {
+  const home = getProject(projectId)?.home;
+  if (!home || !names.length) return [];
+  const byName = new Map(framesOf(projectId).map((f) => [f.name, f.path]));
+  const items: { src: string; recipe: ToolInstance[] }[] = [];
+  const nameOf = new Map<string, string>();
+  for (const name of names) {
+    const src = byName.get(frameKey(name));
+    if (!src) continue;
+    items.push({ src, recipe: activeSteps(projectId, src) });
+    nameOf.set(src, frameKey(name));
+  }
+  if (!items.length) return [];
+  const stale = await staleEditedFiles(editedDirOf(home), items, queue);
+  return stale.map((src) => nameOf.get(src) ?? frameKey(src));
+}
+
+/** Every frame among `names` leaves this with a file that matches its recipe:
+ *  the ones that do not are rendered now, one by one, on the engine's own
+ *  worker — for a moment that waits on them, such as an export. `onProgress`
+ *  counts them. Resolves with how many were rendered. */
+export async function bringFramesUpToDate(
+  projectId: string,
+  names: string[],
+  onProgress?: (done: number, total: number) => void,
+): Promise<number> {
+  const stale = await staleFrames(projectId, names);
+  if (!stale.length) return 0;
+  const home = getProject(projectId)?.home;
+  if (!home) return 0;
+  for (let i = 0; i < stale.length; i += 1) {
+    onProgress?.(i + 1, stale.length);
+    const raw = rawPathOf(projectId, stale[i]);
+    if (!raw) continue;
+    await applyToFrame(raw, editedDirOf(home), activeSteps(projectId, raw));
+  }
+  await reloadFrames(projectId);
+  return stale.length;
 }
 
 /** What is happening to a frame's file right now: undefined when it is up to

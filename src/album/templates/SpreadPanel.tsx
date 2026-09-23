@@ -1,5 +1,6 @@
-import { useMemo, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type DragEvent, type ReactNode } from 'react';
 import type { AlbumPhoto, AlbumSpread } from '../model';
+import { smallUrl } from '../projectPool';
 import TemplatePanel from './TemplatePanel';
 import { BASIC_ELEMENTS, TEXT_PRESETS, vaultElements, type ElementDef } from './elements';
 import { iconElements } from './iconElements';
@@ -21,7 +22,8 @@ import type { AlbumTemplate } from './types';
  * third of the window away from the spread — and a spread is what the
  * photographer came to look at. Clicking the open tab closes it again. */
 
-type Tab = 'page' | 'colors' | 'text' | 'elements' | 'uploads';
+type Tab = 'design' | 'elements' | 'text' | 'background' | 'brand' | 'uploads' | 'draw' | 'projects' | 'apps';
+type PhotoFilter = 'current' | 'unused' | 'all';
 
 interface Props {
   spread: AlbumSpread;
@@ -31,6 +33,9 @@ interface Props {
   onApply(template: AlbumTemplate, photoIds?: string[]): void;
   onCycle(direction: 1 | -1): void;
   onColor(token: string, value: string): void;
+  background: string;
+  onBackground(value: string): void;
+  onApplyBackgroundToAll(value: string): void;
   onText(layerId: string, value: string): void;
   onEditEnd(): void;
   myElements: ElementDef[];
@@ -39,6 +44,24 @@ interface Props {
   onImportElements(files: FileList): void;
   onRemoveMine(element: ElementDef): void;
   onImportFonts(files: FileList): void;
+  libraryPhotos: AlbumPhoto[];
+  photoFilter: PhotoFilter;
+  unusedPhotoCount: number;
+  usedPhotoIds: Set<string>;
+  currentPhotoIds: Set<string>;
+  selectedPhotoId: string | null;
+  hasMorePhotos: boolean;
+  onPhotoFilter(filter: PhotoFilter): void;
+  onChoosePhoto(photoId: string): void;
+  onDragPhoto(event: DragEvent, photoId: string): void;
+  onAddPhotos(): void;
+  onLoadMorePhotos(): void;
+  spreads: AlbumSpread[];
+  activeSpreadId: string;
+  onOpenSpread(index: number): void;
+  onAddSpread(): void;
+  onAutoBuild(): void;
+  onPreview(): void;
   /** What this sheet is called in the panel's own words. The cover is designed
    *  in this panel too, and being told it is a "spread" is how a screen tells
    *  the photographer it was not meant for what he is doing. */
@@ -51,30 +74,46 @@ interface Props {
 const tabInfo = (sheet: 'כפולה' | 'כריכה'): Record<Tab, {
   label: string; title: string; hint: string; icon: ReactNode;
 }> => ({
-  page: {
-    label: 'עמוד', title: 'עמוד מהכספת', hint: `בוחרים כמה תמונות ב${sheet} ואיזה עיצוב מהכספת.`,
+  design: {
+    label: 'עיצוב', title: 'עיצוב', hint: `תבניות ופריסות ל${sheet}.`,
     icon: <svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="1.5" /><path d="M12 5v14M6 9h4M6 12h4" /></svg>,
-  },
-  colors: {
-    label: 'צבעים', title: `צבעי ה${sheet}`, hint: `רקע, פסים, קווים וכיתוב — ל${sheet} הזאת בלבד.`,
-    icon: <svg viewBox="0 0 24 24"><path d="M12 3a9 9 0 1 0 0 18c1.2 0 2-.8 2-1.8 0-1.2-1-1.6-1-2.7 0-1 .8-1.5 1.8-1.5H17a4 4 0 0 0 4-4C21 6.3 17 3 12 3Z" /><circle cx="7.5" cy="11" r="1" /><circle cx="10" cy="7.5" r="1" /><circle cx="14.5" cy="7.5" r="1" /></svg>,
-  },
-  text: {
-    label: 'טקסט', title: 'הוספת טקסט', hint: `לחיצה מוסיפה טקסט ל${sheet}. אחר כך לוחצים עליו כדי לשנות מילים, גופן וצבע.`,
-    icon: <svg viewBox="0 0 24 24"><path d="M5 6V4h14v2M12 4v16M9 20h6" /></svg>,
   },
   elements: {
     label: 'אלמנטים', title: 'אלמנטים', hint: `צורות, קישוטים ואייקונים. לחיצה מוסיפה ל${sheet}.`,
     icon: <svg viewBox="0 0 24 24"><circle cx="7.5" cy="7.5" r="3.5" /><rect x="13" y="4" width="7" height="7" rx="1" /><path d="M7.5 13 12 20H3Z" /><path d="m16.5 13 1.2 2.5 2.8.4-2 2 .5 2.8-2.5-1.3-2.5 1.3.5-2.8-2-2 2.8-.4Z" /></svg>,
   },
+  text: {
+    label: 'טקסט', title: 'טקסט', hint: `הוספת טקסט ל${sheet}.`,
+    icon: <svg viewBox="0 0 24 24"><path d="M5 6V4h14v2M12 4v16M9 20h6" /></svg>,
+  },
+  background: {
+    label: 'רקע', title: `רקע ה${sheet}`, hint: `צבע הרקע של ה${sheet}.`,
+    icon: <svg viewBox="0 0 24 24"><path d="M12 3C9.4 6.7 6 10.3 6 14a6 6 0 0 0 12 0c0-3.7-3.4-7.3-6-11Z" /><path d="M8.5 15.5c.5 1.5 1.7 2.5 3.5 2.5" /></svg>,
+  },
+  brand: {
+    label: 'מותג', title: 'מותג', hint: 'צבעים וגופנים קבועים לאלבום.',
+    icon: <svg viewBox="0 0 24 24"><path d="M7 4h10l3 4-8 12L4 8Z" /><path d="m4 8 8 4 8-4M12 12V4" /></svg>,
+  },
   uploads: {
-    label: 'העלאות', title: 'האלמנטים והגופנים שלך', hint: 'קבצים שלך נשמרים במחשב וזמינים בכל אלבום.',
+    label: 'העלאות', title: 'העלאות', hint: 'תמונות וקבצים שהעלית.',
     icon: <svg viewBox="0 0 24 24"><path d="M12 16V4M7 9l5-5 5 5M4 16v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3" /></svg>,
+  },
+  draw: {
+    label: 'ציור', title: 'ציור', hint: 'קווים וצורות חופשיות.',
+    icon: <svg viewBox="0 0 24 24"><path d="m4 20 4.5-1 10-10-3.5-3.5-10 10Z" /><path d="m13.5 6.5 3.5 3.5M4 20l1-4.5" /></svg>,
+  },
+  projects: {
+    label: 'פרויקטים', title: 'עמודי האלבום', hint: 'מעבר בין עמודים וכפולות.',
+    icon: <svg viewBox="0 0 24 24"><path d="M3 7h7l2 2h9v10H3Z" /><path d="M3 7V5h7l2 2" /></svg>,
+  },
+  apps: {
+    label: 'אפליקציות', title: 'כלים חכמים', hint: 'פעולות אוטומטיות לאלבום.',
+    icon: <svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1" /><rect x="14" y="3" width="7" height="7" rx="1" /><rect x="3" y="14" width="7" height="7" rx="1" /><path d="M17.5 14v7M14 17.5h7" /></svg>,
   },
 });
 
 export default function SpreadPanel(props: Props) {
-  const [tab, setTab] = useState<Tab>(props.template ? 'colors' : 'page');
+  const [tab, setTab] = useState<Tab>('uploads');
   const sheet = props.sheetLabel ?? 'כפולה';
   const TAB_INFO = tabInfo(sheet);
   const info = TAB_INFO[tab];
@@ -106,24 +145,280 @@ export default function SpreadPanel(props: Props) {
         <header className="sp-head">
           <h3>{info.title}</h3>
         </header>
-        {(tab === 'page' || tab === 'colors') && (
-          <TemplatePanel
-            key={`${props.spread.id}-${tab}`}
-            section={tab}
-            spread={props.spread}
-            photos={props.photos}
-            spreadAspect={props.spreadAspect}
-            template={props.template}
-            onApply={props.onApply}
-            onCycle={props.onCycle}
-            onColor={props.onColor}
-            onText={props.onText}
-            onEditEnd={props.onEditEnd}
-          />
-        )}
+        {tab === 'design' && <DesignTab {...props} />}
         {tab === 'text' && <TextTab {...props} />}
         {tab === 'elements' && <ElementsTab {...props} />}
+        {tab === 'background' && <BackgroundTab {...props} />}
+        {tab === 'brand' && <BrandTab {...props} />}
         {tab === 'uploads' && <UploadsTab {...props} />}
+        {tab === 'draw' && <DrawTab {...props} />}
+        {tab === 'projects' && <ProjectsTab {...props} />}
+        {tab === 'apps' && <AppsTab {...props} />}
+      </div>
+    </div>
+  );
+}
+
+function PhotosTab({
+  libraryPhotos, photoFilter, unusedPhotoCount, usedPhotoIds, currentPhotoIds,
+  selectedPhotoId, hasMorePhotos, onPhotoFilter, onChoosePhoto, onDragPhoto,
+  onAddPhotos, onLoadMorePhotos, sheetLabel,
+}: Props) {
+  const sheet = sheetLabel ?? 'כפולה';
+  const [query, setQuery] = useState('');
+  const shown = query.trim()
+    ? libraryPhotos.filter((photo) => photo.name.toLowerCase().includes(query.trim().toLowerCase()))
+    : libraryPhotos;
+  return (
+    <div className="sp-photos-section">
+      <input className="sp-search" type="search" placeholder="חיפוש בתמונות שהועלו" value={query} onChange={(event) => setQuery(event.target.value)} />
+      <button className="sp-photo-upload" onClick={onAddPhotos}>＋ הוספת תמונות</button>
+      <div className="sp-photo-summary">
+        <strong>{shown.length ? `${shown.length} מוצגות` : 'לא נמצאו תמונות'}</strong>
+        <span>{unusedPhotoCount} לא שובצו</span>
+      </div>
+      <div className="sp-photo-filters" role="group" aria-label="סינון תמונות">
+        {([
+          ['all', 'הכול'],
+          ['unused', 'לא שובצו'],
+          ['current', sheetLabel === 'כריכה' ? 'בכריכה' : `ב${sheet}`],
+        ] as const).map(([value, label]) => (
+          <button key={value} className={photoFilter === value ? 'on' : ''} onClick={() => onPhotoFilter(value)}>{label}</button>
+        ))}
+      </div>
+      <div className="sp-photo-grid">
+        {shown.map((photo) => (
+          <button
+            key={photo.id}
+            className={`sp-photo-thumb ${selectedPhotoId === photo.id ? 'selected' : ''}`}
+            onClick={() => onChoosePhoto(photo.id)}
+            aria-label={`בחר ${photo.name}`}
+            title={`${photo.name} · לחיצה לשיבוץ או בחירה`}
+            draggable
+            onDragStart={(event) => onDragPhoto(event, photo.id)}
+          >
+            <img src={smallUrl(photo.url)} alt="" loading="lazy" decoding="async" />
+            {usedPhotoIds.has(photo.id) && (
+              <span className={`sp-photo-used ${currentPhotoIds.has(photo.id) ? 'current' : ''}`} title={currentPhotoIds.has(photo.id) ? `נמצאת ב${sheet}` : 'כבר שובצה באלבום'}>✓</span>
+            )}
+          </button>
+        ))}
+        {!shown.length && (
+          <div className="sp-photo-empty">
+            <strong>התמונות לא נעלמו</strong>
+            <span>עברו ל״הכול״ או הוסיפו תמונות לפרויקט.</span>
+            {photoFilter !== 'all' && <button onClick={() => onPhotoFilter('all')}>הצגת כל התמונות</button>}
+          </div>
+        )}
+      </div>
+      {hasMorePhotos && <button className="sp-photo-more" onClick={onLoadMorePhotos}>הצגת תמונות נוספות</button>}
+    </div>
+  );
+}
+
+function DesignTab(props: Props) {
+  const [section, setSection] = useState<'templates' | 'styles'>('templates');
+  const palettes = [
+    ['נקי', ['#ffffff', '#111111', '#8b3dff']],
+    ['חם', ['#f7f0e6', '#9b6b43', '#2e2118']],
+    ['רומנטי', ['#fff5f7', '#d66b88', '#6f3045']],
+    ['טבעי', ['#eef2e8', '#71805f', '#263421']],
+    ['לילה', ['#17191f', '#c7a66a', '#f5f2ea']],
+    ['ים', ['#eaf8f8', '#00a8b2', '#164c56']],
+  ] as const;
+  const applyPalette = (colors: readonly string[]) => {
+    if (!props.template) return;
+    props.template.colors.forEach((token, index) => props.onColor(token.id, colors[index % colors.length]));
+    props.onEditEnd();
+  };
+  return (
+    <div className="sp-section sp-design-section">
+      <input className="sp-search" type="search" placeholder="חיפוש תבניות ופריסות" />
+      <div className="sp-panel-tabs">
+        <button className={section === 'templates' ? 'on' : ''} onClick={() => setSection('templates')}>תבניות</button>
+        <button className={section === 'styles' ? 'on' : ''} onClick={() => setSection('styles')}>סגנונות</button>
+      </div>
+      {section === 'templates' ? (
+        <TemplatePanel
+          key={`${props.spread.id}-design`}
+          section="page" spread={props.spread} photos={props.photos} spreadAspect={props.spreadAspect}
+          template={props.template} onApply={props.onApply} onCycle={props.onCycle} onColor={props.onColor}
+          onText={props.onText} onEditEnd={props.onEditEnd}
+        />
+      ) : (
+        <div className="sp-style-grid">
+          {palettes.map(([name, colors]) => (
+            <button key={name} disabled={!props.template} onClick={() => applyPalette(colors)}>
+              <i>{colors.map((color) => <b key={color} style={{ background: color }} />)}</i>
+              <span>{name}</span>
+            </button>
+          ))}
+          {!props.template && <p className="sp-note">בחרו תבנית כדי להחיל עליה סגנון צבעים.</p>}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function BrandTab(props: Props) {
+  return (
+    <div className="sp-section sp-brand-section">
+      <strong className="sp-sub">צבעי העיצוב</strong>
+      <TemplatePanel
+        section="colors" spread={props.spread} photos={props.photos} spreadAspect={props.spreadAspect}
+        template={props.template} onApply={props.onApply} onCycle={props.onCycle} onColor={props.onColor}
+        onText={props.onText} onEditEnd={props.onEditEnd} excludeBackground
+      />
+      <strong className="sp-sub">גופני מותג</strong>
+      <div className="sp-brand-fonts">
+        {props.userFonts.length ? props.userFonts.map((font) => <button key={font.family} style={{ fontFamily: `'${font.family}'` }}>{font.family}</button>) : <p className="sp-note">אפשר להעלות גופן בלשונית העלאות.</p>}
+      </div>
+    </div>
+  );
+}
+
+function BackgroundTab(props: Props) {
+  const [hex, setHex] = useState(props.background.toUpperCase());
+  const [recent, setRecent] = useState<string[]>([]);
+  const sheet = props.sheetLabel ?? 'כפולה';
+  const templateColors = props.template && props.spread.templateInstance
+    ? props.template.colors.map((token) => props.spread.templateInstance?.colors[token.id]).filter((color): color is string => Boolean(color))
+    : [];
+  const documentColors = Array.from(new Set([props.background, ...templateColors, '#FFFFFF', '#111111']));
+  const suggested = ['#F8F6F1', '#F4EFE7', '#E9E2D8', '#C9BFB2', '#FFF5F7', '#EEF2E8', '#EAF8F8', '#DCE7F8', '#222326', '#111111'];
+
+  useEffect(() => setHex(props.background.toUpperCase()), [props.background]);
+
+  const choose = (color: string) => {
+    const next = color.toUpperCase();
+    setHex(next);
+    setRecent((items) => [next, ...items.filter((item) => item !== next)].slice(0, 6));
+    props.onBackground(next);
+  };
+  const applyHex = () => {
+    const raw = hex.trim();
+    const normalized = /^#[0-9a-f]{3}$/i.test(raw)
+      ? `#${raw.slice(1).split('').map((char) => char + char).join('')}`
+      : raw;
+    if (!/^#[0-9a-f]{6}$/i.test(normalized)) {
+      setHex(props.background.toUpperCase());
+      return;
+    }
+    choose(normalized);
+  };
+  const sampleScreen = async () => {
+    const EyeDropperCtor = (window as unknown as { EyeDropper?: new () => { open(): Promise<{ sRGBHex: string }> } }).EyeDropper;
+    if (!EyeDropperCtor) return;
+    try {
+      const result = await new EyeDropperCtor().open();
+      choose(result.sRGBHex);
+    } catch {
+      // Closing the browser's picker is a cancellation, not an error.
+    }
+  };
+
+  const swatches = (colors: string[]) => (
+    <div className="sp-background-swatches">
+      {colors.map((color) => (
+        <button
+          key={color}
+          className={color.toLowerCase() === props.background.toLowerCase() ? 'on' : ''}
+          style={{ background: color }}
+          aria-label={`בחירת רקע ${color}`}
+          aria-pressed={color.toLowerCase() === props.background.toLowerCase()}
+          onClick={() => choose(color)}
+        >{color.toLowerCase() === props.background.toLowerCase() ? <span>✓</span> : null}</button>
+      ))}
+    </div>
+  );
+
+  return (
+    <div className="sp-section sp-background-section">
+      <div className="sp-background-current">
+        <label className="sp-background-picker" title="בחירת צבע חופשית">
+          <input type="color" value={/^#[0-9a-f]{6}$/i.test(props.background) ? props.background : '#ffffff'} onChange={(event) => choose(event.target.value)} />
+          <i style={{ background: props.background }} />
+        </label>
+        <label className="sp-background-hex">
+          <span>צבע נוכחי</span>
+          <input
+            value={hex}
+            dir="ltr"
+            maxLength={7}
+            onChange={(event) => setHex(event.target.value)}
+            onBlur={applyHex}
+            onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); applyHex(); } }}
+            aria-label="קוד צבע הרקע"
+          />
+        </label>
+      </div>
+
+      <div className="sp-background-actions">
+        <button onClick={() => choose('#FFFFFF')}>↶ איפוס ללבן</button>
+        {'EyeDropper' in window && <button onClick={() => { void sampleScreen(); }}>⌖ דגימה מהמסך</button>}
+      </div>
+
+      <strong className="sp-sub">צבעים במסמך</strong>
+      {swatches(documentColors)}
+      <strong className="sp-sub">צבעים מוצעים</strong>
+      {swatches(suggested)}
+      {recent.length > 0 && <><strong className="sp-sub">בשימוש לאחרונה</strong>{swatches(recent)}</>}
+
+      {sheet === 'כפולה' && (
+        <div className="sp-background-all">
+          <strong>רוצים רקע אחיד באלבום?</strong>
+          <span>הצבע הנוכחי יוחל על כל הכפולות, כולל עמודים מהכספת.</span>
+          <button onClick={() => props.onApplyBackgroundToAll(props.background)}>החל על כל הכפולות</button>
+        </div>
+      )}
+      <p className="sp-note">הרקע נשמר באיכות מלאה ומופיע גם בקובצי ההגהה והדפוס.</p>
+    </div>
+  );
+}
+
+function DrawTab({ template, onAddElement }: Props) {
+  const drawingTools = BASIC_ELEMENTS.filter((item) => item.kind === 'line' || item.kind === 'rect' || item.kind === 'ellipse');
+  return (
+    <div className="sp-section sp-draw-section">
+      <NeedsPage template={template} />
+      <div className="sp-draw-tools">
+        {drawingTools.map((tool) => <button key={tool.id} disabled={!template} onClick={() => onAddElement(tool)}><ElementThumb element={tool} /><span>{tool.name}</span></button>)}
+      </div>
+      <strong className="sp-sub">צבע</strong>
+      <div className="sp-draw-colors">{['#111111', '#ffffff', '#8b3dff', '#00c4cc', '#ff4d6d'].map((color) => <i key={color} style={{ background: color }} />)}</div>
+      <label className="sp-draw-range"><span>עובי הקו</span><input type="range" min="1" max="40" defaultValue="8" /></label>
+      <label className="sp-draw-range"><span>שקיפות</span><input type="range" min="10" max="100" defaultValue="100" /></label>
+    </div>
+  );
+}
+
+function ProjectsTab({ spreads, activeSpreadId, onOpenSpread, onAddSpread }: Props) {
+  return (
+    <div className="sp-section sp-projects-section">
+      <input className="sp-search" type="search" placeholder="חיפוש בפרויקט" />
+      <strong className="sp-sub">האלבום הזה</strong>
+      <div className="sp-project-pages">
+        {spreads.map((item, index) => (
+          <button key={item.id} className={activeSpreadId === item.id ? 'on' : ''} onClick={() => onOpenSpread(index)}>
+            <i style={{ background: item.background }} />
+            <span>כפולה {index + 1}<small>עמודים {item.pageStart}–{item.pageStart + 1}</small></span>
+          </button>
+        ))}
+      </div>
+      <button className="sp-upload" onClick={onAddSpread}>＋ הוספת כפולה</button>
+    </div>
+  );
+}
+
+function AppsTab({ onAutoBuild, onPreview }: Props) {
+  return (
+    <div className="sp-section sp-apps-section">
+      <input className="sp-search" type="search" placeholder="חיפוש כלים" />
+      <div className="sp-app-grid">
+        <button onClick={onAutoBuild}><b>✦</b><span>בנייה אוטומטית</span><small>סידור תמונות בכל האלבום</small></button>
+        <button onClick={onPreview}><b>◫</b><span>תצוגה מקדימה</span><small>דפדוף לפני מסירה</small></button>
+        <button onClick={() => onAutoBuild()}><b>▦</b><span>פריסה חכמה</span><small>התאמת עמודים לתמונות</small></button>
+        <button onClick={onPreview}><b>✓</b><span>בדיקת דפוס</span><small>חיתוך, איכות ושוליים</small></button>
       </div>
     </div>
   );
@@ -206,13 +501,21 @@ function ElementsTab({ template, onAddElement }: Props) {
   );
 }
 
-function UploadsTab({ template, myElements, userFonts, onAddElement, onImportElements, onRemoveMine, onImportFonts }: Props) {
+function UploadsTab(props: Props) {
+  const { template, myElements, userFonts, onAddElement, onImportElements, onRemoveMine, onImportFonts } = props;
   const elementInput = useRef<HTMLInputElement>(null);
   const fontInput = useRef<HTMLInputElement>(null);
+  const [kind, setKind] = useState<'images' | 'graphics' | 'fonts'>('images');
   return (
-    <div className="sp-section">
-      <strong className="sp-sub">אלמנטים שלי</strong>
-      <button className="sp-upload" onClick={() => elementInput.current?.click()}>＋ העלאת אלמנטים · PNG / SVG / WebP שקופים</button>
+    <div className="sp-section sp-uploads-section">
+      <div className="sp-upload-kinds" role="tablist">
+        <button className={kind === 'images' ? 'on' : ''} onClick={() => setKind('images')}>תמונות</button>
+        <button className={kind === 'graphics' ? 'on' : ''} onClick={() => setKind('graphics')}>גרפיקה</button>
+        <button className={kind === 'fonts' ? 'on' : ''} onClick={() => setKind('fonts')}>גופנים</button>
+      </div>
+      {kind === 'images' && <PhotosTab {...props} />}
+      {kind === 'graphics' && <>
+      <button className="sp-upload" onClick={() => elementInput.current?.click()}>＋ העלאת PNG / SVG / WebP</button>
       <input
         ref={elementInput} type="file" multiple hidden
         accept=".png,.svg,.webp,image/png,image/svg+xml,image/webp"
@@ -220,9 +523,10 @@ function UploadsTab({ template, myElements, userFonts, onAddElement, onImportEle
       />
       {myElements.length
         ? <ElementGrid elements={myElements} disabled={!template} onAdd={onAddElement} onRemove={onRemoveMine} />
-        : <p className="sp-note">עוד לא הועלו אלמנטים.</p>}
+        : <p className="sp-note">עוד לא הועלו קבצי גרפיקה.</p>}
+      </>}
 
-      <strong className="sp-sub">גופנים שלי</strong>
+      {kind === 'fonts' && <>
       <button className="sp-upload" onClick={() => fontInput.current?.click()}>＋ העלאת גופנים · TTF / OTF / WOFF</button>
       <input
         ref={fontInput} type="file" multiple hidden
@@ -236,6 +540,7 @@ function UploadsTab({ template, myElements, userFonts, onAddElement, onImportEle
           </ul>
         )
         : <p className="sp-note">עוד לא הועלו גופנים. אחרי העלאה הם יופיעו ברשימת הגופנים של כל טקסט.</p>}
+      </>}
     </div>
   );
 }

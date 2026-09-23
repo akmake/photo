@@ -72,6 +72,15 @@ export interface TextLayer extends BaseLayer {
   /** Stand-in font until the designer's font file is added. */
   fontFamily: string;
   fontWeight: number;
+  /** Canva-style character controls for text the photographer adds. */
+  italic?: boolean;
+  underline?: boolean;
+  strikeThrough?: boolean;
+  /** Em units, so tracking scales with the selected type size. */
+  letterSpacing?: number;
+  textTransform?: 'none' | 'uppercase' | 'lowercase' | 'capitalize';
+  effect?: 'none' | 'shadow' | 'outline' | 'lift';
+  animation?: 'none' | 'fade' | 'rise' | 'typewriter';
   /** Fraction of the spread height. */
   fontSize: number;
   lineHeight: number;

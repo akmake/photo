@@ -1,6 +1,6 @@
 import { useId, type CSSProperties } from 'react';
 import { assessCrop } from '../cropEngine';
-import type { AlbumPhoto, AlbumSpread, PhotoFrameSettings } from '../model';
+import { photoAdjustmentFilter, type AlbumPhoto, type AlbumSpread, type PhotoFrameSettings } from '../model';
 import { colorOf, paintOrder, textOf, usesSourceLettering } from './library';
 import type {
   AlbumTemplate, ImageLayer, LayerOutline, PhotoLayer, ShapeLayer, SpreadTemplateInstance, TemplateLayer,
@@ -248,7 +248,7 @@ export function TemplateLayerView({ template, instance, layer, zIndex, hideLayer
     return (
       <div className="tpl-decor" style={wrapper}>
         <div
-          className="tpl-text"
+          className={`tpl-text ${layer.animation && layer.animation !== 'none' ? `tpl-text-${layer.animation}` : ''}`}
           style={{
             left: `${layer.box.x * 100}%`,
             top: `${layer.box.y * 100}%`,
@@ -258,6 +258,17 @@ export function TemplateLayerView({ template, instance, layer, zIndex, hideLayer
             color: layer.color ?? colorOf(template, instance, layer.colorToken),
             fontFamily: layer.fontFamily,
             fontWeight: layer.fontWeight,
+            fontStyle: layer.italic ? 'italic' : 'normal',
+            textDecoration: [layer.underline ? 'underline' : '', layer.strikeThrough ? 'line-through' : ''].filter(Boolean).join(' ') || 'none',
+            letterSpacing: `${layer.letterSpacing ?? 0}em`,
+            textTransform: layer.textTransform === 'none' ? undefined : layer.textTransform,
+            textShadow: layer.effect === 'shadow'
+              ? '0 .09em .16em rgba(0,0,0,.34)'
+              : layer.effect === 'lift'
+                ? '0 .16em .08em rgba(0,0,0,.2)'
+                : undefined,
+            WebkitTextStroke: layer.effect === 'outline' ? '.035em currentColor' : undefined,
+            paintOrder: layer.effect === 'outline' ? 'stroke fill' : undefined,
             fontSize: `${layer.fontSize * 100}cqh`,
             lineHeight: layer.lineHeight,
             justifyContent: JUSTIFY[layer.align],
@@ -363,8 +374,9 @@ export function TemplatePage({
                 style={{
                   objectFit: crop.fit,
                   objectPosition: `${crop.positionX}% ${crop.positionY}%`,
-                  transform: `scale(${(crop.fit === 'contain' ? 1 : (settings.zoom ?? 100) / 100) * (layer.flipX ? -1 : 1)}, ${(crop.fit === 'contain' ? 1 : (settings.zoom ?? 100) / 100) * (layer.flipY ? -1 : 1)})`,
+                  transform: `rotate(${settings.rotation ?? 0}deg) scale(${(crop.fit === 'contain' ? 1 : (settings.zoom ?? 100) / 100) * (layer.flipX ? -1 : 1)}, ${(crop.fit === 'contain' ? 1 : (settings.zoom ?? 100) / 100) * (layer.flipY ? -1 : 1)})`,
                   transformOrigin: `${crop.positionX}% ${crop.positionY}%`,
+                  filter: photoAdjustmentFilter(settings),
                 }}
               />
             )}

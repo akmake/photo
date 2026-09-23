@@ -30,6 +30,15 @@ Protocol: the engine writes one JSON object per line to stdin —
 `triage` names frames for the work stage's analysis (triage.analyze), which
 runs before the masks: it is cheap and it is the next thing a screen shows.
 
+`files: [{src, dest, recipe}]` brings a frame's edited copy in `תמונות` up to
+date with its whole recipe (see workspace.is_current). Unlike everything else
+here this one IS a product, so two rules: the recipe used is the LATEST one sent
+for that frame, and a render overtaken by a newer recipe while it ran is thrown
+away rather than written over the newer file. `"queue": false` only records
+what a frame should now be — the engine sends that when it renders the file
+itself, so a render already running here for an older look does not land after
+it.
+
 With a `recipe`, preparing a frame means RENDERING it with that recipe, exactly
 as the engine will — which fills every cache the tools read, including the
 per-face ones cleanup and retouch build on their own crops, with no list of
@@ -54,6 +63,7 @@ import masks  # noqa: E402
 import previews  # noqa: E402
 import render  # noqa: E402
 import triage  # noqa: E402
+import workspace  # noqa: E402
 
 # The kinds the edit screen's tools read from the whole frame. `face-skin`
 # brings `body-skin` and `hair` with it — they share one segmentation.
@@ -61,6 +71,7 @@ MASK_KINDS = ("subject", "face-features", "face-skin")
 
 _stack = []            # [(kind, path, arg)], served from the end
 _recipes = {}          # (path, width) -> the latest recipe sent for it, as text
+_files = {}            # src -> (dest dir, recipe text): what its edited copy must be
 _lock = threading.Lock()
 _eof = threading.Event()
 
@@ -88,7 +99,18 @@ def _push(request):
     if width > 0:
         for p in paths:
             jobs.append(("masks", p, (width, tools)))
+    wanted = [
+        f for f in (request.get("files") or [])
+        if isinstance(f, dict) and isinstance(f.get("src"), str) and f.get("dest")
+    ]
+    if request.get("queue", True):
+        # Files after the thumbnails and before the masks: a file is what the
+        # album shows and prints, the masks only make the next click faster.
+        at = len(jobs) - (len(paths) if width > 0 else 0)
+        jobs[at:at] = [("file", f["src"], 0) for f in wanted]
     with _lock:
+        for f in wanted:
+            _files[f["src"]] = (f["dest"], json.dumps(f.get("recipe") or [], sort_keys=True))
         for p in paths:
             _recipes[(p, width)] = recipe_text
         # A repeated job moves to the front rather than running twice.
@@ -110,6 +132,9 @@ def _reader():
 def _do(job):
     kind, path, arg = job
     if not os.path.isfile(path):
+        return
+    if kind == "file":
+        _do_file(path)
         return
     if kind == "thumb":
         previews.cached_thumb(path, arg)
@@ -152,6 +177,25 @@ def _do(job):
         open(marker, "wb").close()
 
 
+def _do_file(src):
+    with _lock:
+        want = _files.get(src)
+    if want is None:
+        return
+    dest, text = want
+    recipe = json.loads(text)
+    if workspace.is_current(src, dest, recipe):
+        return
+
+    def still_wanted():
+        with _lock:
+            return _files.get(src) == want
+
+    render.export(src, recipe, dest, "jpeg", render.DEFAULT_QUALITY,
+                  stamp=True, keep=still_wanted)
+    render.clear_stage_cache()
+
+
 def main():
     threading.Thread(target=_reader, name="prep-stdin", daemon=True).start()
     done = set()
@@ -163,7 +207,9 @@ def main():
                 return
             time.sleep(0.25)
             continue
-        if job in done:
+        # A file is never "done": its recipe can change again, and whether it
+        # is current is a header read, asked in _do_file itself.
+        if job in done and job[0] != "file":
             continue
         try:
             _do(job)

@@ -1,13 +1,13 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+﻿import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   IcBook, IcCheck, IcChevron, IcDownload, IcEye, IcGallery,
-  IcSparkle, IcUndo, IcUpload,
+  IcSparkle, IcUndo,
 } from '../design/Icons';
 import type {
   AlbumPhoto, AlbumPhotoAnalysis, AlbumProject, AlbumSpread, LayoutSlot,
   PhotoFitMode, PhotoFrameSettings, PrintProductProfile,
 } from './model';
-import { FIRST_PRINT_PROFILE, PRINT_PROFILES } from './model';
+import { FIRST_PRINT_PROFILE, PRINT_PROFILES, photoAdjustmentFilter } from './model';
 import {
   buildAlbumLayoutCandidates, EMPTY_GENERATED_LAYOUT, type GeneratedAlbumLayout,
 } from './layoutEngine';
@@ -52,8 +52,9 @@ import PreflightPanel from './PreflightPanel';
 import AlbumOverview from './AlbumOverview';
 import AlbumLibrary, { type AlbumCreateInput } from './AlbumLibrary';
 import { clientAlbumsOf } from '../studio/galleryLink';
-import { useProjectFiles } from '../studio/store';
+import { bringFramesUpToDate, framesOf, reloadFrames, staleFrames, useProjectFiles } from '../studio/store';
 import type { Project as StudioProject } from '../studio/store';
+import PhotoEditor, { type EditorTab } from '../v2/screens/PhotoEditor';
 import { framesToPool, enrichPool, smallUrl } from './projectPool';
 import { runAlbumPreflight, type PreflightIssue } from './preflightEngine';
 import { detectAlbumSessions, oneSession } from './sessionEngine';
@@ -206,6 +207,7 @@ export default function AlbumStudio({ job, onBack }: {
   const [overviewScrollTop, setOverviewScrollTop] = useState(0);
   const [pendingSpreadDelete, setPendingSpreadDelete] = useState<number | null>(null);
   const [showAlbumSettings, setShowAlbumSettings] = useState(false);
+  const [showResizePanel, setShowResizePanel] = useState(false);
   const [settingsWidthCm, setSettingsWidthCm] = useState(30);
   const [settingsHeightCm, setSettingsHeightCm] = useState(30);
   const [showPreflight, setShowPreflight] = useState(false);
@@ -216,10 +218,12 @@ export default function AlbumStudio({ job, onBack }: {
    * Canva opens a caret in the words themselves; typing into a box off to the
    * side and watching the result somewhere else is the thing being replaced. */
   const [editingTextId, setEditingTextId] = useState<string | null>(null);
-  /* The side panel starts closed, as Canva's does: the spread is what the
-   * photographer opened the screen for, and the panel is one click away on
-   * its rail whenever he wants it. */
-  const [panelOpen, setPanelOpen] = useState(false);
+  const [copiedTextStyle, setCopiedTextStyle] = useState<Partial<TextLayer> | null>(null);
+  const [photoEditorTarget, setPhotoEditorTarget] = useState<{ name: string; tab: EditorTab } | null>(null);
+  /* The image library is the album builder's starting point. Keep it visible
+   * until the photographer explicitly closes it; selecting something on the
+   * spread must never make the photos disappear. */
+  const [panelOpen, setPanelOpen] = useState(true);
   const [myElements, setMyElements] = useState<ElementDef[]>([]);
   const [userFonts, setUserFonts] = useState<FontEntry[]>([]);
   useEffect(() => {
@@ -425,6 +429,77 @@ export default function AlbumStudio({ job, onBack }: {
     return undefined;
   }, [job?.id, activeAlbumId, jobFiles.frames]);
 
+  /* THE PRINT IS THE LATEST EDIT.
+   *
+   * A photograph's file in תמונות is re-rendered when its OWN edits change,
+   * not when its batch's look or the whole set's does — so a look applied to
+   * a batch reached this album, and its print, missing. The photographs placed
+   * here are therefore checked against their current recipe (a header read
+   * each), and the ones that no longer match go to the engine's background
+   * preparer, which renders below the screen's priority. While some are out,
+   * the album asks again every few seconds and re-reads the project when one
+   * lands, so the spread changes to the new edit by itself. The export does
+   * not depend on this having finished: see photosForExport. */
+  const placedIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const spread of project.spreads) for (const id of spread.photoIds) if (id) ids.add(id);
+    const cover = project.cover;
+    for (const id of cover?.sheet?.photoIds ?? []) if (id) ids.add(id);
+    if (cover?.frontPhotoId) ids.add(cover.frontPhotoId);
+    if (cover?.backPhotoId) ids.add(cover.backPhotoId);
+    return [...ids];
+  }, [project.spreads, project.cover]);
+  const placedKey = placedIds.join('|');
+
+  useEffect(() => {
+    if (!job || !activeAlbumId || !isHydrated || !placedIds.length) return undefined;
+    let alive = true;
+    let timer: number | undefined;
+    let outstanding = -1;
+    const check = async (queue: boolean) => {
+      try {
+        const stale = await staleFrames(job.id, placedIds, queue);
+        if (!alive) return;
+        if (outstanding >= 0 && stale.length < outstanding) await reloadFrames(job.id);
+        if (!alive) return;
+        if (queue && stale.length) {
+          setNotice(`מעדכן ברקע ${stale.length} תמונות באלבום לפי העריכה האחרונה`);
+        } else if (outstanding > 0 && !stale.length) {
+          setNotice('כל התמונות באלבום מעודכנות לפי העריכה האחרונה');
+        }
+        outstanding = stale.length;
+        if (stale.length) timer = window.setTimeout(() => void check(false), 4000);
+      } catch {
+        // Said once and left: the export makes the same check again and
+        // stops on it, so nothing reaches print unchecked.
+        if (alive) setNotice('לא ניתן לבדוק אם התמונות באלבום מעודכנות לעריכה האחרונה');
+      }
+    };
+    const start = window.setTimeout(() => void check(true), 800);
+    return () => {
+      alive = false;
+      window.clearTimeout(start);
+      window.clearTimeout(timer);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [job?.id, activeAlbumId, isHydrated, placedKey]);
+
+  /** The photographs as they go to print. Every placed one is first brought up
+   *  to date with its recipe — rendered now if the background has not reached
+   *  it yet — and its file re-read from the project: a frame that had no
+   *  edited file until a moment ago has one now, and must print from it. */
+  async function photosForExport(): Promise<AlbumPhoto[]> {
+    if (!job) return photos;
+    const rendered = await bringFramesUpToDate(job.id, placedIds, (done, total) =>
+      setNotice(`מעדכן תמונה ${done} מתוך ${total} לפי העריכה האחרונה…`));
+    if (!rendered) await reloadFrames(job.id);
+    const current = new Map(framesToPool(framesOf(job.id)).map((photo) => [photo.id, photo]));
+    return photos.map((photo) => {
+      const now = current.get(photo.id);
+      return now ? { ...photo, url: now.url, exportPath: now.exportPath } : photo;
+    });
+  }
+
   /* The core loop is the keyboard: vertical cycles this spread's candidate
    * layouts, horizontal walks the album. The album reads right-to-left, so
    * LEFT advances — matching the direction the pages actually turn. */
@@ -545,7 +620,10 @@ export default function AlbumStudio({ job, onBack }: {
   /* The photos chosen for THIS album. Undefined on albums made before the
    * choice was kept — those draw from the whole pool, as they always did. */
   const albumPhotos = useMemo(() => {
-    if (!project.photoSelection) return photos;
+    /* An empty selection means the album has not narrowed the project pool
+     * yet — not that the photographer owns zero photos. Keep the full project
+     * library available in the editor, then let the filters do their job. */
+    if (!project.photoSelection?.length) return photos;
     const chosen = new Set(project.photoSelection);
     return photos.filter((photo) => chosen.has(photo.id));
   }, [photos, project.photoSelection]);
@@ -706,6 +784,40 @@ export default function AlbumStudio({ job, onBack }: {
     setNotice('השינויים נשמרו');
   }
 
+  function changeSheetBackground(color: string) {
+    if (activeTemplate && spread.templateInstance) {
+      updateSpread({
+        templateInstance: {
+          ...spread.templateInstance,
+          colors: { ...spread.templateInstance.colors, [activeTemplate.backgroundToken]: color },
+        },
+      });
+    } else {
+      updateSpread({ background: color });
+    }
+    setNotice(`רקע ה${editingCover ? 'כריכה' : 'כפולה'} עודכן`);
+  }
+
+  function applyBackgroundToAllSpreads(color: string) {
+    const spreadAspect = profile.spreadWidthMm / Math.max(1, profile.spreadHeightMm);
+    commitProject((current) => ({
+      ...current,
+      spreads: current.spreads.map((item) => {
+        if (!item.templateInstance) return { ...item, background: color };
+        const itemTemplate = spreadTemplate(item, spreadAspect);
+        if (!itemTemplate) return { ...item, background: color };
+        return {
+          ...item,
+          templateInstance: {
+            ...item.templateInstance,
+            colors: { ...item.templateInstance.colors, [itemTemplate.backgroundToken]: color },
+          },
+        };
+      }),
+    }));
+    setNotice('הרקע הוחל על כל הכפולות · אפשר לבטל ב-Ctrl+Z');
+  }
+
   function updatePrintProfile(patch: Partial<typeof profile>) {
     const invalidatesCover = patch.closedWidthMm !== undefined
       || patch.closedHeightMm !== undefined
@@ -732,6 +844,7 @@ export default function AlbumStudio({ job, onBack }: {
   function setActiveSpread(index: number) {
     const nextId = index < 0 ? COVER_SHEET_ID : project.spreads[index]?.id;
     if (!nextId) return;
+    const nextPhotoIds = index < 0 ? coverSheet.photoIds : (project.spreads[index]?.photoIds ?? []);
     setProject((current) => (index < 0
       ? {
         ...current,
@@ -744,7 +857,9 @@ export default function AlbumStudio({ job, onBack }: {
       : { ...current, activeSpreadId: nextId }));
     setSelectedPhotoId(null);
     setSelectedSlotIndex(null);
-    setPhotoFilter('current');
+    /* Never navigate the photographer into a blank photo panel. "Current" is
+     * useful only after the current sheet actually contains photographs. */
+    setPhotoFilter(nextPhotoIds.some(Boolean) ? 'current' : 'unused');
     setPhotoLimit(60);
   }
 
@@ -889,6 +1004,13 @@ export default function AlbumStudio({ job, onBack }: {
     setShowAlbumSettings(true);
   }
 
+  function openResizePanel() {
+    setSettingsWidthCm(profile.closedWidthMm / 10);
+    setSettingsHeightCm(profile.closedHeightMm / 10);
+    setShowResizePanel(true);
+    setShowMoreMenu(false);
+  }
+
   function applyAlbumDimensions(widthCm = settingsWidthCm, heightCm = settingsHeightCm) {
     if (widthCm < 10 || widthCm > 100 || heightCm < 10 || heightCm > 100) {
       setNotice('המידות חייבות להיות בין 10 ל־100 ס״מ');
@@ -898,15 +1020,13 @@ export default function AlbumStudio({ job, onBack }: {
     commitProject((current) => ({
       ...current,
       productProfileId: nextProfile.id,
-      spreads: current.spreads.map((candidate) => ({
-        ...candidate,
-        layoutId: 'balanced',
-        customSlots: undefined,
-        frameSettings: {},
-        /* A Vault page stays: it is fitted to the new shape, not dropped. */
-      })),
+      /* Places, crops, type and artwork use proportional page coordinates.
+       * Keeping them is what makes resize feel live: generated layouts reflow
+       * against the new ratio, while hand-arranged and Vault pages scale with
+       * the sheet instead of being erased. */
     }));
-    setSelectedSlotIndex(null);
+    setShowResizePanel(false);
+    setShowAlbumSettings(false);
     setNotice(`האלבום הותאם למידה ${widthCm}×${heightCm} ס״מ`);
   }
 
@@ -2262,10 +2382,11 @@ export default function AlbumStudio({ job, onBack }: {
     setIsExporting(true);
     setNotice('מכין את ההגהה…');
     try {
+      const current = await photosForExport();
       const result = await exportAlbumProof(
         project,
         createExportItems(),
-        photos,
+        current,
         profile,
         (current, total) => setNotice(`מרנדר כפולה ${current} מתוך ${total}…`),
       );
@@ -2289,10 +2410,11 @@ export default function AlbumStudio({ job, onBack }: {
     setIsExporting(true);
     setNotice('מכין חבילת דפוס…');
     try {
+      const current = await photosForExport();
       const result = await exportAlbumForPrint(
         project,
         createExportItems(),
-        photos,
+        current,
         profile,
         (current, total) => setNotice(`מייצא לדפוס כפולה ${current} מתוך ${total}…`),
       );
@@ -2397,8 +2519,15 @@ export default function AlbumStudio({ job, onBack }: {
 
         <div className="album-topbar-actions">
           {(preflight.blockers > 0 || preflight.warnings > 0) && (
-            <button className={`album-preflight-alert${preflight.blockers ? ' blocker' : ''}`} onClick={() => setShowPreflight(true)}>
-              {preflight.blockers ? `${preflight.blockers} בעיות מונעות ייצוא` : `${preflight.warnings} אזהרות`}
+            <button
+              className={`album-preflight-alert${preflight.blockers ? ' blocker' : ''}`}
+              onClick={() => setShowPreflight(true)}
+              title={preflight.blockers ? `${preflight.blockers} בעיות מונעות ייצוא` : `${preflight.warnings} אזהרות`}
+            >
+              {/* The count never goes away; the words give way when the bar
+                * is tight, so the warning still reads at any zoom. */}
+              <b>{preflight.blockers || preflight.warnings}</b>
+              <span>{preflight.blockers ? 'בעיות מונעות ייצוא' : 'אזהרות'}</span>
             </button>
           )}
           {mode === 'design' && (
@@ -2410,8 +2539,94 @@ export default function AlbumStudio({ job, onBack }: {
           )}
           <button className="album-icon-button" aria-label="ביטול" title="ביטול · Ctrl+Z" onClick={undoProject} disabled={!historyPast.length}><IcUndo size={18} /></button>
           <button className="album-icon-button" aria-label="ביצוע חוזר" title="ביצוע חוזר · Ctrl+Shift+Z" onClick={redoProject} disabled={!historyFuture.length}><IcUndo size={18} style={{ transform: 'scaleX(-1)' }} /></button>
+          <div className="album-resize-wrap">
+            <button
+              className={`album-quiet-button album-resize-trigger ${showResizePanel ? 'on' : ''}`}
+              aria-expanded={showResizePanel}
+              aria-haspopup="dialog"
+              title="שינוי גודל האלבום"
+              onClick={() => (showResizePanel ? setShowResizePanel(false) : openResizePanel())}
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M8 4H4v4M16 4h4v4M4 16v4h4M20 16v4h-4" />
+                <path d="m9 9-5-5m11 5 5-5M9 15l-5 5m11-5 5 5" />
+              </svg>
+              שינוי גודל
+            </button>
+            {showResizePanel && (
+              <>
+                <button className="album-resize-dismiss" aria-label="סגירת שינוי גודל" onClick={() => setShowResizePanel(false)} />
+                <aside className="album-resize-panel" role="dialog" aria-label="שינוי גודל האלבום">
+                  <header>
+                    <div>
+                      <strong>שינוי גודל</strong>
+                      <span>כל העמודים יתאימו את עצמם למידה החדשה</span>
+                    </div>
+                    <button type="button" aria-label="סגירה" onClick={() => setShowResizePanel(false)}>×</button>
+                  </header>
+
+                  <div className="album-current-size">
+                    <i style={{ aspectRatio: `${profile.closedWidthMm} / ${profile.closedHeightMm}` }} />
+                    <span>
+                      <small>המידה הנוכחית</small>
+                      <b dir="ltr">{profile.closedWidthMm / 10} × {profile.closedHeightMm / 10} ס״מ</b>
+                      <em>{profile.closedWidthMm === profile.closedHeightMm ? 'מרובע' : profile.closedWidthMm > profile.closedHeightMm ? 'אופקי' : 'אנכי'}</em>
+                    </span>
+                  </div>
+
+                  <section>
+                    <h3>מידות אלבום</h3>
+                    <div className="album-resize-presets">
+                      {printProfiles.map((item) => {
+                        const width = item.closedWidthMm / 10;
+                        const height = item.closedHeightMm / 10;
+                        const selected = settingsWidthCm === width && settingsHeightCm === height;
+                        return (
+                          <button
+                            type="button"
+                            key={item.id}
+                            className={selected ? 'on' : ''}
+                            onClick={() => { setSettingsWidthCm(width); setSettingsHeightCm(height); }}
+                          >
+                            <i style={{ aspectRatio: `${width} / ${height}` }} />
+                            <span><strong dir="ltr">{width} × {height}</strong><small>ס״מ · {width === height ? 'מרובע' : width > height ? 'אופקי' : 'אנכי'}</small></span>
+                            {selected && <b>✓</b>}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </section>
+
+                  <section>
+                    <h3>מידה מותאמת אישית</h3>
+                    <div className="album-resize-custom">
+                      <label><span>רוחב</span><input type="number" min="10" max="100" step="0.5" value={settingsWidthCm} onChange={(event) => setSettingsWidthCm(Number(event.target.value))} /></label>
+                      <b>×</b>
+                      <label><span>גובה</span><input type="number" min="10" max="100" step="0.5" value={settingsHeightCm} onChange={(event) => setSettingsHeightCm(Number(event.target.value))} /></label>
+                      <em>ס״מ</em>
+                    </div>
+                  </section>
+
+                  <div className="album-resize-promise">
+                    <span>✦</span>
+                    <p><strong>העיצוב נשמר</strong> תמונות, חיתוכים, טקסטים ומסגרות נשארים במקומם ומותאמים ליחס החדש.</p>
+                  </div>
+
+                  <footer>
+                    <button type="button" onClick={() => setShowResizePanel(false)}>ביטול</button>
+                    <button
+                      type="button"
+                      className="primary"
+                      disabled={settingsWidthCm < 10 || settingsWidthCm > 100 || settingsHeightCm < 10 || settingsHeightCm > 100}
+                      onClick={() => applyAlbumDimensions()}
+                    >שינוי גודל</button>
+                  </footer>
+                </aside>
+              </>
+            )}
+          </div>
           <button className="album-quiet-button" onClick={() => autoBuildAlbum()} title="פריסת כל תמונות האלבום על עמודי הכספת"><IcSparkle size={16} /> בנייה אוטומטית</button>
-          <button className="album-quiet-button" onClick={() => setShowPreview(true)}><IcEye size={16} /> תצוגה</button>
+          <button className="album-quiet-button" onClick={() => setShowPreview(true)} title="תצוגה מקדימה של האלבום"><IcEye size={16} /> תצוגה</button>
           <div className="album-more-wrap">
             <button className="album-icon-button" aria-label="פעולות נוספות" aria-expanded={showMoreMenu} onClick={() => setShowMoreMenu((value) => !value)}>•••</button>
             {showMoreMenu && (
@@ -2423,11 +2638,11 @@ export default function AlbumStudio({ job, onBack }: {
               </div>
             )}
           </div>
-          {mode === 'organize' && <button className="album-primary-button" onClick={() => setShowDelivery(true)}><IcDownload size={16} /> הגהה ומסירה</button>}
+          <button className="album-primary-button album-share-button" onClick={() => setShowDelivery(true)}><IcDownload size={16} /> {mode === 'design' ? 'שיתוף' : 'הגהה ומסירה'}</button>
         </div>
       </header>
 
-      <div className={`album-workspace ${mode} ${selectionActive || !panelOpen ? 'rail-only' : ''}`}>
+      <div className={`album-workspace ${mode} ${!panelOpen ? 'rail-only' : ''}`}>
         {showAlbumSettings && (
         <div className="album-settings-backdrop">
         <aside className="album-settings-panel">
@@ -2501,28 +2716,6 @@ export default function AlbumStudio({ job, onBack }: {
             {ALBUM_STYLES.find((albumStyle) => albumStyle.id === project.styleName)?.description}
             {' · '}שינוי סגנון מסדר מחדש כפולות שאינן נעולות
           </small>
-
-          <div className="album-field-label">רקע הכפולה</div>
-          <div className="album-palette">
-            {['#f8f6f1', '#f4efe7', '#e9e2d8', '#c9bfb2', '#222326'].map((color) => (
-              <button
-                key={color}
-                className={spreadPaper === color ? 'on' : ''}
-                style={{ background: color }}
-                /* On a Vault page the background is one of the page's own colours —
-                 * writing the legacy field there would change nothing on screen. */
-                onClick={() => (activeTemplate && spread.templateInstance
-                  ? updateSpread({
-                    templateInstance: {
-                      ...spread.templateInstance,
-                      colors: { ...spread.templateInstance.colors, [activeTemplate.backgroundToken]: color },
-                    },
-                  })
-                  : updateSpread({ background: color }))}
-                aria-label={`רקע ${color}`}
-              />
-            ))}
-          </div>
 
           <div className="album-panel-divider" />
           <div className="album-field-label">תצוגת ייצור</div>
@@ -2748,7 +2941,7 @@ export default function AlbumStudio({ job, onBack }: {
           />
         ) : (
           <>
-        <main className="album-center">
+        <main className={`album-center ${cropIndex !== null ? 'crop-open' : ''}`}>
           {selectedSlot && selectedFrameSettings && (
             <ContextToolbar
               name="תמונה"
@@ -2777,6 +2970,72 @@ export default function AlbumStudio({ job, onBack }: {
                 </>
               )}
               menus={[
+                ...(selectedFramePhoto ? (() => {
+                  const adjustments = selectedFrameSettings.adjustments ?? {};
+                  const setAdjustment = (patch: NonNullable<PhotoFrameSettings['adjustments']>) => updateFrameSettings({
+                    adjustments: { ...adjustments, ...patch },
+                  });
+                  const applyPreset = (preset: NonNullable<PhotoFrameSettings['adjustments']>) => updateFrameSettings({ adjustments: preset });
+                  const controls: Array<[keyof NonNullable<PhotoFrameSettings['adjustments']>, string, number, number]> = [
+                    ['brightness', 'בהירות', -100, 100],
+                    ['contrast', 'ניגודיות', -100, 100],
+                    ['saturation', 'רוויה', -100, 100],
+                    ['warmth', 'חום', -100, 100],
+                    ['tint', 'גוון', -100, 100],
+                    ['blur', 'טשטוש', 0, 100],
+                  ];
+                  return [{
+                    id: 'edit-image', label: 'עריכת תמונה', icon: ToolIcons.edit, width: 326,
+                    content: (
+                      <div className="ctx-image-edit">
+                        <div className="ctx-select-area">
+                          <span>בחר אזור</span>
+                          <div>
+                            <button className="on">הכול</button>
+                            <button onClick={() => setPhotoEditorTarget({ name: selectedFramePhoto.name, tab: 'object' })}>לחיצה</button>
+                            <button onClick={() => setPhotoEditorTarget({ name: selectedFramePhoto.name, tab: 'erase' })}>מברשת</button>
+                          </div>
+                        </div>
+                        <button className="ctx-auto-adjust" onClick={() => applyPreset({ brightness: 6, contrast: 8, saturation: 10 })}>✦ התאמה אוטומטית</button>
+                        <section>
+                          <strong>סטודיו קסם</strong>
+                          <div className="ctx-magic-grid">
+                            <button onClick={() => setPhotoEditorTarget({ name: selectedFramePhoto.name, tab: 'background' })}><i>▧</i><span>מסיר רקע</span></button>
+                            <button onClick={() => { applyPreset({ brightness: 8, contrast: 14, saturation: 16 }); setNotice('התמונה שופרה אוטומטית'); }}><i>✦</i><span>שיפור קסם</span></button>
+                            <button onClick={() => { setAdjustment({ blur: adjustments.blur ? 0 : 28 }); setNotice('אפקט הטשטוש הוחל'); }}><i>◉</i><span>טשטוש</span></button>
+                            <button onClick={() => setPhotoEditorTarget({ name: selectedFramePhoto.name, tab: 'object' })}><i>⌫</i><span>מחק קסם</span></button>
+                          </div>
+                        </section>
+                        <section>
+                          <strong>פילטרים</strong>
+                          <div className="ctx-filter-grid">
+                            {([
+                              ['ללא', {}],
+                              ['חי', { brightness: 5, contrast: 12, saturation: 28 }],
+                              ['חם', { brightness: 4, saturation: 10, warmth: 36, sepia: 8 }],
+                              ['דהוי', { brightness: 8, contrast: -12, saturation: -18 }],
+                              ['שחור־לבן', { contrast: 10, grayscale: 100 }],
+                            ] as Array<[string, NonNullable<PhotoFrameSettings['adjustments']>]>).map(([label, preset]) => (
+                              <button key={label} onClick={() => applyPreset(preset)}><i style={{ filter: photoAdjustmentFilter({ ...selectedFrameSettings, adjustments: preset }), backgroundImage: `url(${selectedFramePhoto.url})` }} /><span>{label}</span></button>
+                            ))}
+                          </div>
+                        </section>
+                        <section>
+                          <strong>התאמה</strong>
+                          <div className="ctx-adjustments">
+                            {controls.map(([key, label, min, max]) => (
+                              <label key={key}>
+                                <span>{label}<output>{Math.round(adjustments[key] ?? 0)}</output></span>
+                                <input type="range" min={min} max={max} value={adjustments[key] ?? 0} onChange={(event) => setAdjustment({ [key]: Number(event.target.value) })} />
+                              </label>
+                            ))}
+                          </div>
+                          <button className="ctx-reset-adjustments" onClick={() => updateFrameSettings({ adjustments: {} })}>איפוס ההתאמות</button>
+                        </section>
+                      </div>
+                    ),
+                  }];
+                })() : []),
                 ...(selectedFrameSettings.fit !== 'contain' ? [{
                   id: 'crop', label: 'מיקום בתוך המסגרת', icon: ToolIcons.crop,
                   content: (
@@ -2979,8 +3238,39 @@ export default function AlbumStudio({ job, onBack }: {
                      * out loud, and stored as a fraction of the spread height. */
                     const ptPerUnit = profile.spreadHeightMm * 2.835;
                     const element = selectedElement;
+                    const copyableStyle: Partial<TextLayer> = {
+                      fontFamily: element.fontFamily,
+                      fontWeight: element.fontWeight,
+                      fontSize: element.fontSize,
+                      lineHeight: element.lineHeight,
+                      align: element.align,
+                      verticalAlign: element.verticalAlign,
+                      color: element.color,
+                      italic: element.italic,
+                      underline: element.underline,
+                      strikeThrough: element.strikeThrough,
+                      letterSpacing: element.letterSpacing,
+                      textTransform: element.textTransform,
+                      effect: element.effect,
+                    };
                     return (
                       <>
+                        <button
+                          type="button"
+                          className={`ctx-toggle ctx-style-copy ${copiedTextStyle ? 'ready' : ''}`}
+                          title={copiedTextStyle ? 'החלת העיצוב שהועתק' : 'העתקת עיצוב הטקסט'}
+                          aria-label={copiedTextStyle ? 'החלת עיצוב' : 'העתקת עיצוב'}
+                          onClick={() => {
+                            if (copiedTextStyle) {
+                              updateElement(element.id, (layer) => (layer.type === 'text' ? { ...layer, ...copiedTextStyle } : layer));
+                              setCopiedTextStyle(null);
+                              setNotice('עיצוב הטקסט הוחל');
+                            } else {
+                              setCopiedTextStyle(copyableStyle);
+                              setNotice('עיצוב הטקסט הועתק · בחר טקסט אחר ולחץ על המברשת');
+                            }
+                          }}
+                        >▰</button>
                         <select
                           aria-label="גופן"
                           value={familyOf(element.fontFamily)}
@@ -3019,6 +3309,40 @@ export default function AlbumStudio({ job, onBack }: {
                         >
                           B
                         </button>
+                        <button
+                          type="button"
+                          className={`ctx-toggle ctx-italic ${element.italic ? 'on' : ''}`}
+                          aria-pressed={Boolean(element.italic)}
+                          title="נטוי"
+                          onClick={() => updateElement(element.id, (layer) => (layer.type === 'text' ? { ...layer, italic: !layer.italic } : layer))}
+                        >I</button>
+                        <button
+                          type="button"
+                          className={`ctx-toggle ctx-underline ${element.underline ? 'on' : ''}`}
+                          aria-pressed={Boolean(element.underline)}
+                          title="קו תחתון"
+                          onClick={() => updateElement(element.id, (layer) => (layer.type === 'text' ? { ...layer, underline: !layer.underline } : layer))}
+                        >U</button>
+                        <button
+                          type="button"
+                          className={`ctx-toggle ctx-strike ${element.strikeThrough ? 'on' : ''}`}
+                          aria-pressed={Boolean(element.strikeThrough)}
+                          title="קו חוצה"
+                          onClick={() => updateElement(element.id, (layer) => (layer.type === 'text' ? { ...layer, strikeThrough: !layer.strikeThrough } : layer))}
+                        >S</button>
+                        <button
+                          type="button"
+                          className={`ctx-toggle ${element.textTransform && element.textTransform !== 'none' ? 'on' : ''}`}
+                          title="שינוי אותיות"
+                          onClick={() => {
+                            const next = element.textTransform === 'uppercase'
+                              ? 'lowercase'
+                              : element.textTransform === 'lowercase'
+                                ? 'capitalize'
+                                : element.textTransform === 'capitalize' ? 'none' : 'uppercase';
+                            updateElement(element.id, (layer) => (layer.type === 'text' ? { ...layer, textTransform: next } : layer));
+                          }}
+                        >aA</button>
                         <ToolbarSegment
                           label="יישור"
                           value={element.align ?? 'center'}
@@ -3050,6 +3374,69 @@ export default function AlbumStudio({ job, onBack }: {
                 </>
               )}
               menus={[
+                ...(selectedElement.type === 'text' ? [
+                  {
+                    id: 'animation', label: 'צור הנפשה', icon: ToolIcons.animate, width: 300,
+                    content: (
+                      <div className="ctx-choice-grid">
+                        {([['none', 'ללא'], ['fade', 'עמעום'], ['rise', 'עלייה'], ['typewriter', 'הקלדה']] as const).map(([animation, label]) => (
+                          <button
+                            key={animation}
+                            className={(selectedElement.animation ?? 'none') === animation ? 'on' : ''}
+                            onClick={() => updateElement(selectedElement.id, (layer) => (layer.type === 'text' ? { ...layer, animation } : layer))}
+                          ><i>{animation === 'none' ? '—' : animation === 'fade' ? '◐' : animation === 'rise' ? '↑' : 'T|'}</i>{label}</button>
+                        ))}
+                      </div>
+                    ),
+                  },
+                  {
+                    id: 'effects', label: 'אפקטים', icon: ToolIcons.effects, width: 300,
+                    content: (
+                      <div className="ctx-choice-grid">
+                        {([['none', 'ללא'], ['shadow', 'צל'], ['outline', 'קו מתאר'], ['lift', 'הרמה']] as const).map(([effect, label]) => (
+                          <button
+                            key={effect}
+                            className={(selectedElement.effect ?? 'none') === effect ? 'on' : ''}
+                            onClick={() => updateElement(selectedElement.id, (layer) => (layer.type === 'text' ? { ...layer, effect } : layer))}
+                          ><i className={`effect-${effect}`}>Aa</i>{label}</button>
+                        ))}
+                      </div>
+                    ),
+                  },
+                  {
+                    id: 'spacing', label: 'ריווח', icon: ToolIcons.spacing, width: 270,
+                    content: (
+                      <div className="ctx-stack tpl-tools">
+                        <label className="tpl-fade-slider">
+                          <span>ריווח בין אותיות <output>{Math.round((selectedElement.letterSpacing ?? 0) * 100)}%</output></span>
+                          <input
+                            type="range" min="-0.05" max="0.5" step="0.01" value={selectedElement.letterSpacing ?? 0}
+                            onChange={(event) => updateElement(selectedElement.id, (layer) => (layer.type === 'text' ? { ...layer, letterSpacing: Number(event.target.value) } : layer), false)}
+                            onPointerUp={endTemplateEdit} onKeyUp={endTemplateEdit}
+                          />
+                        </label>
+                        <label className="tpl-fade-slider">
+                          <span>גובה שורה <output>{selectedElement.lineHeight.toFixed(2)}</output></span>
+                          <input
+                            type="range" min="0.7" max="3" step="0.05" value={selectedElement.lineHeight}
+                            onChange={(event) => updateElement(selectedElement.id, (layer) => (layer.type === 'text' ? { ...layer, lineHeight: Number(event.target.value) } : layer), false)}
+                            onPointerUp={endTemplateEdit} onKeyUp={endTemplateEdit}
+                          />
+                        </label>
+                        <span className="ctx-label">יישור אנכי</span>
+                        <div className="tpl-tool-row">
+                          {([['top', 'למעלה'], ['middle', 'מרכז'], ['bottom', 'למטה']] as const).map(([verticalAlign, label]) => (
+                            <button
+                              key={verticalAlign}
+                              className={selectedElement.verticalAlign === verticalAlign ? 'on' : ''}
+                              onClick={() => updateElement(selectedElement.id, (layer) => (layer.type === 'text' ? { ...layer, verticalAlign } : layer))}
+                            >{label}</button>
+                          ))}
+                        </div>
+                      </div>
+                    ),
+                  },
+                ] : []),
                 ...(selectedElement.type === 'shape' && selectedElement.shape !== 'path' ? [{
                   id: 'stroke', label: 'קו ומילוי', icon: ToolIcons.color,
                   content: (
@@ -3110,9 +3497,22 @@ export default function AlbumStudio({ job, onBack }: {
                   ),
                 },
                 {
-                  id: 'order', label: 'סדר', icon: ToolIcons.layers, width: 240,
+                  id: 'order', label: selectedElement.type === 'text' ? 'מיקום' : 'סדר', icon: ToolIcons.layers, width: 240,
                   content: (
                     <div className="ctx-stack tpl-tools">
+                      {selectedElement.type === 'text' && (
+                        <>
+                          <span className="ctx-label">מיקום בעמוד</span>
+                          <div className="album-arrange-options">
+                            <button onClick={() => updateElement(selectedElement.id, (layer) => ({ ...layer, box: { ...layer.box, x: 0 } }))}>שמאל</button>
+                            <button onClick={() => updateElement(selectedElement.id, (layer) => ({ ...layer, box: { ...layer.box, x: (1 - layer.box.width) / 2 } }))}>מרכז אופקי</button>
+                            <button onClick={() => updateElement(selectedElement.id, (layer) => ({ ...layer, box: { ...layer.box, x: 1 - layer.box.width } }))}>ימין</button>
+                            <button onClick={() => updateElement(selectedElement.id, (layer) => ({ ...layer, box: { ...layer.box, y: 0 } }))}>למעלה</button>
+                            <button onClick={() => updateElement(selectedElement.id, (layer) => ({ ...layer, box: { ...layer.box, y: (1 - layer.box.height) / 2 } }))}>מרכז אנכי</button>
+                            <button onClick={() => updateElement(selectedElement.id, (layer) => ({ ...layer, box: { ...layer.box, y: 1 - layer.box.height } }))}>למטה</button>
+                          </div>
+                        </>
+                      )}
                       <span className="ctx-label">מה מעל מה</span>
                       <div className="tpl-tool-row">
                         {([['front', 'לחזית'], ['forward', 'קדימה'], ['backward', 'אחורה'], ['back', 'לרקע']] as const).map(([to, label]) => (
@@ -3128,6 +3528,80 @@ export default function AlbumStudio({ job, onBack }: {
                 { id: 'delete', label: 'מחיקה', icon: ToolIcons.trash, onClick: deleteSelectedElement, danger: true },
               ]}
             />
+          )}
+          {cropIndex !== null && selectedSlot && selectedFrameSettings && selectedFramePhoto && (
+            <aside className="album-crop-panel" role="dialog" aria-label="חיתוך ומיקום תמונה">
+              <header>
+                <button type="button" aria-label="סגירת החיתוך" onClick={() => setCropIndex(null)}>×</button>
+                <strong>חיתוך</strong>
+              </header>
+              <div className="album-crop-tabs" role="tablist" aria-label="מצב התמונה">
+                <button
+                  type="button"
+                  className={selectedFrameSettings.fit !== 'contain' ? 'on' : ''}
+                  onClick={() => setFitMode('cover')}
+                >חיתוך</button>
+                <button
+                  type="button"
+                  className={selectedFrameSettings.fit === 'contain' ? 'on' : ''}
+                  onClick={() => setFitMode('contain')}
+                >הרחב</button>
+              </div>
+              <button
+                type="button"
+                className="album-smart-crop"
+                onClick={() => updateFrameSettings({
+                  fit: 'smart',
+                  zoom: 100,
+                  rotation: 0,
+                  positionX: (selectedFramePhoto.focalPoint?.x ?? 0.5) * 100,
+                  positionY: (selectedFramePhoto.focalPoint?.y ?? 0.5) * 100,
+                })}
+              >✦ חיתוך חכם</button>
+              {selectedCrop?.warnings[0] && <p className="album-crop-warning">{selectedCrop.warnings[0]}</p>}
+              <section>
+                <label>
+                  <span>זום <output>{selectedFrameSettings.zoom ?? 100}%</output></span>
+                  <input
+                    type="range" min="100" max="250" step="1"
+                    value={selectedFrameSettings.zoom ?? 100}
+                    disabled={selectedFrameSettings.fit === 'contain'}
+                    onChange={(event) => setFramePosition({ zoom: Number(event.target.value) })}
+                  />
+                </label>
+                <label>
+                  <span>ימינה / שמאלה <output>{Math.round(selectedCrop?.positionX ?? selectedFrameSettings.positionX)}%</output></span>
+                  <input
+                    type="range" min="0" max="100" step="0.5"
+                    value={selectedCrop?.positionX ?? selectedFrameSettings.positionX}
+                    disabled={selectedFrameSettings.fit === 'contain'}
+                    onChange={(event) => setFramePosition({ positionX: Number(event.target.value) })}
+                  />
+                </label>
+                <label>
+                  <span>למעלה / למטה <output>{Math.round(selectedCrop?.positionY ?? selectedFrameSettings.positionY)}%</output></span>
+                  <input
+                    type="range" min="0" max="100" step="0.5"
+                    value={selectedCrop?.positionY ?? selectedFrameSettings.positionY}
+                    disabled={selectedFrameSettings.fit === 'contain'}
+                    onChange={(event) => setFramePosition({ positionY: Number(event.target.value) })}
+                  />
+                </label>
+                <label>
+                  <span>סובב <output>{Math.round(selectedFrameSettings.rotation ?? 0)}°</output></span>
+                  <input
+                    type="range" min="-180" max="180" step="1"
+                    value={selectedFrameSettings.rotation ?? 0}
+                    onChange={(event) => updateFrameSettings({ rotation: Number(event.target.value) })}
+                  />
+                </label>
+              </section>
+              <p className="album-crop-help">גרור את התמונה בתוך המסגרת כדי לבחור את החלק שיופיע.</p>
+              <footer>
+                <button type="button" onClick={() => updateFrameSettings({ fit: 'cover', zoom: 100, rotation: 0, positionX: 50, positionY: 50 })}>איפוס</button>
+                <button type="button" className="primary" onClick={() => setCropIndex(null)}>סיום</button>
+              </footer>
+            </aside>
           )}
           <div
             className="album-canvas-area"
@@ -3210,7 +3684,7 @@ export default function AlbumStudio({ job, onBack }: {
                       setCropIndex(slotIndex);
                       setNotice('גרור למקם את התמונה · גלגלת לזום · לחיצה מחוץ למסגרת לסיום');
                     }}
-                    draggable={Boolean(photo) && selectedSlotIndex !== slotIndex}
+                    draggable={false}
                     onDragStart={(event) => {
                       if (photo) beginPhotoDrag(event, photo.id);
                     }}
@@ -3223,12 +3697,15 @@ export default function AlbumStudio({ job, onBack }: {
                       if (cropIndex === slotIndex) zoomSelectedFrame(event, slotIndex);
                     }}
                     onPointerDown={(event) => {
-                      /* Inside a frame that is already selected, the drag belongs
-                       * to the PHOTOGRAPH — that is the move a photographer makes
-                       * all day. The frame itself moves from its handles. */
-                      if (selectedSlotIndex === slotIndex && photo && frameSettings.fit !== 'contain') {
+                      /* A regular drag always moves the frame. Only an explicit
+                       * double-click enters crop mode; in that mode the same drag
+                       * moves the photograph inside the frame. */
+                      if (cropIndex === slotIndex && photo && frameSettings.fit !== 'contain') {
                         beginPan(event, slotIndex, frameSettings, crop);
-                      } else if (selectedSlotIndex === slotIndex) {
+                      } else if (!selectedPhotoId && photo) {
+                        setSelectedElementId(null);
+                        setSelectedSlotIndex(slotIndex);
+                        setCropIndex(null);
                         beginFrameGesture(event, slotIndex, 'move');
                       }
                     }}
@@ -3247,8 +3724,9 @@ export default function AlbumStudio({ job, onBack }: {
                         style={{
                           objectFit: crop?.fit,
                           objectPosition: `${crop?.positionX ?? 50}% ${crop?.positionY ?? 50}%`,
-                          transform: `scale(${(crop?.fit === 'contain' ? 1 : (frameSettings.zoom ?? 100) / 100) * (templatePhotoLayers[slotIndex]?.flipX ? -1 : 1)}, ${(crop?.fit === 'contain' ? 1 : (frameSettings.zoom ?? 100) / 100) * (templatePhotoLayers[slotIndex]?.flipY ? -1 : 1)})`,
+                          transform: `rotate(${frameSettings.rotation ?? 0}deg) scale(${(crop?.fit === 'contain' ? 1 : (frameSettings.zoom ?? 100) / 100) * (templatePhotoLayers[slotIndex]?.flipX ? -1 : 1)}, ${(crop?.fit === 'contain' ? 1 : (frameSettings.zoom ?? 100) / 100) * (templatePhotoLayers[slotIndex]?.flipY ? -1 : 1)})`,
                           transformOrigin: `${crop?.positionX ?? 50}% ${crop?.positionY ?? 50}%`,
+                          filter: photoAdjustmentFilter(frameSettings),
                         }}
                       />
                     ) : (
@@ -3420,87 +3898,28 @@ export default function AlbumStudio({ job, onBack }: {
             </div>
           </div>
 
-          <section className="album-photo-tray">
-            <div className="album-photo-tray-head">
-              <div className="album-photo-summary">
-                <strong>תמונות</strong>
-                <span>{albumPhotos.filter((photo) => !usedIds.has(photo.id)).length} לא שובצו</span>
-              </div>
-              <div className="album-photo-filters" role="group" aria-label="סינון תמונות">
-                {([
-                  ['current', editingCover ? 'לכריכה' : 'לכפולה'],
-                  ['unused', 'לא שובצו'],
-                  ['all', 'הכול'],
-                ] as const).map(([value, label]) => (
-                  <button
-                    key={value}
-                    className={photoFilter === value ? 'on' : ''}
-                    onClick={() => {
-                      setPhotoFilter(value);
-                      setPhotoLimit(60);
-                    }}
-                  >
-                    {label}
-                  </button>
-                ))}
-              </div>
-              <button className="album-import" onClick={() => job ? setShowPhotoPicker(true) : fileInput.current?.click()}><IcUpload size={16} />＋ תמונות</button>
-              <input ref={fileInput} type="file" accept="image/*" multiple hidden onChange={(event) => handleFiles(event.target.files)} />
-            </div>
-            <div className="album-photos">
-              {visiblePhotos.map((photo) => (
-                <button
-                  key={photo.id}
-                  className={`album-photo-thumb ${selectedPhotoId === photo.id ? 'selected' : ''}`}
-                  /* A place picked on the page, then a photo: it goes straight in. */
-                  onClick={() => (selectedSlotIndex !== null && cropIndex === null
-                    ? assignPhotoById(selectedSlotIndex, photo.id)
-                    : setSelectedPhotoId(selectedPhotoId === photo.id ? null : photo.id))}
-                  aria-label={`בחר ${photo.name}`}
-                  title={photo.name}
-                  draggable
-                  onDragStart={(event) => beginPhotoDrag(event, photo.id)}
-                  /* Each photograph at its own proportions, one height for the
-                   * strip — the same rule as every gallery in the product. */
-                  style={photo.widthPx && photo.heightPx
-                    ? { width: Math.round(64 * Math.min(2.6, Math.max(0.4, photo.widthPx / photo.heightPx))), flexBasis: 'auto' }
-                    : undefined}
-                >
-                  <img src={smallUrl(photo.url)} alt="" loading="lazy" decoding="async" />
-                  {usedIds.has(photo.id) && (
-                    <span
-                      className={`album-used ${currentSpreadIds.has(photo.id) ? 'current' : ''}`}
-                      title={currentSpreadIds.has(photo.id) ? 'נמצאת בכפולה הנוכחית' : 'כבר שובצה באלבום — עדיין אפשר להשתמש בה שוב'}
-                    >
-                      <IcCheck size={11} />
-                    </span>
-                  )}
-                </button>
-              ))}
-              {visiblePhotos.length < filteredPhotos.length && (
-                <button
-                  className="album-load-more"
-                  onClick={() => setPhotoLimit((value) => value + 60)}
-                >
-                  עוד {Math.min(60, filteredPhotos.length - visiblePhotos.length)} תמונות
-                </button>
-              )}
-              {filteredPhotos.length === 0 && (
-                <div className="album-photo-empty">
-                  אין תמונות במסנן הזה. אפשר לעבור ל״הכול״ או להוסיף תמונות חדשות.
-                </div>
-              )}
-            </div>
-          </section>
+          <footer className="album-page-strip" aria-label="עמודי האלבום">
+            <button className={`album-page-mini cover ${editingCover ? 'on' : ''}`} onClick={openCoverDesigner}>
+              <span>כריכה</span><i />
+            </button>
+            {project.spreads.map((item, index) => (
+              <button key={item.id} className={`album-page-mini ${!editingCover && index === spreadIndex ? 'on' : ''}`} onClick={() => setActiveSpread(index)}>
+                <span>{index + 1}</span>
+                <i style={{ background: item.background }}>
+                  {item.photoIds.slice(0, 3).map((photoId) => {
+                    const photo = photos.find((candidate) => candidate.id === photoId);
+                    return photo ? <img key={photoId} src={smallUrl(photo.url)} alt="" /> : null;
+                  })}
+                </i>
+              </button>
+            ))}
+            <button className="album-page-add" onClick={addSpread} aria-label="הוספת כפולה">＋</button>
+          </footer>
+          <input ref={fileInput} type="file" accept="image/*" multiple hidden onChange={(event) => handleFiles(event.target.files)} />
         </main>
 
-        {/* The spread's own tabs. While something is selected its tools are on
-          * the bar over the canvas, so this collapses to its rail and hands the
-          * width to the spread; touching the rail lets go of the selection and
-          * opens the panel again. */}
         <aside
-          className={`album-layout-panel ${selectionActive || !panelOpen ? 'rail-only' : ''}`}
-          onPointerDownCapture={selectionActive ? clearSelection : undefined}
+          className={`album-layout-panel ${!panelOpen ? 'rail-only' : ''}`}
         >
           <>
           {/* Kept mounted, never unmounted: it threw the photographer back
@@ -3508,8 +3927,8 @@ export default function AlbumStudio({ job, onBack }: {
           <div className="album-panel-swap">
           <SpreadPanel
             key={spread.id}
-            collapsed={selectionActive || !panelOpen}
-            onCollapsedChange={(next) => { setPanelOpen(!next); if (!next) clearSelection(); }}
+            collapsed={!panelOpen}
+            onCollapsedChange={(next) => setPanelOpen(!next)}
             spread={spread}
             photos={photos}
             spreadAspect={sheetAspect}
@@ -3520,6 +3939,9 @@ export default function AlbumStudio({ job, onBack }: {
             onColor={(token, value) => editTemplateInstance((instance) => ({
               ...instance, colors: { ...instance.colors, [token]: value },
             }))}
+            background={spreadPaper}
+            onBackground={changeSheetBackground}
+            onApplyBackgroundToAll={applyBackgroundToAllSpreads}
             onText={(layerId, value) => editTemplateInstance((instance) => ({
               ...instance, texts: { ...instance.texts, [layerId]: value },
             }))}
@@ -3530,6 +3952,26 @@ export default function AlbumStudio({ job, onBack }: {
             onImportElements={(files) => { void importMyElements(files); }}
             onRemoveMine={(element) => { void removeFromMyElements(element); }}
             onImportFonts={(files) => { void importMyFonts(files); }}
+            libraryPhotos={visiblePhotos}
+            photoFilter={photoFilter}
+            unusedPhotoCount={albumPhotos.filter((photo) => !usedIds.has(photo.id)).length}
+            usedPhotoIds={usedIds}
+            currentPhotoIds={currentSpreadIds}
+            selectedPhotoId={selectedPhotoId}
+            hasMorePhotos={visiblePhotos.length < filteredPhotos.length}
+            onPhotoFilter={(value) => { setPhotoFilter(value); setPhotoLimit(60); }}
+            onChoosePhoto={(photoId) => (selectedSlotIndex !== null && cropIndex === null
+              ? assignPhotoById(selectedSlotIndex, photoId)
+              : setSelectedPhotoId(selectedPhotoId === photoId ? null : photoId))}
+            onDragPhoto={(event, photoId) => beginPhotoDrag(event, photoId)}
+            onAddPhotos={() => job ? setShowPhotoPicker(true) : fileInput.current?.click()}
+            onLoadMorePhotos={() => setPhotoLimit((value) => value + 60)}
+            spreads={project.spreads}
+            activeSpreadId={project.activeSpreadId}
+            onOpenSpread={setActiveSpread}
+            onAddSpread={addSpread}
+            onAutoBuild={() => autoBuildAlbum()}
+            onPreview={() => setShowPreview(true)}
           />
           </div>
           </>
@@ -3550,6 +3992,20 @@ export default function AlbumStudio({ job, onBack }: {
           }}
         />
       )}
+
+      {photoEditorTarget && job && (() => {
+        const frame = jobFiles.frames.find((item) => item.name === photoEditorTarget.name);
+        return frame ? (
+          <PhotoEditor
+            key={`${frame.path}-${photoEditorTarget.tab}`}
+            projectId={job.id}
+            frame={frame}
+            name={frame.name}
+            initialTab={photoEditorTarget.tab}
+            onClose={() => setPhotoEditorTarget(null)}
+          />
+        ) : null;
+      })()}
 
       {showDelivery && (
         <div className="album-modal-backdrop" onMouseDown={(event) => event.target === event.currentTarget && setShowDelivery(false)}>

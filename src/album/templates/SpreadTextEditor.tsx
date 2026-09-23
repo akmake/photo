@@ -69,6 +69,17 @@ export default function SpreadTextEditor({ template, instance, layer, onCommit, 
           color: layer.color ?? colorOf(template, instance, layer.colorToken),
           fontFamily: layer.fontFamily,
           fontWeight: layer.fontWeight,
+          fontStyle: layer.italic ? 'italic' : 'normal',
+          textDecoration: [layer.underline ? 'underline' : '', layer.strikeThrough ? 'line-through' : ''].filter(Boolean).join(' ') || 'none',
+          letterSpacing: `${layer.letterSpacing ?? 0}em`,
+          textTransform: layer.textTransform === 'none' ? undefined : layer.textTransform,
+          textShadow: layer.effect === 'shadow'
+            ? '0 .09em .16em rgba(0,0,0,.34)'
+            : layer.effect === 'lift'
+              ? '0 .16em .08em rgba(0,0,0,.2)'
+              : undefined,
+          WebkitTextStroke: layer.effect === 'outline' ? '.035em currentColor' : undefined,
+          paintOrder: layer.effect === 'outline' ? 'stroke fill' : undefined,
           fontSize: `${layer.fontSize * 100}cqh`,
           lineHeight: layer.lineHeight,
           justifyContent: JUSTIFY[layer.align],

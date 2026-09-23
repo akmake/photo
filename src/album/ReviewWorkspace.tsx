@@ -274,7 +274,7 @@ export default function ReviewWorkspace({
                       style={{
                         objectFit: crop.fit,
                         objectPosition: `${crop.positionX}% ${crop.positionY}%`,
-                        transform: `scale(${crop.fit === 'contain' ? 1 : (settings.zoom ?? 100) / 100})`,
+                        transform: `rotate(${settings.rotation ?? 0}deg) scale(${crop.fit === 'contain' ? 1 : (settings.zoom ?? 100) / 100})`,
                         transformOrigin: `${crop.positionX}% ${crop.positionY}%`,
                       }}
                     />

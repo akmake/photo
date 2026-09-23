@@ -149,7 +149,7 @@ function drawPhotoContent(
   bitmap: ImageBitmap,
   layer: PhotoLayer,
   fit: 'contain' | 'cover',
-  positionX: number, positionY: number, zoom: number,
+  positionX: number, positionY: number, zoom: number, rotation: number,
   width: number, height: number,
 ): void {
   const byWidth = width / bitmap.width;
@@ -165,6 +165,7 @@ function drawPhotoContent(
 
   context.save();
   context.translate(originX, originY);
+  context.rotate((rotation * Math.PI) / 180);
   context.scale(factor * (layer.flipX ? -1 : 1), factor * (layer.flipY ? -1 : 1));
   context.translate(-originX, -originY);
   context.drawImage(bitmap, (width - drawnWidth) * shareX, (height - drawnHeight) * shareY, drawnWidth, drawnHeight);
@@ -276,7 +277,14 @@ function drawText(
   instance: SpreadTemplateInstance,
   width: number, height: number,
 ): void {
-  const text = textOf(instance, layer);
+  const rawText = textOf(instance, layer);
+  const text = layer.textTransform === 'uppercase'
+    ? rawText.toLocaleUpperCase()
+    : layer.textTransform === 'lowercase'
+      ? rawText.toLocaleLowerCase()
+      : layer.textTransform === 'capitalize'
+        ? rawText.replace(/(^|\s)(\p{L})/gu, (match) => match.toLocaleUpperCase())
+        : rawText;
   if (!text) return;
   const left = layer.box.x * width;
   const top = layer.box.y * height;
@@ -290,7 +298,17 @@ function drawText(
   context.save();
   rotateAround(context, layer.rotation, left + boxWidth / 2, top + boxHeight / 2);
   context.fillStyle = layer.color ?? colorOf(template, instance, layer.colorToken);
-  context.font = `${layer.fontWeight} ${fontSize}px ${layer.fontFamily}`;
+  context.font = `${layer.italic ? 'italic ' : ''}${layer.fontWeight} ${fontSize}px ${layer.fontFamily}`;
+  (context as CanvasRenderingContext2D & { letterSpacing: string }).letterSpacing = `${(layer.letterSpacing ?? 0) * fontSize}px`;
+  if (layer.effect === 'shadow') {
+    context.shadowColor = 'rgba(0,0,0,.34)';
+    context.shadowBlur = fontSize * 0.16;
+    context.shadowOffsetY = fontSize * 0.09;
+  } else if (layer.effect === 'lift') {
+    context.shadowColor = 'rgba(0,0,0,.2)';
+    context.shadowBlur = fontSize * 0.08;
+    context.shadowOffsetY = fontSize * 0.16;
+  }
   context.direction = layer.direction ?? 'rtl';
   context.textAlign = layer.align === 'center' ? 'center' : layer.align;
   context.textBaseline = 'middle';
@@ -307,7 +325,35 @@ function drawText(
       : top + (boxHeight - block) / 2;
 
   lines.forEach((line, index) => {
-    context.fillText(line, anchorX, firstY + lineHeight * (index + 0.5));
+    const baselineY = firstY + lineHeight * (index + 0.5);
+    if (layer.effect === 'outline') {
+      context.strokeStyle = context.fillStyle as string;
+      context.lineWidth = Math.max(1, fontSize * 0.07);
+      context.lineJoin = 'round';
+      context.strokeText(line, anchorX, baselineY);
+    }
+    context.fillText(line, anchorX, baselineY);
+    if (layer.underline || layer.strikeThrough) {
+      const measured = context.measureText(line).width;
+      const lineLeft = layer.align === 'center' ? anchorX - measured / 2 : context.textAlign === 'left' ? anchorX : anchorX - measured;
+      context.save();
+      context.shadowColor = 'transparent';
+      context.strokeStyle = context.fillStyle as string;
+      context.lineWidth = Math.max(1, fontSize * 0.055);
+      if (layer.underline) {
+        context.beginPath();
+        context.moveTo(lineLeft, baselineY + fontSize * 0.38);
+        context.lineTo(lineLeft + measured, baselineY + fontSize * 0.38);
+        context.stroke();
+      }
+      if (layer.strikeThrough) {
+        context.beginPath();
+        context.moveTo(lineLeft, baselineY);
+        context.lineTo(lineLeft + measured, baselineY);
+        context.stroke();
+      }
+      context.restore();
+    }
   });
   context.restore();
 }
@@ -434,7 +480,7 @@ export async function drawTemplateSpread(
           if (scratchContext) {
             drawPhotoContent(
               scratchContext, bitmap, layer, crop.fit, crop.positionX, crop.positionY,
-              (settings.zoom ?? 100) / 100, scratch.width, scratch.height,
+              (settings.zoom ?? 100) / 100, settings.rotation ?? 0, scratch.width, scratch.height,
             );
             applyFeather(scratchContext, layer.feather, scratch.width, scratch.height);
             roundedRectPath(context, left, top, boxWidth, boxHeight, (layer.radius ?? 0) * height);
@@ -447,7 +493,7 @@ export async function drawTemplateSpread(
           context.translate(left, top);
           drawPhotoContent(
             context, bitmap, layer, crop.fit, crop.positionX, crop.positionY,
-            (settings.zoom ?? 100) / 100, boxWidth, boxHeight,
+            (settings.zoom ?? 100) / 100, settings.rotation ?? 0, boxWidth, boxHeight,
           );
         }
         bitmap.close();

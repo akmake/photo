@@ -334,14 +334,28 @@ def _prep_process():
 def prepare(paths, width=0, thumbs=(), recipe=None, triage_paths=()):
     """Queue frames for background preparation. Never raises: preparing is an
     optimisation, and a screen must not fail because it could not happen."""
-    global _PREP
     if not paths and not triage_paths:
         return False
-    line = json.dumps(
+    return _send_prep(
         {"paths": list(paths), "w": int(width or 0), "thumbs": [int(t) for t in thumbs],
-         "recipe": recipe or [], "triage": list(triage_paths)},
-        ensure_ascii=False,
+         "recipe": recipe or [], "triage": list(triage_paths)}
     )
+
+
+def prepare_files(files, queue=True):
+    """Bring edited copies up to date in the background: [{src, dest, recipe}].
+
+    `queue=False` only tells the preparer what these frames must now be — sent
+    when the engine renders a file itself, so an older render running there is
+    dropped instead of landing on top of the newer file."""
+    if not files:
+        return False
+    return _send_prep({"files": list(files), "queue": bool(queue)})
+
+
+def _send_prep(request):
+    global _PREP
+    line = json.dumps(request, ensure_ascii=False)
     with _PREP_LOCK:
         for _ in range(2):  # one restart if the process died since last time
             try:
@@ -1195,6 +1209,9 @@ class Handler(BaseHTTPRequestHandler):
         if self.path == "/project/apply":
             self._project_apply()
             return
+        if self.path == "/project/files":
+            self._project_files()
+            return
         if self.path == "/export":
             self._export()
             return
@@ -2043,15 +2060,55 @@ if ($path) {
         """
         try:
             body = self._body()
+            recipe = body.get("recipe", [])
+            prepare_files(
+                [{"src": body["src"], "dest": body["editedDir"], "recipe": recipe}],
+                queue=False,
+            )
             out_path, _ = on_worker(
                 render.export,
                 body["src"],
-                body.get("recipe", []),
+                recipe,
                 body["editedDir"],
                 "jpeg",
                 int(body.get("quality", render.DEFAULT_QUALITY)),
+                stamp=True,
             )
             self._json(200, {"file": out_path})
+        except Exception as e:  # noqa: BLE001
+            self._json(500, {"error": str(e)})
+
+    def _project_files(self):
+        """Which edited copies no longer match their recipe — and, with
+        `queue`, have the background preparer bring them up to date.
+
+        { editedDir, recipes:[recipe...], items:[{src, r}], queue? }
+            -> { stale:[src], queued }
+
+        Recipes are sent once and referenced by index: a batch's frames share
+        one look, and an album of a hundred photographs would otherwise carry
+        the same learned colour model a hundred times. Answering is a header
+        read per file — no pixel is decoded here — so a screen may ask often.
+        The order of `items` is the order the work is done in.
+        """
+        try:
+            body = self._body()
+            dest = body["editedDir"]
+            recipes = body.get("recipes") or []
+            stale = []
+            for item in body.get("items") or []:
+                src = item.get("src")
+                if not src or not os.path.isfile(src):
+                    continue
+                recipe = recipes[int(item.get("r", 0))] if recipes else []
+                if not workspace.is_current(src, dest, recipe):
+                    stale.append((src, recipe))
+            queued = False
+            if stale and body.get("queue"):
+                queued = prepare_files(
+                    [{"src": src, "dest": dest, "recipe": recipe} for src, recipe in stale]
+                )
+            self._json(200, {"stale": [src for src, _ in stale], "queued": bool(queued)})
         except Exception as e:  # noqa: BLE001
             self._json(500, {"error": str(e)})
 
@@ -2094,6 +2151,7 @@ if ($path) {
             dest = body["dest"]
             fmt = body.get("format", "jpeg")
             quality = int(body.get("quality", render.DEFAULT_QUALITY))
+            max_edge = max(0, int(body.get("maxEdge", 0) or 0))
             per_file = body.get("perFile") or {}
             default_recipe = body.get("recipe", [])
 
@@ -2102,7 +2160,7 @@ if ($path) {
                 try:
                     recipe = per_file.get(path, default_recipe)
                     out_path, _ = on_worker(
-                        render.export, path, recipe, dest, fmt, quality
+                        render.export, path, recipe, dest, fmt, quality, max_edge
                     )
                     written.append(out_path)
                 except Exception as e:  # noqa: BLE001 - one bad file must not

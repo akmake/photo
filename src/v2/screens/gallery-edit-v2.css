@@ -1646,7 +1646,10 @@
 }
 
 .dialog.tz-export {
-  width: min(580px, 94vw) !important;
+  width: min(680px, 94vw) !important;
+  max-height: min(860px, 94vh) !important;
+  display: grid !important;
+  grid-template-rows: auto minmax(0, 1fr) auto !important;
   background: #18181b !important;
   border: 1px solid #27272a !important;
   border-radius: 18px !important;
@@ -1699,6 +1702,85 @@
   gap: 16px !important;
   padding: 22px 20px !important;
   background: #18181b !important;
+  overflow-y: auto !important;
+  scrollbar-width: thin !important;
+  scrollbar-color: #52525b transparent !important;
+}
+
+.dialog.tz-export .tz-export-options {
+  display: grid !important;
+  gap: 11px !important;
+  padding: 14px !important;
+  border: 1px solid #303036 !important;
+  border-radius: 13px !important;
+  background: #1d1d21 !important;
+}
+
+.dialog.tz-export .tz-export-option-head {
+  display: flex !important;
+  align-items: baseline !important;
+  justify-content: space-between !important;
+  gap: 12px !important;
+}
+
+.dialog.tz-export .tz-export-option-head strong { color: #fff !important; font-size: 13px !important; }
+.dialog.tz-export .tz-export-option-head span { color: #a1a1aa !important; font-size: 11px !important; }
+
+.dialog.tz-export .tz-export-size-grid {
+  display: grid !important;
+  grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+  gap: 7px !important;
+}
+
+.dialog.tz-export .tz-export-size-grid button,
+.dialog.tz-export .tz-export-formats button {
+  position: relative !important;
+  min-width: 0 !important;
+  display: grid !important;
+  gap: 4px !important;
+  padding: 11px 9px !important;
+  border: 1px solid #3b3b42 !important;
+  border-radius: 9px !important;
+  color: #f4f4f5 !important;
+  background: #25252a !important;
+  text-align: right !important;
+  cursor: pointer !important;
+}
+
+.dialog.tz-export .tz-export-size-grid button:hover:not(:disabled),
+.dialog.tz-export .tz-export-formats button:hover:not(:disabled) { border-color: #71717a !important; background: #2d2d33 !important; }
+.dialog.tz-export .tz-export-size-grid button.on,
+.dialog.tz-export .tz-export-formats button.on { border-color: #f97316 !important; background: rgba(249, 115, 22, .11) !important; box-shadow: inset 0 0 0 1px rgba(249, 115, 22, .22) !important; }
+.dialog.tz-export .tz-export-size-grid b,
+.dialog.tz-export .tz-export-formats b { font-size: 12px !important; }
+.dialog.tz-export .tz-export-size-grid small,
+.dialog.tz-export .tz-export-formats small { color: #a1a1aa !important; font-size: 9.5px !important; line-height: 1.35 !important; }
+.dialog.tz-export .tz-export-size-grid i { position: absolute !important; top: 6px !important; left: 6px !important; color: #fb923c !important; font-size: 11px !important; font-style: normal !important; }
+
+.dialog.tz-export .tz-export-custom {
+  display: grid !important;
+  grid-template-columns: 1fr 130px auto !important;
+  align-items: center !important;
+  gap: 8px !important;
+  color: #d4d4d8 !important;
+  font-size: 11px !important;
+}
+.dialog.tz-export .tz-export-custom input { height: 34px !important; padding: 0 9px !important; border: 1px solid #3f3f46 !important; border-radius: 7px !important; color: #fff !important; background: #27272a !important; direction: ltr !important; }
+.dialog.tz-export .tz-export-custom.on input { border-color: #f97316 !important; outline: 2px solid rgba(249, 115, 22, .13) !important; }
+.dialog.tz-export .tz-export-custom em { color: #71717a !important; font-size: 10px !important; font-style: normal !important; }
+.dialog.tz-export .tz-export-speed-note,
+.dialog.tz-export .tz-export-lossless { margin: 0 !important; color: #a7f3d0 !important; font-size: 10.5px !important; line-height: 1.45 !important; }
+
+.dialog.tz-export .tz-export-formats { display: grid !important; grid-template-columns: repeat(3, 1fr) !important; gap: 7px !important; }
+.dialog.tz-export .tz-export-quality { display: grid !important; gap: 7px !important; }
+.dialog.tz-export .tz-export-quality > span { display: flex !important; justify-content: space-between !important; color: #e4e4e7 !important; font-size: 11px !important; }
+.dialog.tz-export .tz-export-quality output { color: #fb923c !important; font-family: monospace !important; }
+.dialog.tz-export .tz-export-quality input { width: 100% !important; accent-color: #f97316 !important; }
+.dialog.tz-export .tz-export-quality small { color: #8f8f99 !important; font-size: 9.5px !important; line-height: 1.4 !important; }
+
+@media (max-width: 620px) {
+  .dialog.tz-export .tz-export-size-grid { grid-template-columns: repeat(2, 1fr) !important; }
+  .dialog.tz-export .tz-export-custom { grid-template-columns: 1fr 110px auto !important; }
 }
 
 .dialog.tz-export .tz-export-what {

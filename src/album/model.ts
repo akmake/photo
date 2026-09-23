@@ -77,11 +77,44 @@ export interface AlbumPhotoAnalysis {
 
 export type PhotoFitMode = 'smart' | 'contain' | 'cover';
 
+export interface PhotoAdjustments {
+  brightness?: number;
+  contrast?: number;
+  saturation?: number;
+  warmth?: number;
+  tint?: number;
+  blur?: number;
+  grayscale?: number;
+  sepia?: number;
+}
+
 export interface PhotoFrameSettings {
   fit: PhotoFitMode;
   positionX: number;
   positionY: number;
   zoom?: number;
+  /** Rotation of the photograph inside its frame, not of the frame itself. */
+  rotation?: number;
+  adjustments?: PhotoAdjustments;
+}
+
+export function photoAdjustmentFilter(settings?: PhotoFrameSettings): string {
+  const value = settings?.adjustments;
+  if (!value) return 'none';
+  const brightness = 100 + (value.brightness ?? 0);
+  const contrast = 100 + (value.contrast ?? 0);
+  const saturation = 100 + (value.saturation ?? 0);
+  const warmth = value.warmth ?? 0;
+  const tint = value.tint ?? 0;
+  return [
+    `brightness(${Math.max(0, brightness)}%)`,
+    `contrast(${Math.max(0, contrast)}%)`,
+    `saturate(${Math.max(0, saturation)}%)`,
+    `sepia(${Math.max(0, Math.min(100, (value.sepia ?? 0) + Math.max(0, warmth) * 0.35))}%)`,
+    `hue-rotate(${tint - Math.min(0, warmth) * 0.18}deg)`,
+    `grayscale(${Math.max(0, Math.min(100, value.grayscale ?? 0))}%)`,
+    `blur(${Math.max(0, value.blur ?? 0) / 12}px)`,
+  ].join(' ');
 }
 
 export interface LayoutSlot {

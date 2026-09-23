@@ -24,6 +24,8 @@ interface Props {
   section: 'page' | 'colors';
   /** Next/previous fitting page. */
   onCycle?(direction: 1 | -1): void;
+  /** Background has its own first-class tab in the album editor. */
+  excludeBackground?: boolean;
 }
 
 /** Photo counts the Vault has pages for. */
@@ -34,7 +36,7 @@ const PHOTO_COUNTS = [...new Set(TEMPLATE_LIBRARY.map((item) => item.photoCount)
 /* The side-panel section for Vault pages: which designs fit this spread, and —
  * once one is placed — this spread's own colours and words. */
 export default function TemplatePanel({
-  spread, photos, spreadAspect, template, onApply, onColor, onText, onEditEnd, section, onCycle,
+  spread, photos, spreadAspect, template, onApply, onColor, onText, onEditEnd, section, onCycle, excludeBackground,
 }: Props) {
   const placed = spread.photoIds.filter(Boolean);
   /* The photographer decides how many photos the spread holds, then picks a
@@ -160,7 +162,7 @@ export default function TemplatePanel({
     <section className="tpl-panel" aria-label="צבעי העמוד">
       <small>הצבעים של הגיליון הזה בלבד. שאר האלבום לא משתנה.</small>
       <div className="tpl-colors">
-        {template.colors.map((color) => (
+        {template.colors.filter((color) => !excludeBackground || color.id !== template.backgroundToken).map((color) => (
           <label key={color.id}>
             <span>{color.label}</span>
             <input

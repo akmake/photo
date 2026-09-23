@@ -1,4 +1,4 @@
-/* Rules of template pages (הכספת), without a browser.
+﻿/* Rules of template pages (הכספת), without a browser.
  *
  *   node --test "tests/*.test.ts"
  *
@@ -8,7 +8,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  VAULT_PAGE_4, TEMPLATE_LIBRARY, applyTemplate, colorOf, findTemplate, fitTemplate,
+  VAULT_AS_DRAWN, VAULT_PAGE_4, TEMPLATE_LIBRARY, applyTemplate, colorOf, findTemplate, fitTemplate,
   newInstance, paintOrder, photoLayers, spreadTemplate, templateBackground, templateSlots,
   templatesFor, textOf, usesSourceLettering,
 } from '../src/album/templates/library.ts';
@@ -70,7 +70,7 @@ test('every page is well formed: unique layers, known colours, sane geometry', (
   }
 });
 
-test('page 4 matches the source: one photo across the fold on dark brown, a faint band, white artwork', () => {
+test('page 4 matches the source: one photo across the fold on dark brown, a faint band', () => {
   const t = VAULT_PAGE_4;
   assert.equal(t.photoCount, 1);
   assert.equal(templateBackground(t, newInstance(t)), '#251c11');
@@ -80,8 +80,41 @@ test('page 4 matches the source: one photo across the fold on dark brown, a fain
   const band = t.layers.find((l) => l.type === 'shape' && l.shape === 'rect')!;
   assert.equal(band.opacity, 0.34);
   assert.ok(Math.abs(band.box.x - 0.0717) < 0.001 && Math.abs(band.box.width - 0.1672) < 0.001);
-  const artwork = t.layers.filter((l) => l.type === 'shape' && l.shape === 'path');
-  assert.ok(artwork.some((l) => l.type === 'shape' && l.fillToken && colorOf(t, newInstance(t), l.fillToken) === '#ffffff'));
+});
+
+test('a design arrives without drawn ornament — and the ornament is still there to add', () => {
+  for (const template of TEMPLATE_LIBRARY) {
+    for (const layer of template.layers) {
+      assert.ok(
+        !(layer.type === 'shape' && (layer.shape === 'path' || layer.shape === 'polyline')),
+        `${template.id}/${layer.id}: drawn artwork left on the page`,
+      );
+    }
+  }
+  // page 4's white ornament is off the page…
+  assert.equal(VAULT_PAGE_4.layers.filter((l) => l.type === 'shape' && l.shape === 'path').length, 0);
+  // …and in the drawer the photographer adds from.
+  const drawn = VAULT_AS_DRAWN.find((t) => t.id === VAULT_PAGE_4.id)!;
+  const artwork = drawn.layers.filter((l) => l.type === 'shape' && l.shape === 'path');
+  assert.ok(artwork.some((l) => l.type === 'shape' && l.fillToken
+    && colorOf(drawn, newInstance(drawn), l.fillToken) === '#ffffff'));
+  assert.ok(vaultElements().some((e) => e.group === 'vault' && e.kind === 'path'));
+});
+
+test('a page keeps only the colours something on it still paints', () => {
+  for (const template of TEMPLATE_LIBRARY) {
+    const used = new Set<string>([template.backgroundToken]);
+    for (const layer of template.layers) {
+      if (layer.type === 'shape') {
+        if (layer.fillToken) used.add(layer.fillToken);
+        if (layer.strokeToken) used.add(layer.strokeToken);
+      }
+      if (layer.type === 'text') used.add(layer.colorToken);
+    }
+    for (const color of template.colors) {
+      assert.ok(used.has(color.id), `${template.id}: swatch ${color.id} paints nothing`);
+    }
+  }
 });
 
 test('layers paint in the designer order', () => {

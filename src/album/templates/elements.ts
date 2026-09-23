@@ -1,4 +1,4 @@
-import { TEMPLATE_LIBRARY } from './library.ts';
+﻿import { VAULT_AS_DRAWN } from './library.ts';
 import type { ImageLayer, ShapeLayer, TextLayer } from './types';
 
 /* The element library: things the photographer can drop on any spread.
@@ -57,9 +57,13 @@ export function vaultElements(): ElementDef[] {
   if (vaultCache) return vaultCache;
   const seen = new Set<string>();
   const out: ElementDef[] = [];
-  for (const template of TEMPLATE_LIBRARY) {
+  for (const template of VAULT_AS_DRAWN) {
     for (const layer of template.layers) {
-      if (layer.type === 'shape' && layer.shape === 'path' && layer.outline && layer.box.width < 0.6) {
+      /* Every ornament the pages no longer carry is offered here — the large
+       * ones too. They used to be skipped as page-wide artwork; now that a
+       * page arrives bare, skipping one would mean the photographer could
+       * never put it back. */
+      if (layer.type === 'shape' && layer.shape === 'path' && layer.outline && layer.box.width < 0.98) {
         const bounds = pathBounds(layer.outline.d);
         if (!bounds) continue;
         const key = `${layer.outline.d.length}:${Math.round(bounds.width)}:${Math.round(bounds.height)}`;

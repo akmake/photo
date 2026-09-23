@@ -1,6 +1,7 @@
 import type {
   AlbumPhoto, AlbumProject, AlbumSpread, LayoutSlot, PrintProductProfile,
 } from './model';
+import { photoAdjustmentFilter } from './model';
 import { assessCrop } from './cropEngine';
 import type { GeneratedAlbumLayout } from './layoutEngine';
 import { albumSourceUrl, finalizeAlbumSheet } from '../api';
@@ -179,6 +180,12 @@ async function drawPhoto(
   context.beginPath();
   context.rect(frame.x, frame.y, frame.width, frame.height);
   context.clip();
+  context.filter = photoAdjustmentFilter(settings);
+  if (settings?.rotation) {
+    context.translate(frame.x + frame.width / 2, frame.y + frame.height / 2);
+    context.rotate((settings.rotation * Math.PI) / 180);
+    context.translate(-(frame.x + frame.width / 2), -(frame.y + frame.height / 2));
+  }
 
   try {
     if (crop.fit === 'contain') {
