@@ -177,7 +177,14 @@ export default function PhotoEditor({
   const objectClicks = useRef<{ at: [number, number]; sizes: number[]; index: number } | null>(null);
 
   // What the frame renders through now — the starting point of every control.
-  const saved = useMemo(() => effectiveRecipe(projectId, name).filter((t) => t.enabled), [projectId, name]);
+  // A removal is written the moment it is made (see הסרת אובייקט below), so
+  // the saved recipe is read again after each one.
+  const [savedVersion, setSavedVersion] = useState(0);
+  const saved = useMemo(
+    () => effectiveRecipe(projectId, name).filter((t) => t.enabled),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [projectId, name, savedVersion],
+  );
 
   const stepFor = useCallback((toolId: string, edit: Edit): ToolInstance => {
     const current = saved.find((t) => t.toolId === toolId);
@@ -416,16 +423,29 @@ export default function PhotoEditor({
   const [brushR, setBrushR] = useState(DEFAULT_R);
   const [brushErase, setBrushErase] = useState(false);
 
-  /* A selection stays a draft until "הסר אובייקט" is pressed; the modal's
-   * regular Save then records the step on this frame. */
-  const objectEdit = edits['object-remove']?.objectSelection;
+  /* A selection stays a draft until "הסר" is pressed. From that moment it is
+   * SAVED on the photograph — no שמור, no ביטול and no איפוס takes it back.
+   * Only its own × in the list does. Eight removals used to wait for one
+   * שמור at the end, and anything that went wrong on the way took them with it. */
   const savedObject = saved.find((step) => step.toolId === 'object-remove')?.objectSelection;
-  // What is already removed on this photograph (the step), and what is being
-  // drafted now. A new draft never replaces what was removed before it.
-  const appliedObject = objectEdit === null ? undefined : objectEdit ?? savedObject;
-  const removedList = appliedObject
-    ? [...(appliedObject.removals ?? []), ...(appliedObject.maskPng ? [{ ...appliedObject, removals: undefined }] : [])]
+  // Every removal on this photograph, oldest first — the order the engine
+  // fills them in (object_remove.apply).
+  const removedList = savedObject
+    ? [...(savedObject.removals ?? []), ...(savedObject.maskPng ? [{ ...savedObject, removals: undefined }] : [])]
     : [];
+  const [hoverRemoval, setHoverRemoval] = useState<number | null>(null);
+  const writeRemovals = (list: NonNullable<ToolInstance['objectSelection']>[]) => {
+    if (list.length) {
+      const last = list[list.length - 1];
+      setFrameStep(projectId, name, {
+        toolId: 'object-remove', enabled: true, params: {},
+        objectSelection: { ...last, removals: list.slice(0, -1) },
+      });
+    } else {
+      removeFrameStep(projectId, name, 'object-remove');
+    }
+    setSavedVersion((v) => v + 1);
+  };
   const selectedObject = objectDraft ?? undefined;
   const chooseObject = async (x: number, y: number) => {
     // A click again at (nearly) the same spot means "not that one": step to the
@@ -484,27 +504,20 @@ export default function PhotoEditor({
   };
   const applyObject = () => {
     if (!selectedObject) return;
-    setEdits((current) => ({ ...current, 'object-remove': { objectSelection: { ...selectedObject, removals: removedList } } }));
+    const { removals: _nested, ...one } = selectedObject;
+    writeRemovals([...removedList, one]);
     setObjectDraft(null);
     setPaintStrokes([]);
     objectClicks.current = null;
   };
-  const undoLastRemoval = () => {
-    const rest = removedList.slice(0, -1);
-    setEdits((current) => ({ ...current, 'object-remove': {
-      objectSelection: rest.length ? { ...rest[rest.length - 1], removals: rest.slice(0, -1) } : null,
-    } }));
+  const restoreRemoval = (index: number) => {
+    setHoverRemoval(null);
+    writeRemovals(removedList.filter((_, i) => i !== index));
   };
   const discardDraft = () => {
     setObjectDraft(null);
     setPaintStrokes([]);
     objectClicks.current = null;
-  };
-  const clearObject = () => {
-    setEdits((current) => ({ ...current, 'object-remove': { objectSelection: null } }));
-    discardDraft();
-    setObjectPaint(null);
-    setObjectSelecting(false);
   };
 
   /* ======================================================== background */
@@ -600,6 +613,9 @@ export default function PhotoEditor({
               )}
               {tab === 'object' && objectDraft && objectBox && !showBefore && (
                 <ObjectMaskPreview selection={objectDraft} width={objectBox.w} height={objectBox.h} />
+              )}
+              {tab === 'object' && !objectDraft && hoverRemoval !== null && removedList[hoverRemoval] && objectBox && !showBefore && (
+                <ObjectMaskPreview selection={removedList[hoverRemoval]} width={objectBox.w} height={objectBox.h} />
               )}
               {tab === 'object' && objectSelecting && objectBox && !showBefore && (
                 <ObjectPickLayer path={frame.path} width={objectBox.w} height={objectBox.h}
@@ -845,12 +861,21 @@ export default function PhotoEditor({
                   </div>
                 </>}
                 {removedList.length > 0 && <>
-                  <p className="tz-pe-help">הוסרו מהתמונה: {removedList.length}</p>
-                  <div className="tz-pe-row">
-                    <button type="button" className="tz-pe-btn" onClick={undoLastRemoval}>החזר את האחרון</button>
-                    <button type="button" className="tz-pe-btn" onClick={clearObject}>החזר הכול</button>
-                  </div>
-                  <p className="tz-pe-help">בסוף לחץ „שמור” למעלה.</p>
+                  <h3 className="tz-pe-h">הוסרו מהתמונה</h3>
+                  <ul className="tz-pe-removals">
+                    {removedList.map((r, i) => (
+                      <li
+                        key={i}
+                        className={hoverRemoval === i ? 'is-on' : ''}
+                        onPointerEnter={() => setHoverRemoval(i)}
+                        onPointerLeave={() => setHoverRemoval((h) => (h === i ? null : h))}
+                      >
+                        <span>הסרה {(i + 1).toLocaleString('he-IL')}</span>
+                        <button type="button" onClick={() => restoreRemoval(i)} title="החזר את מה שהוסר כאן" aria-label={`החזר את הסרה ${i + 1}`}>×</button>
+                      </li>
+                    ))}
+                  </ul>
+                  <p className="tz-pe-help">כל הסרה נשמרת מיד. כדי להחזיר אחת — ×.</p>
                 </>}
                 {objectBusy && <p role="status" className="tz-pe-help">מזהה אובייקט…</p>}
                 {objectFault && <p role="alert" className="tz-pe-help">{objectFault}</p>}

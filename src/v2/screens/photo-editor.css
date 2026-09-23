@@ -179,6 +179,19 @@
 .tz-pe-help { margin: 16px 0 6px; font-size: 13px; line-height: 1.55; color: var(--pe-muted); }
 .tz-pe-h { margin: 18px 0 10px; font-size: 14px; font-weight: 600; }
 .tz-pe-row { display: flex; gap: 8px; margin-top: 16px; }
+.tz-pe-removals { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px; }
+.tz-pe-removals li {
+  display: inline-flex; align-items: center; gap: 4px;
+  height: 30px; padding-inline: 12px 4px;
+  border: 1px solid var(--pe-line); border-radius: 15px;
+  background: var(--pe-raise); font-size: 13px;
+}
+.tz-pe-removals li.is-on { border-color: var(--pe-accent); }
+.tz-pe-removals button {
+  width: 22px; height: 22px; border: 0; border-radius: 50%;
+  background: transparent; color: var(--pe-muted); font-size: 16px; line-height: 1; cursor: pointer;
+}
+.tz-pe-removals button:hover { background: #454545; color: var(--pe-ink); }
 .tz-pe-row .tz-pe-btn { flex: 1; }
 .tz-pe-divider { height: 1px; background: #e8e8e8; opacity: 0.6; margin: 22px 4px; }
 .tz-pe-wide {
