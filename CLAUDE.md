@@ -25,6 +25,9 @@
 ### מה עובר ביניהם
 - **מהתוכנה לאתר:** תמונות תצוגה לגלריה (לא המקור).
 - **מהאתר לתוכנה:** הרישיון, ומה שהלקוח בחר או העיר בגלריה.
+- **הגלריה ללקוח רצה באתר**, לא כאן. הסטודיו קורא `/api/gallery/*` במנוע כמו
+  תמיד; `engine/gallery_remote.py` מעביר לאתר, מזדהה ב-lease של הרישיון, וגוזר
+  ומעלה תצוגות (1600px + 400px). המקור לא עולה. הקישור ללקוח: `<אתר>/g/<slug>`.
 - **עדכוני תוכנה:** התוכנה שואלת `<כתובת הרישוי>/updates/latest.yml` ומורידה משם
   את קובץ ההתקנה. האתר רק מגיש קבצים מתיקייה קבועה בשרת; אין שם לוגיקה.
   התוכנה: `electron/updater.cjs`. ההעלאה: `npm run release` (בונה ומעלה,
@@ -114,7 +117,7 @@
 | Lab מול שולחן העבודה | `docs/LAB-VS-WORKBENCH.md` |
 | ביצועים ואיטיות | `docs/SLOW.md` · `opo/machine-scaling.md` |
 | אלבום חכם | `alb.md` · `docs/ALBUM-MACHINE.md` · `docs/RESEARCH-album-ai.md` · `docs/new/album-visual-language.md` |
-| גלריית לקוח, בחירה והערות | `docs/CLIENT-GALLERY.md` |
+| גלריית לקוח, בחירה והערות | `docs/CLIENT-GALLERY.md` — **הגלריה עצמה באתר מאז 24.09**; כאן רק `engine/gallery_remote.py` + `gallery_derive.py` |
 
 ### קוד
 
