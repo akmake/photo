@@ -757,7 +757,9 @@ export default function GalleryEditV2({
     try {
       const result = await selectObjectAtPath(currentPath, x, y);
       if (request !== objectRequest.current) return;
-      setObjectDraft({ maskPng: result.maskPng, margin: result.margin, add: [], subtract: [] });
+      // the engine names what stands behind on its own (object_remove._find_behind)
+      const behind = (result as { behind?: { maskPng: string } }).behind;
+      setObjectDraft({ maskPng: result.maskPng, margin: result.margin, add: [], subtract: [], ...(behind ? { behind } : {}) });
       setObjectMode(null);
     } catch (error) {
       if (request === objectRequest.current) setObjectError(error instanceof Error ? error.message : 'בחירת האובייקט נכשלה');

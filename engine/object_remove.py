@@ -135,6 +135,9 @@ def select(rgb: np.ndarray, x: float, y: float) -> dict:
     mask = candidates[index].astype(np.uint8)
     if not mask.any():
         raise RuntimeError("No object mask found at the selected point")
+    with _predict_lock:
+        _predictor.set_image(small)  # another request may have set its own meanwhile
+        behind = _find_behind(small, mask.astype(bool))
     alternatives = [
         {"maskPng": _mask_data(candidate), "coverage": round(float(candidate.mean()), 5),
          "score": round(float(score), 4)}
@@ -142,8 +145,83 @@ def select(rgb: np.ndarray, x: float, y: float) -> dict:
     ]
     # The margin travels with the selection so the screen and the render agree
     # on it, and so it stays one decision, made here.
-    return {**alternatives[index], "width": sw, "height": sh, "margin": DEFAULT_MARGIN,
-            "selectedIndex": index, "candidates": alternatives}
+    out = {**alternatives[index], "width": sw, "height": sh, "margin": DEFAULT_MARGIN,
+           "selectedIndex": index, "candidates": alternatives}
+    if behind is not None:
+        out["behind"] = {"maskPng": _mask_data(behind)}
+    return out
+
+
+#: How far outside the removed object the ring of probe clicks sits.
+PROBE_RING = 0.02
+#: How many probes around it, and how many must name the same object.
+PROBES, AGREE = 28, 4
+
+
+def _find_behind(small: np.ndarray, removed: np.ndarray):
+    """The object the removed one stands in front of, found without a click.
+
+    A second click asked the photographer something the picture already says:
+    the man stands in front of the horse. Probe a ring just outside the
+    removed outline — each probe a click for the segmenter, the removed
+    object a "not this" — and keep the object several probes agree on, if it
+    is a thing (a bounded shape that stands out from what surrounds it) and
+    not the backdrop (bushes, ground, sky: large, or no edge of their own).
+    None when nothing qualifies; the fill then treats everything as background.
+    Runs under _predict_lock with the image already set.
+    """
+    h, w = removed.shape
+    ring_r = max(3, round(PROBE_RING * max(h, w)))
+    grown = cv2.dilate(removed.astype(np.uint8),
+                       cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2 * ring_r + 1,) * 2))
+    contours, _ = cv2.findContours(grown, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
+    if not contours:
+        return None
+    ring = max(contours, key=cv2.contourArea)[:, 0, :]
+    inside = cv2.distanceTransform(removed.astype(np.uint8), cv2.DIST_L2, 5)
+    ny, nx = np.unravel_index(int(np.argmax(inside)), inside.shape)
+    lab = cv2.cvtColor(small, cv2.COLOR_RGB2LAB).astype(np.float32)
+    removed_bottom = int(np.nonzero(removed.any(1))[0].max())
+    band_k = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2 * ring_r + 1,) * 2)
+    found = []
+    for px, py in ring[np.linspace(0, len(ring) - 1, PROBES).astype(int)]:
+        if not (0 <= px < w and 0 <= py < h):
+            continue
+        raw, scores, _ = _predictor.predict(
+            point_coords=np.array([[px, py], [nx, ny]]), point_labels=np.array([1, 0]),
+            multimask_output=True, return_logits=True)
+        c = raw[int(np.argmax(scores))] > 0
+        area = c.mean()
+        if not 0.01 <= area <= 0.35 or (c & removed).sum() > 0.2 * c.sum():
+            continue
+        # backdrop runs off the frame: ground in 321A5078 spans edge to edge
+        edges = [c[:, :3].any(), c[:, -3:].any(), c[:3, :].any(), c[-3:, :].any()]
+        if (edges[0] and edges[1]) or (edges[2] and edges[3]) or sum(edges) >= 3:
+            continue
+        # it must stand farther back: its footing higher in the frame than the
+        # removed one's. In 321A5015 the father stands behind the mother, whose
+        # hem runs off the frame — no footing to compare, so she is left alone.
+        if edges[3] or np.nonzero(c.any(1))[0].max() >= removed_bottom:
+            continue
+        # a thing has its own edge: inside and just outside differ clearly
+        c8 = c.astype(np.uint8)
+        rim_in = c & ~(cv2.erode(c8, band_k) > 0)
+        rim_out = (cv2.dilate(c8, band_k) > 0) & ~c & ~removed
+        if rim_in.sum() < 50 or rim_out.sum() < 50:
+            continue
+        if np.linalg.norm(lab[rim_in].mean(0) - lab[rim_out].mean(0)) < 25:
+            continue
+        for group in found:
+            inter = (group[0] & c).sum()
+            if inter / max(1, (group[0] | c).sum()) > 0.6:
+                group[1] += 1
+                break
+        else:
+            found.append([c, 1])
+    if not found:
+        return None
+    best, votes = max(found, key=lambda g: g[1])
+    return best if votes >= AGREE else None
 
 
 def repair_mask(shape: tuple, selection: dict) -> np.ndarray:
@@ -171,6 +249,8 @@ def repair_mask(shape: tuple, selection: dict) -> np.ndarray:
 #: with the horse taken out of the context, 900 returned a grey-green fog where
 #: the man stood; 512 returned bamboo, fence and soil. 320 broke into blocks.
 LAYERED_WORK_HOLE = 512
+#: The width at which a hidden outline is completed, whatever the render size.
+OUTLINE_WIDTH = 3200
 
 
 def _complete_outline(behind: np.ndarray, hole: np.ndarray) -> np.ndarray:
@@ -195,7 +275,8 @@ def _complete_outline(behind: np.ndarray, hole: np.ndarray) -> np.ndarray:
         return empty
     c = max(contours, key=cv2.contourArea)[:, 0, :]
     dist = cv2.distanceTransform((~hole).astype(np.uint8), cv2.DIST_L2, 5)
-    adj = dist[c[:, 1], c[:, 0]] <= max(3, 0.0008 * w)
+    # the segmenter stops a few pixels short of the occluder, on both masks
+    adj = dist[c[:, 1], c[:, 0]] <= max(4, 0.004 * w)
     n = len(c)
     if adj.all() or not adj.any():
         return empty
@@ -281,7 +362,12 @@ def _layered(rgb: np.ndarray, hole: np.ndarray, behind: np.ndarray, front: np.nd
     counting it as an occluder ran the horse's outline down to the hoof.
     """
     h, w = hole.shape
-    hidden = _complete_outline(behind, front & hole) & hole
+    # The outline is completed at one fixed size and scaled, so the preview
+    # and the export draw the same horse. At a 1600px preview the tangents are
+    # a handful of pixels and the completion found nothing at all.
+    cw, ch = OUTLINE_WIDTH, round(OUTLINE_WIDTH * h / w)
+    size = lambda m, sz: cv2.resize(m.astype(np.uint8), sz, interpolation=cv2.INTER_NEAREST) > 0
+    hidden = size(_complete_outline(size(behind, (cw, ch)), size(front & hole, (cw, ch))), (w, h)) & hole
     obj = (behind & ~hole) | hidden
     ys, xs = np.nonzero(hole)
     pad = int(0.35 * max(xs.max() - xs.min(), ys.max() - ys.min()))

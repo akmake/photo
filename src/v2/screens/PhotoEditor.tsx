@@ -150,7 +150,6 @@ export default function PhotoEditor({
   const [busy, setBusy] = useState(false);
   const [fault, setFault] = useState<string | null>(null);
   const [objectSelecting, setObjectSelecting] = useState(false);
-  const [behindSelecting, setBehindSelecting] = useState(false);
   const [objectDraft, setObjectDraft] = useState<ToolInstance['objectSelection'] | null>(null);
   const [objectPaint, setObjectPaint] = useState<'add' | 'subtract' | null>(null);
   const [objectBusy, setObjectBusy] = useState(false);
@@ -370,7 +369,9 @@ export default function PhotoEditor({
     setObjectFault(null);
     try {
       const result = await selectObjectAtPath(frame.path, x, y);
-      setObjectDraft({ maskPng: result.maskPng, margin: result.margin, add: [], subtract: [] });
+      // the engine names what stands behind on its own (object_remove._find_behind)
+      const behind = (result as { behind?: { maskPng: string } }).behind;
+      setObjectDraft({ maskPng: result.maskPng, margin: result.margin, add: [], subtract: [], ...(behind ? { behind } : {}) });
       setObjectSelecting(false);
       setObjectPaint(null);
     } catch (error) {
@@ -378,26 +379,6 @@ export default function PhotoEditor({
     } finally {
       setObjectBusy(false);
     }
-  };
-  const chooseBehind = async (x: number, y: number) => {
-    if (!selectedObject) return;
-    setObjectBusy(true);
-    setObjectFault(null);
-    try {
-      const result = await selectObjectAtPath(frame.path, x, y);
-      setObjectDraft({ ...selectedObject, behind: { maskPng: result.maskPng } });
-      setBehindSelecting(false);
-    } catch (error) {
-      setObjectFault(error instanceof Error ? error.message : 'בחירת מה שמאחור נכשלה');
-    } finally {
-      setObjectBusy(false);
-    }
-  };
-  const clearBehind = () => {
-    if (!selectedObject) return;
-    const { behind: _behind, ...rest } = selectedObject;
-    setObjectDraft(rest);
-    setBehindSelecting(false);
   };
   const startObjectPaint = (mode: 'add' | 'subtract') => {
     setObjectSelecting(false);
@@ -498,14 +479,12 @@ export default function PhotoEditor({
               {tab === 'object' && objectDraft && objectBox && !showBefore && (
                 <ObjectMaskPreview selection={objectDraft} width={objectBox.w} height={objectBox.h} />
               )}
-              {tab === 'object' && (objectSelecting || behindSelecting) && objectBox && !showBefore && (
+              {tab === 'object' && objectSelecting && objectBox && !showBefore && (
                 <div className="tz-pe-object-click" style={{ width: objectBox.w, height: objectBox.h }}
-                  role="button" tabIndex={0} aria-label={behindSelecting ? 'בחר מה עומד מאחור' : 'בחר אובייקט בתמונה'}
+                  role="button" tabIndex={0} aria-label="בחר אובייקט בתמונה"
                   onClick={(event) => {
                     const rect = event.currentTarget.getBoundingClientRect();
-                    const x = (event.clientX - rect.left) / rect.width;
-                    const y = (event.clientY - rect.top) / rect.height;
-                    void (behindSelecting ? chooseBehind(x, y) : chooseObject(x, y));
+                    void chooseObject((event.clientX - rect.left) / rect.width, (event.clientY - rect.top) / rect.height);
                   }}
                   onKeyDown={(event) => {
                     if (event.key === 'Enter' || event.key === ' ') {
@@ -722,7 +701,7 @@ export default function PhotoEditor({
                 <h3 className="tz-pe-h">הסרת אובייקט</h3>
                 <p className="tz-pe-help">לחץ על האדם או החפץ בתמונה. בדוק את המסכה הכחולה, תקן אותה במידת הצורך, ואז הסר.</p>
                 <button type="button" className={`tz-pe-btn tz-pe-object-action${objectSelecting ? ' is-on' : ''}`}
-                  disabled={objectBusy} onClick={() => { setObjectSelecting((v) => !v); setBehindSelecting(false); setObjectPaint(null); setObjectFault(null); }}>
+                  disabled={objectBusy} onClick={() => { setObjectSelecting((v) => !v); setObjectPaint(null); setObjectFault(null); }}>
                   {objectSelecting ? 'בטל בחירה' : 'בחר בלחיצה על התמונה'}
                 </button>
                 {selectedObject && <>
@@ -733,15 +712,6 @@ export default function PhotoEditor({
                       onClick={() => startObjectPaint('subtract')}>החסר מהמסכה</button>
                   </div>
                   <Slider label="גודל מברשת" icon={<IconDot />} min={Math.round(MIN_R * 1000)} max={Math.round(MAX_R * 1000)} value={Math.round(brushR * 1000)} onChange={(v) => setBrushR(v / 1000)} />
-                  <h3 className="tz-pe-h">מה עומד מאחוריו</h3>
-                  <p className="tz-pe-help">לא חובה. אם האובייקט מסתיר חלק ממשהו — סוס, אדם — לחץ עליו, והחלק המוסתר יושלם בצורתו ובחומר שלו.</p>
-                  <div className="tz-pe-row">
-                    <button type="button" className={`tz-pe-btn${behindSelecting ? ' is-on' : ''}`} disabled={objectBusy}
-                      onClick={() => { setBehindSelecting((v) => !v); setObjectSelecting(false); setObjectPaint(null); setObjectFault(null); }}>
-                      {behindSelecting ? 'בטל בחירה' : selectedObject.behind ? 'בחר מחדש' : 'בחר בלחיצה'}
-                    </button>
-                    {selectedObject.behind && <button type="button" className="tz-pe-btn" onClick={clearBehind}>בלי השלמה</button>}
-                  </div>
                   <div className="tz-pe-row">
                     <button type="button" className="tz-pe-btn is-primary" onClick={applyObject}>הסר אובייקט</button>
                     <button type="button" className="tz-pe-btn" onClick={clearObject}>נקה בחירה</button>
