@@ -228,6 +228,15 @@ export default function WorkStageV2({
       .filter((x): x is GridItem => Boolean(x)),
   })), [layout, openStacks, frameByName, dims, editedKeys]);
 
+  /** A frame's picture exactly as the grid shows it — its own edit included —
+   *  at a given width. 640 is the grid's own request, so it is already loaded. */
+  const srcOf = useCallback((name: string, w: number): string | null => {
+    const f = frameByName.get(name);
+    if (!f) return null;
+    const key = editedKeys.get(name);
+    return key ? previewUrl(f.path, w, key) : thumbUrl(f.path, w);
+  }, [frameByName, editedKeys]);
+
   const toggleStackRef = useRef<(key: string) => void>(() => undefined);
   const toggleStack = useCallback((key: string) => {
     setOpenStacks((prev) => {
@@ -592,8 +601,9 @@ export default function WorkStageV2({
           onEdit={(from) => { setEditFrom(from); setEditing(true); }}
           frame={frameByName.get(sel)!}
           faces={byName.get(sel)?.faces ?? []}
+          quick={srcOf(sel, 640)}
           neighbors={[flat[flat.indexOf(sel) + 1], flat[flat.indexOf(sel) - 1], flat[flat.indexOf(sel) + 2]]
-            .map((n) => (n ? frameByName.get(n)?.path : undefined))
+            .map((n) => (n ? srcOf(n, 2400) : null))
             .filter((p): p is string => Boolean(p))}
           name={sel}
           position={flat.indexOf(sel)}
@@ -729,13 +739,16 @@ function preload(src: string): Promise<{ w: number; h: number }> {
 }
 
 function Viewer({
-  projectId, onEdit, frame, faces, neighbors, name, position, total, decision, onClose, onStep, onDecide,
+  projectId, onEdit, frame, faces, quick, neighbors, name, position, total, decision, onClose, onStep, onDecide,
 }: {
   projectId: string;
   /** Called with the picture on screen when it is THIS frame's, else null. */
   onEdit: (onScreen: string | null) => void;
   frame: Frame;
   faces: TriageFrame['faces'];
+  /** This frame as the grid shows it (edit included), already loaded there. */
+  quick: string | null;
+  /** The next frames' full pictures (edit included), to have ready. */
   neighbors: string[];
   name: string;
   position: number;
@@ -771,17 +784,41 @@ function Viewer({
   // until the next one has loaded.
   const onScreenRef = useRef<string | null>(null);
   onScreenRef.current = shown && shown.src === src ? shown.src : null;
+  /* THE PICTURE UNDER THE NAME IS ALWAYS THIS FRAME'S.
+   *
+   * An edited frame at full size is rendered by the engine — measured 5–13s.
+   * This used to keep the PREVIOUS photograph up for all of that, under the new
+   * frame's name: "the same photo twice", then a jump. And a frame reached from
+   * an unedited one showed its original first, then its edit.
+   *
+   * Now the step puts up this frame at once as the grid shows it — its own edit
+   * included, already loaded by the grid — and the full-size picture replaces
+   * it when decoded: the same photograph getting sharper, never another one. */
   useEffect(() => {
-    if (!src) return undefined;
     let alive = true;
-    preload(src)
-      .then((size) => { if (alive) { setZoom(1); setShown({ src, ...size }); setShownFaces(faces); } })
-      .catch(() => { if (alive) { setZoom(1); setShown({ src, w: 1500, h: 1000 }); setShownFaces(faces); } });
-    // The frames either side, ready before he gets there.
-    for (const p of neighbors) void preload(thumbUrl(p, 2400)).catch(() => undefined);
+    let full = false;
+    setZoom(1);
+    const target = src ?? quick;
+    if (target && decoded.has(target)) {
+      full = target === src;
+      setShown({ src: target, ...decoded.get(target)! });
+      setShownFaces(faces);
+    } else if (quick) {
+      void preload(quick).then((size) => {
+        if (alive && !full) { setShown({ src: quick, ...size }); setShownFaces(faces); }
+      }).catch(() => undefined);
+    }
+    if (src && !full) {
+      preload(src)
+        .then((size) => { full = true; if (alive) { setShown({ src, ...size }); setShownFaces(faces); } })
+        .catch(() => { full = true; if (alive) { setShown({ src, w: 1500, h: 1000 }); setShownFaces(faces); } })
+        // The frames either side, ready before he gets there — after this one,
+        // so they never compete with the picture he is waiting for.
+        .finally(() => { if (alive) for (const p of neighbors) void preload(p).catch(() => undefined); });
+    }
     return () => { alive = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [src]);
+  }, [src, quick]);
 
   const aspect = natural ? natural.w / natural.h : 1.5;
   const pad = 32;
@@ -1104,19 +1141,22 @@ function useEditedSrc(projectId: string, name: string, path: string, width: numb
     [own, projectId, name],
   );
   const sig = steps ? JSON.stringify(steps) : '';
-  const [key, setKey] = useState<string | null>(() => (sig ? keyCache.get(sig) ?? null : ''));
+  // The key belongs to ONE recipe. It used to be plain state that survived a
+  // step to the next frame, so for one render the next frame was asked for
+  // under the PREVIOUS frame's edit — measured: a 17s engine render of a
+  // photograph with someone else's edit, thrown away, slowing every real one.
+  // Now the answer is read for the current recipe only, or null (unknown yet).
+  const [asked, setAsked] = useState<{ sig: string; key: string } | null>(null);
   useEffect(() => {
-    if (!sig) { setKey(''); return undefined; }
-    const known = keyCache.get(sig);
-    if (known) { setKey(known); return undefined; }
+    if (!sig || keyCache.has(sig)) return undefined;
     let alive = true;
-    setKey(null);
     registerRecipe(steps!)
-      .then((k) => { keyCache.set(sig, k); if (alive) setKey(k); })
-      .catch(() => { if (alive) setKey(''); });
+      .then((k) => { keyCache.set(sig, k); if (alive) setAsked({ sig, key: k }); })
+      .catch(() => { if (alive) setAsked({ sig, key: '' }); });
     return () => { alive = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sig]);
+  const key = !sig ? '' : keyCache.get(sig) ?? (asked?.sig === sig ? asked.key : null);
   if (key === null) return null;
   return key ? previewUrl(path, width, key) : thumbUrl(path, width);
 }
