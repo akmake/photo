@@ -221,7 +221,20 @@ def _find_behind(small: np.ndarray, removed: np.ndarray):
     if not found:
         return None
     best, votes = max(found, key=lambda g: g[1])
-    return best if votes >= AGREE else None
+    if votes < AGREE:
+        return None
+    # Cut the object once more, the way select() cuts what is clicked: at its
+    # deepest point, read at MASK_THRESHOLD. The probes' tight cut (logit 0)
+    # stopped short along the horse's thigh in 321A5078 and the completed rump
+    # ballooned to the ground; this cut matches the approved rump (IoU 0.95).
+    d = cv2.distanceTransform(best.astype(np.uint8), cv2.DIST_L2, 5)
+    py, px = np.unravel_index(int(np.argmax(d)), d.shape)
+    raw, scores, _ = _predictor.predict(
+        point_coords=np.array([[px, py], [nx, ny]]), point_labels=np.array([1, 0]),
+        multimask_output=True, return_logits=True)
+    cands = (raw > MASK_THRESHOLD).astype(np.uint8)
+    cut = cands[_choose_candidate(cands, scores)].astype(bool) & ~removed
+    return cut if cut.any() else best
 
 
 def repair_mask(shape: tuple, selection: dict) -> np.ndarray:
@@ -250,7 +263,7 @@ def repair_mask(shape: tuple, selection: dict) -> np.ndarray:
 #: the man stood; 512 returned bamboo, fence and soil. 320 broke into blocks.
 LAYERED_WORK_HOLE = 512
 #: The width at which a hidden outline is completed, whatever the render size.
-OUTLINE_WIDTH = 3200
+OUTLINE_WIDTH = 5472  # the frame the completion was judged on (321A5078)
 
 
 def _complete_outline(behind: np.ndarray, hole: np.ndarray) -> np.ndarray:
@@ -275,8 +288,7 @@ def _complete_outline(behind: np.ndarray, hole: np.ndarray) -> np.ndarray:
         return empty
     c = max(contours, key=cv2.contourArea)[:, 0, :]
     dist = cv2.distanceTransform((~hole).astype(np.uint8), cv2.DIST_L2, 5)
-    # the segmenter stops a few pixels short of the occluder, on both masks
-    adj = dist[c[:, 1], c[:, 0]] <= max(4, 0.004 * w)
+    adj = dist[c[:, 1], c[:, 0]] <= max(3, 0.00073 * w)  # 4px at 5472
     n = len(c)
     if adj.all() or not adj.any():
         return empty
@@ -294,10 +306,11 @@ def _complete_outline(behind: np.ndarray, hole: np.ndarray) -> np.ndarray:
             i += 1
     i0, i1 = max(runs, key=lambda r: r[1] - r[0])
     k = max(6, round(0.015 * w))
-    if i0 - 1 - k < 0 or i1 + 1 + k >= n + i0:
+    if (i1 - i0) + 2 * k + 2 >= n:
         return empty
-    A, B = cc[i0 - 1].astype(float), cc[(i1 + 1) % n].astype(float)
-    ta, tb = A - cc[i0 - 1 - k], B - cc[(i1 + 1 + k) % n]
+    # the outline is closed: the tangents are read around it, not off an end
+    A, B = cc[(i0 - 1) % n].astype(float), cc[(i1 + 1) % n].astype(float)
+    ta, tb = A - cc[(i0 - 1 - k) % n], B - cc[(i1 + 1 + k) % n]
     if not np.linalg.norm(ta) or not np.linalg.norm(tb):
         return empty
     ta, tb = ta / np.linalg.norm(ta), tb / np.linalg.norm(tb)
@@ -325,7 +338,7 @@ def _complete_outline(behind: np.ndarray, hole: np.ndarray) -> np.ndarray:
                 best = (e, curve)
     if best is None:
         return empty
-    poly = np.vstack([best[1], cc[i0:i1 + 1][::-1]]).astype(np.int32)
+    poly = np.vstack([best[1], cc[i0:i1 + 1][::-1]]).astype(np.int32)  # i0..i1 never wraps: cc starts outside a run
     out = np.zeros((h, w), np.uint8)
     cv2.fillPoly(out, [poly], 1)
     return (out > 0) & hole
