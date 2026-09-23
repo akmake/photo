@@ -10,13 +10,10 @@ export default defineConfig({
   plugins: [react()],
   build: {
     rollupOptions: {
-      // Two apps out of one repo. The studio is the photographer's desk; the
-      // gallery is a link their client opens once, on a phone, possibly on hall
-      // wi-fi. Sharing a bundle would mean shipping the editor and the album
-      // machine to reach a login form.
+      // The studio only. The client gallery moved to the website (ManagPhoto
+      // repo, client/src/gallery) on 24.09.2026.
       input: {
         main: resolve(__dirname, 'index.html'),
-        gallery: resolve(__dirname, 'gallery.html'),
       },
     },
   },

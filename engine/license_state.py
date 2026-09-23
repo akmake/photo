@@ -151,6 +151,15 @@ def status() -> dict:
     return _status()
 
 
+def current_lease() -> str:
+    """The signed lease this copy holds, or "" before activation. The website
+    accepts it as this computer's identity for gallery work (it signed it)."""
+    try:
+        return (_data_dir() / "lease.txt").read_text(encoding="utf-8").strip()
+    except (OSError, LicenseError):  # no license folder: development, or not activated
+        return ""
+
+
 def server_origin() -> str:
     """The site this copy talks to NOW. The shell may move it while the engine
     runs (electron/serverOrigin.cjs writes TEZA_SERVER_FILE after verifying the

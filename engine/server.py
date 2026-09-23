@@ -76,8 +76,7 @@ import sys
 import traceback
 
 import albumdesk_export
-import gallery
-import gallery_store
+import gallery_remote
 
 # A frozen engine is NEVER allowed to run ungated, even when started manually
 # without Electron's environment. The opt-in variable exists only for testing
@@ -754,9 +753,6 @@ class Handler(BaseHTTPRequestHandler):
             return
         if self._gallery_api("GET"):
             return
-        if self.path.startswith("/gallery-files/"):
-            self._gallery_file()
-            return
         if self.path.startswith("/oauth/callback/"):
             self._oauth_callback()
             return
@@ -1277,12 +1273,10 @@ class Handler(BaseHTTPRequestHandler):
         return json.loads(self.rfile.read(length))
 
     def _gallery_api(self, method):
-        """The client gallery, mounted here.
-
-        gallery.py owns its own routing and knows nothing about this socket, so
-        the same module serves the sidecar during development and a standalone
-        process wherever this finally runs. Returns False when the path is not
-        the gallery's, and the handler falls through to everything else.
+        """The client gallery's studio side. The gallery itself lives on the
+        website; gallery_remote relays the studio's calls there and does the
+        publishing (derive here, upload there). Returns False when the path is
+        not the gallery's, and the handler falls through to everything else.
         """
         parsed = urllib.parse.urlparse(self.path)
 
@@ -1292,10 +1286,7 @@ class Handler(BaseHTTPRequestHandler):
         # empty stream waiting for bytes that were already gone. Every /db/find
         # hung, so the studio sat on "קורא את הפרויקטים מהמסד" forever - a route
         # this module never touches, broken by this module reading its mail.
-        if not (
-            parsed.path.startswith("/g/")
-            or parsed.path.startswith("/api/gallery/")
-        ):
+        if not parsed.path.startswith("/api/gallery/"):
             return False
 
         body = {}
@@ -1309,43 +1300,12 @@ class Handler(BaseHTTPRequestHandler):
         for key, values in urllib.parse.parse_qs(parsed.query).items():
             body.setdefault(key, values[0])
 
-        answered = gallery.handle(method, parsed.path, body, dict(self.headers))
+        answered = gallery_remote.handle(method, parsed.path, body, dict(self.headers))
         if answered is None:
             return False
         status, payload = answered
         self._json(status, payload)
         return True
-
-    def _gallery_file(self):
-        """Objects, when the gallery's store is this machine's own disk.
-
-        With a bucket in front this route is never reached - the manifest hands
-        out URLs that point at the bucket or its CDN instead.
-        """
-        path = urllib.parse.urlparse(self.path).path
-        key = urllib.parse.unquote(path[len("/gallery-files/"):])
-        try:
-            data = gallery_store.store().get(key)
-        except gallery_store.StoreUnavailable as e:
-            # "cannot reach the store" is an answer, never an empty gallery
-            self._json(503, {"error": str(e)})
-            return
-        if data is None:
-            self._json(404, {"error": "not found"})
-            return
-        self.send_response(200)
-        # Logos are PNG (transparency is the whole point of keeping them PNG);
-        # frames are JPEG. Serving a PNG as image/jpeg makes some browsers
-        # refuse it outright.
-        self.send_header(
-            "Content-Type", "image/png" if key.endswith(".png") else "image/jpeg"
-        )
-        self.send_header("Content-Length", str(len(data)))
-        self.send_header("Access-Control-Allow-Origin", "*")
-        # An object under a given key never changes: a new version is a new key.
-        self.send_header("Cache-Control", "public, max-age=31536000, immutable")
-        self.end_headers()
-        self.wfile.write(data)
 
     def _db(self, action):
         """The studio's records. See db.py for why they live here and not in

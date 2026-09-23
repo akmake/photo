@@ -1,37 +1,57 @@
 interface GalleryDesktopBridge {
-  openClientGallery?: (slug: string) => void;
+  openExternal?: (url: string) => void;
 }
 
 interface GalleryWindow extends Window {
   teza?: GalleryDesktopBridge;
 }
 
-/** A real client URL when the gallery web app has a public home.
- *
- * In development the current HTTP origin is useful. In the installed app the
- * page runs from file://, which is not a link a photographer can send. The
- * public base is therefore explicit instead of turning a local file path into
- * a convincing-looking broken URL. */
-export function galleryPublicUrl(slug: string): string | null {
-  const configured = String(import.meta.env.VITE_PUBLIC_GALLERY_URL || '').trim();
-  if (configured) {
-    return `${configured.replace(/\/$/, '')}/gallery.html?g=${encodeURIComponent(slug)}`;
-  }
-  if (location.protocol === 'http:' || location.protocol === 'https:') {
-    return `${location.origin}/gallery.html?g=${encodeURIComponent(slug)}`;
-  }
-  return null;
+/* Where a client opens a gallery: the WEBSITE. The gallery moved there from
+ * this app on 24.09.2026 (ManagPhoto repo, client/src/gallery). The address is
+ * not baked in — it is the same site the app uses for its license, and it can
+ * move (electron/serverOrigin.cjs) — so the engine is asked once at start
+ * (engine/gallery_remote.py, action "site"). Until it answers there is no link,
+ * rather than a convincing-looking wrong one. */
+
+const ENGINE = 'http://127.0.0.1:8756';
+let siteOrigin: string | null = null;
+let loading: Promise<void> | null = null;
+
+export function loadGallerySite(): Promise<void> {
+  loading ??= load().finally(() => { loading = null; });
+  return loading;
 }
 
-/** Open the exact client application. Desktop uses a dedicated Electron
- * window backed by the local engine; the browser build opens its public URL. */
+async function load(): Promise<void> {
+  try {
+    const response = await fetch(`${ENGINE}/api/gallery/site`, { cache: 'no-store' });
+    if (!response.ok) return;
+    const { origin } = await response.json() as { origin?: string };
+    if (origin && /^https?:\/\//.test(origin)) siteOrigin = origin.replace(/\/$/, '');
+  } catch {
+    /* engine not up yet: the link stays unavailable, never a wrong one */
+  }
+}
+
+/** The link the photographer sends, or null while the site address is unknown. */
+export function galleryPublicUrl(slug: string): string | null {
+  // Not known yet (the engine was still starting, or the license not yet
+  // active): ask again in the background; the gallery screens re-render as
+  // they poll the client's progress, and pick it up then.
+  if (!siteOrigin) void loadGallerySite();
+  return siteOrigin ? `${siteOrigin}/g/${encodeURIComponent(slug)}` : null;
+}
+
+/** Open the exact page the client will see, in the real browser. */
 export function openClientGallery(slug: string, publicUrl: string | null): void {
+  const url = publicUrl || galleryPublicUrl(slug);
+  if (!url) return;
   const desktop = (window as GalleryWindow).teza;
-  if (desktop?.openClientGallery) {
-    desktop.openClientGallery(slug);
+  if (desktop?.openExternal) {
+    desktop.openExternal(url);
     return;
   }
-  window.open(publicUrl || `gallery.html?g=${encodeURIComponent(slug)}`, '_blank', 'noopener');
+  window.open(url, '_blank', 'noopener');
 }
 
 export function galleryShareText(

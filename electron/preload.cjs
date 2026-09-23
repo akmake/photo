@@ -141,12 +141,6 @@ contextBridge.exposeInMainWorld('teza', {
     if (/^https?:\/\//.test(url)) ipcRenderer.send('shell:open-external', url);
   },
 
-  /** Show the photographer the exact app their client will use. This is a
-   * local preview, not a pretend public URL. */
-  openClientGallery(slug) {
-    ipcRenderer.send('gallery:open-preview', slug);
-  },
-
   /** A new version, already downloaded. `updateStatus` answers for one that
    *  arrived before the page was listening; `onUpdateReady` for later ones.
    *  See electron/updater.cjs. */
