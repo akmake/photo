@@ -17,6 +17,7 @@
     "package:win:full": "npm run build:engine && npm run package:win",
     "release:upload": "node scripts/release-upload.cjs",
     "release": "npm run package:win:full && npm run release:upload",
+    "server:move": "node scripts/announce-move.cjs",
     "preview": "vite preview",
     "test": "node --test \"tests/*.test.ts\""
   },

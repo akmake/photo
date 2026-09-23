@@ -151,11 +151,26 @@ def status() -> dict:
     return _status()
 
 
+def server_origin() -> str:
+    """The site this copy talks to NOW. The shell may move it while the engine
+    runs (electron/serverOrigin.cjs writes TEZA_SERVER_FILE after verifying the
+    new site holds our public key), so it is read at call time, not at start."""
+    path = os.environ.get("TEZA_SERVER_FILE", "")
+    if path:
+        try:
+            saved = str(json.loads(Path(path).read_text(encoding="utf-8")).get("origin", ""))
+            if saved.startswith("https://"):
+                return saved.rstrip("/")
+        except (OSError, ValueError, AttributeError):
+            pass  # not moved yet, or unreadable: the address given at start
+    return os.environ.get("TEZA_LICENSE_ORIGIN", "").rstrip("/")
+
+
 def activate(email: str, password: str, name: str = "", register: bool = False) -> dict:
     """First use must reach the server; its clock starts the immutable trial."""
     if not REQUIRED:
         return {"ok": True, "mode": "development"}
-    origin = os.environ.get("TEZA_LICENSE_ORIGIN", "").rstrip("/")
+    origin = server_origin()
     if not origin.startswith("https://"):
         raise LicenseError("שרת הפעלה מאובטח אינו מוגדר")
     if not email or not password:

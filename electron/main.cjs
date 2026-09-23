@@ -37,6 +37,7 @@ const http = require('node:http');
 const net = require('node:net');
 const path = require('node:path');
 const { startUpdates } = require('./updater.cjs');
+const { createServerOrigin } = require('./serverOrigin.cjs');
 
 const DEV = !app.isPackaged;
 
@@ -74,6 +75,9 @@ app.setPath('userData', path.join(DATA_ROOT, 'shell'));
 
 const WINDOW_STATE_FILE = path.join(DATA_ROOT, 'shell', 'window.json');
 const LOG_DIR = path.join(DATA_ROOT, 'logs');
+// Which website this copy talks to. Outside the install folder on purpose: an
+// update replaces that folder, and a moved domain must stay moved.
+const SERVER_FILE = path.join(DATA_ROOT, 'server.json');
 
 let mainWindow = null;
 let splashWindow = null;
@@ -81,6 +85,7 @@ const galleryPreviewWindows = new Set();
 let engine = null;          // the child process, when WE started it
 let engineAttached = false; // true when an engine was already running
 let quitting = false;
+let server = null;          // serverOrigin.cjs; packaged builds only
 
 // ---------------------------------------------------------------- the engine
 
@@ -171,6 +176,17 @@ async function startEngine(onLine) {
       onLine('התקנה חסרה: שרת רישיונות או מפתח אימות');
       return false;
     }
+    server = createServerOrigin({
+      defaultOrigin: licenseConfig.origin,
+      publicKeyPem: fs.readFileSync(path.join(process.resourcesPath, 'license-public.pem'), 'utf8'),
+      stateFile: SERVER_FILE,
+      log: (...parts) => {
+        try {
+          fs.mkdirSync(LOG_DIR, { recursive: true });
+          fs.appendFileSync(path.join(LOG_DIR, 'server.log'), `${new Date().toISOString()} ${parts.join(' ')}\n`);
+        } catch { /* logging must not break the launch */ }
+      },
+    });
   }
 
   fs.mkdirSync(LOG_DIR, { recursive: true });
@@ -194,7 +210,10 @@ async function startEngine(onLine) {
         // replaces and Program Files will not let us write to anyway.
         TEZA_DATA_DIR: DATA_ROOT,
         TEZA_LICENSE_REQUIRED: '1',
-        TEZA_LICENSE_ORIGIN: licenseConfig.origin,
+        // The address can move while the engine runs (serverOrigin.cjs), so
+        // the engine reads SERVER_FILE at call time; this is the fallback.
+        TEZA_LICENSE_ORIGIN: server.current(),
+        TEZA_SERVER_FILE: SERVER_FILE,
         TEZA_LICENSE_PUBLIC_KEY_PATH: path.join(process.resourcesPath, 'license-public.pem'),
         TEZA_LICENSE_DATA_DIR: path.join(DATA_ROOT, 'license'),
       }),
@@ -423,6 +442,13 @@ ipcMain.on('menu:context-edit', (event) => {
   if (win) menu.popup({ window: win });
 });
 
+/* Settings → "server address". Null in development, where there is no site.
+ * Setting it verifies the address is really our server before saving it. */
+ipcMain.handle('server:get', () => (server ? { origin: server.current(), installed: server.installed() } : null));
+ipcMain.handle('server:set', (_event, value) => (
+  server ? server.setOrigin(value) : { ok: false, error: 'זמין רק בתוכנה המותקנת.' }
+));
+
 ipcMain.on('shell:open-external', (_event, url) => {
   if (typeof url === 'string' && /^https?:\/\//.test(url)) shell.openExternal(url);
 });
@@ -490,6 +516,7 @@ if (!app.requestSingleInstanceLock()) {
     // The installer must not meet a running engine holding its own files.
     startUpdates({
       getWindow: () => mainWindow,
+      getServer: () => server,
       beforeInstall: () => { quitting = true; stopEngine(); },
       logDir: LOG_DIR,
     });

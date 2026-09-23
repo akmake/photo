@@ -1,0 +1,43 @@
+.settings-card {
+  display: grid;
+  gap: 10px;
+  max-width: 640px;
+  padding: 20px 22px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--card);
+}
+.settings-card h2 { margin: 0; font-size: 16px; }
+
+.settings-server { display: grid; gap: 8px; }
+.settings-server label { font-weight: 700; color: var(--ink); }
+.settings-note { margin: 0; color: var(--ink-3); font-size: 13px; line-height: 1.5; }
+
+.settings-server-row { display: flex; gap: 8px; }
+.settings-server-row input {
+  flex: 1;
+  min-height: 38px;
+  padding: 0 12px;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  background: var(--card);
+  color: var(--ink);
+  font: inherit;
+  text-align: left;
+}
+.settings-server-row button {
+  min-height: 38px;
+  padding: 0 18px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--accent);
+  color: var(--on-solid);
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+.settings-server-row button:disabled { opacity: .5; cursor: default; }
+
+.settings-ok, .settings-error { margin: 0; font-size: 13px; }
+.settings-ok { color: var(--ink-2); }
+.settings-error { color: #b3261e; }

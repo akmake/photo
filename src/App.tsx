@@ -7,6 +7,7 @@ import Today from './studio/screens/Today';
 import Projects from './studio/screens/Projects';
 import ProjectScreen from './studio/screens/Project';
 import Clients from './studio/screens/Clients';
+import Settings from './studio/screens/Settings';
 import { useStudio } from './studio/store';
 import { STAGE_SCREENS, Simple, CannotRead, StillReading } from './studio/screens/Screens';
 
@@ -196,7 +197,7 @@ export default function App() {
     projects: () => <Projects onOpen={openProject} />,
     clients: () => <Clients onOpen={openProject} />,
     calendar: () => <Simple title="יומן" sub="צילומים קרובים ודדליינים" />,
-    settings: () => <Simple title="הגדרות" sub="חשבון, מנוי, אחסון ותבניות" />,
+    settings: () => <Settings />,
   };
 
   /* SUBSCRIBED, not read once. The studio used to load synchronously out of

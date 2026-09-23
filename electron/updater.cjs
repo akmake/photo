@@ -2,8 +2,8 @@
  * Updates: the website publishes a new version, every installed copy finds it,
  * downloads it in the background, and asks once to restart.
  *
- * The feed is the SAME origin the app already talks to for its license
- * (resources/license-config.json), under /updates/. No second address to
+ * The feed is the SAME site the app talks to for its license, under /updates/,
+ * and that address can move (electron/serverOrigin.cjs). No second address to
  * configure, and no address baked into the code. The site serves three files
  * there, written by scripts/release-upload.cjs: latest.yml, the installer, and
  * its .blockmap.
@@ -47,10 +47,11 @@ function fileLogger(logDir) {
 /**
  * @param {object} o
  * @param {() => import('electron').BrowserWindow | null} o.getWindow
+ * @param {() => ReturnType<import('./serverOrigin.cjs')['createServerOrigin']> | null} o.getServer
  * @param {() => void} o.beforeInstall  stop the engine, mark the app as quitting
  * @param {string} o.logDir
  */
-function startUpdates({ getWindow, beforeInstall, logDir }) {
+function startUpdates({ getWindow, getServer, beforeInstall, logDir }) {
   // The renderer asks on mount, so an update downloaded before the window
   // existed is still offered. In development the answer is always "none".
   ipcMain.handle('update:status', () => ready);
@@ -58,20 +59,10 @@ function startUpdates({ getWindow, beforeInstall, logDir }) {
   if (!app.isPackaged) return;
 
   const log = fileLogger(logDir);
-  let origin;
-  try {
-    ({ origin } = JSON.parse(fs.readFileSync(path.join(process.resourcesPath, 'license-config.json'), 'utf8')));
-    if (!/^https:\/\//.test(origin)) throw new Error(`not https: ${origin}`);
-  } catch (e) {
-    log.error('no update feed: license-config.json unreadable —', e && e.message);
-    return;
-  }
-
   const { autoUpdater } = require('electron-updater');
   autoUpdater.logger = log;
   autoUpdater.autoDownload = true;
   autoUpdater.autoInstallOnAppQuit = true;
-  autoUpdater.setFeedURL({ provider: 'generic', url: new URL('/updates/', origin).href });
 
   autoUpdater.on('update-downloaded', (info) => {
     ready = { version: info.version };
@@ -88,9 +79,20 @@ function startUpdates({ getWindow, beforeInstall, logDir }) {
     autoUpdater.quitAndInstall(true, true);
   });
 
-  const check = () => {
+  const check = async () => {
     if (ready) return;   // one waiting update is enough; do not download again
-    autoUpdater.checkForUpdates().catch((e) => log.warn('check failed:', e && e.message));
+    const server = getServer();
+    if (!server) { log.error('no update feed: the site address was never loaded'); return; }
+    try {
+      // The site may have moved since the last check (serverOrigin.cjs); the
+      // feed follows it, so a copy installed today still updates after a
+      // domain change.
+      const origin = await server.followMoves();
+      autoUpdater.setFeedURL({ provider: 'generic', url: new URL('/updates/', origin).href });
+      await autoUpdater.checkForUpdates();
+    } catch (e) {
+      log.warn('check failed:', e && e.message);
+    }
   };
   setTimeout(check, FIRST_CHECK_MS);
   setInterval(check, CHECK_EVERY_MS);

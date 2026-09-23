@@ -161,4 +161,14 @@ contextBridge.exposeInMainWorld('teza', {
   installUpdate() {
     ipcRenderer.send('update:install');
   },
+
+  /** The website this copy talks to (license + updates). See
+   *  electron/serverOrigin.cjs. `setServer` resolves to { ok, origin } or
+   *  { ok: false, error } — the error is Hebrew and meant to be shown. */
+  getServer() {
+    return ipcRenderer.invoke('server:get');
+  },
+  setServer(origin) {
+    return ipcRenderer.invoke('server:set', origin);
+  },
 });
