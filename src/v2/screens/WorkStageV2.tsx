@@ -1112,9 +1112,7 @@ function faceCrop(src: string, box: TriageFrame['faces'][number]['box'], aspect:
  *
  * So: two frames large, side by side, and ONE zoom for both. A burst is shot
  * from one spot, so the same point of the picture is the same point of the
- * scene; zooming into the eyes of one shows the eyes of the other. Under each
- * frame its faces, cut from the full picture, and a click on one takes both
- * frames there.
+ * scene; zooming into the eyes of one shows the eyes of the other.
  *
  * The pane with the frame is chosen by clicking it; a frame from the strip goes
  * into the chosen pane. A decision moves that pane on to the next frame nobody
@@ -1201,7 +1199,6 @@ function BurstPanel({
             src={srcOf(panes[pane], 2400)}
             quick={srcOf(panes[pane], 640)}
             aspect={aspectOf(panes[pane])}
-            faces={triage.get(panes[pane])?.faces ?? []}
             note={note(panes[pane])}
             decision={cull[panes[pane]]}
             focused={focus === pane}
@@ -1270,17 +1267,16 @@ function BurstPanel({
   );
 }
 
-/** One of the two frames: the picture under the shared zoom, its faces, its
+/** One of the two frames: the picture under the shared zoom and its
  *  decision. The zoom is a point of the picture (fx, fy — 0..1) held at the
  *  pane's centre, and a magnification of the fitted size. */
 function BurstPane({
-  name, src, quick, aspect, faces, note, decision, focused, view, onView, onFocus, onDecide,
+  name, src, quick, aspect, note, decision, focused, view, onView, onFocus, onDecide,
 }: {
   name: string;
   src: string | null;
   quick: string | null;
   aspect: number;
-  faces: TriageFrame['faces'];
   note: string;
   decision?: CullDecision;
   focused: boolean;
@@ -1333,16 +1329,6 @@ function BurstPane({
     onView({ z, fx: (box.w / 2 - (mx - px * w2)) / w2, fy: (box.h / 2 - (my - py * h2)) / h2 });
   };
 
-  const toFace = (b: TriageFrame['faces'][number]['box']) => {
-    const z = Math.max(1, Math.min(BURST_MAX_Z, (box.h * 0.55) / Math.max(1, b.height * (fitW / aspect))));
-    onView({ z, fx: b.x + b.width / 2, fy: b.y + b.height / 2 });
-  };
-
-  const mainFaces = faces
-    .slice()
-    .sort((a, b) => b.box.width * b.box.height - a.box.width * a.box.height)
-    .slice(0, 6);
-
   return (
     <section className={`tz-ws-burst-pane${focused ? ' is-focused' : ''}${decision ? ` is-${decision}` : ''}`} onMouseDown={onFocus}>
       <div
@@ -1369,26 +1355,6 @@ function BurstPane({
       >
         {shown && <img src={shown} alt={name} draggable={false} style={{ width: w, height: h, left, top }} />}
       </div>
-
-      {shown && mainFaces.length > 0 && (
-        <div className="tz-ws-burst-faces">
-          {mainFaces.map((f, i) => {
-            const shut = typeof f.blink === 'number' && f.blink >= EYES_SHUT;
-            return (
-              <button
-                key={i}
-                type="button"
-                className={`tz-ws-burst-face${shut ? ' is-shut' : ''}`}
-                onClick={() => toFace(f.box)}
-                title="הגדל לפנים האלה בשתי התמונות"
-              >
-                <span style={faceCrop(shown, f.box, aspect)} />
-                {shut && <em>עצומות</em>}
-              </button>
-            );
-          })}
-        </div>
-      )}
 
       <div className="tz-ws-burst-bar">
         <span dir="ltr" className="tz-ws-burst-name">{name}</span>
