@@ -202,14 +202,32 @@ export default function WorkStageV2({
    * the frame's own edit when it has one. */
   const dims = useDims(useMemo(() => frames.map((f) => f.path), [frames]));
   const editedKeys = useEditedKeys(projectId);
+  /* A burst is handled in its own window, not unfolded into the gallery: side
+   * by side in the grid, near-identical frames are exactly what the eye cannot
+   * tell apart. The window holds every burst of the view, in order, so the
+   * next one is a button away. The list is taken when the window opens, so a
+   * decision that moves a frame out of the current filter does not pull the
+   * burst out from under him. */
+  const bursts = useMemo(() => layout.flatMap((g) => g.items.filter((it) => it.names.length > 1)), [layout]);
+  const [burstView, setBurstView] = useState<{ list: { key: string; names: string[]; cover: string }[]; i: number } | null>(null);
+  const openBurstRef = useRef<(key: string) => void>(() => undefined);
+  openBurstRef.current = (key: string) => {
+    const i = bursts.findIndex((b) => b.key === key);
+    if (i >= 0) setBurstView({ list: bursts, i });
+  };
+
   const stackOf = useMemo(() => {
-    const m = new Map<string, { count: number; open: boolean; first: boolean; onToggle: () => void }>();
+    const m = new Map<string, { count: number; open: boolean; first: boolean; onToggle: () => void; onOpen: () => void }>();
     for (const g of layout) {
       for (const it of g.items) {
         if (it.names.length < 2) continue;
         const open = openStacks.has(it.key);
         const shown = open ? it.names : [it.cover];
-        shown.forEach((n, idx) => m.set(n, { count: it.names.length, open, first: idx === 0, onToggle: () => toggleStackRef.current(it.key) }));
+        shown.forEach((n, idx) => m.set(n, {
+          count: it.names.length, open, first: idx === 0,
+          onToggle: () => toggleStackRef.current(it.key),
+          onOpen: () => openBurstRef.current(it.key),
+        }));
       }
     }
     return m;
@@ -407,6 +425,10 @@ export default function WorkStageV2({
     const onKey = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement | null;
       if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT' || target.isContentEditable)) return;
+      if (burstView) {
+        if (e.key === 'Escape') { e.preventDefault(); setBurstView(null); }
+        return;
+      }
       const code = e.code || KEY_TO_CODE[e.key] || e.key;
       if ((e.ctrlKey || e.metaKey) && code === 'KeyZ') { e.preventDefault(); undoLast(); return; }
       if ((e.ctrlKey || e.metaKey) && code === 'KeyA' && !viewer && !compare) {
@@ -451,7 +473,7 @@ export default function WorkStageV2({
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [act, moveVertical, compare, compareActive, cull, decide, decideOne, flat, openCompare, picked, pickedList, sel, step, undoLast, viewer]);
+  }, [act, moveVertical, burstView, compare, compareActive, cull, decide, decideOne, flat, openCompare, picked, pickedList, sel, step, undoLast, viewer]);
 
   // Returning from the viewer: the feed is where the viewer ended.
   const wasViewer = useRef(false);
@@ -597,7 +619,12 @@ export default function WorkStageV2({
             currentId={sel}
             isSelected={(id) => (comparePick ? comparePick.includes(id) : picked.has(id))}
             onItemClick={(id, e) => (comparePick ? toggleComparePick(id) : select(id, e))}
-            onItemDoubleClick={(id) => { if (comparePick) return; setSel(id); setViewer(true); }}
+            onItemDoubleClick={(id) => {
+              if (comparePick) return;
+              const st = stackOf.get(id);
+              if (st && !st.open) { st.onOpen(); return; }
+              setSel(id); setViewer(true);
+            }}
             onToggleSelect={(id) => (comparePick ? toggleComparePick(id) : select(id, { ctrlKey: true, metaKey: false, shiftKey: false }))}
             tileClass={(item) => {
               const d = cull[item.id];
@@ -657,6 +684,26 @@ export default function WorkStageV2({
           onClose={() => setViewer(false)}
           onStep={step}
           onDecide={(d) => decideOne(sel, d)}
+        />
+      )}
+
+      {burstView && (
+        <BurstPanel
+          key={burstView.list[burstView.i].key}
+          names={burstView.list[burstView.i].names}
+          position={burstView.i}
+          total={burstView.list.length}
+          triage={byName}
+          cull={cull}
+          aspectOf={(n) => { const f = frameByName.get(n); return (f && dims.get(f.path)) || 1.5; }}
+          srcOf={srcOf}
+          onDecide={(n, d) => decide([n], cull[n] === d ? null : d, `${n} · ${cull[n] === d ? 'ההחלטה בוטלה' : WORD[d]}`)}
+          onRejectRest={(rest) => {
+            decide(rest, 'reject', `${rest.length.toLocaleString('he-IL')} תמונות מהרצף הוסרו`);
+            setBurstView((v) => (v && v.i < v.list.length - 1 ? { ...v, i: v.i + 1 } : null));
+          }}
+          onStep={(delta) => setBurstView((v) => (v ? { ...v, i: Math.max(0, Math.min(v.list.length - 1, v.i + delta)) } : v))}
+          onClose={() => setBurstView(null)}
         />
       )}
 
@@ -731,7 +778,7 @@ function TileOverlay({
   triage?: TriageFrame;
   decision?: CullDecision;
   twin: { name: string; frame: Frame } | null;
-  stack?: { count: number; open: boolean; first: boolean; onToggle: () => void };
+  stack?: { count: number; open: boolean; first: boolean; onToggle: () => void; onOpen: () => void };
   show: boolean;
   small: boolean;
   onDecide: (d: CullDecision) => void;
@@ -762,12 +809,12 @@ function TileOverlay({
         <button
           type="button"
           className={`tz-ws-pg-stack${stack.open ? ' is-open' : ''}`}
-          onClick={(e) => { e.stopPropagation(); stack.onToggle(); }}
+          onClick={(e) => { e.stopPropagation(); if (stack.open) stack.onToggle(); else stack.onOpen(); }}
           onDoubleClick={(e) => e.stopPropagation()}
-          title={stack.open ? 'קפל את הרצף' : `פתח את הרצף — ${stack.count} תמונות כמעט זהות`}
+          title={stack.open ? 'קפל את הרצף' : `פתח את הרצף בחלונית — ${stack.count} תמונות כמעט זהות`}
         >
           <svg viewBox="0 0 24 24" width="13" height="13" aria-hidden><rect x="7" y="3" width="14" height="14" rx="2" fill="none" stroke="currentColor" strokeWidth="2" /><path d="M3 7v12a2 2 0 0 0 2 2h12" fill="none" stroke="currentColor" strokeWidth="2" /></svg>
-          {stack.count}
+          {stack.open ? stack.count : `רצף · ${stack.count}`}
         </button>
       )}
       <div className={`tz-ws-pg-bar${show ? ' is-on' : ''}`} onDoubleClick={(e) => e.stopPropagation()}>
@@ -1043,6 +1090,145 @@ function Viewer({
 const EYES_SHUT = 0.65;
 const EYES_OPEN = 0.25;
 
+/** A square window around one face, cut from a picture as a background —
+ *  in the picture's own proportions (aspect = width / height). */
+function faceCrop(src: string, box: TriageFrame['faces'][number]['box'], aspect: number): React.CSSProperties {
+  const side = Math.max(box.width, box.height / aspect) * 1.6;
+  const w = Math.min(1, side);
+  const h = Math.min(1, side * aspect);
+  const x = Math.max(0, Math.min(1 - w, box.x + box.width / 2 - w / 2));
+  const y = Math.max(0, Math.min(1 - h, box.y + box.height / 2 - h / 2));
+  return {
+    backgroundImage: `url("${src}")`,
+    backgroundSize: `${100 / w}% ${100 / h}%`,
+    backgroundPosition: `${w < 1 ? (x / (1 - w)) * 100 : 0}% ${h < 1 ? (y / (1 - h)) * 100 : 0}%`,
+  };
+}
+
+/* ------------------------------------------------------------ one burst
+ * The frames the engine calls near-identical, in a window of their own. In
+ * the gallery they sit at thumbnail size, where the only differences between
+ * them — an eye half shut, a face a touch soft — cannot be seen. Here one is
+ * large, and under every frame of the burst its faces are cut out at the same
+ * size, so the difference is in plain sight. The frame the engine recommends
+ * opens first. Once the good ones are kept, one button removes the rest and
+ * brings the next burst. */
+function BurstPanel({
+  names, position, total, triage, cull, aspectOf, srcOf, onDecide, onRejectRest, onStep, onClose,
+}: {
+  names: string[];
+  position: number;
+  total: number;
+  triage: Map<string, TriageFrame>;
+  cull: Record<string, CullDecision>;
+  aspectOf: (name: string) => number;
+  srcOf: (name: string, w: number) => string | null;
+  onDecide: (name: string, d: CullDecision) => void;
+  onRejectRest: (names: string[]) => void;
+  onStep: (delta: number) => void;
+  onClose: () => void;
+}) {
+  const [active, setActive] = useState(() => names.find((n) => triage.get(n)?.star) ?? names[0]);
+  const big = srcOf(active, 1600);
+  const kept = names.filter((n) => cull[n] === 'keep').length;
+  const rest = names.filter((n) => !cull[n]);
+  const last = position >= total - 1;
+
+  const note = (n: string) => {
+    const t = triage.get(n);
+    if (t?.star) return 'המומלצת ברצף';
+    if (t?.suggestion === 'remove' || t?.suggestion === 'duplicate') {
+      const r = t.reasons.find((x) => x.code !== 'duplicate') ?? t.reasons[0];
+      return r ? REASON_WORDS[r.code] ?? r.label : '';
+    }
+    return '';
+  };
+
+  return (
+    <div className="tz-ws-burst" role="dialog" aria-modal="true" aria-label="רצף">
+      <header className="tz-ws-v-top">
+        <button type="button" className="tz-ws-v-icon" onClick={onClose} aria-label="סגור" title="סגור">✕</button>
+        <div className="tz-ws-v-name">
+          <b>רצף · {names.length.toLocaleString('he-IL')} תמונות כמעט זהות</b>
+          <span>רצף {(position + 1).toLocaleString('he-IL')} מתוך {total.toLocaleString('he-IL')}</span>
+        </div>
+        <div className="tz-ws-burst-nav">
+          <button type="button" disabled={position <= 0} onClick={() => onStep(-1)}>→ הרצף הקודם</button>
+          <button type="button" disabled={last} onClick={() => onStep(1)}>הרצף הבא ←</button>
+        </div>
+      </header>
+
+      <div className="tz-ws-burst-stage">
+        {big && <img key={active} src={big} alt={active} draggable={false} />}
+      </div>
+
+      <div className="tz-ws-burst-bar">
+        <span dir="ltr" className="tz-ws-burst-name">{active}</span>
+        {note(active) && <span className="tz-ws-burst-note">{note(active)}</span>}
+        <Decide decision={cull[active]} onDecide={(d) => onDecide(active, d)} />
+      </div>
+
+      <div className="tz-ws-burst-strip">
+        {names.map((n) => {
+          const d = cull[n];
+          const t = triage.get(n);
+          const faceSrc = srcOf(n, 1600);
+          const faces = (t?.faces ?? [])
+            .slice()
+            .sort((a, b) => b.box.width * b.box.height - a.box.width * a.box.height)
+            .slice(0, 3);
+          return (
+            <figure
+              key={n}
+              className={`tz-ws-burst-card${n === active ? ' is-active' : ''}${d ? ` is-${d}` : ''}`}
+              onClick={() => setActive(n)}
+            >
+              <div className="tz-ws-burst-thumb">
+                {srcOf(n, 640) && <img src={srcOf(n, 640)!} alt={n} draggable={false} loading="lazy" />}
+                {t?.star && <span className="tz-ws-burst-star" title="המומלצת ברצף">★</span>}
+                {d && <span className={`tz-ws-pg-mark is-${d}`}>{WORD[d]}</span>}
+              </div>
+              {faceSrc && faces.length > 0 && (
+                <div className="tz-ws-burst-faces">
+                  {faces.map((f, i) => {
+                    const shut = typeof f.blink === 'number' && f.blink >= EYES_SHUT;
+                    return (
+                      <span key={i} className={`tz-ws-burst-face${shut ? ' is-shut' : ''}`} title={shut ? 'עיניים עצומות' : undefined}>
+                        <span style={faceCrop(faceSrc, f.box, aspectOf(n))} />
+                      </span>
+                    );
+                  })}
+                </div>
+              )}
+              <figcaption>
+                <span className="tz-ws-burst-note">{note(n)}</span>
+                <Decide decision={d} onDecide={(dd) => { setActive(n); onDecide(n, dd); }} compact />
+              </figcaption>
+            </figure>
+          );
+        })}
+      </div>
+
+      <footer className="tz-ws-burst-foot">
+        <span>
+          {kept ? `נשמרו ${kept.toLocaleString('he-IL')}` : 'סמן לשמירה את הטובות ברצף'}
+          {' · '}
+          {rest.length ? `${rest.length.toLocaleString('he-IL')} בלי החלטה` : 'כל הרצף הוחלט'}
+        </span>
+        <button
+          type="button"
+          className="is-go"
+          disabled={!kept || !rest.length}
+          onClick={() => onRejectRest(rest)}
+          title={!kept ? 'קודם סמן לשמירה לפחות תמונה אחת' : undefined}
+        >
+          הסר את השאר ({rest.length.toLocaleString('he-IL')}){last ? '' : ' ועבור לרצף הבא'}
+        </button>
+      </footer>
+    </div>
+  );
+}
+
 function FaceList({
   src, aspect, faces, onPick,
 }: {
@@ -1058,14 +1244,6 @@ function FaceList({
   return (
     <div className="tz-ws-v-facelist">
       {shown.map((f) => {
-        // A square window around the face, in the picture's own proportions.
-        const side = Math.max(f.box.width, f.box.height / aspect) * 1.6;
-        const w = Math.min(1, side);
-        const h = Math.min(1, side * aspect);
-        const cx = f.box.x + f.box.width / 2;
-        const cy = f.box.y + f.box.height / 2;
-        const x = Math.max(0, Math.min(1 - w, cx - w / 2));
-        const y = Math.max(0, Math.min(1 - h, cy - h / 2));
         const shut = typeof f.blink === 'number' && f.blink >= EYES_SHUT;
         const open = typeof f.blink === 'number' && f.blink <= EYES_OPEN;
         return (
@@ -1076,13 +1254,7 @@ function FaceList({
             onClick={() => onPick(f.box)}
             title="הגדל לפנים האלה"
           >
-            <span
-              style={{
-                backgroundImage: `url("${src}")`,
-                backgroundSize: `${100 / w}% ${100 / h}%`,
-                backgroundPosition: `${w < 1 ? (x / (1 - w)) * 100 : 0}% ${h < 1 ? (y / (1 - h)) * 100 : 0}%`,
-              }}
-            />
+            <span style={faceCrop(src, f.box, aspect)} />
             {shut && <em>עיניים עצומות</em>}
             {open && <i title="עיניים פתוחות">✓</i>}
           </button>
