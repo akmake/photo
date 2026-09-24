@@ -1106,13 +1106,26 @@ function faceCrop(src: string, box: TriageFrame['faces'][number]['box'], aspect:
 }
 
 /* ------------------------------------------------------------ one burst
- * The frames the engine calls near-identical, in a window of their own. In
- * the gallery they sit at thumbnail size, where the only differences between
- * them — an eye half shut, a face a touch soft — cannot be seen. Here one is
- * large, and under every frame of the burst its faces are cut out at the same
- * size, so the difference is in plain sight. The frame the engine recommends
- * opens first. Once the good ones are kept, one button removes the rest and
- * brings the next burst. */
+ * The frames the engine calls near-identical, in a window of their own. In the
+ * gallery they sit at thumbnail size, where the only differences between them
+ * — an eye half shut, a face a touch soft — cannot be seen.
+ *
+ * So: two frames large, side by side, and ONE zoom for both. A burst is shot
+ * from one spot, so the same point of the picture is the same point of the
+ * scene; zooming into the eyes of one shows the eyes of the other. Under each
+ * frame its faces, cut from the full picture, and a click on one takes both
+ * frames there.
+ *
+ * The pane with the frame is chosen by clicking it; a frame from the strip goes
+ * into the chosen pane. A decision moves that pane on to the next frame nobody
+ * has decided yet, so a burst is judged by pressing, not by pressing and then
+ * walking. When the good ones are kept, one button removes the rest and brings
+ * the next burst. */
+
+type BurstView = { z: number; fx: number; fy: number };
+const FIT: BurstView = { z: 1, fx: 0.5, fy: 0.5 };
+const BURST_MAX_Z = 6;
+
 function BurstPanel({
   names, position, total, triage, cull, aspectOf, srcOf, onDecide, onRejectRest, onStep, onClose,
 }: {
@@ -1128,8 +1141,13 @@ function BurstPanel({
   onStep: (delta: number) => void;
   onClose: () => void;
 }) {
-  const [active, setActive] = useState(() => names.find((n) => triage.get(n)?.star) ?? names[0]);
-  const big = srcOf(active, 1600);
+  const [panes, setPanes] = useState<[string, string]>(() => {
+    const first = names.find((n) => triage.get(n)?.star) ?? names[0];
+    const second = names.find((n) => n !== first) ?? first;
+    return [first, second];
+  });
+  const [focus, setFocus] = useState<0 | 1>(1);
+  const [view, setView] = useState<BurstView>(FIT);
   const kept = names.filter((n) => cull[n] === 'keep').length;
   const rest = names.filter((n) => !cull[n]);
   const last = position >= total - 1;
@@ -1142,6 +1160,23 @@ function BurstPanel({
       return r ? REASON_WORDS[r.code] ?? r.label : '';
     }
     return '';
+  };
+
+  const put = (n: string) => setPanes((p) => (focus === 0 ? [n, p[1]] : [p[0], n]));
+
+  /** Decide the frame in a pane, then move that pane to the next frame not yet
+   *  decided — after this one, wrapping, never onto the other pane's frame. */
+  const decideIn = (pane: 0 | 1, d: CullDecision) => {
+    const n = panes[pane];
+    const clearing = cull[n] === d;
+    onDecide(n, d);
+    setFocus(pane);
+    if (clearing) return;
+    const other = panes[pane === 0 ? 1 : 0];
+    const from = names.indexOf(n);
+    const order = [...names.slice(from + 1), ...names.slice(0, from)];
+    const next = order.find((x) => !cull[x] && x !== other);
+    if (next) setPanes((p) => (pane === 0 ? [next, p[1]] : [p[0], next]));
   };
 
   return (
@@ -1158,52 +1193,58 @@ function BurstPanel({
         </div>
       </header>
 
-      <div className="tz-ws-burst-stage">
-        {big && <img key={active} src={big} alt={active} draggable={false} />}
+      <div className="tz-ws-burst-pair">
+        {([0, 1] as const).map((pane) => (
+          <BurstPane
+            key={pane}
+            name={panes[pane]}
+            src={srcOf(panes[pane], 2400)}
+            quick={srcOf(panes[pane], 640)}
+            aspect={aspectOf(panes[pane])}
+            faces={triage.get(panes[pane])?.faces ?? []}
+            note={note(panes[pane])}
+            decision={cull[panes[pane]]}
+            focused={focus === pane}
+            view={view}
+            onView={setView}
+            onFocus={() => setFocus(pane)}
+            onDecide={(d) => decideIn(pane, d)}
+          />
+        ))}
       </div>
 
-      <div className="tz-ws-burst-bar">
-        <span dir="ltr" className="tz-ws-burst-name">{active}</span>
-        {note(active) && <span className="tz-ws-burst-note">{note(active)}</span>}
-        <Decide decision={cull[active]} onDecide={(d) => onDecide(active, d)} />
+      <div className="tz-ws-burst-zoom" dir="ltr">
+        <button type="button" onClick={() => setView((v) => ({ ...v, z: Math.max(1, v.z / 1.25) }))} aria-label="הקטן">−</button>
+        <input
+          type="range" min={1} max={BURST_MAX_Z} step={0.01} value={view.z}
+          onChange={(e) => setView((v) => ({ ...v, z: Number(e.target.value) }))}
+          aria-label="הגדלה בשתי התמונות"
+        />
+        <button type="button" onClick={() => setView((v) => ({ ...v, z: Math.min(BURST_MAX_Z, v.z * 1.25) }))} aria-label="הגדל">+</button>
+        <button type="button" className={view.z === 1 ? 'is-on' : ''} onClick={() => setView(FIT)}>התאם</button>
+        <span dir="rtl">הזום משותף לשתי התמונות · גלגלת להגדלה, גרירה להזזה</span>
       </div>
 
       <div className="tz-ws-burst-strip">
         {names.map((n) => {
           const d = cull[n];
           const t = triage.get(n);
-          const faceSrc = srcOf(n, 1600);
-          const faces = (t?.faces ?? [])
-            .slice()
-            .sort((a, b) => b.box.width * b.box.height - a.box.width * a.box.height)
-            .slice(0, 3);
+          const shut = (t?.faces ?? []).some((f) => typeof f.blink === 'number' && f.blink >= EYES_SHUT);
+          const at = panes.indexOf(n);
           return (
             <figure
               key={n}
-              className={`tz-ws-burst-card${n === active ? ' is-active' : ''}${d ? ` is-${d}` : ''}`}
-              onClick={() => setActive(n)}
+              className={`tz-ws-burst-card${at >= 0 ? ' is-shown' : ''}${d ? ` is-${d}` : ''}`}
+              onClick={() => put(n)}
+              title="הצג בתמונה המסומנת למעלה"
             >
               <div className="tz-ws-burst-thumb">
                 {srcOf(n, 640) && <img src={srcOf(n, 640)!} alt={n} draggable={false} loading="lazy" />}
                 {t?.star && <span className="tz-ws-burst-star" title="המומלצת ברצף">★</span>}
+                {at >= 0 && <span className="tz-ws-burst-at">{at === 0 ? 'ימין' : 'שמאל'}</span>}
                 {d && <span className={`tz-ws-pg-mark is-${d}`}>{WORD[d]}</span>}
+                {shut && !d && <span className="tz-ws-burst-shut">עיניים עצומות</span>}
               </div>
-              {faceSrc && faces.length > 0 && (
-                <div className="tz-ws-burst-faces">
-                  {faces.map((f, i) => {
-                    const shut = typeof f.blink === 'number' && f.blink >= EYES_SHUT;
-                    return (
-                      <span key={i} className={`tz-ws-burst-face${shut ? ' is-shut' : ''}`} title={shut ? 'עיניים עצומות' : undefined}>
-                        <span style={faceCrop(faceSrc, f.box, aspectOf(n))} />
-                      </span>
-                    );
-                  })}
-                </div>
-              )}
-              <figcaption>
-                <span className="tz-ws-burst-note">{note(n)}</span>
-                <Decide decision={d} onDecide={(dd) => { setActive(n); onDecide(n, dd); }} compact />
-              </figcaption>
             </figure>
           );
         })}
@@ -1226,6 +1267,135 @@ function BurstPanel({
         </button>
       </footer>
     </div>
+  );
+}
+
+/** One of the two frames: the picture under the shared zoom, its faces, its
+ *  decision. The zoom is a point of the picture (fx, fy — 0..1) held at the
+ *  pane's centre, and a magnification of the fitted size. */
+function BurstPane({
+  name, src, quick, aspect, faces, note, decision, focused, view, onView, onFocus, onDecide,
+}: {
+  name: string;
+  src: string | null;
+  quick: string | null;
+  aspect: number;
+  faces: TriageFrame['faces'];
+  note: string;
+  decision?: CullDecision;
+  focused: boolean;
+  view: BurstView;
+  onView: (v: BurstView | ((v: BurstView) => BurstView)) => void;
+  onFocus: () => void;
+  onDecide: (d: CullDecision) => void;
+}) {
+  const boxRef = useRef<HTMLDivElement | null>(null);
+  const [box, setBox] = useState({ w: 600, h: 500 });
+  const drag = useRef<{ x: number; y: number; fx: number; fy: number; moved: boolean } | null>(null);
+  // The full picture replaces the quick one once decoded; until then the
+  // grid's own picture of THIS frame stands in, never another frame's.
+  const [full, setFull] = useState<string | null>(null);
+
+  useEffect(() => {
+    const el = boxRef.current;
+    if (!el) return undefined;
+    const ro = new ResizeObserver(([e]) => setBox({ w: e.contentRect.width, h: e.contentRect.height }));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
+  useEffect(() => {
+    let alive = true;
+    setFull(null);
+    if (src) void preload(src).then(() => { if (alive) setFull(src); }).catch(() => undefined);
+    return () => { alive = false; };
+  }, [src]);
+
+  const shown = full ?? quick;
+  const fitW = Math.max(40, Math.min(box.w, box.h * aspect));
+  const w = fitW * view.z;
+  const h = (fitW / aspect) * view.z;
+  // Keep the picture over the pane: the centre point may not wander past the
+  // half-pane at either edge.
+  const clamp = (f: number, size: number, pane: number) => (size <= pane ? 0.5 : Math.max(pane / 2 / size, Math.min(1 - pane / 2 / size, f)));
+  const fx = clamp(view.fx, w, box.w);
+  const fy = clamp(view.fy, h, box.h);
+  const left = box.w / 2 - fx * w;
+  const top = box.h / 2 - fy * h;
+
+  const zoomAt = (next: number, mx: number, my: number) => {
+    const z = Math.max(1, Math.min(BURST_MAX_Z, next));
+    // The picture point under the cursor stays under it.
+    const px = (mx - left) / w;
+    const py = (my - top) / h;
+    const w2 = fitW * z;
+    const h2 = (fitW / aspect) * z;
+    onView({ z, fx: (box.w / 2 - (mx - px * w2)) / w2, fy: (box.h / 2 - (my - py * h2)) / h2 });
+  };
+
+  const toFace = (b: TriageFrame['faces'][number]['box']) => {
+    const z = Math.max(1, Math.min(BURST_MAX_Z, (box.h * 0.55) / Math.max(1, b.height * (fitW / aspect))));
+    onView({ z, fx: b.x + b.width / 2, fy: b.y + b.height / 2 });
+  };
+
+  const mainFaces = faces
+    .slice()
+    .sort((a, b) => b.box.width * b.box.height - a.box.width * a.box.height)
+    .slice(0, 6);
+
+  return (
+    <section className={`tz-ws-burst-pane${focused ? ' is-focused' : ''}${decision ? ` is-${decision}` : ''}`} onMouseDown={onFocus}>
+      <div
+        ref={boxRef}
+        className={`tz-ws-burst-stage${view.z > 1 ? ' is-zoomed' : ''}`}
+        onWheel={(e) => {
+          e.preventDefault();
+          const r = e.currentTarget.getBoundingClientRect();
+          zoomAt(view.z * (e.deltaY < 0 ? 1.15 : 1 / 1.15), e.clientX - r.left, e.clientY - r.top);
+        }}
+        onMouseDown={(e) => { drag.current = { x: e.clientX, y: e.clientY, fx, fy, moved: false }; }}
+        onMouseMove={(e) => {
+          const d = drag.current;
+          if (!d || view.z <= 1) return;
+          d.moved = true;
+          onView((v) => ({ ...v, fx: d.fx - (e.clientX - d.x) / w, fy: d.fy - (e.clientY - d.y) / h }));
+        }}
+        onMouseUp={() => { drag.current = null; }}
+        onMouseLeave={() => { drag.current = null; }}
+        onDoubleClick={(e) => {
+          const r = e.currentTarget.getBoundingClientRect();
+          if (view.z > 1) onView(FIT); else zoomAt(3, e.clientX - r.left, e.clientY - r.top);
+        }}
+      >
+        {shown && <img src={shown} alt={name} draggable={false} style={{ width: w, height: h, left, top }} />}
+      </div>
+
+      {shown && mainFaces.length > 0 && (
+        <div className="tz-ws-burst-faces">
+          {mainFaces.map((f, i) => {
+            const shut = typeof f.blink === 'number' && f.blink >= EYES_SHUT;
+            return (
+              <button
+                key={i}
+                type="button"
+                className={`tz-ws-burst-face${shut ? ' is-shut' : ''}`}
+                onClick={() => toFace(f.box)}
+                title="הגדל לפנים האלה בשתי התמונות"
+              >
+                <span style={faceCrop(shown, f.box, aspect)} />
+                {shut && <em>עצומות</em>}
+              </button>
+            );
+          })}
+        </div>
+      )}
+
+      <div className="tz-ws-burst-bar">
+        <span dir="ltr" className="tz-ws-burst-name">{name}</span>
+        {note && <span className="tz-ws-burst-note">{note}</span>}
+        <Decide decision={decision} onDecide={onDecide} />
+      </div>
+    </section>
   );
 }
 
