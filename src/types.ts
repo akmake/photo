@@ -192,6 +192,10 @@ export interface ToolInstance {
 export interface ObjectRemoval {
   maskPng: string;
   margin?: number;
+  /** The brush strokes themselves, when the removal was painted: the engine
+   *  draws them again at every render size (maskPng is only 1024 wide) and
+   *  catches what they left of the object at its edge. */
+  paint?: ManualStroke[];
   add?: ManualStroke[];
   subtract?: ManualStroke[];
   /** What stands behind the removed object, found by the engine. With it the

@@ -507,7 +507,8 @@ export default function PhotoEditor({
     try {
       const result = await paintObjectAtPath(frame.path, strokes);
       objectClicks.current = null;
-      setObjectDraft({ maskPng: result.maskPng, margin: result.margin, add: [], subtract: [], ...(result.behind ? { behind: result.behind } : {}) });
+      setObjectDraft({ maskPng: result.maskPng, margin: result.margin, add: [], subtract: [],
+        ...(result.paint ? { paint: result.paint } : {}), ...(result.behind ? { behind: result.behind } : {}) });
     } catch (error) {
       setObjectFault(error instanceof Error ? error.message : 'המריחה לא נקלטה');
     } finally {

@@ -50,13 +50,13 @@ class ObjectRemoveTests(unittest.TestCase):
         self.assertEqual(object_remove._choose_candidate(candidates, scores), 0)
 
     def test_only_saved_mask_pixels_change(self):
-        def fill(rgb, mask, context):
+        def fill(rgb, mask):
             output = rgb.copy()
             output[mask > 0] = 17
             return output
 
         with patch.object(object_remove.lama_fill, "available", return_value=True), \
-             patch.object(object_remove.lama_fill, "fill", side_effect=fill):
+             patch.object(object_remove.object_fill, "fill", side_effect=fill):
             result, meta = object_remove.apply(self.rgb, {"objectSelection": self.selection})
         mask = object_remove.repair_mask(self.rgb.shape, self.selection) > 0
         self.assertTrue(np.array_equal(result[~mask], self.rgb[~mask]))

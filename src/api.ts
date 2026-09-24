@@ -432,7 +432,7 @@ export async function selectObjectAtPath(path: string, x: number, y: number,
 
 /** The removal brush: exactly what was painted, and what stands behind it. */
 export async function paintObjectAtPath(path: string, strokes: ManualStroke[]): Promise<{
-  maskPng: string; margin: number; behind?: { maskPng: string };
+  maskPng: string; margin: number; behind?: { maskPng: string }; paint?: ManualStroke[];
 }> {
   const response = await fetch(`${ENGINE}/object/paint`, {
     method: 'POST',

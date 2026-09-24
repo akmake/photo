@@ -13,6 +13,7 @@ import numpy as np
 
 import lama_fill
 import manual_clean
+import object_fill
 import paths
 
 SELECT_MAX_DIM = 1024
@@ -225,8 +226,13 @@ def select_painted(rgb: np.ndarray, strokes, key=None) -> dict:
     with _predict_lock:
         _hold(small, key)
         behind = _find_behind(small, painted)
+    # The strokes travel with the selection and are drawn again at every
+    # render size: the PNG is 1024 wide, and stretched to 5472 its edge was a
+    # 5px staircase that left the rim of a pipe outside the removal.
+    paint = [{"points": [[float(x), float(y)] for x, y in s.get("points") or []],
+              "r": float(s.get("r", 0.0))} for s in strokes or []]
     out = {"maskPng": _mask_data(painted), "coverage": round(float(painted.mean()), 5),
-           "width": sw, "height": sh, "margin": 0.0}
+           "width": sw, "height": sh, "margin": 0.0, "paint": paint}
     if behind is not None:
         out["behind"] = {"maskPng": _mask_data(behind)}
     return out
@@ -317,10 +323,104 @@ def _find_behind(small: np.ndarray, removed: np.ndarray):
     return cut if cut.any() else best
 
 
-def repair_mask(shape: tuple, selection: dict) -> np.ndarray:
-    """Expand the chosen object, then apply hand corrections at render size."""
+#: The band outside a brush stroke in which a remnant of the object is caught,
+#: as a fraction of the frame width (19px at 5472).
+REMNANT_BAND = 0.0035
+#: How far (CIELAB, L* on 0-100) a stroke pixel must be from every background
+#: colour to count as the object.
+REMNANT_TOL = 14.0
+
+
+def _clusters(x: np.ndarray, k: int) -> np.ndarray:
+    """k colour centres, deterministically (the same answer at every render)."""
+    if len(x) > 20000:
+        x = x[:: len(x) // 20000]
+    k = max(1, min(k, len(x)))
+    c = [x.mean(0)]
+    for _ in range(k - 1):   # farthest point from the centres so far
+        d = np.min([((x - ci) ** 2).sum(1) for ci in c], axis=0)
+        c.append(x[int(np.argmax(d))])
+    c = np.array(c, np.float32)
+    for _ in range(8):
+        lab = np.argmin(((x[:, None, :] - c[None]) ** 2).sum(-1), 1)
+        for j in range(k):
+            if (lab == j).any():
+                c[j] = x[lab == j].mean(0)
+    return c
+
+
+def _nearest(x: np.ndarray, c: np.ndarray) -> np.ndarray:
+    return np.sqrt(((x[:, None, :] - c[None]) ** 2).sum(-1)).min(1)
+
+
+def catch_remnants(rgb: np.ndarray, painted: np.ndarray) -> np.ndarray:
+    """The brush stroke plus what it left of the object at the object's edge.
+
+    A stroke rarely covers an object exactly: its anti-aliased rim and a pixel
+    or three of its edge stay outside, and the fill then CONTINUES them — the
+    pipe on the post in 321A5078 came back as a dark smudge at its foot, where
+    the fitting stuck out past the stroke. The background's colours are learned
+    from a ring well outside the stroke; the object's are the stroke pixels the
+    background does not explain; a pixel in a thin band just outside joins the
+    removal only if it looks like the object and not like the background, and
+    touches the stroke. The band is bounded, so a stroke on a pipe cannot run
+    away to the whole post (the three "snap to the object" attempts did).
+    """
+    h, w = painted.shape
+    band = max(3, int(round(REMNANT_BAND * w)))
+    ys, xs = np.nonzero(painted)
+    if not len(ys):
+        return painted
+    pad = 4 * band
+    y0, y1 = max(0, ys.min() - pad), min(h, ys.max() + pad + 1)
+    x0, x1 = max(0, xs.min() - pad), min(w, xs.max() + pad + 1)
+    P = (painted[y0:y1, x0:x1] > 0).astype(np.uint8)
+    lab = cv2.cvtColor(rgb[y0:y1, x0:x1], cv2.COLOR_RGB2LAB).astype(np.float32)
+    lab[..., 0] *= 100 / 255.0
+    lab[..., 1:] -= 128
+    disc = lambda r: cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2 * r + 1, 2 * r + 1))
+    near = cv2.dilate(P, disc(band)) > 0
+    ring = near & (P == 0)
+    outer = (cv2.dilate(P, disc(3 * band)) > 0) & ~near
+    if outer.sum() < 50:
+        return painted
+    bg = _clusters(lab[outer], 6)
+    inside = lab[P > 0]
+    obj = inside[_nearest(inside, bg) > REMNANT_TOL]
+    if len(obj) < 30:
+        return painted            # the stroke holds nothing unlike its surroundings
+    oc = _clusters(obj, 4)
+    rv = lab[ring]
+    d_obj, d_bg = _nearest(rv, oc), _nearest(rv, bg)
+    take = np.zeros_like(P)
+    take[ring] = (d_obj < d_bg) & (d_bg > 0.5 * REMNANT_TOL)
+    grown = P.copy()
+    for _ in range(band):          # only what touches the stroke
+        nxt = ((cv2.dilate(grown, disc(1)) > 0) & ((take > 0) | (grown > 0))).astype(np.uint8)
+        if np.array_equal(nxt, grown):
+            break
+        grown = nxt
+    # one pixel more: the anti-aliased rim of what was caught
+    grown = np.maximum(grown, (cv2.dilate(grown, disc(1)) * near).astype(np.uint8))
+    out = painted.copy()
+    out[y0:y1, x0:x1] = np.maximum(out[y0:y1, x0:x1], grown)
+    return out
+
+
+def repair_mask(shape: tuple, selection: dict, rgb: np.ndarray = None) -> np.ndarray:
+    """Expand the chosen object, then apply hand corrections at render size.
+
+    A brush selection (`paint`) is drawn again here at render size, and given
+    `rgb`, the remnants it left at the object's edge are caught.
+    """
     h, w = shape[:2]
-    mask = _read_mask(selection.get("maskPng"), shape)
+    paint = selection.get("paint")
+    if isinstance(paint, list) and paint:
+        mask = manual_clean.strokes_mask(shape, paint)
+        if rgb is not None:
+            mask = catch_remnants(rgb, mask)
+    else:
+        mask = _read_mask(selection.get("maskPng"), shape)
     # Hand-added pixels are part of the object too. Growing only the model's
     # mask left a halo around the very corrections the photographer made.
     add = manual_clean.strokes_mask(shape, selection.get("add") or [])
@@ -532,7 +632,7 @@ def _straddles(hole: np.ndarray, behind: np.ndarray) -> bool:
 
 
 def _remove_one(rgb: np.ndarray, selection: dict):
-    mask = repair_mask(rgb.shape, selection)
+    mask = repair_mask(rgb.shape, selection, rgb)
     count = int(mask.sum())
     if not count:
         return rgb, {"removedPx": 0, "filler": "none"}
@@ -545,7 +645,7 @@ def _remove_one(rgb: np.ndarray, selection: dict):
             front = cv2.dilate(front, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2 * radius + 1, 2 * radius + 1)))
         out, hidden = _layered(rgb, mask > 0, _read_mask(behind["maskPng"], rgb.shape) > 0, front > 0)
         return out, {"removedPx": count, "filler": "layered", "hiddenPx": hidden}
-    return lama_fill.fill(rgb, mask, context=1.0), {"removedPx": count, "filler": "lama"}
+    return object_fill.fill(rgb, mask), {"removedPx": count, "filler": "photo"}
 
 
 #: How many removals one photograph may carry.
