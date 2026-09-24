@@ -248,13 +248,19 @@ const PhotoGrid = React.forwardRef<PhotoGridHandle, {
       {!hasAny ? (
         <div className="tz-pg-empty">{empty}</div>
       ) : (
+        <>
+        {/* The title of the section in view, held at the top by the browser
+            itself. Placed by script it trailed the scroll a frame behind — it
+            chased the page down and let photos show above it. */}
+        <div className="tz-pg-stick" style={{ marginInline: 16 }}>
+          {stuck && top > stuck.y + 4 && (
+            <div className="tz-pg-title is-stuck" style={{ top: 0, height: HEADER_H }}>{stuck.title}</div>
+          )}
+        </div>
         <div className="tz-pg-canvas" style={{ height, marginInline: 16 }}>
           {sectionTops.map((s) => (
             <div key={s.id} className="tz-pg-title" style={{ top: s.y, height: HEADER_H }}>{s.title}</div>
           ))}
-          {stuck && top > stuck.y + 4 && (
-            <div className="tz-pg-title is-stuck" style={{ top: top, height: HEADER_H }}>{stuck.title}</div>
-          )}
           {visible.map((p) => {
             const id = p.item.id;
             const current = id === currentId;
@@ -293,6 +299,7 @@ const PhotoGrid = React.forwardRef<PhotoGridHandle, {
             );
           })}
         </div>
+        </>
       )}
       {footer}
     </div>
