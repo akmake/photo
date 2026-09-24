@@ -200,6 +200,67 @@ def hover(rgb: np.ndarray, x: float, y: float, key=None) -> dict:
     return {"maskPng": _mask_data(candidates[index])}
 
 
+def _whole_person(small: np.ndarray, base: np.ndarray, x: float, y: float) -> np.ndarray:
+    """A click on a person's clothes returns the clothes; the person is the
+    clothes AND the head, hair and arms above them.
+
+    Measured on untuned frames (2026-09-25): the girl in front of the horse in
+    321A5117 came back as her dress only — head, hair and arm left in the
+    photograph; the mother in 321A5015 without her head. What is left of a
+    person wrecks the removal. So: find the face that sits over the clicked
+    body (the face landmarker — already in the engine), ask the segmenter
+    again with the click AND that face, and keep what it adds only where the
+    person model sees a person (not the horse's cheek she leans on) and not
+    where another face's person is (the child in the mother's arms).
+    Returns `base` unchanged when no face belongs to it (a pipe, a post, a man
+    seen from behind).
+    """
+    import masks
+
+    sh, sw = small.shape[:2]
+    ys, xs = np.nonzero(base)
+    if not len(ys):
+        return base
+    bx0, bx1, by0, by1 = xs.min(), xs.max(), ys.min(), ys.max()
+    # faces are looked for at twice the working size: at 1024 a toddler's
+    # face in a family group is under the landmarker's 40px floor (321A5015)
+    big = cv2.resize(small, (sw * 2, sh * 2), interpolation=cv2.INTER_CUBIC)
+    faces = [((a + c) / 4, (b + d) / 4, (c - a) / 2) for a, b, c, d in masks.face_boxes(big)]
+    best = None
+    for cx, cy, fw in faces:
+        # over the body: its centre within the body's columns, not deep below its top
+        if bx0 - fw <= cx <= bx1 + fw and cy <= by0 + 2.5 * fw:
+            if base[max(0, int(cy)):, max(0, int(cx - fw)):int(cx + fw)].any():
+                d = abs(cy - by0) + 0.3 * abs(cx - (bx0 + bx1) / 2)
+                if best is None or d < best[0]:
+                    best = (d, cx, cy, fw)
+    if best is None:
+        return base
+    _, cx, cy, fw = best
+    others = [(qx, qy) for qx, qy, _ in faces if abs(qx - cx) > 1 or abs(qy - cy) > 1]
+    px, py = int(x * (sw - 1)), int(y * (sh - 1))
+    box = np.array([min(bx0, cx - fw), min(by0, cy - fw), max(bx1, cx + fw), by1])
+    raw, _, _ = _predictor.predict(
+        point_coords=np.array([[px, py], [cx, cy]] + [[qx, qy] for qx, qy in others]),
+        point_labels=np.array([1, 1] + [0] * len(others)), box=box,
+        multimask_output=True, return_logits=True)
+    cands = raw > MASK_THRESHOLD
+    area = max(1, int(base.sum()))
+    pick = max(range(len(cands)), key=lambda i: (cands[i] & base).sum() / area
+               + 0.5 * cands[i][int(cy), int(cx)] - 2 * max(0.0, cands[i].mean() - 3 * base.mean()))
+    cat = masks._category_map(small)
+    person = cv2.dilate((cat != masks.CLS_BACKGROUND).astype(np.uint8), np.ones((7, 7), np.uint8)) > 0
+    added = cands[pick] & ~base & person
+    for qx, qy in others:
+        raw, _, _ = _predictor.predict(point_coords=np.array([[qx, qy], [cx, cy]]),
+                                       point_labels=np.array([1, 0]), multimask_output=True,
+                                       return_logits=True)
+        whole = [c for c in (raw > 0) if not c[int(cy), int(cx)] and c.mean() < 0.3]
+        if whole:
+            added &= ~max(whole, key=lambda c: int(c.sum()))
+    return base | added
+
+
 def select(rgb: np.ndarray, x: float, y: float, exclude=(), key=None, index=None) -> dict:
     """Choose a MobileSAM mask at a normalized click; the user must review it.
 
@@ -216,6 +277,10 @@ def select(rgb: np.ndarray, x: float, y: float, exclude=(), key=None, index=None
         raise RuntimeError("No object mask found at the selected point")
     with _predict_lock:
         _hold(small, key)  # another request may have set its own meanwhile
+        if len(clicks) == 1:
+            mask = _whole_person(small, mask.astype(bool), x, y).astype(np.uint8)
+            candidates = candidates.copy()
+            candidates[index] = mask
         behind = _find_behind(small, mask.astype(bool))
     sh, sw = small.shape[:2]
     alternatives = [
