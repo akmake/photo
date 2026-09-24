@@ -40,7 +40,8 @@ import numpy as np
 
 R = 3                 # patch radius: 7x7
 COARSE_MAX = 160      # the coarsest level is at most this wide
-WORK_HOLE = 360       # search up to the level where the hole spans this many px
+WORK_HOLE = 360       # search up to the level where the hole spans this many px...
+WORK_AREA = 130000    # ...unless the hole is this small in pixels there (a rope: search at full size)
 STRUCT_WEIGHT = 0.7   # SuperCAF's structure/colour split
 TEX_WEIGHT = 15.0     # texture features (Newson et al. 2017: 50 against colour weight 1)
 TEX_WINDOW = 9        # px at full size over which |dI/dx|, |dI/dy| are averaged
@@ -316,7 +317,7 @@ def synthesize(win: np.ndarray, hole: np.ndarray, guide: np.ndarray, avoid: np.n
 
     prev, est = None, None
     for li in range(n, -1, -1):
-        cheap = span / (2 ** li) > WORK_HOLE
+        cheap = span / (2 ** li) > WORK_HOLE and int(M[li].sum()) > WORK_AREA
         fine = li == 0
         L = _Level(P[li], M[li], A[li], St[li], E[li], rng, sample=3 if cheap else 1)
         L.set_estimate(F[li] if est is None else cv2.resize(est, (L.w, L.h), interpolation=cv2.INTER_LINEAR))

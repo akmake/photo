@@ -119,7 +119,7 @@ def _seamless(win: np.ndarray, hole: np.ndarray, g: np.ndarray, s: float) -> np.
     return np.clip(out, 0, 255)
 
 
-def _fuse(win: np.ndarray, hole: np.ndarray, g: np.ndarray, synth: np.ndarray) -> np.ndarray:
+def _fuse(win: np.ndarray, hole: np.ndarray, g: np.ndarray, synth: np.ndarray, seam: bool = True) -> np.ndarray:
     """The network's fill for light and form, the photo's patches for texture.
 
     Seen at 100% on the fixed set, neither is right alone. In a smooth blurred
@@ -141,11 +141,13 @@ def _fuse(win: np.ndarray, hole: np.ndarray, g: np.ndarray, synth: np.ndarray) -
     x0, x1 = max(0, xs.min() - m), min(hole.shape[1], xs.max() + m + 1)
     if (y0, x0, y1, x1) != (0, 0) + hole.shape:
         res = win.copy()
-        res[y0:y1, x0:x1] = _fuse(win[y0:y1, x0:x1], hole[y0:y1, x0:x1], g[y0:y1, x0:x1], synth[y0:y1, x0:x1])
+        res[y0:y1, x0:x1] = _fuse(win[y0:y1, x0:x1], hole[y0:y1, x0:x1], g[y0:y1, x0:x1], synth[y0:y1, x0:x1], seam)
         return res
     H = hole > 0
     known = ~(cv2.dilate(hole.astype(np.uint8), np.ones((9, 9), np.uint8)) > 0)
-    gg = _seamless(win, hole, g, max(2.0, span / GUIDE_HOLE))
+    # the native network meets the photo already; a reduced one needs its rim carried
+    gg = _seamless(win, hole, g, max(2.0, span / GUIDE_HOLE)) if seam else np.where(
+        (hole > 0)[..., None], g, win).astype(np.float32)
     ss = win.astype(np.float32).copy()
     ss[H] = synth[H]
 
@@ -235,5 +237,39 @@ def fill(rgb: np.ndarray, hole: np.ndarray, avoid: np.ndarray = None) -> np.ndar
         unknown[part > 0] = 0
     if thin.any():
         filled = _native(out, thin, unknown)
+        if THIN_FUSE:
+            filled = _thin_fuse(out, thin, unknown, filled, avoid)
         out[thin > 0] = filled[thin > 0]
+    return out
+
+
+THIN_FUSE = True
+
+
+def _thin_fuse(rgb, thin, unknown, native, avoid=None):
+    """Thin holes: the network at full size, the photo's patches for what it lost.
+
+    The native network keeps a rope's line and the light, and loses about a
+    quarter of the fine detail under it (detail 0.75-0.8 against the truth on
+    textured ground). A thin hole is small in pixels, so the patches can be
+    searched at full size — the quarter-size search is what smeared the pipe.
+    """
+    out = rgb.copy()
+    n, labels = cv2.connectedComponents(thin.astype(np.uint8), connectivity=8)
+    for i in range(1, n):
+        part = (labels == i).astype(np.uint8)
+        ys, xs = np.nonzero(part)
+        pad = int(max(64, 0.2 * max(np.ptp(ys), np.ptp(xs))))
+        h, w = part.shape
+        y0, y1 = max(0, ys.min() - pad), min(h, ys.max() + pad + 1)
+        x0, x1 = max(0, xs.min() - pad), min(w, xs.max() + pad + 1)
+        win = rgb[y0:y1, x0:x1]
+        m = part[y0:y1, x0:x1]
+        g = native[y0:y1, x0:x1]
+        keep_out = unknown[y0:y1, x0:x1].astype(np.uint8) & (1 - m)
+        if avoid is not None:
+            keep_out = keep_out | (avoid[y0:y1, x0:x1] > 0).astype(np.uint8)
+        synth = patch_synth.synthesize(win, m, g, avoid=keep_out)
+        res = _fuse(win, m, g, synth, seam=False)
+        out[y0:y1, x0:x1][m > 0] = res[m > 0]
     return out
