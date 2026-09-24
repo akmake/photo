@@ -11,6 +11,7 @@ import threading
 import cv2
 import numpy as np
 
+import gen_fill
 import lama_fill
 import manual_clean
 import object_fill
@@ -780,7 +781,45 @@ def _straddles(hole: np.ndarray, behind: np.ndarray) -> bool:
     return float((behind & rim).sum()) / float(rim.sum()) < INSIDE_SHARE
 
 
-def _remove_one(rgb: np.ndarray, selection: dict):
+#: How close (fraction of width) a removal must come to a drawn one to be drawn too.
+GEN_NEAR = 0.01
+
+
+def _step_masks(rgb: np.ndarray, selection: dict):
+    """(hole, behind-or-None) of one removal, the way _remove_one reads them."""
+    base = {k: v for k, v in selection.items() if k not in ("paint", "snap")}
+    behind = selection.get("behind")
+    b = _read_mask(behind["maskPng"], rgb.shape) > 0 if isinstance(behind, dict) and behind.get("maskPng") else None
+    layered = b is not None and _straddles(repair_mask(rgb.shape, base) > 0, b)
+    hole = repair_mask(rgb.shape, base if layered else selection, None if layered else rgb) > 0
+    return hole, (b if layered else None)
+
+
+def _drawn_group(rgb: np.ndarray, steps) -> list:
+    """Indexes of the removals the model should draw: every removal that cuts
+    an object standing behind it, and every removal that touches one of those
+    (a leftover of the same scene — the tail under the horse)."""
+    masks = [_step_masks(rgb, s) for s in steps]
+    group = [i for i, (_, b) in enumerate(masks) if b is not None]
+    if not group:
+        return []
+    r = max(2, round(GEN_NEAR * rgb.shape[1]))
+    k = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2 * r + 1,) * 2)
+    grown = True
+    while grown:
+        grown = False
+        area = np.zeros(rgb.shape[:2], bool)
+        for i in group:
+            area |= masks[i][0]
+        near = cv2.dilate(area.astype(np.uint8), k) > 0
+        for i, (m, _) in enumerate(masks):
+            if i not in group and m.any() and near[m].any():
+                group.append(i)
+                grown = True
+    return sorted(group)
+
+
+def _remove_one(rgb: np.ndarray, selection: dict, drawn: np.ndarray = None, allow_gen: bool = True):
     # The object behind was cut against the 1024-wide selection. When it is in
     # play, the hole must come from that same raster: redrawn at render size,
     # or grown by the remnant catcher, the hole's edge drifts off the object's
@@ -798,13 +837,35 @@ def _remove_one(rgb: np.ndarray, selection: dict):
     count = int(mask.sum())
     if not count:
         return rgb, {"removedPx": 0, "filler": "none"}
+    near_drawn = False
+    if drawn is not None and drawn.any() and gen_fill.available():
+        # a leftover beside an area the model drew (the tail under the horse,
+        # after the guide) is drawn by the same model: the classical fill
+        # beside a drawn area left a hazy smudge at the hoof in 321A5078
+        r = max(2, round(GEN_NEAR * rgb.shape[1]))
+        near = cv2.dilate(drawn.astype(np.uint8), cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2 * r + 1,) * 2))
+        near_drawn = bool((near > 0)[mask > 0].any())
+    if allow_gen and (layered or near_drawn) and gen_fill.available():
+        # an object stands behind the removed one: part of it has to be DRAWN
+        # (gen_fill.py). Falls back to the layered fill below, saying so.
+        try:
+            out = gen_fill.fill(rgb, mask > 0,
+                                _read_mask(behind["maskPng"], rgb.shape) > 0 if layered else None)
+            return out, {"removedPx": count, "filler": "generative"}
+        except gen_fill.GenFillError as exc:
+            gen_error = str(exc)
+    else:
+        gen_error = None
     if layered:
         front = _read_mask(selection["maskPng"], rgb.shape)
         radius = round(float(selection.get("margin", DEFAULT_MARGIN)) * rgb.shape[1])
         if radius:
             front = cv2.dilate(front, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2 * radius + 1, 2 * radius + 1)))
         out, hidden = _layered(rgb, mask > 0, _read_mask(behind["maskPng"], rgb.shape) > 0, front > 0)
-        return out, {"removedPx": count, "filler": "layered", "hiddenPx": hidden}
+        meta = {"removedPx": count, "filler": "layered", "hiddenPx": hidden}
+        if gen_error:
+            meta["genError"] = gen_error
+        return out, meta
     return object_fill.fill(rgb, mask), {"removedPx": count, "filler": "photo"}
 
 
@@ -829,8 +890,35 @@ def apply(rgb: np.ndarray, params: dict):
     earlier = [r for r in (selection.get("removals") or []) if isinstance(r, dict)]
     steps = (earlier + ([selection] if selection.get("maskPng") else []))[-MAX_REMOVALS:]
     out, report = rgb, []
-    for step in steps:
-        out, meta = _remove_one(out, step)
+    drawn_steps = _drawn_group(rgb, steps) if gen_fill.available() else []
+    if drawn_steps:
+        # The removals the model draws are drawn TOGETHER, in one pass over
+        # the untouched photograph: drawing the guide first and then the tail
+        # left under the horse redrew the hoof twice and left it hazy; one
+        # pass over both came back clean (321A5078).
+        hole = np.zeros(rgb.shape[:2], bool)
+        behind = np.zeros(rgb.shape[:2], bool)
+        for i in drawn_steps:
+            m, b = _step_masks(rgb, steps[i])
+            hole |= m
+            if b is not None:
+                behind |= b
+        try:
+            out = gen_fill.fill(rgb, hole, behind & ~hole)
+            for i in drawn_steps:
+                report.append({"removedPx": int(_step_masks(rgb, steps[i])[0].sum()), "filler": "generative"})
+        except gen_fill.GenFillError as exc:
+            drawn_steps, out, gen_error = [], rgb, str(exc)
+        else:
+            gen_error = None
+    else:
+        gen_error = None
+    for i, step in enumerate(steps):
+        if i in drawn_steps:
+            continue
+        out, meta = _remove_one(out, step, allow_gen=False)
+        if gen_error and meta.get("filler") == "layered":
+            meta["genError"] = gen_error
         report.append(meta)
     removed = sum(m["removedPx"] for m in report)
     return out, {"removedPx": removed, "removals": report,
