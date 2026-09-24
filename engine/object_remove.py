@@ -637,11 +637,11 @@ def _layered(rgb: np.ndarray, hole: np.ndarray, behind: np.ndarray, front: np.nd
     # outline is never written, and filling it cost time for nothing
     by_hole = cv2.dilate(hole.astype(np.uint8), np.ones((51, 51), np.uint8)) > 0
     bg_unknown = (hole | (near_obj & by_hole))[sl].astype(np.uint8)
-    # The background is rebuilt by the same fill as a plain removal: the old
-    # one (network at 512 + borrowed detail) left a soft rectangle with hard
-    # sides in the ground under the man in 321A4983. The object is kept out
-    # of the fill's sources — soil must not be patched with horse.
-    background = object_fill.fill(win, bg_unknown, avoid=near_obj[sl])
+    # Tried 2026-09-24: this background through object_fill (the plain
+    # removal's fill). On the guide in 321A5078 it was 10x slower (37s against
+    # 3.6s at 2400px) and left a pale haze column; the network at 512 is what
+    # the photographer had approved here. Kept.
+    background = lama_fill._fill_window(lama_fill._model(), win, bg_unknown, LAYERED_WORK_HOLE)
 
     comp = background.astype(np.float32)
     if hidden.any():
@@ -702,13 +702,24 @@ def _straddles(hole: np.ndarray, behind: np.ndarray) -> bool:
 
 
 def _remove_one(rgb: np.ndarray, selection: dict):
-    mask = repair_mask(rgb.shape, selection, rgb)
+    # The object behind was cut against the 1024-wide selection. When it is in
+    # play, the hole must come from that same raster: redrawn at render size,
+    # or grown by the remnant catcher, the hole's edge drifts off the object's
+    # cut edge, the outline completion loses where the object goes under — and
+    # the catcher took white horse pixels for pipe-like "remnants". Measured on
+    # the photographer's own brush over the guide in 321A5078 (2400px): hidden
+    # part rebuilt 20,729px from the 1024 selection, 590 redrawn, 0 with the
+    # catcher — a ghost where the rump was. So: an object behind -> the
+    # selection exactly as picked; nothing behind -> redrawn and caught.
+    base = {k: v for k, v in selection.items() if k not in ("paint", "snap")}
+    behind = selection.get("behind")
+    layered = isinstance(behind, dict) and behind.get("maskPng") and _straddles(
+        repair_mask(rgb.shape, base) > 0, _read_mask(behind["maskPng"], rgb.shape) > 0)
+    mask = repair_mask(rgb.shape, base if layered else selection, None if layered else rgb)
     count = int(mask.sum())
     if not count:
         return rgb, {"removedPx": 0, "filler": "none"}
-    behind = selection.get("behind")
-    if isinstance(behind, dict) and behind.get("maskPng") and _straddles(
-            mask > 0, _read_mask(behind["maskPng"], rgb.shape) > 0):
+    if layered:
         front = _read_mask(selection["maskPng"], rgb.shape)
         radius = round(float(selection.get("margin", DEFAULT_MARGIN)) * rgb.shape[1])
         if radius:
