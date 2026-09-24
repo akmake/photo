@@ -20,9 +20,12 @@ guide keeps the network's lines. Their code is non-commercial; this is written
 from the paper.
 
 HOW IT DIFFERS FROM THE PAPER.
-  - The search is an approximate nearest-neighbour kd-tree over reduced patch
-    features (Wexler, Shechtman & Irani 2007), NOT PatchMatch: Adobe holds US
-    8,285,055 on PatchMatch's propagation + random search, in force to 2031.
+  - The search starts from an approximate nearest-neighbour kd-tree over
+    reduced patch features (Wexler, Shechtman & Irani 2007) and is refined by
+    PatchMatch (Barnes et al. 2009): jump propagation from neighbours and a
+    shrinking random search. PatchMatch is covered by Adobe's US 8,285,055
+    (to 2031-04-09), with no family member found outside the US; the product
+    is sold in Israel only — the photographer's decision, 2026-09-24.
   - A texture-energy term: each source patch's full-size detail energy must
     match what the hole's surroundings carry. Measured at FULL size and averaged
     down, because at 1/8 size a knitted sweater and a blurred background look
@@ -53,6 +56,7 @@ MAX_SOURCES = 220000  # kd-tree size cap
 #: carried up from the half-size level is used as it comes (no pixel-level
 #: polishing): a standing man, 1.6M pixels, spent 25s of 52 there.
 LIGHT_PX = 500000
+RANDOM_SEARCH = True
 
 
 def _membrane(v, known):
@@ -194,17 +198,36 @@ class _Level:
         b = sel[better]
         self.sy[b], self.sx[b], self.D[b] = sy[better], sx[better], d[better]
 
-    def cohere(self):
-        """Offer each patch its neighbour's source, shifted by one: regions are
-        copied as regions, not pixel by pixel from unrelated places (the
-        kd-tree answers each patch alone). Coherence candidates as in TreeCANN
-        (Olonetsky & Avidan 2012); there is no random search."""
+    def cohere(self, steps=(1,)):
+        """Offer each patch its neighbour's source, shifted by the step: regions
+        are copied as regions, not pixel by pixel from unrelated places (the
+        kd-tree answers each patch alone). Steps 8,4,2,1 = PatchMatch's
+        propagation in its parallel (jump) form."""
         H, Wd = self.hole.shape
-        for dy, dx in ((0, 1), (0, -1), (1, 0), (-1, 0)):
-            ni = self.cidx[np.clip(self.cy + dy, 0, H - 1), np.clip(self.cx + dx, 0, Wd - 1)]
-            ok = ni >= 0
-            j = np.maximum(ni, 0)
-            self.offer(np.clip(self.sy[j] - dy, 0, H - 1), np.clip(self.sx[j] - dx, 0, Wd - 1), ok)
+        for k in steps:
+            for dy, dx in ((0, k), (0, -k), (k, 0), (-k, 0)):
+                ni = self.cidx[np.clip(self.cy + dy, 0, H - 1), np.clip(self.cx + dx, 0, Wd - 1)]
+                ok = ni >= 0
+                j = np.maximum(ni, 0)
+                self.offer(np.clip(self.sy[j] - dy, 0, H - 1), np.clip(self.sx[j] - dx, 0, Wd - 1), ok)
+
+    def random_search(self, sel=None):
+        """PatchMatch's random search: around the current source, in windows
+        halving from the whole level down to one pixel."""
+        if not RANDOM_SEARCH:
+            return
+        H, Wd = self.hole.shape
+        idx = np.arange(len(self.sy)) if sel is None else sel
+        if not len(idx):
+            return
+        rad = max(H, Wd)
+        while rad >= 1:
+            sy, sx = self.sy.copy(), self.sx.copy()
+            sy[idx] = np.clip(sy[idx] + self.rng.integers(-rad, rad + 1, len(idx)), 0, H - 1)
+            sx[idx] = np.clip(sx[idx] + self.rng.integers(-rad, rad + 1, len(idx)), 0, Wd - 1)
+            ok = np.zeros(len(sy), bool); ok[idx] = True
+            self.offer(sy, sx, ok)
+            rad //= 2
 
     def refine(self, cross=False):
         """Exhaustive check of every source one pixel around the current one
@@ -336,6 +359,7 @@ def synthesize(win: np.ndarray, hole: np.ndarray, guide: np.ndarray, avoid: np.n
                 fy, fx = L.sy.copy(), L.sx.copy()
                 fy[bad], fx[bad] = sy, sx
                 L.offer(fy, fx, ok)
+                L.random_search(bad)
             est = L.vote(FINAL_SHARP if fine else MID_SHARP)
         else:
             L.build_tree()
@@ -346,7 +370,8 @@ def synthesize(win: np.ndarray, hole: np.ndarray, guide: np.ndarray, avoid: np.n
                     L.D = L.dist(sy, sx)
                 else:
                     L.offer(sy, sx, np.ones(len(sy), bool))
-                L.cohere()
+                L.cohere((8, 4, 2, 1))
+                L.random_search()
                 L.refine()
                 est = L.vote(FINAL_SHARP if fine else MID_SHARP)
                 L.D = L.dist(L.sy, L.sx)
