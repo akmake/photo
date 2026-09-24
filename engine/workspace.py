@@ -342,6 +342,43 @@ def _file_version(path):
     return f"{st.st_mtime_ns}-{st.st_size}"
 
 
+# When this engine started. A temporary file older than this was left by a
+# process that no longer runs; a newer one may be being written right now.
+# Two seconds earlier than the clock says: Windows stamps a file's time on a
+# coarser tick than time.time(), so a file made just after start can read as
+# made just before it (measured: a fresh one was swept without this margin).
+STARTED = time.time() - 2.0
+
+# render.export writes `<name>.jpg.part` and renames it when whole, so a stop
+# mid-write (an update, a crash, the power) leaves only that — never half a
+# photograph under the real name. Those leftovers sit in the photographer's own
+# folder, so they are removed the next time the folder is read.
+_PART_OF = (".jpg", ".jpeg", ".png", ".tif", ".tiff")
+
+
+def sweep_partials(edited_dir):
+    """Delete unfinished renders left in `תמונות` by an earlier run. Only ones
+    from before this engine started: a newer one is still being written."""
+    try:
+        names = os.listdir(edited_dir)
+    except OSError:
+        return 0
+    removed = 0
+    for name in names:
+        if not name.lower().endswith(".part"):
+            continue
+        if os.path.splitext(name[:-5])[1].lower() not in _PART_OF:
+            continue
+        path = os.path.join(edited_dir, name)
+        try:
+            if os.path.isfile(path) and os.path.getmtime(path) < STARTED:
+                os.remove(path)
+                removed += 1
+        except OSError:
+            pass  # held or already gone: the next reading tries again
+    return removed
+
+
 def list_frames(raw_dir, edited_dir=None):
     """Every frame in the set, in capture order, with the file to SHOW.
 
@@ -353,6 +390,8 @@ def list_frames(raw_dir, edited_dir=None):
     """
     if not os.path.isdir(raw_dir):
         return []
+    if edited_dir:
+        sweep_partials(edited_dir)
     out = []
     for name in os.listdir(raw_dir):
         if os.path.splitext(name)[1].lower() not in IMAGE_EXTS:

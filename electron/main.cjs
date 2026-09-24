@@ -31,7 +31,7 @@
  */
 
 const { app, BrowserWindow, Menu, ipcMain, screen, shell, dialog } = require('electron');
-const { spawn } = require('node:child_process');
+const { spawn, spawnSync } = require('node:child_process');
 const fs = require('node:fs');
 const http = require('node:http');
 const net = require('node:net');
@@ -241,9 +241,25 @@ function portAnswers() {
   });
 }
 
+/* The engine is not one process: it starts a background preparer of its own
+ * (engine/prep.py), which on losing the engine still finishes its whole queue.
+ * Killing the engine alone left that preparer holding the engine's files, and
+ * an update's installer cannot replace files that are held — it then carries
+ * on without them, leaving a new app beside an old engine. So the whole tree
+ * goes, and synchronously: an installer started right after must find it gone.
+ * Nothing is lost by this — every file the preparer writes lands under a
+ * temporary name first, and what it had not reached is asked for again. */
 function stopEngine() {
   if (engine && !engineAttached) {
-    try { engine.kill(); } catch { /* already gone */ }
+    const pid = engine.pid;
+    let killed = false;
+    if (process.platform === 'win32' && pid) {
+      const r = spawnSync('taskkill', ['/PID', String(pid), '/T', '/F'], { windowsHide: true, timeout: 10_000 });
+      killed = r.status === 0;
+    }
+    if (!killed) {
+      try { engine.kill(); } catch { /* already gone */ }
+    }
   }
   engine = null;
 }

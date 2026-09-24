@@ -2523,6 +2523,32 @@ if __name__ == "__main__":
 
     threading.Thread(target=_warm_depth, name="warm-depth", daemon=True).start()
 
+    # Every cache file is written under a temporary name and renamed when whole,
+    # so a stop mid-write (an update closing the engine, a crash) leaves only
+    # the temporary one. Swept here, off the hot path; only files from before
+    # this start, since the preparer is already writing new ones.
+    def _sweep_cache_leftovers():
+        roots = {previews.cache_root()}
+        if os.environ.get("TEZA_HOME"):
+            roots.add(os.path.join(os.environ["TEZA_HOME"], "TEZA", "cache"))
+        removed = 0
+        for root in roots:
+            for folder, _dirs, files in os.walk(root):
+                for name in files:
+                    if not name.endswith((".tmp", ".tmp.npy", ".tmp.npz")):
+                        continue
+                    path = os.path.join(folder, name)
+                    try:
+                        if os.path.getmtime(path) < workspace.STARTED:
+                            os.remove(path)
+                            removed += 1
+                    except OSError:
+                        pass
+        if removed:
+            print(f"removed {removed} unfinished cache files")
+
+    threading.Thread(target=_sweep_cache_leftovers, name="sweep-cache", daemon=True).start()
+
     # The admin's "turn it off" reaches this computer through this check-in:
     # a revoked license, an ended subscription or a removed computer locks the
     # studio within minutes (license_state.renew). Offline, nothing changes.
