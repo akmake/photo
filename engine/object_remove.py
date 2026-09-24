@@ -898,13 +898,15 @@ def apply(rgb: np.ndarray, params: dict):
         # pass over both came back clean (321A5078).
         hole = np.zeros(rgb.shape[:2], bool)
         behind = np.zeros(rgb.shape[:2], bool)
+        front = np.zeros(rgb.shape[:2], bool)     # the removals that stood before an object
         for i in drawn_steps:
             m, b = _step_masks(rgb, steps[i])
             hole |= m
             if b is not None:
                 behind |= b
+                front |= m
         try:
-            out = gen_fill.fill(rgb, hole, behind & ~hole)
+            out = gen_fill.fill(rgb, hole, behind & ~hole, band_from=front)
             for i in drawn_steps:
                 report.append({"removedPx": int(_step_masks(rgb, steps[i])[0].sum()), "filler": "generative"})
         except gen_fill.GenFillError as exc:

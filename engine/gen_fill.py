@@ -133,8 +133,16 @@ def _ask(image: np.ndarray, mask: np.ndarray) -> np.ndarray:
         return cv2.cvtColor(out, cv2.COLOR_BGR2RGB)
 
 
-def fill(rgb: np.ndarray, hole: np.ndarray, behind: np.ndarray = None) -> np.ndarray:
+def fill(rgb: np.ndarray, hole: np.ndarray, behind: np.ndarray = None,
+         band_from: np.ndarray = None) -> np.ndarray:
     """rgb uint8 HxWx3, hole HxW bool/0-1, behind HxW (the object the hole cuts).
+
+    `band_from`: the part of the hole the band is grown from — the removal that
+    stood IN FRONT of `behind` (the guide), not every leftover drawn with it.
+    Grown from the tail's hole too, the band took the visible half of the far
+    hind leg in 321A5078 into the fill and the model drew it back as a ghost;
+    grown from the guide's hole alone the leg stays photographed and whole.
+    Default: the whole hole.
 
     -> uint8 HxWx3; only the hole and the band of `behind` around it change.
     Raises GenFillError when the model cannot run.
@@ -144,7 +152,8 @@ def fill(rgb: np.ndarray, hole: np.ndarray, behind: np.ndarray = None) -> np.nda
     work = hole.copy()
     if behind is not None and (behind > 0).any():
         r = max(2, round(BAND * w / 5472))
-        near = cv2.dilate(hole.astype(np.uint8), cv2.getStructuringElement(
+        src = hole if band_from is None else (band_from > 0)
+        near = cv2.dilate(src.astype(np.uint8), cv2.getStructuringElement(
             cv2.MORPH_ELLIPSE, (2 * r + 1, 2 * r + 1))) > 0
         work |= near & (behind > 0)
     ys, xs = np.nonzero(work)
