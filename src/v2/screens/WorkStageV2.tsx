@@ -93,6 +93,9 @@ export default function WorkStageV2({
   const anchor = useRef<string | null>(null);
   const [compare, setCompare] = useState<string[] | null>(null);
   const [compareActive, setCompareActive] = useState(0);
+  /* השוואה is a button, not a key: pressed, a click on a photo puts it on the
+   * table instead of selecting it, and a bar says how many are there. */
+  const [comparePick, setComparePick] = useState<string[] | null>(null);
 
   /* ---- the engine's suggestions: asked once, then polled while it measures.
    * A failed call is said as such; the screen stays fully usable without it. */
@@ -382,6 +385,14 @@ export default function WorkStageV2({
     if (sel) decideOne(sel, decision);
   }, [decide, decideOne, pickedList, sel]);
 
+  const toggleComparePick = useCallback((n: string) => {
+    setComparePick((prev) => {
+      if (!prev) return prev;
+      if (prev.includes(n)) return prev.filter((x) => x !== n);
+      return prev.length >= 4 ? prev : [...prev, n];
+    });
+  }, []);
+
   const openCompare = useCallback(() => {
     const names = pickedList.length >= 2
       ? pickedList.slice(0, 4)
@@ -407,7 +418,7 @@ export default function WorkStageV2({
         const n = compare[compareActive];
         const on = (d: CullDecision) => { e.preventDefault(); decide([n], cull[n] === d ? null : d, `${n} · ${cull[n] === d ? 'ההחלטה בוטלה' : WORD[d]}`); };
         switch (code) {
-          case 'Escape': case 'KeyC': e.preventDefault(); setCompare(null); break;
+          case 'Escape': case 'KeyC': e.preventDefault(); setCompare(null); setComparePick(null); break;
           case 'ArrowLeft': e.preventDefault(); setCompareActive((i) => Math.min(compare.length - 1, i + 1)); break;
           case 'ArrowRight': e.preventDefault(); setCompareActive((i) => Math.max(0, i - 1)); break;
           case 'KeyK': case 'KeyP': case 'Digit1': on('keep'); break;
@@ -501,6 +512,14 @@ export default function WorkStageV2({
         <div className="tz-ws-top-side is-end">
           <button
             type="button"
+            className={`tz-ws-stacking${comparePick ? ' is-on' : ''}`}
+            onClick={() => setComparePick((v) => (v ? null : []))}
+            title="לחץ, ואז בחר 2 עד 4 תמונות להצגה זו לצד זו"
+          >
+            השוואה
+          </button>
+          <button
+            type="button"
             className={`tz-ws-stacking${stacking ? ' is-on' : ''}`}
             onClick={() => setStacking((v) => !v)}
             title="רצפים של תמונות כמעט זהות — בערימה אחת או פרושים"
@@ -546,6 +565,25 @@ export default function WorkStageV2({
         </div>
       )}
 
+      {comparePick && (
+        <div className="tz-ws-comparebar" role="status">
+          <span>
+            {comparePick.length
+              ? `נבחרו ${comparePick.length} תמונות להשוואה${comparePick.length < 4 ? ' · אפשר להוסיף עד 4' : ''}`
+              : 'לחץ על התמונות שתרצה להשוות — 2 עד 4'}
+          </span>
+          <button
+            type="button"
+            className="is-go"
+            disabled={comparePick.length < 2}
+            onClick={() => { setCompare(comparePick); setCompareActive(0); }}
+          >
+            השווה
+          </button>
+          <button type="button" onClick={() => setComparePick(null)}>ביטול</button>
+        </div>
+      )}
+
       <div className="tz-ws-feed">
         {!ready ? (
           <p className="tz-ws-empty">טוען את תיקיית הפרויקט…</p>
@@ -557,10 +595,10 @@ export default function WorkStageV2({
             targetHeight={size}
             onZoom={(dir) => setSize((v) => Math.round(Math.max(120, Math.min(440, v * (dir > 0 ? 1.14 : 1 / 1.14)))))}
             currentId={sel}
-            isSelected={(id) => picked.has(id)}
-            onItemClick={(id, e) => select(id, e)}
-            onItemDoubleClick={(id) => { setSel(id); setViewer(true); }}
-            onToggleSelect={(id) => select(id, { ctrlKey: true, metaKey: false, shiftKey: false })}
+            isSelected={(id) => (comparePick ? comparePick.includes(id) : picked.has(id))}
+            onItemClick={(id, e) => (comparePick ? toggleComparePick(id) : select(id, e))}
+            onItemDoubleClick={(id) => { if (comparePick) return; setSel(id); setViewer(true); }}
+            onToggleSelect={(id) => (comparePick ? toggleComparePick(id) : select(id, { ctrlKey: true, metaKey: false, shiftKey: false }))}
             tileClass={(item) => {
               const d = cull[item.id];
               const st = stackOf.get(item.id);
@@ -619,6 +657,18 @@ export default function WorkStageV2({
           onClose={() => setViewer(false)}
           onStep={step}
           onDecide={(d) => decideOne(sel, d)}
+        />
+      )}
+
+      {compare && (
+        <Compare
+          names={compare}
+          frames={frameByName}
+          cull={cull}
+          active={compareActive}
+          onActive={setCompareActive}
+          onDecide={(n, d) => decide([n], cull[n] === d ? null : d, `${n} · ${cull[n] === d ? 'ההחלטה בוטלה' : WORD[d]}`)}
+          onClose={() => { setCompare(null); setComparePick(null); }}
         />
       )}
 
