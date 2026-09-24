@@ -12,9 +12,12 @@ So this module never judges a frame alone. It judges a frame AGAINST ITS TWIN:
   1. The set is cut into MOMENTS — consecutive frames, close in time, that look
      alike (a gap over MOMENT_GAP seconds or a similarity under MOMENT_SIM
      starts a new one). This is navigation, not judgement.
-  2. Inside a moment, frames that are near-identical (TWIN_SIM and above) form a
-     TWIN GROUP: the same pose shot again. Only here is comparison fair — the
-     content is the same, so a difference IS the defect.
+  2. Inside a moment, frames that are near-identical form a TWIN GROUP: the
+     same pose shot again. Two thresholds, on purpose (docs/BURST-GROUPING-
+     TIMELINE.md): the group the photographer SEES is linked at GROUP_SIM, with
+     guards against a different composition; the comparisons below that JUDGE
+     a frame use only pairs at TWIN_SIM, the strict bar every suggestion was
+     verified at. Grouping more must not mean suggesting more.
   3. The same PERSON is followed across a twin group (position, size, skin
      tone), and compared only with frames where their head is in the SAME POSE.
      A lowered head is never compared with a raised one.
@@ -58,7 +61,21 @@ TRIAGE_VERSION = 1
 # 23s+ is a new idea; neighbours in a pose series sit 0.9-0.96)
 MOMENT_GAP = 5.0
 MOMENT_SIM = 0.85
-TWIN_SIM = 0.95
+TWIN_SIM = 0.95     # judging: a suggestion compares only frames this alike
+
+# ---- the group the photographer sees (docs/BURST-GROUPING-TIMELINE.md, 25.09).
+# At 0.95 only 216 of 648 frames on the outdoor session were grouped; pairs one
+# or two seconds apart at 0.88-0.95 were the same photograph in every one of 32
+# checked by eye, across the outdoor and the newborn sessions. The global
+# vector drops with a small reframe, so the bar is lower — and three guards
+# keep a different composition out:
+GROUP_SIM = 0.88     # linked when at least this alike
+GROUP_FLOOR = 0.82   # and no two frames in a group less alike than this: a slow
+                     # drift (the horse lowering its head, someone walking in)
+                     # is cut at its weakest step instead of chaining on
+GROUP_SCALE = 1.35   # the main face grown or shrunk more than this is a zoom —
+                     # a close-up is another photograph of the same pose
+                     # (portrait vs landscape is always another photograph)
 
 # ---- one person across a twin group
 SAME_POS = 0.05        # face centre, as a fraction of the frame
@@ -291,10 +308,48 @@ def _same_pose(a, b):
             and abs(a["roll"] - b["roll"]) < POSE_ROLL)
 
 
-def _groups(order, vecs, times):
+def _union(names, linked):
+    """Connected groups (2+) of `names` under the pair test `linked`."""
+    parent = {n: n for n in names}
+
+    def find(n):
+        while parent[n] != n:
+            parent[n] = parent[parent[n]]
+            n = parent[n]
+        return n
+
+    for a in range(len(names)):
+        for b in range(a + 1, len(names)):
+            if linked(names[a], names[b]):
+                parent[find(names[a])] = find(names[b])
+    buckets = {}
+    for n in names:
+        buckets.setdefault(find(n), []).append(n)
+    return [g for g in buckets.values() if len(g) > 1]
+
+
+def _lead_face(f):
+    iods = [x["iod"] for x in f.get("faces", []) if x.get("iod")]
+    return max(iods) if iods else None
+
+
+def _same_composition(fa, fb):
+    """Portrait vs landscape, or a zoom on the main face, is another photograph
+    even when the vector says the content is the same."""
+    if (fa.get("widthPx", 0) >= fa.get("heightPx", 0)) != (fb.get("widthPx", 0) >= fb.get("heightPx", 0)):
+        return False
+    la, lb = _lead_face(fa), _lead_face(fb)
+    return not (la and lb and max(la, lb) / min(la, lb) > GROUP_SCALE)
+
+
+def _groups(order, vecs, times, feats=None):
     """Moments, then twin groups inside each. Both CONTIGUOUS in capture order:
     a story is told in the order it happened, and the same pose an hour later
-    is a new photograph, not a repeat."""
+    is a new photograph, not a repeat.
+
+    Returns (moments, groups, judged): `groups` is what the photographer sees,
+    `judged` the strict TWIN_SIM groups the suggestions compare within."""
+    feats = feats or {}
     moments, cur = [], []
     for i, name in enumerate(order):
         if cur:
@@ -308,26 +363,25 @@ def _groups(order, vecs, times):
     if cur:
         moments.append(cur)
 
-    twins = []
+    def sim(a, b):
+        return float(vecs[a] @ vecs[b])
+
+    pos = {n: i for i, n in enumerate(order)}
+    groups, judged = [], []
     for m in moments:
         have = [n for n in m if n in vecs]
-        parent = {n: n for n in have}
-
-        def find(n):
-            while parent[n] != n:
-                parent[n] = parent[parent[n]]
-                n = parent[n]
-            return n
-
-        for a in range(len(have)):
-            for b in range(a + 1, len(have)):
-                if float(vecs[have[a]] @ vecs[have[b]]) >= TWIN_SIM:
-                    parent[find(have[a])] = find(have[b])
-        buckets = {}
-        for n in have:
-            buckets.setdefault(find(n), []).append(n)
-        twins += [g for g in buckets.values() if len(g) > 1]
-    return moments, twins
+        judged += _union(have, lambda a, b: sim(a, b) >= TWIN_SIM)
+        stack = [sorted(g, key=pos.get) for g in _union(
+            have, lambda a, b: sim(a, b) >= GROUP_SIM and _same_composition(feats.get(a, {}), feats.get(b, {})))]
+        while stack:
+            g = stack.pop()
+            if min(sim(g[a], g[b]) for a in range(len(g)) for b in range(a + 1, len(g))) >= GROUP_FLOOR:
+                groups.append(g)
+                continue
+            k = min(range(1, len(g)), key=lambda i: sim(g[i - 1], g[i]))
+            stack += [part for part in (g[:k], g[k:]) if len(part) > 1]
+    groups.sort(key=lambda g: pos[g[0]])
+    return moments, groups, judged
 
 
 def _tracks(group, feats):
@@ -370,7 +424,7 @@ def triage(paths):
         if v is not None:
             vecs[n] = v.astype(np.float32)
 
-    moments, twins = _groups(order, vecs, times)
+    moments, twins, judged = _groups(order, vecs, times, feats)
     reasons = {n: [] for n in order}
 
     # Ruined exposure needs no twin.
@@ -384,7 +438,7 @@ def triage(paths):
         elif f["crushed"] >= FRAME_CRUSHED or f["exposure"] <= FRAME_MEAN_LOW:
             reasons[n].append({"code": "dark", "label": "הפריים חשוך"})
 
-    for group in twins:
+    for group in judged:
         for track in _tracks(group, feats):
             for n, f in track:
                 peers = [(m, g) for m, g in track if m != n and _same_pose(f, g)]
