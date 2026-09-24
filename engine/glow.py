@@ -19,8 +19,9 @@ automated with the engine's own masks:
 
 Three rules shared by every region pass, each one a named Photoshop habit:
   * the mist grows from the region's own LIT side (soft luminance ramp
-    0.30..0.95, not a hard gate) — shadows keep their depth, midtone faces
-    still glow;
+    0.30..0.95, not a hard gate; on a low-key face the low end follows the
+    face's own skin down) — shadows keep their depth, midtone faces still
+    glow;
   * pixels already near clipping receive almost nothing, so white fabric
     brightens without burning its texture;
   * eyes, brows and lips get ~a third of the light — glow over the eyes is
@@ -41,6 +42,15 @@ import masks
 # Region mists ramp in from SRC_LO instead of the legacy hard 0.55 gate: a face
 # at luminance ~0.55 must glow, a shadow at 0.3 must not lift and flatten.
 SRC_LO, SRC_HI = 0.30, 0.95
+# ...but 0.30 is itself a fixed number, and it fails low-key frames the same
+# way 0.55 failed IMG_2034: a side-lit newborn's shadow cheek sits at 0.24-0.36,
+# so the mist grew only from the lit half and the glow added 14-220x more light
+# there than on the shadow half (docs/GLOW-TIMELINE.md, 2026-09-24). A
+# retoucher sets the Blend If split by eye per photo; here the ramp's low end
+# drops to the face's own darker skin (this percentile of the skin mask), and
+# never rises above SRC_LO — frames that already worked render as before.
+SKIN_LO_PCT = 5
+SRC_LO_FLOOR = 0.10
 # Above this channel value the pixel is nearly clipped — adding light there
 # only erases texture (measured: 2.9% of dress pixels crossed 250 at amount
 # 100 with no protection).
@@ -53,7 +63,17 @@ def _radius_px(rgb, radius01):
     return globals_py._radius_px(rgb, 4 + radius01 * 50, 2) | 1
 
 
-def _region_glow(rgb_f, region, guard, amount, r):
+def _skin_src_lo(rgb, skin_m):
+    """Low end of the source ramp for passes that carry a face (see SKIN_LO_PCT).
+    Subsampled — a percentile, not a render."""
+    sel = skin_m[::4, ::4] > 0.5
+    if not sel.any():
+        return SRC_LO
+    L = (rgb[::4, ::4].astype(np.float32) @ globals_py.LUM) / 255.0
+    return float(np.clip(np.percentile(L[sel], SKIN_LO_PCT), SRC_LO_FLOOR, SRC_LO))
+
+
+def _region_glow(rgb_f, region, guard, amount, r, src_lo=SRC_LO):
     """One masked Orton pass: mist from the region's lit side, soft spill.
 
     The per-pixel parts run in parallel bands (common.per_pixel) — the blurs
@@ -65,13 +85,20 @@ def _region_glow(rgb_f, region, guard, amount, r):
     h, w = rgb_f.shape[:2]
     fr = max(3, r // 2) | 1
     m = cv2.GaussianBlur(region, (fr, fr), 0)
+    if guard is not None:
+        # The feature mask is drawn for healing, with a few-px edge. Under a
+        # glow of radius r that edge printed as a darker patch the shape of
+        # the eye hull and the lip outline (seen on chayamushka-155/202). The
+        # retoucher's eraser here is a soft brush the size of the glow.
+        gk = (2 * r) | 1
+        guard = cv2.GaussianBlur(guard, (gk, gk), 0)
 
     lit = np.empty_like(rgb_f)
 
     def source(y0, y1):
         px = rgb_f[y0:y1]
         L = (px @ globals_py.LUM) / 255.0
-        src_w = globals_py._smoothstep(SRC_LO, SRC_HI, L) * m[y0:y1]
+        src_w = globals_py._smoothstep(src_lo, SRC_HI, L) * m[y0:y1]
         lit[y0:y1] = px * src_w[..., None]
 
     common.per_pixel(source, h, w)
@@ -219,14 +246,19 @@ def apply(rgb, params: dict):
             0.0, 1.0,
         )
         f = out.astype(np.float32)
+        # from the skin, not the subject: the subject's darkest 5% is hair,
+        # and hair must not become a glow source
+        face_lo = _skin_src_lo(rgb, skin_m) if (people or skin) else SRC_LO
+        if people or skin:
+            meta["srcLo"] = round(face_lo, 3)
 
         if people > 0:
             subject = masks.get_mask(rgb, "subject")
             meta["subjectCoverage"] = round(float((subject > 0.5).mean()), 4)
-            f = _region_glow(f, subject, guard, people, r)
+            f = _region_glow(f, subject, guard, people, r, face_lo)
         if skin > 0:
             meta["skinCoverage"] = round(float((skin_m > 0.5).mean()), 4)
-            f = _region_glow(f, skin_m, guard, skin, r)
+            f = _region_glow(f, skin_m, guard, skin, r, face_lo)
         if fabric > 0:
             meta["fabricCoverage"] = round(float((fabric_m > 0.5).mean()), 4)
             f = _region_glow(f, fabric_m, None, fabric, r)
