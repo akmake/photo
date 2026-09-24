@@ -547,6 +547,10 @@ export const TOOLS: ToolDef[] = [
       { id: 'amount', label: 'עוצמה כללית', min: 0, max: 100, step: 1, default: 0 },
       { id: 'people', label: 'אנשים — כל הדמות', min: 0, max: 100, step: 1, default: 0 },
       { id: 'skin', label: 'עור בלבד', min: 0, max: 100, step: 1, default: 0 },
+      // Not an added light: moves light across the face — down where it is
+      // plentiful, up in the shadow side — toward one even level (glow.py
+      // _even_light). 100 = the face's lighting fully evened.
+      { id: 'even', label: 'איזון אור על הפנים', min: 0, max: 100, step: 1, default: 0 },
       { id: 'fabric', label: 'בגדים ולבנים', min: 0, max: 100, step: 1, default: 0 },
       // Her move in the video: the glow generated over everything and then
       // erased off the figures, so the warmth stays behind them. It could not
