@@ -570,8 +570,15 @@ def _layered(rgb: np.ndarray, hole: np.ndarray, behind: np.ndarray, front: np.nd
     sl = (slice(y0, y1), slice(x0, x1))
 
     near_obj = cv2.dilate(obj.astype(np.uint8), np.ones((7, 7), np.uint8)) > 0
-    bg_unknown = (hole | near_obj)[sl].astype(np.uint8)
-    background = lama_fill._fill_window(lama_fill._model(), win, bg_unknown, LAYERED_WORK_HOLE)
+    # only the object's rim near the hole joins the fill; the rest of the
+    # outline is never written, and filling it cost time for nothing
+    by_hole = cv2.dilate(hole.astype(np.uint8), np.ones((51, 51), np.uint8)) > 0
+    bg_unknown = (hole | (near_obj & by_hole))[sl].astype(np.uint8)
+    # The background is rebuilt by the same fill as a plain removal: the old
+    # one (network at 512 + borrowed detail) left a soft rectangle with hard
+    # sides in the ground under the man in 321A4983. The object is kept out
+    # of the fill's sources — soil must not be patched with horse.
+    background = object_fill.fill(win, bg_unknown, avoid=near_obj[sl])
 
     comp = background.astype(np.float32)
     if hidden.any():

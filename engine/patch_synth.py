@@ -48,6 +48,10 @@ FINAL_SHARP = 0.0     # 0 = each pixel from its best patch (Newson's final step)
 MID_SHARP = 1.0
 DIMS = 28             # patch features after reduction
 MAX_SOURCES = 220000  # kd-tree size cap
+#: Above this many hole pixels at the full-size level, the correspondence
+#: carried up from the half-size level is used as it comes (no pixel-level
+#: polishing): a standing man, 1.6M pixels, spent 25s of 52 there.
+LIGHT_PX = 500000
 
 
 def _membrane(v, known):
@@ -122,39 +126,38 @@ class _Level:
         hy, hx = np.nonzero(self.hole)
         self.hy, self.hx = hy, hx
         self.hflat = hy * self.W + hx
+        # colour, structure and texture side by side, pre-weighted, so a patch
+        # distance is one read per patch pixel instead of three (the distance
+        # was 72 of 115 seconds removing a standing man at full size)
+        wc, ws, wt = np.sqrt(1 - STRUCT_WEIGHT), np.sqrt(STRUCT_WEIGHT), np.sqrt(TEX_WEIGHT)
+        self._wc, self._wt = wc, wt
+        self.FS = np.concatenate([self.S * wc, self.gs * ws, self.XS * wt], 1).astype(np.float32)
+        self._sv = np.concatenate([self.S, self.XS], 1).astype(np.float32)   # what a vote copies
+        self.FT = np.concatenate([self.T * wc, self.gs * ws, self.XT * wt], 1).astype(np.float32)
+
+    def _refresh(self):
+        """Carry the current estimate (colour and texture) into FT."""
+        self.FT[self.hflat, :3] = self.T[self.hflat] * self._wc
+        self.FT[self.hflat, 6:] = self.XT[self.hflat] * self._wt
 
     def set_estimate(self, est):
         e = np.pad(est.astype(np.float32), ((R, R), (R, R), (0, 0)), mode="reflect").reshape(-1, 3)
         self.T[self.hflat] = e[self.hflat]
+        self._refresh()
 
     def dist(self, sy, sx, sel=None):
         cy, cx = (self.cy, self.cx) if sel is None else (self.cy[sel], self.cx[sel])
         tb, sb = cy * self.W + cx, sy * self.W + sx
-        col = np.zeros(len(cy), np.float32)
-        st = np.zeros(len(cy), np.float32)
+        acc = np.zeros(len(cy), np.float32)
         for dy, dx in self.Q:
             o = dy * self.W + dx
-            d = self.T[tb + o] - self.S[sb + o]
-            col += np.einsum("ij,ij->i", d, d)
-            g = self.gs[tb + o] - self.gs[sb + o]
-            st += np.einsum("ij,ij->i", g, g)
-        tx = np.zeros(len(cy), np.float32)
-        for dy, dx in self.Q:
-            o = dy * self.W + dx
-            e = self.XT[tb + o] - self.XS[sb + o]
-            tx += np.einsum("ij,ij->i", e, e)
-        return ((1 - STRUCT_WEIGHT) * col + STRUCT_WEIGHT * st + TEX_WEIGHT * tx) * (49.0 / len(self.Q))
+            d = self.FT[tb + o] - self.FS[sb + o]
+            acc += np.einsum("ij,ij->i", d, d)
+        return acc * (49.0 / len(self.Q))
 
-    def _feat(self, ys, xs, T, X):
+    def _feat(self, ys, xs, F):
         base = ys * self.W + xs
-        wc, ws, wt = np.sqrt(1 - STRUCT_WEIGHT), np.sqrt(STRUCT_WEIGHT), np.sqrt(TEX_WEIGHT)
-        cols = []
-        for dy, dx in self.Q:
-            o = dy * self.W + dx
-            cols.append(T[base + o] * wc)
-            cols.append(self.gs[base + o] * ws)
-            cols.append(X[base + o] * wt)
-        return np.concatenate(cols, axis=1).astype(np.float32)
+        return np.concatenate([F[base + dy * self.W + dx] for dy, dx in self.Q], axis=1)
 
     def build_tree(self):
         vy, vx = self.vy, self.vx
@@ -163,7 +166,7 @@ class _Level:
             keep = (vy % step == 0) & (vx % step == 0)
             vy, vx = vy[keep], vx[keep]
         self.ty, self.tx = vy, vx
-        F = self._feat(vy, vx, self.S, self.XS)
+        F = self._feat(vy, vx, self.FS)
         sub = F[self.rng.choice(len(F), size=min(len(F), 20000), replace=False)]
         self.mean = sub.mean(0)
         _, _, vt = np.linalg.svd(sub - self.mean, full_matrices=False)
@@ -173,7 +176,7 @@ class _Level:
 
     def query(self, sel=None):
         cy, cx = (self.cy, self.cx) if sel is None else (self.cy[sel], self.cx[sel])
-        G = (self._feat(cy, cx, self.T, self.XT) - self.mean) @ self.basis
+        G = (self._feat(cy, cx, self.FT) - self.mean) @ self.basis
         idx, _ = self.tree.knnSearch(np.ascontiguousarray(G, np.float32), 1, params=dict(checks=24))
         return self.ty[idx[:, 0]], self.tx[idx[:, 0]]
 
@@ -202,13 +205,14 @@ class _Level:
             j = np.maximum(ni, 0)
             self.offer(np.clip(self.sy[j] - dy, 0, H - 1), np.clip(self.sx[j] - dx, 0, Wd - 1), ok)
 
-    def refine(self):
-        """Exhaustive check of every source one pixel around the current one."""
+    def refine(self, cross=False):
+        """Exhaustive check of every source one pixel around the current one
+        (the four straight neighbours only, when `cross`)."""
         H, Wd = self.hole.shape
         every = np.ones(len(self.sy), bool)
         for dy in (-1, 0, 1):
             for dx in (-1, 0, 1):
-                if dy or dx:
+                if (dy or dx) and not (cross and dy and dx):
                     self.offer(np.clip(self.sy + dy, 0, H - 1), np.clip(self.sx + dx, 0, Wd - 1), every)
 
     def carry_up(self, lo):
@@ -232,50 +236,47 @@ class _Level:
     def vote(self, sharp):
         """Each hole pixel from the patches covering it; texture features too.
 
-        sharp > 0: weighted mean, weights relative to the best patch covering
-        the pixel (absolute weights underflowed and left black holes).
+        sharp > 0: weighted mean, weight exp(-distance / (sharp * p75)),
+        clamped so that where every covering patch fits badly the pixel gets
+        a plain mean (unclamped, the weights underflowed to zero and the
+        division left black holes).
         sharp == 0: the pixel of the best patch covering it, no averaging -
         Newson et al.'s final step, sharp as the photo itself.
         """
-        hy, hx = self.hy, self.hx
-        n = len(hy)
+        n = len(self.hflat)
+        cflat = self.cidx.ravel()
+        sflat = self.sy * self.W + self.sx
+        SV = self._sv
+        offs = [dy * self.W + dx for dy in range(-R, R + 1) for dx in range(-R, R + 1)]
         if sharp == 0:
             best = np.full(n, np.inf, np.float32)
             src_best = np.zeros(n, np.int64)
-            for dy in range(-R, R + 1):
-                for dx in range(-R, R + 1):
-                    ci = self.cidx[hy - dy, hx - dx]
-                    ok = ci >= 0
-                    d = np.where(ok, self.D[np.maximum(ci, 0)], np.inf)
-                    take = d < best
-                    c = ci[take]
-                    src_best[take] = (self.sy[c] + dy) * self.W + (self.sx[c] + dx)
-                    best[take] = d[take]
-            vals, tex = self.S[src_best], self.XS[src_best]
+            for o in offs:
+                ci = cflat[self.hflat - o]
+                d = np.where(ci >= 0, self.D[np.maximum(ci, 0)], np.inf)
+                ci = np.maximum(ci, 0)
+                take = d < best
+                src_best[take] = sflat[ci[take]] + o
+                best[take] = d[take]
+            got = SV[src_best]
         else:
-            num = np.zeros((n, 3), np.float32)
-            numx = np.zeros((n, 2), np.float32)
-            den = np.zeros(n, np.float32)
             s2 = float(np.percentile(self.D, 75)) + 1e-3
-            dmap = np.full(self.hole.shape, 3e38, np.float32)
-            dmap[self.cy, self.cx] = self.D
-            dmin = cv2.erode(dmap, np.ones((2 * R + 1, 2 * R + 1), np.uint8))[hy, hx]
-            for dy in range(-R, R + 1):
-                for dx in range(-R, R + 1):
-                    ci = self.cidx[hy - dy, hx - dx]
-                    ok = ci >= 0
-                    ci = ci[ok]
-                    src = (self.sy[ci] + dy) * self.W + (self.sx[ci] + dx)
-                    wv = np.exp(-np.minimum((self.D[ci] - dmin[ok]) / (sharp * s2), 60.0))
-                    num[ok] += wv[:, None] * self.S[src]
-                    numx[ok] += wv[:, None] * self.XS[src]
-                    den[ok] += wv
-            dd = np.maximum(den, 1e-12)[:, None]
-            vals, tex = num / dd, numx / dd
+            wcen = np.exp(-np.minimum(self.D / (sharp * s2), 60.0)).astype(np.float32)
+            num = np.zeros((n, 5), np.float32)
+            den = np.zeros(n, np.float32)
+            for o in offs:
+                ci = cflat[self.hflat - o]
+                wv = np.where(ci >= 0, wcen[np.maximum(ci, 0)], 0).astype(np.float32)
+                ci = np.maximum(ci, 0)
+                num += wv[:, None] * SV[sflat[ci] + o]
+                den += wv
+            got = num / np.maximum(den, 1e-30)[:, None]
+        vals, tex = got[:, :3], got[:, 3:]
         self.T[self.hflat] = vals
         self.XT[self.hflat] = tex
+        self._refresh()
         out = self.img.copy()
-        out[hy, hx] = vals
+        out[self.hy, self.hx] = vals
         return out[R:-R, R:-R]
 
 
@@ -317,14 +318,15 @@ def synthesize(win: np.ndarray, hole: np.ndarray, guide: np.ndarray, avoid: np.n
     for li in range(n, -1, -1):
         cheap = span / (2 ** li) > WORK_HOLE
         fine = li == 0
-        L = _Level(P[li], M[li], A[li], St[li], E[li], rng, sample=2 if cheap else 1)
+        L = _Level(P[li], M[li], A[li], St[li], E[li], rng, sample=3 if cheap else 1)
         L.set_estimate(F[li] if est is None else cv2.resize(est, (L.w, L.h), interpolation=cv2.INTER_LINEAR))
         if prev is not None:
             L.carry_up(prev)
         if cheap:
             # carry the correspondence up; re-search only what no longer fits
-            L.cohere()
-            L.refine()
+            if not (fine and len(L.hflat) > LIGHT_PX):
+                L.cohere()
+                L.refine(cross=True)
             bad = np.nonzero(L.D > 3.0 * float(np.percentile(L.D, 75)))[0]
             if len(bad):
                 L.build_tree()

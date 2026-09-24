@@ -133,10 +133,18 @@ def _fuse(win: np.ndarray, hole: np.ndarray, g: np.ndarray, synth: np.ndarray) -
     The same split as Contextual Residual Aggregation (Yi et al., CVPR 2020):
     a low-resolution fill, high-frequency residuals from the context.
     """
-    H = hole > 0
-    known = ~(cv2.dilate(hole.astype(np.uint8), np.ones((9, 9), np.uint8)) > 0)
+    # everything below reaches at most ~3x the coarsest band past the hole
     ys, xs = np.nonzero(hole)
     span = max(int(np.ptp(ys)), int(np.ptp(xs))) + 1
+    m = 4 * BANDS[-1] + 16
+    y0, y1 = max(0, ys.min() - m), min(hole.shape[0], ys.max() + m + 1)
+    x0, x1 = max(0, xs.min() - m), min(hole.shape[1], xs.max() + m + 1)
+    if (y0, x0, y1, x1) != (0, 0) + hole.shape:
+        res = win.copy()
+        res[y0:y1, x0:x1] = _fuse(win[y0:y1, x0:x1], hole[y0:y1, x0:x1], g[y0:y1, x0:x1], synth[y0:y1, x0:x1])
+        return res
+    H = hole > 0
+    known = ~(cv2.dilate(hole.astype(np.uint8), np.ones((9, 9), np.uint8)) > 0)
     gg = _seamless(win, hole, g, max(2.0, span / GUIDE_HOLE))
     ss = win.astype(np.float32).copy()
     ss[H] = synth[H]
@@ -172,18 +180,23 @@ def _fuse(win: np.ndarray, hole: np.ndarray, g: np.ndarray, synth: np.ndarray) -
     return res
 
 
-def _thick(rgb: np.ndarray, hole: np.ndarray, unknown: np.ndarray) -> np.ndarray:
+def _thick(rgb: np.ndarray, hole: np.ndarray, unknown: np.ndarray, avoid: np.ndarray = None) -> np.ndarray:
     ys, xs = np.nonzero(hole)
     bh, bw = ys.max() - ys.min() + 1, xs.max() - xs.min() + 1
-    pad = int(max(96, 0.5 * max(bh, bw)))
+    # context for the network and sources for the patches: a third of the
+    # hole around it (half made a standing man's window the whole frame tall)
+    pad = int(max(96, 0.33 * max(bh, bw)))
     h, w = hole.shape
     y0, y1 = max(0, ys.min() - pad), min(h, ys.max() + pad + 1)
     x0, x1 = max(0, xs.min() - pad), min(w, xs.max() + pad + 1)
     win = rgb[y0:y1, x0:x1]
     m = hole[y0:y1, x0:x1].astype(np.uint8)
     u = unknown[y0:y1, x0:x1].astype(np.uint8)
+    keep_out = u & (1 - m)
+    if avoid is not None:
+        keep_out = keep_out | (avoid[y0:y1, x0:x1] > 0).astype(np.uint8)
     g = guide(win, u)
-    res = _fuse(win, m, g, patch_synth.synthesize(win, m, g, avoid=u & (1 - m)))
+    res = _fuse(win, m, g, patch_synth.synthesize(win, m, g, avoid=keep_out))
     out = rgb.copy()
     out[y0:y1, x0:x1][m > 0] = res[m > 0]
     return out
@@ -194,8 +207,12 @@ def is_thin(hole: np.ndarray) -> bool:
     return r_in <= THIN * max(hole.shape)
 
 
-def fill(rgb: np.ndarray, hole: np.ndarray) -> np.ndarray:
+def fill(rgb: np.ndarray, hole: np.ndarray, avoid: np.ndarray = None) -> np.ndarray:
     """rgb uint8 HxWx3, hole HxW (>0 = remove). -> uint8; only hole pixels change.
+
+    `avoid` (optional, HxW) is photograph that must not be copied into the
+    hole: the horse standing behind a removed man, when only the background
+    around him is being rebuilt.
 
     Each separate piece of the hole is judged on its own: a pipe and a stone
     removed together are one thin fill and one thick fill. Thick pieces go
@@ -213,7 +230,7 @@ def fill(rgb: np.ndarray, hole: np.ndarray) -> np.ndarray:
         if is_thin(part):
             thin |= part
             continue
-        filled = _thick(out, part, unknown)
+        filled = _thick(out, part, unknown, avoid)
         out[part > 0] = filled[part > 0]
         unknown[part > 0] = 0
     if thin.any():
