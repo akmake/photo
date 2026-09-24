@@ -196,6 +196,9 @@ export interface ObjectRemoval {
    *  draws them again at every render size (maskPng is only 1024 wide) and
    *  catches what they left of the object at its edge. */
   paint?: ManualStroke[];
+  /** The object under the strokes, just past them (object_remove._snap_under):
+   *  what a stroke painted a little too narrow left of the object's edge. */
+  snap?: { maskPng: string };
   add?: ManualStroke[];
   subtract?: ManualStroke[];
   /** What stands behind the removed object, found by the engine. With it the

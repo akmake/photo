@@ -84,7 +84,7 @@ def _mask_data(mask: np.ndarray) -> str:
     return "data:image/png;base64," + base64.b64encode(png).decode("ascii")
 
 
-def _read_mask(data: str, shape: tuple) -> np.ndarray:
+def _read_mask(data: str, shape: tuple, smooth: bool = False) -> np.ndarray:
     if not isinstance(data, str) or not data.startswith("data:image/png;base64,"):
         raise ValueError("Object removal requires a PNG selection mask")
     try:
@@ -97,7 +97,8 @@ def _read_mask(data: str, shape: tuple) -> np.ndarray:
     if mask is None or mask.size == 0:
         raise ValueError("Invalid object mask")
     h, w = shape[:2]
-    return (cv2.resize(mask, (w, h), interpolation=cv2.INTER_NEAREST) > 127).astype(np.uint8)
+    interp = cv2.INTER_LINEAR if smooth else cv2.INTER_NEAREST
+    return (cv2.resize(mask, (w, h), interpolation=interp) > 127).astype(np.uint8)
 
 
 _image_key = None  # which picture the predictor holds; None = unknown
@@ -226,16 +227,70 @@ def select_painted(rgb: np.ndarray, strokes, key=None) -> dict:
     with _predict_lock:
         _hold(small, key)
         behind = _find_behind(small, painted)
+        snap = _snap_under(small, painted)
     # The strokes travel with the selection and are drawn again at every
     # render size: the PNG is 1024 wide, and stretched to 5472 its edge was a
     # 5px staircase that left the rim of a pipe outside the removal.
-    paint = [{"points": [[float(x), float(y)] for x, y in s.get("points") or []],
-              "r": float(s.get("r", 0.0))} for s in strokes or []]
+    paint = [{"id": str(s.get("id", i)), "points": [[float(x), float(y)] for x, y in s.get("points") or []],
+              "r": float(s.get("r", 0.0))} for i, s in enumerate(strokes or [])]
     out = {"maskPng": _mask_data(painted), "coverage": round(float(painted.mean()), 5),
            "width": sw, "height": sh, "margin": 0.0, "paint": paint}
     if behind is not None:
         out["behind"] = {"maskPng": _mask_data(behind)}
+    if snap is not None:
+        out["snap"] = {"maskPng": _mask_data(snap)}
     return out
+
+
+#: How far past a brush stroke the object under it may still be taken, as a
+#: fraction of the frame width (66px at 5472): enough for the edges of a
+#: strap painted a little too narrow, never the whole post behind a pipe.
+SNAP_BAND = 0.012
+
+
+def _snap_under(small: np.ndarray, painted: np.ndarray):
+    """What of the object under a stroke lies just outside it, or None.
+
+    A stroke narrower than the object leaves its edges, and the fill rebuilds
+    the object from them — the reins in 321A5095 came back from a stroke 24px
+    wide on straps 28px wide. The earlier "snap to the object" attempts took
+    the segmenter's LARGEST answer (the whole post for a pipe). Here the
+    segmenter is asked along the stroke and the answer that best MATCHES the
+    stroke wins (overlap over union, inside a band around it); only its part
+    inside that band is added. A pipe painted generously gains nothing; a
+    strap painted narrowly gains its edges. Runs under _predict_lock with the
+    picture set.
+    """
+    sh, sw = painted.shape
+    band_r = max(2, round(SNAP_BAND * sw))
+    band = cv2.dilate(painted.astype(np.uint8), cv2.getStructuringElement(
+        cv2.MORPH_ELLIPSE, (2 * band_r + 1,) * 2)) > 0
+    skel = cv2.ximgproc.thinning(painted.astype(np.uint8) * 255) > 0
+    ys, xs = np.nonzero(skel)
+    if not len(ys):
+        ys, xs = np.nonzero(painted)
+    order = np.lexsort((xs, ys))
+    pick = order[np.linspace(0, len(order) - 1, min(12, len(order))).astype(int)]
+    pts = np.stack([xs[pick], ys[pick]], 1)
+    raw, _, _ = _predictor.predict(point_coords=pts, point_labels=np.ones(len(pts), int),
+                                   multimask_output=True, return_logits=True)
+    P = painted
+    best, best_iou = None, 0.4
+    for c in raw > MASK_THRESHOLD:
+        if (c & P).sum() < 0.5 * P.sum():
+            continue                      # not the thing the stroke is on
+        cb = c & band
+        iou = (cb & P).sum() / max(1, (cb | P).sum())
+        if iou > best_iou:
+            best, best_iou = cb, iou
+    if best is None:
+        return None
+    # only what continues the stroke: a piece of the answer that does not
+    # touch the paint (a knot in the post beside the pipe) is not the object
+    n, lab = cv2.connectedComponents((best | P).astype(np.uint8), connectivity=8)
+    touching = np.unique(lab[P])
+    extra = best & ~P & np.isin(lab, touching[touching > 0])
+    return extra if extra.any() else None
 
 
 #: How far outside the removed object the ring of probe clicks sits.
@@ -417,6 +472,14 @@ def repair_mask(shape: tuple, selection: dict, rgb: np.ndarray = None) -> np.nda
     paint = selection.get("paint")
     if isinstance(paint, list) and paint:
         mask = manual_clean.strokes_mask(shape, paint)
+        snap = selection.get("snap")
+        if isinstance(snap, dict) and snap.get("maskPng"):
+            # the segmenter's edge, read at 1024 and brought up smoothly, kept
+            # to the band around what was actually painted
+            soft = _read_mask(snap["maskPng"], shape, smooth=True) > 0
+            r = max(2, round(SNAP_BAND * w))
+            band = cv2.dilate(mask, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2 * r + 1,) * 2)) > 0
+            mask = np.maximum(mask, (soft & band).astype(np.uint8))
         if rgb is not None:
             mask = catch_remnants(rgb, mask)
     else:
