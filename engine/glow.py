@@ -358,6 +358,10 @@ def apply(rgb, params: dict):
     if meta_even:
         meta["applied"] = 1
         meta["evenFaces"] = meta_even
+    elif even > 0:
+        # the slider is up and nothing moved: say why (lab/explain.ts `noFace`)
+        # instead of looking like a weak effect
+        meta["noFace"] = True
     return out, meta
 
 
