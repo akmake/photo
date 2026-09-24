@@ -45,7 +45,22 @@ _predictor = None
 _predict_lock = threading.Lock()
 
 
-def _choose_candidate(candidates: np.ndarray, scores: np.ndarray) -> int:
+def _thin(mask: np.ndarray) -> bool:
+    """Long and narrow — a rein, a rope, a pipe, a wire: its skeleton is more
+    than THIN_RATIO times its typical half-width."""
+    m8 = mask.astype(np.uint8)
+    if m8.sum() < 20:
+        return False
+    skeleton = cv2.ximgproc.thinning(m8 * 255) > 0
+    half = cv2.distanceTransform(m8, cv2.DIST_L2, 3)[skeleton]
+    return len(half) > 0 and skeleton.sum() > THIN_RATIO * max(1.0, float(np.median(half)))
+
+
+#: Skeleton length over half-width above which an object counts as thin.
+THIN_RATIO = 25
+
+
+def _choose_candidate(candidates: np.ndarray, scores: np.ndarray, thin_first: bool = False) -> int:
     """Prefer the enclosing object when the predictor also offers a part.
 
     A shirt can score a little higher than the whole person. Keep the broader
@@ -56,6 +71,14 @@ def _choose_candidate(candidates: np.ndarray, scores: np.ndarray) -> int:
     ratio to what was clicked, not a small fixed share of the frame. The caller
     still receives every candidate for visual review.
     """
+    if thin_first:
+        # A thin thing is attached to something, and "the object enclosing
+        # it" is that something: a click on the rein in 321A5089 took the
+        # rein AND the horse's head; on the black pipe in 321A5078, the post.
+        # When the smallest answer is thin, it is what was clicked.
+        smallest = min(range(len(candidates)), key=lambda i: int(candidates[i].sum()))
+        if _thin(candidates[smallest]):
+            return smallest
     best = int(np.argmax(scores))
     core = candidates[best].astype(bool)
     core_area = int(core.sum())
@@ -166,7 +189,7 @@ def _pick(small: np.ndarray, clicks, key, index=None):
         return candidates, scores, 0
     if index is not None and 0 <= int(index) < len(candidates):
         return candidates, scores, int(index)   # a repeat click asked for this size
-    return candidates, scores, _choose_candidate(candidates, scores)
+    return candidates, scores, _choose_candidate(candidates, scores, thin_first=True)
 
 
 def hover(rgb: np.ndarray, x: float, y: float, key=None) -> dict:
@@ -227,7 +250,6 @@ def select_painted(rgb: np.ndarray, strokes, key=None) -> dict:
     with _predict_lock:
         _hold(small, key)
         behind = _find_behind(small, painted)
-        snap = _snap_under(small, painted)
     # The strokes travel with the selection and are drawn again at every
     # render size: the PNG is 1024 wide, and stretched to 5472 its edge was a
     # 5px staircase that left the rim of a pipe outside the removal.
@@ -237,8 +259,6 @@ def select_painted(rgb: np.ndarray, strokes, key=None) -> dict:
            "width": sw, "height": sh, "margin": 0.0, "paint": paint}
     if behind is not None:
         out["behind"] = {"maskPng": _mask_data(behind)}
-    if snap is not None:
-        out["snap"] = {"maskPng": _mask_data(snap)}
     return out
 
 
@@ -471,17 +491,11 @@ def repair_mask(shape: tuple, selection: dict, rgb: np.ndarray = None) -> np.nda
     h, w = shape[:2]
     paint = selection.get("paint")
     if isinstance(paint, list) and paint:
+        # The brush removes exactly what was painted — the photographer's rule
+        # (2026-09-24): painting means "this area", clicking means "this
+        # object". Growing a stroke (remnant catcher, snap) was tried and
+        # reverted; the code stays for the click path if it proves useful.
         mask = manual_clean.strokes_mask(shape, paint)
-        snap = selection.get("snap")
-        if isinstance(snap, dict) and snap.get("maskPng"):
-            # the segmenter's edge, read at 1024 and brought up smoothly, kept
-            # to the band around what was actually painted
-            soft = _read_mask(snap["maskPng"], shape, smooth=True) > 0
-            r = max(2, round(SNAP_BAND * w))
-            band = cv2.dilate(mask, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2 * r + 1,) * 2)) > 0
-            mask = np.maximum(mask, (soft & band).astype(np.uint8))
-        if rgb is not None:
-            mask = catch_remnants(rgb, mask)
     else:
         mask = _read_mask(selection.get("maskPng"), shape)
     # Hand-added pixels are part of the object too. Growing only the model's
