@@ -190,7 +190,42 @@ def _pick(small: np.ndarray, clicks, key, index=None):
         return candidates, scores, 0
     if index is not None and 0 <= int(index) < len(candidates):
         return candidates, scores, int(index)   # a repeat click asked for this size
-    return candidates, scores, _choose_candidate(candidates, scores, thin_first=True)
+    keep = _not_a_person(small, coords[0], candidates)
+    chosen = _choose_candidate(candidates[keep], scores[keep], thin_first=True)
+    return candidates, scores, keep[chosen]
+
+
+def _not_a_person(small: np.ndarray, point, candidates) -> list:
+    """Indices of the candidates a click at `point` may take.
+
+    A click on a thing is not a click on the person beside it: on the red pipe
+    a child stands against in 321A4983 the segmenter ranked "post, fence and
+    the child" first (0.864) over the pipe alone (0.829). When the clicked
+    pixel is not a person, a candidate that takes a real part of a person (TAKES_PERSON
+    of one person blob) is dropped — unless every candidate does. Not a share
+    of the candidate on people: the rein a woman holds in 321A5095 is 35% on
+    her hand and is still the rein. The mirror of _whole_person's own gate.
+    """
+    import masks
+
+    cat = masks._category_map(small)
+    if cat[int(point[1]), int(point[0])] != masks.CLS_BACKGROUND:
+        return list(range(len(candidates)))
+    n, blobs, stats, _ = cv2.connectedComponentsWithStats((cat != masks.CLS_BACKGROUND).astype(np.uint8))
+    floor = 0.001 * cat.size
+    people = [blobs == i for i in range(1, n) if stats[i, cv2.CC_STAT_AREA] >= floor]
+
+    def takes(c):
+        return any(np.count_nonzero(c[p]) > TAKES_PERSON * np.count_nonzero(p) for p in people)
+
+    keep = [i for i, c in enumerate(candidates) if not takes(c > 0)]
+    return keep or list(range(len(candidates)))
+
+
+#: Share of one person a click on a thing may not take with it. Measured on 8
+#: clicks (2026-09-25): the right answers take <= 2% of a person, the wrong
+#: ones 35-96% (the child beside the pipe in 4983: 49.9% — 0.5 missed it).
+TAKES_PERSON = 0.25
 
 
 def hover(rgb: np.ndarray, x: float, y: float, key=None) -> dict:
@@ -222,6 +257,11 @@ def _whole_person(small: np.ndarray, base: np.ndarray, x: float, y: float) -> np
     ys, xs = np.nonzero(base)
     if not len(ys):
         return base
+    # only a click on a PERSON grows to the person: a click on a fence post
+    # beside a child took the child in with it (321A4983)
+    cat = masks._category_map(small)
+    if float((cat[base] != masks.CLS_BACKGROUND).mean()) < 0.6:
+        return base
     bx0, bx1, by0, by1 = xs.min(), xs.max(), ys.min(), ys.max()
     # faces are looked for at twice the working size: at 1024 a toddler's
     # face in a family group is under the landmarker's 40px floor (321A5015)
@@ -249,7 +289,6 @@ def _whole_person(small: np.ndarray, base: np.ndarray, x: float, y: float) -> np
     area = max(1, int(base.sum()))
     pick = max(range(len(cands)), key=lambda i: (cands[i] & base).sum() / area
                + 0.5 * cands[i][int(cy), int(cx)] - 2 * max(0.0, cands[i].mean() - 3 * base.mean()))
-    cat = masks._category_map(small)
     person = cv2.dilate((cat != masks.CLS_BACKGROUND).astype(np.uint8), np.ones((7, 7), np.uint8)) > 0
     added = cands[pick] & ~base & person
     for qx, qy in others:
@@ -260,6 +299,30 @@ def _whole_person(small: np.ndarray, base: np.ndarray, x: float, y: float) -> np
         if whole:
             added &= ~max(whole, key=lambda c: int(c.sum()))
     return base | added
+
+
+def _drop_specks(mask: np.ndarray) -> np.ndarray:
+    """The segmenter's answer comes with stray dots: the rein in 321A5097 had
+    two of 2px — one on the girl's fingertip, one on her leg — and the removal
+    redrew her hand. A piece under SPECK px that is more than SPECK_GAP px
+    from the object is such a dot. Measured on 12 clicks (2026-09-25): dots
+    2-20px, 47-125px away; real pieces 104-523px, or within 15px (a guide's
+    hand behind a rope, 25px at 8px)."""
+    n, lab, st, _ = cv2.connectedComponentsWithStats(mask.astype(np.uint8), connectivity=8)
+    if n <= 2:
+        return mask
+    main = 1 + int(np.argmax(st[1:, cv2.CC_STAT_AREA]))
+    gap = cv2.distanceTransform((lab != main).astype(np.uint8), cv2.DIST_L2, 3)
+    out = mask.copy()
+    for i in range(1, n):
+        if i != main and st[i, cv2.CC_STAT_AREA] < SPECK and gap[lab == i].min() > SPECK_GAP:
+            out[lab == i] = 0
+    return out
+
+
+#: A stray piece of a selection, in px of the working frame (SELECT_MAX_DIM).
+SPECK = 30
+SPECK_GAP = 10
 
 
 def select(rgb: np.ndarray, x: float, y: float, exclude=(), key=None, index=None) -> dict:
@@ -280,8 +343,9 @@ def select(rgb: np.ndarray, x: float, y: float, exclude=(), key=None, index=None
         _hold(small, key)  # another request may have set its own meanwhile
         if len(clicks) == 1:
             mask = _whole_person(small, mask.astype(bool), x, y).astype(np.uint8)
-            candidates = candidates.copy()
-            candidates[index] = mask
+        mask = _drop_specks(mask)
+        candidates = candidates.copy()
+        candidates[index] = mask
         behind = _find_behind(small, mask.astype(bool))
     sh, sw = small.shape[:2]
     alternatives = [
