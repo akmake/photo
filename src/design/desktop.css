@@ -35,7 +35,22 @@ html[data-desktop] #teza-desktop-titlebar {
 }
 
 html[data-desktop] #root {
+  position: relative;
   height: calc(100% - var(--tz-titlebar-h));
+  /*
+   * Several workspaces are deliberately `position: fixed; inset: 0` so they
+   * can own every pixel of the APPLICATION. Without a containing block, CSS
+   * interprets that as every pixel of the BrowserWindow instead, including the
+   * native caption strip. Their toolbars then sit underneath minimise,
+   * maximise and close and the Windows hit targets swallow the app buttons.
+   *
+   * Paint containment makes #root the containing block for fixed descendants.
+   * In the browser #root is still the viewport; in Electron it is precisely
+   * the safe rectangle below the 36px title bar. One boundary therefore fixes
+   * editors, modal backdrops and future full-screen workspaces together.
+   */
+  contain: paint;
+  overflow: hidden;
 }
 
 html[data-desktop] .tz-app {
