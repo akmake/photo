@@ -56,7 +56,11 @@ MAX_SOURCES = 220000  # kd-tree size cap
 #: carried up from the half-size level is used as it comes (no pixel-level
 #: polishing): a standing man, 1.6M pixels, spent 25s of 52 there.
 LIGHT_PX = 500000
-RANDOM_SEARCH = True
+#: PatchMatch's random search. Implemented and measured on 80 removals
+#: (2026-09-24): the same result in every category (32/40, 30/40 on the set
+#: never tuned on), 65% more time — the kd-tree start and the propagation
+#: already find those patches. Off; kept for the day a case needs it.
+RANDOM_SEARCH = False
 
 
 def _membrane(v, known):
