@@ -321,11 +321,13 @@ export default function WorkStageV2({
   }, [bring, sel]);
 
   /* ---- deciding, with one level of undo that says what it undoes */
-  const decide = useCallback((names: string[], decision: CullDecision | null, label: string) => {
+  /** Several decisions as one step, undone together. */
+  const decideSets = useCallback((sets: [string[], CullDecision | null][], label: string) => {
+    const names = sets.flatMap(([n]) => n);
     if (!names.length) return;
     const before: Record<string, CullDecision | undefined> = {};
     for (const n of names) before[n] = cull[n];
-    setCull(projectId, names, decision);
+    for (const [n, d] of sets) if (n.length) setCull(projectId, n, d);
     setUndo({
       label,
       restore: () => {
@@ -338,6 +340,10 @@ export default function WorkStageV2({
       },
     });
   }, [cull, projectId]);
+
+  const decide = useCallback((names: string[], decision: CullDecision | null, label: string) => {
+    decideSets([[names, decision]], label);
+  }, [decideSets]);
 
   const undoLast = useCallback(() => {
     if (!undo) return;
@@ -425,11 +431,12 @@ export default function WorkStageV2({
     const onKey = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement | null;
       if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT' || target.isContentEditable)) return;
+      const code = e.code || KEY_TO_CODE[e.key] || e.key;
       if (burstView) {
         if (e.key === 'Escape') { e.preventDefault(); setBurstView(null); }
+        if ((e.ctrlKey || e.metaKey) && code === 'KeyZ') { e.preventDefault(); undoLast(); }
         return;
       }
-      const code = e.code || KEY_TO_CODE[e.key] || e.key;
       if ((e.ctrlKey || e.metaKey) && code === 'KeyZ') { e.preventDefault(); undoLast(); return; }
       if ((e.ctrlKey || e.metaKey) && code === 'KeyA' && !viewer && !compare) {
         e.preventDefault(); setPicked(new Set(flat)); return;
@@ -698,10 +705,12 @@ export default function WorkStageV2({
           aspectOf={(n) => { const f = frameByName.get(n); return (f && dims.get(f.path)) || 1.5; }}
           srcOf={srcOf}
           onDecide={(n, d) => decide([n], cull[n] === d ? null : d, `${n} · ${cull[n] === d ? 'ההחלטה בוטלה' : WORD[d]}`)}
-          onRejectRest={(rest) => {
-            decide(rest, 'reject', `${rest.length.toLocaleString('he-IL')} תמונות מהרצף הוסרו`);
-            setBurstView((v) => (v && v.i < v.list.length - 1 ? { ...v, i: v.i + 1 } : null));
+          onApply={(sets, label, next) => {
+            decideSets(sets, label);
+            if (next) setBurstView((v) => (v && v.i < v.list.length - 1 ? { ...v, i: v.i + 1 } : null));
           }}
+          undoLabel={undo?.label ?? null}
+          onUndo={undoLast}
           onStep={(delta) => setBurstView((v) => (v ? { ...v, i: Math.max(0, Math.min(v.list.length - 1, v.i + delta)) } : v))}
           onClose={() => setBurstView(null)}
         />
@@ -1110,22 +1119,59 @@ function faceCrop(src: string, box: TriageFrame['faces'][number]['box'], aspect:
  * gallery they sit at thumbnail size, where the only differences between them
  * — an eye half shut, a face a touch soft — cannot be seen.
  *
- * So: two frames large, side by side, and ONE zoom for both. A burst is shot
- * from one spot, so the same point of the picture is the same point of the
- * scene; zooming into the eyes of one shows the eyes of the other.
+ * Every way of looking shares ONE zoom. A burst is shot from one spot, so the
+ * same point of the picture is the same point of the scene; zooming into the
+ * eyes of one shows the eyes of all.
  *
- * The pane with the frame is chosen by clicking it; a frame from the strip goes
- * into the chosen pane. A decision moves that pane on to the next frame nobody
- * has decided yet, so a burst is judged by pressing, not by pressing and then
- * walking. When the good ones are kept, one button removes the rest and brings
- * the next burst. */
+ * Three ways to judge a burst, chosen at the top of the window (and
+ * remembered):
+ *  - all together (Lightroom's Survey): every frame still in on screen at the
+ *    largest size that fits; a frame taken out leaves and the rest grow. For
+ *    clearing the obvious ones out of a long burst fast.
+ *  - duel: the leading frame against the next one in line. The better stays
+ *    and leads, the other goes; the last one standing is kept. Each decision
+ *    is between two only — the most accurate way to choose — and ten frames
+ *    take at most nine clicks. "Keep this one too" takes a frame out of the
+ *    duel as kept, for a burst with two good expressions.
+ *  - two side by side: two frames of the photographer's choosing, a decision
+ *    on each; a decision moves that pane on to the next undecided frame. */
 
 type BurstView = { z: number; fx: number; fy: number };
 const FIT: BurstView = { z: 1, fx: 0.5, fy: 0.5 };
 const BURST_MAX_Z = 6;
 
+type BurstMode = 'all' | 'duel' | 'pair';
+const BURST_MODES: { id: BurstMode; label: string; hint: string }[] = [
+  { id: 'all', label: 'כולן יחד', hint: 'כל התמונות על המסך. תמונה שמסירים יוצאת, והשאר גדלות' },
+  { id: 'duel', label: 'דו-קרב', hint: 'המובילה מול הבאה בתור. הטובה נשארת, השנייה יוצאת' },
+  { id: 'pair', label: 'שתיים זו מול זו', hint: 'שתי תמונות לבחירתך, החלטה על כל אחת' },
+];
+const BURST_MODE_KEY = 'tz-ws-burst-mode';
+
+function readBurstMode(): BurstMode {
+  try {
+    const m = localStorage.getItem(BURST_MODE_KEY);
+    return m === 'duel' || m === 'pair' ? m : 'all';
+  } catch { return 'all'; }
+}
+
+/** How many columns lay out n frames of one shape in a box, each as large as
+ *  it can be; `bar` is the height each frame's own bar takes. */
+function surveyColumns(n: number, box: { w: number; h: number }, aspect: number, gap: number, bar: number): number {
+  let best = 1;
+  let bestW = 0;
+  for (let c = 1; c <= Math.max(1, n); c++) {
+    const r = Math.ceil(n / c);
+    const cw = (box.w - gap * (c - 1)) / c;
+    const ch = (box.h - gap * (r - 1)) / r - bar;
+    const iw = Math.min(cw, ch * aspect);
+    if (iw > bestW) { bestW = iw; best = c; }
+  }
+  return best;
+}
+
 function BurstPanel({
-  names, position, total, triage, cull, aspectOf, srcOf, onDecide, onRejectRest, onStep, onClose,
+  names, position, total, triage, cull, aspectOf, srcOf, onDecide, onApply, undoLabel, onUndo, onStep, onClose,
 }: {
   names: string[];
   position: number;
@@ -1135,20 +1181,44 @@ function BurstPanel({
   aspectOf: (name: string) => number;
   srcOf: (name: string, w: number) => string | null;
   onDecide: (name: string, d: CullDecision) => void;
-  onRejectRest: (names: string[]) => void;
+  /** Several decisions as one step (one undo); `next` then brings the next burst. */
+  onApply: (sets: [string[], CullDecision][], label: string, next: boolean) => void;
+  undoLabel: string | null;
+  onUndo: () => void;
   onStep: (delta: number) => void;
   onClose: () => void;
 }) {
+  // With two frames every way is the same one.
+  const [mode, setModeState] = useState<BurstMode>(() => (names.length <= 2 ? 'pair' : readBurstMode()));
+  const [view, setView] = useState<BurstView>(FIT);
+  const setMode = (m: BurstMode) => {
+    setModeState(m);
+    setView(FIT);
+    try { localStorage.setItem(BURST_MODE_KEY, m); } catch { /* per-viewer only */ }
+  };
+
   const [panes, setPanes] = useState<[string, string]>(() => {
     const first = names.find((n) => triage.get(n)?.star) ?? names[0];
     const second = names.find((n) => n !== first) ?? first;
     return [first, second];
   });
   const [focus, setFocus] = useState<0 | 1>(1);
-  const [view, setView] = useState<BurstView>(FIT);
+  const [focusName, setFocusName] = useState<string | null>(null);
+  const [champ, setChamp] = useState<string>(
+    () => names.find((n) => triage.get(n)?.star && cull[n] !== 'reject') ?? names.find((n) => cull[n] !== 'reject') ?? names[0],
+  );
+
   const kept = names.filter((n) => cull[n] === 'keep').length;
   const rest = names.filter((n) => !cull[n]);
+  const alive = names.filter((n) => cull[n] !== 'reject');
   const last = position >= total - 1;
+
+  // The duel: the leader, and the frames still waiting to meet it — neither
+  // decided nor the leader. A leader taken out elsewhere (the strip, an undo)
+  // hands the lead to the first frame still in.
+  const leader = cull[champ] === 'reject' ? (alive[0] ?? champ) : champ;
+  const challengers = names.filter((n) => n !== leader && !cull[n]);
+  const challenger = challengers[0] ?? null;
 
   const note = (n: string) => {
     const t = triage.get(n);
@@ -1159,8 +1229,6 @@ function BurstPanel({
     }
     return '';
   };
-
-  const put = (n: string) => setPanes((p) => (focus === 0 ? [n, p[1]] : [p[0], n]));
 
   /** Decide the frame in a pane, then move that pane to the next frame not yet
    *  decided — after this one, wrapping, never onto the other pane's frame. */
@@ -1177,6 +1245,70 @@ function BurstPanel({
     if (next) setPanes((p) => (pane === 0 ? [next, p[1]] : [p[0], next]));
   };
 
+  /** One round of the duel. The last round also keeps the one left standing. */
+  const win = (winner: string, loser: string) => {
+    const done = challengers.length <= 1;
+    const sets: [string[], CullDecision][] = [[[loser], 'reject']];
+    if (done) sets.push([[winner], 'keep']);
+    onApply(sets, done ? `${winner} · נבחרה ונשמרה` : `${loser} · הוסרה`, false);
+    setChamp(winner);
+  };
+  const keepToo = (n: string) => {
+    const done = challengers.length <= 1;
+    const sets: [string[], CullDecision][] = [[[n], 'keep']];
+    if (done && cull[leader] !== 'keep') sets.push([[leader], 'keep']);
+    onApply(sets, `${n} · נשמרה`, false);
+  };
+
+  /** A click on a frame in the strip. */
+  const pick = (n: string) => {
+    if (mode === 'pair') { setPanes((p) => (focus === 0 ? [n, p[1]] : [p[0], n])); return; }
+    // A frame taken out is off the screen; the strip is where it comes back.
+    if (cull[n] === 'reject') { onDecide(n, 'reject'); return; }
+    if (mode === 'all') setFocusName(n);
+    else if (n !== leader) setChamp(n);
+  };
+  const stripTag = (n: string): string | null => {
+    if (mode === 'pair') { const at = panes.indexOf(n); return at < 0 ? null : at === 0 ? 'ימין' : 'שמאל'; }
+    if (mode === 'duel') return n === leader ? 'מובילה' : n === challenger ? 'מתמודדת' : null;
+    return null;
+  };
+  const stripTitle = (n: string) => {
+    if (mode === 'pair') return 'הצג בתמונה המסומנת למעלה';
+    if (cull[n] === 'reject') return 'החזר לרצף';
+    return mode === 'duel' ? 'הפוך למובילה' : undefined;
+  };
+
+  // The survey grid, measured to lay the frames out as large as they fit.
+  const gridRef = useRef<HTMLDivElement | null>(null);
+  const [gridBox, setGridBox] = useState({ w: 1200, h: 700 });
+  useEffect(() => {
+    const el = gridRef.current;
+    if (!el) return undefined;
+    const ro = new ResizeObserver(([e]) => setGridBox({ w: e.contentRect.width, h: e.contentRect.height }));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [mode]);
+  const cols = surveyColumns(alive.length, gridBox, aspectOf(alive[0] ?? names[0]), 10, 52);
+  const rows = Math.max(1, Math.ceil(alive.length / cols));
+
+  const pane = (n: string, props: Partial<Parameters<typeof BurstPane>[0]> & { onDecide: (d: CullDecision) => void }, key: string | number = n) => (
+    <BurstPane
+      key={key}
+      name={n}
+      src={srcOf(n, 2400)}
+      quick={srcOf(n, 640)}
+      aspect={aspectOf(n)}
+      note={note(n)}
+      decision={cull[n]}
+      focused={false}
+      view={view}
+      onView={setView}
+      onFocus={() => undefined}
+      {...props}
+    />
+  );
+
   return (
     <div className="tz-ws-burst" role="dialog" aria-modal="true" aria-label="רצף">
       <header className="tz-ws-v-top">
@@ -1184,6 +1316,23 @@ function BurstPanel({
         <div className="tz-ws-v-name">
           <b>רצף · {names.length.toLocaleString('he-IL')} תמונות כמעט זהות</b>
           <span>רצף {(position + 1).toLocaleString('he-IL')} מתוך {total.toLocaleString('he-IL')}</span>
+          {names.length > 2 && (
+            <div className="tz-ws-burst-modes" role="radiogroup" aria-label="איך להשוות">
+              {BURST_MODES.map((m) => (
+                <button
+                  key={m.id}
+                  type="button"
+                  role="radio"
+                  aria-checked={mode === m.id}
+                  className={mode === m.id ? 'is-on' : ''}
+                  onClick={() => setMode(m.id)}
+                  title={m.hint}
+                >
+                  {m.label}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
         <div className="tz-ws-burst-nav">
           <button type="button" disabled={position <= 0} onClick={() => onStep(-1)}>→ הרצף הקודם</button>
@@ -1191,35 +1340,74 @@ function BurstPanel({
         </div>
       </header>
 
-      <div className="tz-ws-burst-pair">
-        {([0, 1] as const).map((pane) => (
-          <BurstPane
-            key={pane}
-            name={panes[pane]}
-            src={srcOf(panes[pane], 2400)}
-            quick={srcOf(panes[pane], 640)}
-            aspect={aspectOf(panes[pane])}
-            note={note(panes[pane])}
-            decision={cull[panes[pane]]}
-            focused={focus === pane}
-            view={view}
-            onView={setView}
-            onFocus={() => setFocus(pane)}
-            onDecide={(d) => decideIn(pane, d)}
-          />
-        ))}
-      </div>
+      {mode === 'pair' && (
+        <div className="tz-ws-burst-pair">
+          {([0, 1] as const).map((p) => pane(panes[p], {
+            focused: focus === p,
+            onFocus: () => setFocus(p),
+            onDecide: (d) => decideIn(p, d),
+          }, p))}
+        </div>
+      )}
+
+      {mode === 'all' && (
+        <div
+          ref={gridRef}
+          className="tz-ws-burst-all"
+          style={{ gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))`, gridTemplateRows: `repeat(${rows}, minmax(0, 1fr))` }}
+        >
+          {alive.length === 0 && <p className="tz-ws-burst-empty">כל הרצף הוסר. אפשר להחזיר תמונה מהפס למטה.</p>}
+          {alive.map((n) => pane(n, {
+            compact: alive.length > 3,
+            focused: focusName === n,
+            onFocus: () => setFocusName(n),
+            onDecide: (d) => { setFocusName(n); onDecide(n, d); },
+          }))}
+        </div>
+      )}
+
+      {mode === 'duel' && (
+        <div className="tz-ws-burst-pair">
+          {pane(leader, {
+            tag: 'המובילה',
+            onDecide: () => undefined,
+            actions: challenger ? (
+              <button type="button" className="tz-ws-burst-win" onClick={() => win(leader, challenger)}>זו עדיפה</button>
+            ) : null,
+          })}
+          {challenger ? pane(challenger, {
+            tag: `המתמודדת · עוד ${(challengers.length - 1).toLocaleString('he-IL')} בתור`,
+            onDecide: () => undefined,
+            actions: (
+              <>
+                <button type="button" className="tz-ws-burst-win" onClick={() => win(challenger, leader)}>זו עדיפה</button>
+                <button type="button" className="tz-ws-burst-too" onClick={() => keepToo(challenger)}>שמור גם את זו</button>
+              </>
+            ),
+          }) : (
+            <section className="tz-ws-burst-done">
+              <b>{cull[leader] === 'keep' ? 'הדו-קרב הסתיים — המובילה נשמרה' : 'אין עוד תמונות להשוות'}</b>
+              {cull[leader] !== 'keep' && (
+                <button type="button" onClick={() => onApply([[[leader], 'keep']], `${leader} · נשמרה`, false)}>שמור את המובילה</button>
+              )}
+              <button type="button" className="is-go" onClick={() => (last ? onClose() : onStep(1))}>
+                {last ? 'סגור' : 'לרצף הבא'}
+              </button>
+            </section>
+          )}
+        </div>
+      )}
 
       <div className="tz-ws-burst-zoom" dir="ltr">
         <button type="button" onClick={() => setView((v) => ({ ...v, z: Math.max(1, v.z / 1.25) }))} aria-label="הקטן">−</button>
         <input
           type="range" min={1} max={BURST_MAX_Z} step={0.01} value={view.z}
           onChange={(e) => setView((v) => ({ ...v, z: Number(e.target.value) }))}
-          aria-label="הגדלה בשתי התמונות"
+          aria-label="הגדלה בכל התמונות"
         />
         <button type="button" onClick={() => setView((v) => ({ ...v, z: Math.min(BURST_MAX_Z, v.z * 1.25) }))} aria-label="הגדל">+</button>
         <button type="button" className={view.z === 1 ? 'is-on' : ''} onClick={() => setView(FIT)}>התאם</button>
-        <span dir="rtl">הזום משותף לשתי התמונות · גלגלת להגדלה, גרירה להזזה</span>
+        <span dir="rtl">הזום משותף לכל התמונות · גלגלת להגדלה, גרירה להזזה</span>
       </div>
 
       <div className="tz-ws-burst-strip">
@@ -1227,18 +1415,18 @@ function BurstPanel({
           const d = cull[n];
           const t = triage.get(n);
           const shut = (t?.faces ?? []).some((f) => typeof f.blink === 'number' && f.blink >= EYES_SHUT);
-          const at = panes.indexOf(n);
+          const tag = stripTag(n);
           return (
             <figure
               key={n}
-              className={`tz-ws-burst-card${at >= 0 ? ' is-shown' : ''}${d ? ` is-${d}` : ''}`}
-              onClick={() => put(n)}
-              title="הצג בתמונה המסומנת למעלה"
+              className={`tz-ws-burst-card${tag || (mode === 'all' && focusName === n) ? ' is-shown' : ''}${d ? ` is-${d}` : ''}`}
+              onClick={() => pick(n)}
+              title={stripTitle(n)}
             >
               <div className="tz-ws-burst-thumb">
                 {srcOf(n, 640) && <img src={srcOf(n, 640)!} alt={n} draggable={false} loading="lazy" />}
                 {t?.star && <span className="tz-ws-burst-star" title="המומלצת ברצף">★</span>}
-                {at >= 0 && <span className="tz-ws-burst-at">{at === 0 ? 'ימין' : 'שמאל'}</span>}
+                {tag && <span className="tz-ws-burst-at">{tag}</span>}
                 {d && <span className={`tz-ws-pg-mark is-${d}`}>{WORD[d]}</span>}
                 {shut && !d && <span className="tz-ws-burst-shut">עיניים עצומות</span>}
               </div>
@@ -1248,30 +1436,54 @@ function BurstPanel({
       </div>
 
       <footer className="tz-ws-burst-foot">
-        <span>
-          {kept ? `נשמרו ${kept.toLocaleString('he-IL')}` : 'סמן לשמירה את הטובות ברצף'}
+        <span className="tz-ws-burst-count">
+          {mode === 'duel'
+            ? (challenger ? `${challengers.length.toLocaleString('he-IL')} עוד מחכות לדו-קרב` : 'הדו-קרב הסתיים')
+            : kept ? `נשמרו ${kept.toLocaleString('he-IL')}` : 'סמן לשמירה את הטובות ברצף'}
           {' · '}
-          {rest.length ? `${rest.length.toLocaleString('he-IL')} בלי החלטה` : 'כל הרצף הוחלט'}
+          {mode === 'all'
+            ? `${alive.length.toLocaleString('he-IL')} על המסך`
+            : rest.length ? `${rest.length.toLocaleString('he-IL')} בלי החלטה` : 'כל הרצף הוחלט'}
+          {undoLabel && (
+            <button type="button" className="tz-ws-burst-undo" onClick={onUndo} title={`בטל: ${undoLabel} (Ctrl+Z)`}>
+              ↶ בטל · {undoLabel}
+            </button>
+          )}
         </span>
-        <button
-          type="button"
-          className="is-go"
-          disabled={!kept || !rest.length}
-          onClick={() => onRejectRest(rest)}
-          title={!kept ? 'קודם סמן לשמירה לפחות תמונה אחת' : undefined}
-        >
-          הסר את השאר ({rest.length.toLocaleString('he-IL')}){last ? '' : ' ועבור לרצף הבא'}
-        </button>
+        {mode === 'duel' ? (
+          <button
+            type="button"
+            className="is-go"
+            disabled={!challengers.length}
+            onClick={() => onApply(
+              [[[leader], 'keep'], [challengers, 'reject']],
+              `המובילה נשמרה, ${challengers.length.toLocaleString('he-IL')} הוסרו`,
+              true,
+            )}
+          >
+            שמור את המובילה והסר את השאר ({challengers.length.toLocaleString('he-IL')}){last ? '' : ' ועבור לרצף הבא'}
+          </button>
+        ) : (
+          <button
+            type="button"
+            className="is-go"
+            disabled={!kept || !rest.length}
+            onClick={() => onApply([[rest, 'reject']], `${rest.length.toLocaleString('he-IL')} תמונות מהרצף הוסרו`, true)}
+            title={!kept ? 'קודם סמן לשמירה לפחות תמונה אחת' : undefined}
+          >
+            הסר את השאר ({rest.length.toLocaleString('he-IL')}){last ? '' : ' ועבור לרצף הבא'}
+          </button>
+        )}
       </footer>
     </div>
   );
 }
 
-/** One of the two frames: the picture under the shared zoom and its
- *  decision. The zoom is a point of the picture (fx, fy — 0..1) held at the
+/** One frame of a burst: the picture under the shared zoom and its decision
+ *  (or, in the duel, the duel's own buttons in place of the decision). The zoom is a point of the picture (fx, fy — 0..1) held at the
  *  pane's centre, and a magnification of the fitted size. */
 function BurstPane({
-  name, src, quick, aspect, note, decision, focused, view, onView, onFocus, onDecide,
+  name, src, quick, aspect, note, decision, focused, view, onView, onFocus, onDecide, compact, tag, actions,
 }: {
   name: string;
   src: string | null;
@@ -1284,6 +1496,11 @@ function BurstPane({
   onView: (v: BurstView | ((v: BurstView) => BurstView)) => void;
   onFocus: () => void;
   onDecide: (d: CullDecision) => void;
+  /** Small panes: the decision as marks only. */
+  compact?: boolean;
+  /** The pane's part in the duel. */
+  tag?: string;
+  actions?: React.ReactNode;
 }) {
   const boxRef = useRef<HTMLDivElement | null>(null);
   const [box, setBox] = useState({ w: 600, h: 500 });
@@ -1357,9 +1574,10 @@ function BurstPane({
       </div>
 
       <div className="tz-ws-burst-bar">
+        {tag && <span className="tz-ws-burst-tag">{tag}</span>}
         <span dir="ltr" className="tz-ws-burst-name">{name}</span>
-        {note && <span className="tz-ws-burst-note">{note}</span>}
-        <Decide decision={decision} onDecide={onDecide} />
+        {note && !compact && <span className="tz-ws-burst-note">{note}</span>}
+        {actions !== undefined ? actions : <Decide decision={decision} onDecide={onDecide} compact={compact} />}
       </div>
     </section>
   );

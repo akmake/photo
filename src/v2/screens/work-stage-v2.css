@@ -542,6 +542,55 @@
 .tz-ws-burst-name { color: var(--ws-ink); }
 .tz-ws-burst-note { font-size: 12px; color: var(--ws-muted); }
 
+/* how to compare: all together · duel · two side by side */
+.tz-ws-burst-modes {
+  display: inline-flex; align-self: center; gap: 2px; padding: 2px; margin-inline-start: 6px;
+  border: 1px solid var(--ws-line); border-radius: 999px; background: var(--ws-ground);
+}
+.tz-ws-burst-modes button {
+  height: 28px; padding: 0 14px; border: 0; border-radius: 999px;
+  background: transparent; color: var(--ws-muted); font-size: 13px; white-space: nowrap;
+}
+.tz-ws-burst-modes button:hover { color: var(--ws-ink); }
+.tz-ws-burst-modes button.is-on { background: var(--ws-paper); color: var(--ws-ink); font-weight: 600; box-shadow: 0 0 0 1px var(--ws-line); }
+
+/* all together: every frame still in, as large as they fit */
+.tz-ws-burst-all {
+  min-height: 0;
+  display: grid; gap: 10px;
+  padding: 10px 12px 0;
+}
+.tz-ws-burst-all .tz-ws-burst-bar { gap: 10px; padding: 6px 8px; }
+.tz-ws-burst-all .tz-ws-burst-name { font-size: 12px; }
+.tz-ws-burst-empty { grid-column: 1 / -1; align-self: center; justify-self: center; color: var(--ws-muted); font-size: 14px; }
+
+/* the duel */
+.tz-ws-burst-tag {
+  padding: 2px 10px; border-radius: 999px;
+  background: var(--ws-brand); color: #fff; font-size: 12px; font-weight: 600; white-space: nowrap;
+}
+.tz-ws-burst-win,
+.tz-ws-burst-too,
+.tz-ws-burst-done button {
+  height: 34px; padding: 0 18px; border-radius: 8px; white-space: nowrap;
+  border: 1px solid var(--ws-line); background: var(--ws-paper); color: var(--ws-ink); font-size: 13.5px;
+}
+.tz-ws-burst-win { border-color: transparent; background: var(--ws-keep); color: #fff; font-weight: 600; }
+.tz-ws-burst-win:hover { filter: brightness(1.06); }
+.tz-ws-burst-too:hover { border-color: var(--ws-keep); }
+.tz-ws-burst-done {
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px;
+  border-radius: 10px; background: var(--ws-ground);
+  font-size: 15px; color: var(--ws-ink);
+}
+.tz-ws-burst-done button.is-go { border-color: transparent; background: var(--ws-brand); color: #fff; font-weight: 600; }
+
+.tz-ws-burst-count { display: inline-flex; align-items: center; gap: 4px; min-width: 0; }
+.tz-ws-burst-foot button.tz-ws-burst-undo {
+  height: 28px; margin-inline-start: 12px; padding: 0 12px; max-width: 360px;
+  overflow: hidden; text-overflow: ellipsis;
+}
+
 /* the shared zoom */
 .tz-ws-burst-zoom {
   display: flex; align-items: center; justify-content: center; gap: 8px;
