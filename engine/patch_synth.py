@@ -178,8 +178,12 @@ class _Level:
         F = self._feat(vy, vx, self.FS)
         sub = F[self.rng.choice(len(F), size=min(len(F), 20000), replace=False)]
         self.mean = sub.mean(0)
-        _, _, vt = np.linalg.svd(sub - self.mean, full_matrices=False)
-        self.basis = vt[:DIMS].T.copy()
+        # the same principal directions as an SVD of `sub`, from its small
+        # covariance matrix: the SVD of 20,000 patches was 14-16 of the 20-37
+        # seconds a plain removal took without a graphics card (2026-10-05)
+        c = sub - self.mean
+        _, v = np.linalg.eigh(c.T @ c)
+        self.basis = np.ascontiguousarray(v[:, ::-1][:, :DIMS])
         G = (F - self.mean) @ self.basis
         self.tree = cv2.flann_Index(np.ascontiguousarray(G, np.float32), dict(algorithm=1, trees=4))
 
