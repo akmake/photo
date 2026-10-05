@@ -38,6 +38,8 @@ HOW IT DIFFERS FROM THE PAPER.
     ropes and stones against the real background: 0.05 -> grain 1.14x.
 """
 
+import os
+
 import cv2
 import numpy as np
 
@@ -116,6 +118,23 @@ def _patch_ssd(FT: np.ndarray, FS: np.ndarray, tb: np.ndarray, sb: np.ndarray, o
     return out
 
 
+def _knn(tree, G: np.ndarray) -> np.ndarray:
+    """Nearest source for every row of G, the rows split over the cores.
+
+    Each query is answered on its own, so the split changes nothing in the
+    answer; one core took 2.8 of a standing man's 12.6s (2026-10-05)."""
+    from concurrent.futures import ThreadPoolExecutor
+    n = len(G)
+    parts = max(1, min(os.cpu_count() or 1, n // 4096))
+    if parts == 1:
+        return tree.knnSearch(G, 1, params=dict(checks=24))[0][:, 0]
+    cuts = np.linspace(0, n, parts + 1).astype(int)
+    with ThreadPoolExecutor(parts) as ex:
+        got = ex.map(lambda ab: tree.knnSearch(G[ab[0]:ab[1]], 1, params=dict(checks=24))[0][:, 0],
+                     zip(cuts[:-1], cuts[1:]))
+    return np.concatenate(list(got))
+
+
 def structure(img: np.ndarray) -> np.ndarray:
     """Large edges kept, small-scale texture gone (rolling guidance filter)."""
     return cv2.ximgproc.rollingGuidanceFilter(img, d=-1, sigmaColor=25.0, sigmaSpace=4.0, numOfIter=4)
@@ -185,8 +204,10 @@ class _Level:
         return _patch_ssd(self.FT, self.FS, tb, sb, self._offs) * (49.0 / len(self.Q))
 
     def _feat(self, ys, xs, F):
-        base = ys * self.W + xs
-        return np.concatenate([F[base + dy * self.W + dx] for dy, dx in self.Q], axis=1)
+        """Each patch's features, offset by offset side by side (n, len(Q)*k)."""
+        import torch
+        idx = torch.from_numpy(ys * self.W + xs)[:, None] + torch.from_numpy(self._offs)[None, :]
+        return torch.from_numpy(F)[idx].reshape(len(ys), -1).numpy()
 
     def build_tree(self):
         vy, vx = self.vy, self.vx
@@ -210,8 +231,8 @@ class _Level:
     def query(self, sel=None):
         cy, cx = (self.cy, self.cx) if sel is None else (self.cy[sel], self.cx[sel])
         G = (self._feat(cy, cx, self.FT) - self.mean) @ self.basis
-        idx, _ = self.tree.knnSearch(np.ascontiguousarray(G, np.float32), 1, params=dict(checks=24))
-        return self.ty[idx[:, 0]], self.tx[idx[:, 0]]
+        idx = _knn(self.tree, np.ascontiguousarray(G, np.float32))
+        return self.ty[idx], self.tx[idx]
 
     def offer(self, sy, sx, ok):
         """Take candidate sources where valid and better than the current."""
