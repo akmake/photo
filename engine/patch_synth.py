@@ -92,6 +92,30 @@ def _mask_pyr(m, n):
     return out
 
 
+#: Patches per block in _patch_ssd: ~25MB of gathered features per side.
+SSD_BLOCK = 16384
+
+
+def _patch_ssd(FT: np.ndarray, FS: np.ndarray, tb: np.ndarray, sb: np.ndarray, offs: np.ndarray) -> np.ndarray:
+    """Sum over the patch offsets of |FT[tb+o] - FS[sb+o]|^2, one value per patch.
+
+    The patch distance is most of what a removal costs. In numpy each offset
+    was a gather on ONE core: 24 of the 42 seconds a standing man took with
+    no graphics card (2026-10-05). torch gathers and reduces on every core,
+    a block of patches at a time.
+    """
+    import torch
+    ft, fs = torch.from_numpy(FT), torch.from_numpy(FS)
+    o = torch.from_numpy(offs)[None, :]
+    out = np.empty(len(tb), np.float32)
+    acc = torch.from_numpy(out)
+    t_all, s_all = torch.from_numpy(tb), torch.from_numpy(sb)
+    for i in range(0, len(tb), SSD_BLOCK):
+        d = ft[t_all[i:i + SSD_BLOCK, None] + o] - fs[s_all[i:i + SSD_BLOCK, None] + o]
+        acc[i:i + SSD_BLOCK] = d.square_().sum((1, 2))
+    return out
+
+
 def structure(img: np.ndarray) -> np.ndarray:
     """Large edges kept, small-scale texture gone (rolling guidance filter)."""
     return cv2.ximgproc.rollingGuidanceFilter(img, d=-1, sigmaColor=25.0, sigmaSpace=4.0, numOfIter=4)
@@ -129,6 +153,7 @@ class _Level:
         self.XT = np.dstack([_membrane(tp[..., c], known > 0) for c in range(2)]).reshape(-1, 2)
         qs = [(dy, dx) for dy in range(-p, p + 1) for dx in range(-p, p + 1)]
         self.Q = qs[::sample]
+        self._offs = np.array([dy * self.W + dx for dy, dx in self.Q], np.int64)
         self.rng = rng
         self.S = self.img.reshape(-1, 3)
         self.T = self.S.copy()          # known pixels + the current estimate
@@ -157,12 +182,7 @@ class _Level:
     def dist(self, sy, sx, sel=None):
         cy, cx = (self.cy, self.cx) if sel is None else (self.cy[sel], self.cx[sel])
         tb, sb = cy * self.W + cx, sy * self.W + sx
-        acc = np.zeros(len(cy), np.float32)
-        for dy, dx in self.Q:
-            o = dy * self.W + dx
-            d = self.FT[tb + o] - self.FS[sb + o]
-            acc += np.einsum("ij,ij->i", d, d)
-        return acc * (49.0 / len(self.Q))
+        return _patch_ssd(self.FT, self.FS, tb, sb, self._offs) * (49.0 / len(self.Q))
 
     def _feat(self, ys, xs, F):
         base = ys * self.W + xs
