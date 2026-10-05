@@ -36,7 +36,7 @@ import type { LearnedColorModel, ManualStroke, ToolInstance, ToolMask } from '..
 import { defaultParams, getTool, isRawFile, isToolAtDefault } from '../../toolRegistry';
 import ManualBrush, { DEFAULT_R, MAX_R, MIN_R } from './ManualBrush';
 import ObjectMaskPreview from './ObjectMaskPreview';
-import ObjectPickLayer from './ObjectPickLayer';
+import ObjectPickLayer, { type ObjectBox } from './ObjectPickLayer';
 import ToolsPanelV2 from './ToolsPanelV2';
 import ColorMatchPanel from './ColorMatchPanel';
 import ExportDialog from './ExportDialog';
@@ -794,13 +794,14 @@ export default function GalleryEditV2({
     setObjectBusy(false);
     setObjectError(null);
   }, [currentPath]);
-  const chooseObject = async (x: number, y: number) => {
+  const chooseObject = async (x: number, y: number, box?: ObjectBox) => {
     if (!currentPath) return;
     // A click again at (nearly) the same spot means "not that one": step to the
     // next size of the three the engine offers, largest to smallest, skipping
     // sizes too close to tell apart.
     const prev = objectClicks.current;
-    const again = prev && Math.hypot(prev.at[0] - x, prev.at[1] - y) < 0.02;
+    // a rectangle already says which object: nothing to step through
+    const again = !box && prev && Math.hypot(prev.at[0] - x, prev.at[1] - y) < 0.02;
     let index: number | undefined;
     if (again && prev) {
       const order = prev.sizes.map((c, i) => [c, i] as const).sort((a, b) => b[0] - a[0]);
@@ -817,7 +818,7 @@ export default function GalleryEditV2({
     setObjectBusy(true);
     setObjectError(null);
     try {
-      const result = await selectObjectAtPath(currentPath, at[0], at[1], [], index);
+      const result = await selectObjectAtPath(currentPath, at[0], at[1], [], index, box);
       if (request !== objectRequest.current) return;
       objectClicks.current = { at, sizes: result.candidates.map((c) => c.coverage), index: result.selectedIndex };
       // the engine names what stands behind on its own (object_remove._find_behind)
@@ -1601,7 +1602,7 @@ export default function GalleryEditV2({
                   {objectMode === 'select' && fittedImage && !showOriginal && currentPath && (
                     <ObjectPickLayer path={currentPath} width={fittedImage.width} height={fittedImage.height}
                       className="tz-ge-object-click" busy={objectBusy}
-                      onPick={(x, y) => { void chooseObject(x, y); }} />
+                      onPick={(x, y, box) => { void chooseObject(x, y, box); }} />
                   )}
                   {(objectMode === 'add' || objectMode === 'subtract') && selectedObject && !showOriginal && (
                     <ManualBrush imgRef={canvasImgRef}

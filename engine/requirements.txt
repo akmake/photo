@@ -31,6 +31,12 @@ cryptography>=43    # verify the server's Ed25519 license lease in packaged buil
 # GPU acceleration, if ever, is a deliberate feature with code and measurements.
 torch
 mobile_sam @ git+https://github.com/ChaoningZhang/MobileSAM.git
+# box_select.py: SAM 2.1 small for "drag a rectangle around the object"
+# (Apache-2.0; model folder models/sam2.1-hiera-small, ~176MB). Added
+# 2026-10-05. NOT YET VERIFIED IN A PACKAGED BUILD — transformers loads its
+# model classes lazily; if PyInstaller misses them, add them to the spec.
+# Exporting SAM 2.1 to onnxruntime would drop this line (and torch with it).
+transformers>=5
 
 # --- build only: not imported by the engine ---------------------------------
 #

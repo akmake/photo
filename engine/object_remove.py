@@ -362,6 +362,28 @@ def select(rgb: np.ndarray, x: float, y: float, exclude=(), key=None, index=None
     return out
 
 
+def select_box(rgb: np.ndarray, box, key=None) -> dict:
+    """The object inside a rectangle the photographer drew (box_select).
+
+    Same answer shape as `select`, with one size: the rectangle already says
+    which object, so a repeat click has nothing to step through.
+    """
+    import box_select
+
+    small = _small(rgb)
+    mask = _drop_specks(box_select.mask_in_box(small, box))
+    with _predict_lock:
+        _hold(small, key)
+        behind = _find_behind(small, mask.astype(bool))
+    sh, sw = small.shape[:2]
+    one = {"maskPng": _mask_data(mask), "coverage": round(float(mask.mean()), 5), "score": 1.0}
+    out = {**one, "width": sw, "height": sh, "margin": DEFAULT_MARGIN,
+           "selectedIndex": 0, "candidates": [one]}
+    if behind is not None:
+        out["behind"] = {"maskPng": _mask_data(behind)}
+    return out
+
+
 def select_painted(rgb: np.ndarray, strokes, key=None) -> dict:
     """Exactly what the photographer painted over — the removal brush.
 
@@ -997,9 +1019,29 @@ def apply(rgb: np.ndarray, params: dict):
             gen_error = None
     else:
         gen_error = None
+    # The plain removals are filled TOGETHER, in one pass: filled one after
+    # another, the first hole took its texture from the next object still
+    # standing beside it. 321A1843 (2026-10-05): the jar filled first copied
+    # the teddy's fur into the jar's place; the teddy removed next left that
+    # fur behind as a bear-shaped ghost. One pass never offers what is still
+    # to be removed as source (object_fill.fill). A single removal is
+    # unchanged by this.
+    plain, layered_steps = [], []
     for i, step in enumerate(steps):
         if i in drawn_steps:
             continue
+        hole, b = _step_masks(rgb, step)
+        (layered_steps if b is not None else plain).append((i, hole))
+    if plain:
+        union = np.zeros(rgb.shape[:2], np.uint8)
+        for _, hole in plain:
+            union |= hole.astype(np.uint8)
+        if union.any():
+            out = object_fill.fill(out, union)
+        for _, hole in plain:
+            report.append({"removedPx": int(hole.sum()), "filler": "photo" if hole.any() else "none"})
+    for i, _ in layered_steps:
+        step = steps[i]
         out, meta = _remove_one(out, step, allow_gen=False)
         if gen_error and meta.get("filler") == "layered":
             meta["genError"] = gen_error

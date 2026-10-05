@@ -1347,14 +1347,26 @@ class Handler(BaseHTTPRequestHandler):
             self._json(500, {"error": str(e)})
 
     def _object_select(self):
-        """POST {path|image, x, y, exclude?:[[x,y],...]}; returns a persisted selection mask.
+        """POST {path|image, x, y, exclude?:[[x,y],...], box?:[x0,y0,x1,y1]}; returns a persisted selection mask.
 
-        `exclude` are the photographer's "not this" points (Alt-click)."""
+        `exclude` are the photographer's "not this" points (Alt-click). `box`
+        is a rectangle dragged around the object (object_remove.select_box)."""
         try:
             body = self._body()
             x, y = float(body["x"]), float(body["y"])
             exclude = [(float(p[0]), float(p[1])) for p in (body.get("exclude") or [])][:12]
-            if body.get("path"):
+            box = body.get("box")
+            if box is not None and (not isinstance(box, list) or len(box) != 4):
+                raise ValueError("Invalid rectangle")
+            if box is not None:
+                path = body["path"]
+                if not os.path.isfile(path):
+                    raise ValueError("Photograph not found")
+                def work():
+                    _, img, _ = _working_frame(path, object_remove.SELECT_MAX_DIM, None)
+                    return object_remove.select_box(common.to_np(img), box,
+                                                    key=(_photo_key(path), object_remove.SELECT_MAX_DIM))
+            elif body.get("path"):
                 path = body["path"]
                 if not os.path.isfile(path):
                     raise ValueError("Photograph not found")

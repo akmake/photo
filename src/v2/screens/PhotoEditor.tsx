@@ -26,7 +26,7 @@ import {
 import type { ManualStroke, ToolInstance } from '../../types';
 import { defaultParams, getTool } from '../../toolRegistry';
 import ManualBrush, { DEFAULT_R, MAX_R, MIN_R } from './ManualBrush';
-import ObjectPickLayer from './ObjectPickLayer';
+import ObjectPickLayer, { type ObjectBox } from './ObjectPickLayer';
 import ObjectMaskPreview from './ObjectMaskPreview';
 import './photo-editor.css';
 
@@ -459,12 +459,13 @@ export default function PhotoEditor({
     setSavedVersion((v) => v + 1);
   };
   const selectedObject = objectDraft ?? undefined;
-  const chooseObject = async (x: number, y: number) => {
+  const chooseObject = async (x: number, y: number, box?: ObjectBox) => {
     // A click again at (nearly) the same spot means "not that one": step to the
     // next size of the three the engine offers, largest to smallest, skipping
     // sizes too close to tell apart.
     const prev = objectClicks.current;
-    const again = prev && Math.hypot(prev.at[0] - x, prev.at[1] - y) < 0.02;
+    // a rectangle already says which object: nothing to step through
+    const again = !box && prev && Math.hypot(prev.at[0] - x, prev.at[1] - y) < 0.02;
     let index: number | undefined;
     if (again && prev) {
       const order = prev.sizes.map((c, i) => [c, i] as const).sort((a, b) => b[0] - a[0]);
@@ -480,7 +481,7 @@ export default function PhotoEditor({
     setObjectBusy(true);
     setObjectFault(null);
     try {
-      const result = await selectObjectAtPath(frame.path, at[0], at[1], [], index);
+      const result = await selectObjectAtPath(frame.path, at[0], at[1], [], index, box);
       objectClicks.current = { at, sizes: result.candidates.map((c) => c.coverage), index: result.selectedIndex };
       // the engine names what stands behind on its own (object_remove._find_behind)
       const behind = result.behind;
@@ -634,7 +635,7 @@ export default function PhotoEditor({
               {tab === 'object' && objectSelecting && objectBox && !showBefore && (
                 <ObjectPickLayer path={frame.path} width={objectBox.w} height={objectBox.h}
                   className="tz-pe-object-click" busy={objectBusy}
-                  onPick={(x, y) => { void chooseObject(x, y); }} />
+                  onPick={(x, y, box) => { void chooseObject(x, y, box); }} />
               )}
               {tab === 'object' && objectPaint === 'remove' && !showBefore && (
                 <ManualBrush imgRef={imgRef} pending={paintStrokes}

@@ -107,6 +107,7 @@
           "face_landmarker.task",
           "selfie_multiclass_256x256.tflite",
           "mobile_sam.pt",
+          "sam2.1-hiera-small/**",
           "joint_20210926.pth"
         ]
       }

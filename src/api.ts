@@ -406,9 +406,12 @@ export async function renderRecipe(
 }
 
 /** Select the object under a point on a photograph. Coordinates are fractions.
- *  `exclude` are "not this" points (Alt-click) that correct the guess. */
+ *  `exclude` are "not this" points (Alt-click) that correct the guess. `box` —
+ *  a rectangle dragged around the object; it says which object, so the point
+ *  is only its centre (engine/box_select.py). */
 export async function selectObjectAtPath(path: string, x: number, y: number,
-  exclude: Array<[number, number]> = [], index?: number): Promise<{
+  exclude: Array<[number, number]> = [], index?: number,
+  box?: [number, number, number, number]): Promise<{
   maskPng: string; coverage: number; score: number; width: number; height: number;
   /** How far past the outline the engine grows the selection. Its decision, not ours. */
   margin: number;
@@ -421,7 +424,7 @@ export async function selectObjectAtPath(path: string, x: number, y: number,
   const response = await fetch(`${ENGINE}/object/select`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ path, x, y, exclude, ...(index === undefined ? {} : { index }) }),
+    body: JSON.stringify({ path, x, y, exclude, ...(index === undefined ? {} : { index }), ...(box ? { box } : {}) }),
   });
   if (!response.ok) {
     const body = await response.json().catch(() => ({}));
