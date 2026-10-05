@@ -824,7 +824,21 @@ def _layered(rgb: np.ndarray, hole: np.ndarray, behind: np.ndarray, front: np.nd
 
 #: Share of the hole's rim the object behind may occupy before the hole counts
 #: as lying inside that object rather than on its edge.
-INSIDE_SHARE = 0.6
+#:
+#: 0.6 let in things that only stand BESIDE an object (2026-10-05, the 12
+#: real removals at 1400): the stone at the foot of the post in 321A4954
+#: (0.54) and the pipe at the post's edge in 321A4983 (0.56) were filled in
+#: layers — the stone left a grey slab on the fence — while the plain fill
+#: closed both cleanly. The guide in front of the horse in 321A5078: 0.24.
+INSIDE_SHARE = 0.4
+#: Share of the hole the object's completed outline must take before the hole
+#: is filled in layers: below it, the object only touches the hole and the
+#: plain fill continues its edge better. Measured on the same 12: the guide in
+#: front of the horse 15% (layers: a whole rump; plain: the rump cut off flat),
+#: the rein ending at the horse's mouth 3.8%, the guide beside the horse in
+#: 321A4954 0% — layered there left a light rectangle on the rump, plain fill
+#: gave rump, legs and tail.
+HIDDEN_SHARE = 0.08
 
 
 def _straddles(hole: np.ndarray, behind: np.ndarray) -> bool:
@@ -835,6 +849,8 @@ def _straddles(hole: np.ndarray, behind: np.ndarray) -> bool:
     one material around it, and the plain fill continues it from every side:
     the black pipe on the fence post in 321A5078, filled in layers, left a dark
     slot through the post; filled plainly, the wood closes over it.
+    And enough of the object must go on under the hole (HIDDEN_SHARE) for
+    the layers to have anything to rebuild.
     """
     w = hole.shape[1]
     r = max(3, round(0.004 * w))
@@ -842,7 +858,9 @@ def _straddles(hole: np.ndarray, behind: np.ndarray) -> bool:
         cv2.MORPH_ELLIPSE, (2 * r + 1, 2 * r + 1))) > 0) & ~hole
     if not rim.any():
         return False
-    return float((behind & rim).sum()) / float(rim.sum()) < INSIDE_SHARE
+    if float((behind & rim).sum()) / float(rim.sum()) >= INSIDE_SHARE:
+        return False
+    return int(_complete_outline(behind, hole).sum()) >= HIDDEN_SHARE * int(hole.sum())
 
 
 #: How close (fraction of width) a removal must come to a drawn one to be drawn too.
