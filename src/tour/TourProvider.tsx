@@ -24,7 +24,7 @@ import {
 import type { ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import type { Tour, TourStep } from './types';
-import { tourById, tourForScreen } from './tours';
+import { TOURS, tourById, tourForScreen } from './tours';
 import { hasSeen, markSeen } from './seen';
 import './tour.css';
 
@@ -77,7 +77,32 @@ export function TourProvider({ screen, children }: { screen: string; children: R
     if (tour && tour.steps.length) setRun({ tour, index: 0 });
   }, []);
 
-  const screenTour = useMemo(() => tourForScreen(screen), [screen]);
+  /* Something that opened over the screen (the viewer, a panel) and has a tour
+   * of its own. Polled, not wired: the screen components stay unaware of the
+   * tours, and a new panel needs only a data-tour name and a tour with a
+   * trigger. */
+  const [contextTour, setContextTour] = useState<Tour | undefined>(undefined);
+  useEffect(() => {
+    const triggered = TOURS.filter((t) => t.trigger);
+    if (!triggered.length) return;
+    let gone = 0;
+    const poll = () => {
+      const open = triggered.find((t) => findTarget(t.trigger));
+      setContextTour((prev) => (prev === open ? prev : open));
+      const current = runRef.current;
+      // A panel's tour ends with the panel.
+      if (current?.tour.trigger) {
+        gone = findTarget(current.tour.trigger) ? 0 : gone + 1;
+        if (gone >= 2) { markSeen(current.tour.id); setRun(null); gone = 0; }
+        return;
+      }
+      if (!current && open && !hasSeen(open.id)) setRun({ tour: open, index: 0 });
+    };
+    const t = window.setInterval(poll, 600);
+    return () => window.clearInterval(t);
+  }, []);
+
+  const screenTour = useMemo(() => contextTour ?? tourForScreen(screen), [contextTour, screen]);
 
   const startScreenTour = useCallback(() => {
     if (screenTour) setRun({ tour: screenTour, index: 0 });
@@ -124,6 +149,29 @@ export function TourProvider({ screen, children }: { screen: string; children: R
         />
       )}
     </TourContext.Provider>
+  );
+}
+
+/** The "?" inside a panel that covers the app's own "?" — the viewer, a
+ *  comparison. Same job: replays the tour of the thing in front of him. */
+export function TourHelpButton({ tour, className }: { tour: string; className?: string }) {
+  const { start, active } = useTour();
+  return (
+    <button
+      type="button"
+      className={className ?? 'tour-help-inline'}
+      onClick={() => start(tour)}
+      disabled={active}
+      title="הדרכה"
+      aria-label="הדרכה"
+    >
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+        strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+        <circle cx="12" cy="12" r="10" />
+        <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3" />
+        <path d="M12 17h.01" />
+      </svg>
+    </button>
   );
 }
 

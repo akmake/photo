@@ -29,6 +29,8 @@ function namesInSource(): { exact: Set<string>; prefixes: string[] } {
   for (const file of sources('src')) {
     const text = readFileSync(file, 'utf8');
     for (const m of text.matchAll(/data-tour=(?:"([^"]+)"|\{'([^']+)'\})/g)) exact.add(m[1] ?? m[2]);
+    // A component that forwards its name: <Decide dataTour="viewer-decide" />.
+    for (const m of text.matchAll(/dataTour="([^"]+)"/g)) exact.add(m[1]);
     for (const m of text.matchAll(/data-tour=\{[^}]*?'([^']+)'\s*:\s*'([^']+)'/g)) { exact.add(m[1]); exact.add(m[2]); }
     for (const m of text.matchAll(/data-tour=\{`([^`$]*)\$\{/g)) prefixes.push(m[1]);
   }
@@ -41,7 +43,7 @@ test('every step points at a name that exists in the app', () => {
   const missing: string[] = [];
   for (const tour of TOURS) {
     for (const step of tour.steps) {
-      for (const name of [step.target, step.waitFor]) {
+      for (const name of [step.target, step.waitFor, tour.trigger]) {
         if (name && !exists(name)) missing.push(`${tour.id} › ${step.id} › ${name}`);
       }
     }

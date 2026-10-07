@@ -33,5 +33,9 @@ export interface Tour {
   screen: string;
   /** Shown above every step: which tour this is. */
   title: string;
+  /** A tour for something that OPENS — a viewer, a panel — rather than for a
+   *  screen. It plays by itself the first time an element with this data-tour
+   *  name appears, and ends by itself when that element goes away. */
+  trigger?: string;
   steps: TourStep[];
 }

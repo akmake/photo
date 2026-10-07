@@ -11,13 +11,18 @@
 import type { Tour } from './types';
 import { WELCOME } from './content/welcome.ts';
 import { BATCHES } from './content/batches.ts';
+import { WORK, WORK_BURST, WORK_COMPARE, WORK_VIEWER } from './content/work.ts';
 
-export const TOURS: Tour[] = [WELCOME, BATCHES];
+export const TOURS: Tour[] = [
+  WELCOME,
+  BATCHES,
+  WORK, WORK_VIEWER, WORK_BURST, WORK_COMPARE,
+];
 
 /** The tour the "?" button plays on each screen. */
 export function tourForScreen(screen: string): Tour | undefined {
-  return TOURS.find((t) => t.screen === screen && t.id !== 'welcome')
-    ?? TOURS.find((t) => t.screen === screen);
+  const own = TOURS.filter((t) => t.screen === screen && !t.trigger);
+  return own.find((t) => t.id !== 'welcome') ?? own[0];
 }
 
 export function tourById(id: string): Tour | undefined {

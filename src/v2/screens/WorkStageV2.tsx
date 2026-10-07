@@ -23,6 +23,7 @@ import PhotoEditor from './PhotoEditor';
 import PhotoGrid from '../../components/photo-grid/PhotoGrid';
 import type { GridItem, GridSection, PhotoGridHandle } from '../../components/photo-grid/PhotoGrid';
 import { useDims } from '../../components/photo-grid/useDims';
+import { TourHelpButton } from '../../tour/TourProvider';
 import './work-stage-v2.css';
 
 type Filter = 'all' | 'open' | 'keep' | 'maybe' | 'reject' | 'suggested';
@@ -519,13 +520,13 @@ export default function WorkStageV2({
               <span aria-hidden>→</span> סשנים
             </button>
           )}
-          <div className="tz-ws-title">
+          <div className="tz-ws-title" data-tour="work-title">
             <b>סינון</b>
             <span>{[project.client, project.event].filter(Boolean).join(' · ')}</span>
           </div>
         </div>
 
-        <nav className="tz-ws-filters" aria-label="תצוגה">
+        <nav className="tz-ws-filters" aria-label="תצוגה" data-tour="work-filters">
           {FILTERS.map(([id, label, n]) => (
             <button
               key={id}
@@ -544,6 +545,7 @@ export default function WorkStageV2({
             className={`tz-ws-stacking${comparePick ? ' is-on' : ''}`}
             onClick={() => setComparePick((v) => (v ? null : []))}
             title="לחץ, ואז בחר 2 עד 4 תמונות להצגה זו לצד זו"
+            data-tour="work-compare"
           >
             השוואה
           </button>
@@ -552,24 +554,25 @@ export default function WorkStageV2({
             className={`tz-ws-stacking${stacking ? ' is-on' : ''}`}
             onClick={() => setStacking((v) => !v)}
             title="רצפים של תמונות כמעט זהות — בערימה אחת או פרושים"
+            data-tour="work-stacking"
           >
             {stacking ? 'רצפים מקובצים' : 'רצפים פרושים'}
           </button>
-          <label className="tz-ws-size" title="גודל התמונות בגלריה">
+          <label className="tz-ws-size" title="גודל התמונות בגלריה" data-tour="work-size">
             <span aria-hidden>▫</span>
             <input type="range" min={120} max={440} step={10} value={size} onChange={(e) => setSize(Number(e.target.value))} aria-label="גודל התמונות" />
             <span aria-hidden>◻</span>
           </label>
           {fault ? (
-            <span className="tz-ws-note is-fault" title={fault}>אין הצעות מהמנוע — אפשר להחליט ידנית</span>
+            <span className="tz-ws-note is-fault" title={fault} data-tour="work-fault">אין הצעות מהמנוע — אפשר להחליט ידנית</span>
           ) : pending > 0 && frames.length > 0 ? (
-            <span className="tz-ws-note">
+            <span className="tz-ws-note" data-tour="work-analyzing">
               מנתח {analysed.toLocaleString('he-IL')}/{frames.length.toLocaleString('he-IL')}
               <span className="tz-ws-meter"><i style={{ width: `${(analysed / frames.length) * 100}%` }} /></span>
             </span>
           ) : null}
           {onNext && (
-            <button type="button" className="tz-ws-next" onClick={onNext}>
+            <button type="button" className="tz-ws-next" onClick={onNext} data-tour="work-next">
               לשליחה ללקוח · {going.toLocaleString('he-IL')} ←
             </button>
           )}
@@ -577,7 +580,7 @@ export default function WorkStageV2({
       </header>
 
       {batches.length > 0 && (
-        <div className="tz-ws-batches" role="tablist" aria-label="מקבץ">
+        <div className="tz-ws-batches" role="tablist" aria-label="מקבץ" data-tour="work-sessions">
           <button type="button" role="tab" aria-selected={batch === 'all'} className={batch === 'all' ? 'is-on' : ''} onClick={() => { setBatch('all'); gridRef.current?.scrollToTop(); }}>
             כל הסשנים<i>{frames.length.toLocaleString('he-IL')}</i>
           </button>
@@ -595,7 +598,7 @@ export default function WorkStageV2({
       )}
 
       {comparePick && (
-        <div className="tz-ws-comparebar" role="status">
+        <div className="tz-ws-comparebar" role="status" data-tour="work-comparebar">
           <span>
             {comparePick.length
               ? `נבחרו ${comparePick.length} תמונות להשוואה${comparePick.length < 4 ? ' · אפשר להוסיף עד 4' : ''}`
@@ -613,7 +616,7 @@ export default function WorkStageV2({
         </div>
       )}
 
-      <div className="tz-ws-feed">
+      <div className="tz-ws-feed" data-tour="work-feed">
         {!ready ? (
           <p className="tz-ws-empty">טוען את תיקיית הפרויקט…</p>
         ) : (
@@ -653,7 +656,7 @@ export default function WorkStageV2({
             )}
             empty={emptyLine(filter, pending)}
             header={bulk.length > 0 ? (
-              <div className="tz-ws-bulkbar">
+              <div className="tz-ws-bulkbar" data-tour="work-bulk">
                 <span>המערכת מציעה להסיר {bulk.length.toLocaleString('he-IL')} תמונות שיש להן תאומה טובה יותר.</span>
                 <button type="button" onClick={() => decide(bulk, 'reject', `${bulk.length} תמונות הוסרו`)}>הסר את כולן</button>
               </div>
@@ -761,9 +764,9 @@ function emptyLine(filter: Filter, pending: number): string {
 
 /* ------------------------------------------------------------ one photograph */
 
-function Decide({ decision, onDecide, compact }: { decision?: CullDecision; onDecide: (d: CullDecision) => void; compact?: boolean }) {
+function Decide({ decision, onDecide, compact, dataTour }: { decision?: CullDecision; onDecide: (d: CullDecision) => void; compact?: boolean; dataTour?: string }) {
   return (
-    <div className={`tz-ws-decide${compact ? ' is-compact' : ''}`} role="group" aria-label="החלטה">
+    <div className={`tz-ws-decide${compact ? ' is-compact' : ''}`} role="group" aria-label="החלטה" data-tour={dataTour}>
       {DECISIONS.map((d) => (
         <button
           key={d.id}
@@ -805,6 +808,7 @@ function TileOverlay({
         <button
           type="button"
           className={`tz-ws-pg-flag is-${suggestion.suggestion}`}
+          data-tour="work-flag"
           title={why}
           aria-label={why}
           onClick={(e) => { e.stopPropagation(); if (twin) onTwin(twin.name); }}
@@ -813,11 +817,12 @@ function TileOverlay({
           {suggestion.suggestion === 'remove' ? '!' : '≈'}
         </button>
       )}
-      {!decision && !suggestion && triage?.star && !stack && <span className="tz-ws-pg-star" title="המומלצת מהרצף">★</span>}
+      {!decision && !suggestion && triage?.star && !stack && <span className="tz-ws-pg-star" title="המומלצת מהרצף" data-tour="work-star">★</span>}
       {stack && (stack.first || !stack.open) && (
         <button
           type="button"
           className={`tz-ws-pg-stack${stack.open ? ' is-open' : ''}`}
+          data-tour="work-stack"
           onClick={(e) => { e.stopPropagation(); if (stack.open) stack.onToggle(); else stack.onOpen(); }}
           onDoubleClick={(e) => e.stopPropagation()}
           title={stack.open ? 'קפל את הרצף' : `פתח את הרצף בחלונית — ${stack.count} תמונות כמעט זהות`}
@@ -1005,19 +1010,22 @@ function Viewer({
   }, [actual, onEdit, zoom, zoomTo]);
 
   return (
-    <div className={`tz-ws-viewer${decision ? ` is-${decision}` : ''}`} role="dialog" aria-modal="true" aria-label="תצוגה מלאה">
+    <div className={`tz-ws-viewer${decision ? ` is-${decision}` : ''}`} role="dialog" aria-modal="true" aria-label="תצוגה מלאה" data-tour="work-viewer">
       <header className="tz-ws-v-top">
-        <button type="button" className="tz-ws-v-edit" onClick={() => onEdit(onScreenRef.current)} title="עריכה (E)">
+        <button type="button" className="tz-ws-v-edit" onClick={() => onEdit(onScreenRef.current)} title="עריכה (E)" data-tour="viewer-edit">
           <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
             <rect x="3" y="3" width="14" height="14" rx="2" /><path d="M13 21l1.5-4.5L21 10l-3-3-6.5 6.5L7 15" />
           </svg>
           ערוך
         </button>
-        <div className="tz-ws-v-name">
+        <div className="tz-ws-v-name" data-tour="viewer-name">
           <b dir="ltr">{name}</b>
           <span>{(position + 1).toLocaleString('he-IL')} מתוך {total.toLocaleString('he-IL')}</span>
         </div>
-        <button type="button" className="tz-ws-v-icon is-close" onClick={onClose} aria-label="סגור (Esc)" title="סגור (Esc)">✕</button>
+        <span className="tz-ws-v-tools">
+          <TourHelpButton tour="work-viewer" className="tz-ws-v-icon" />
+          <button type="button" className="tz-ws-v-icon is-close" onClick={onClose} aria-label="סגור (Esc)" title="סגור (Esc)" data-tour="viewer-close">✕</button>
+        </span>
       </header>
 
       <div className="tz-ws-v-body">
@@ -1062,12 +1070,12 @@ function Viewer({
       </div>
 
       <button type="button" className="tz-ws-v-nav is-prev" disabled={position <= 0} onClick={() => onStep(-1)} aria-label="הקודמת">›</button>
-      <button type="button" className="tz-ws-v-nav is-next" disabled={position >= total - 1} onClick={() => onStep(1)} aria-label="הבאה">‹</button>
+      <button type="button" className="tz-ws-v-nav is-next" disabled={position >= total - 1} onClick={() => onStep(1)} aria-label="הבאה" data-tour="viewer-next">‹</button>
 
       <footer className="tz-ws-v-bottom">
         {shown ? <ShotLine path={frame.path} /> : <span className="tz-ws-shot" />}
-                <Decide decision={decision} onDecide={onDecide} />
-<div className="tz-ws-v-zoom" dir="ltr">
+                <Decide decision={decision} onDecide={onDecide} dataTour="viewer-decide" />
+<div className="tz-ws-v-zoom" dir="ltr" data-tour="viewer-zoom">
           <button type="button" onClick={() => zoomTo(zoom / 1.25)} aria-label="הקטן" title="הקטן (-)">−</button>
           <input
             type="range"
@@ -1083,7 +1091,7 @@ function Viewer({
           <button type="button" className={zoom === 1 ? 'is-on' : ''} onClick={() => zoomTo(1)} title="התאם לחלון (0)">התאם</button>
           <button type="button" onClick={() => zoomTo(actual)} title="גודל אמיתי (רווח)">100%</button>
           {shownFaces.length > 0 && (
-            <button type="button" className={facesOn ? 'is-on' : ''} onClick={() => setFacesOn((v) => !v)} title="הפנים מקרוב (F)">פנים</button>
+            <button type="button" className={facesOn ? 'is-on' : ''} onClick={() => setFacesOn((v) => !v)} title="הפנים מקרוב (F)" data-tour="viewer-faces">פנים</button>
           )}
         </div>
       </footer>
@@ -1310,14 +1318,17 @@ function BurstPanel({
   );
 
   return (
-    <div className="tz-ws-burst" role="dialog" aria-modal="true" aria-label="רצף">
+    <div className="tz-ws-burst" role="dialog" aria-modal="true" aria-label="רצף" data-tour="work-burst">
       <header className="tz-ws-v-top">
-        <button type="button" className="tz-ws-v-icon" onClick={onClose} aria-label="סגור" title="סגור">✕</button>
+        <span className="tz-ws-v-tools">
+          <button type="button" className="tz-ws-v-icon" onClick={onClose} aria-label="סגור" title="סגור">✕</button>
+          <TourHelpButton tour="work-burst" className="tz-ws-v-icon" />
+        </span>
         <div className="tz-ws-v-name">
           <b>רצף · {names.length.toLocaleString('he-IL')} תמונות כמעט זהות</b>
           <span>רצף {(position + 1).toLocaleString('he-IL')} מתוך {total.toLocaleString('he-IL')}</span>
           {names.length > 2 && (
-            <div className="tz-ws-burst-modes" role="radiogroup" aria-label="איך להשוות">
+            <div className="tz-ws-burst-modes" role="radiogroup" aria-label="איך להשוות" data-tour="burst-modes">
               {BURST_MODES.map((m) => (
                 <button
                   key={m.id}
@@ -1334,7 +1345,7 @@ function BurstPanel({
             </div>
           )}
         </div>
-        <div className="tz-ws-burst-nav">
+        <div className="tz-ws-burst-nav" data-tour="burst-nav">
           <button type="button" disabled={position <= 0} onClick={() => onStep(-1)}>→ הרצף הקודם</button>
           <button type="button" disabled={last} onClick={() => onStep(1)}>הרצף הבא ←</button>
         </div>
@@ -1372,7 +1383,7 @@ function BurstPanel({
             tag: 'המובילה',
             onDecide: () => undefined,
             actions: challenger ? (
-              <button type="button" className="tz-ws-burst-win" onClick={() => win(leader, challenger)}>זו עדיפה</button>
+              <button type="button" className="tz-ws-burst-win" onClick={() => win(leader, challenger)} data-tour="burst-win">זו עדיפה</button>
             ) : null,
           })}
           {challenger ? pane(challenger, {
@@ -1398,7 +1409,7 @@ function BurstPanel({
         </div>
       )}
 
-      <div className="tz-ws-burst-zoom" dir="ltr">
+      <div className="tz-ws-burst-zoom" dir="ltr" data-tour="burst-zoom">
         <button type="button" onClick={() => setView((v) => ({ ...v, z: Math.max(1, v.z / 1.25) }))} aria-label="הקטן">−</button>
         <input
           type="range" min={1} max={BURST_MAX_Z} step={0.01} value={view.z}
@@ -1634,13 +1645,16 @@ function Compare({
   onClose: () => void;
 }) {
   return (
-    <div className="tz-ws-compare" role="dialog" aria-modal="true" aria-label="השוואה">
+    <div className="tz-ws-compare" role="dialog" aria-modal="true" aria-label="השוואה" data-tour="work-compare-view">
       <header className="tz-ws-v-top">
-        <button type="button" className="tz-ws-v-icon" onClick={onClose} aria-label="סגור (Esc)" title="סגור (Esc)">✕</button>
+        <span className="tz-ws-v-tools">
+          <button type="button" className="tz-ws-v-icon" onClick={onClose} aria-label="סגור (Esc)" title="סגור (Esc)">✕</button>
+          <TourHelpButton tour="work-compare-view" className="tz-ws-v-icon" />
+        </span>
         <div className="tz-ws-v-name"><b>השוואה</b><span>{names.length} תמונות · חצים לבחירה · K / M / X להחלטה</span></div>
         <span className="tz-ws-v-spacer" />
       </header>
-      <div className="tz-ws-compare-row" style={{ gridTemplateColumns: `repeat(${names.length}, minmax(0, 1fr))` }}>
+      <div className="tz-ws-compare-row" data-tour="compare-row" style={{ gridTemplateColumns: `repeat(${names.length}, minmax(0, 1fr))` }}>
         {names.map((n, i) => {
           const f = frames.get(n);
           const d = cull[n];

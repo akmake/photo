@@ -310,6 +310,7 @@
   font-size: 16px; color: var(--ws-muted);
 }
 .tz-ws-v-icon:hover { background: var(--ws-ground); color: var(--ws-ink); }
+.tz-ws-v-tools { justify-self: start; display: inline-flex; align-items: center; gap: 2px; }
 .tz-ws-v-name { display: flex; align-items: baseline; gap: 12px; }
 .tz-ws-v-name b { font-size: 14px; font-weight: 600; }
 .tz-ws-v-name span { font-size: 12px; color: var(--ws-muted); }
