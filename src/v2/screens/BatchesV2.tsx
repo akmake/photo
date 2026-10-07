@@ -14,7 +14,7 @@ export default function BatchesV2({
 }) {
   return (
     <div className="tz-stage-container tz-stage-groups">
-      <section className="tz-stage-header">
+      <section className="tz-stage-header" data-tour="batches-header">
         <div className="tz-stage-header-copy">
           <div className="tz-stage-tag">שלב 2 · סשנים</div>
           <h1>סשנים</h1>
@@ -29,6 +29,7 @@ export default function BatchesV2({
               className="tz-btn-projects-primary"
               type="button"
               onClick={onNext}
+              data-tour="batches-next"
             >
               המשך לסינון ←
             </button>

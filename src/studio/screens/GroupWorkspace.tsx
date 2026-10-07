@@ -970,7 +970,7 @@ export default function GroupWorkspace({ projectId }: { projectId: string }) {
       ref={rootRef}
     >
       <div className="gw-workarea">
-      <aside className="gw-overview" aria-label={`ניווט ${W.many}`}>
+      <aside className="gw-overview" aria-label={`ניווט ${W.many}`} data-tour="batches-overview">
       {/* ---- header ---- */}
       <header className="gw-head">
         <div className="gw-heading">
@@ -981,7 +981,7 @@ export default function GroupWorkspace({ projectId }: { projectId: string }) {
             <span className="mono">{count(frames.length)}</span> תמונות
           </p>
         </div>
-        <div className="gw-view-switch" role="group" aria-label="תצוגת תמונות">
+        <div className="gw-view-switch" role="group" aria-label="תצוגת תמונות" data-tour="batches-views">
           <button
             type="button"
             className={view === 'all' ? 'on' : ''}
@@ -1000,7 +1000,7 @@ export default function GroupWorkspace({ projectId }: { projectId: string }) {
             {W.none} <span className="mono">{count(unassigned.length)}</span>
           </button>
         </div>
-        <div className="gw-head-actions">
+        <div className="gw-head-actions" data-tour="batches-tools">
           <input
             type="search"
             className="gw-search"
@@ -1090,7 +1090,7 @@ export default function GroupWorkspace({ projectId }: { projectId: string }) {
 
       {/* ---- real groups only: filters live in the header ---- */}
       {groups.length > 0 ? (
-      <div className="gw-strip-shell">
+      <div className="gw-strip-shell" data-tour="batches-strip">
         <nav
           className="gw-strip"
           ref={stripRef}
@@ -1132,6 +1132,7 @@ export default function GroupWorkspace({ projectId }: { projectId: string }) {
         <button
           type="button"
           className={`gw-tile-plus ${dropTarget === 'plus' ? 'drop' : ''}`}
+          data-tour="batches-new"
           onClick={(e) => openNew([], anchorOf(e.currentTarget))}
           {...frameDropProps('plus', (names) => {
             const el = stripRef.current?.querySelector('.gw-tile-plus');
@@ -1213,7 +1214,7 @@ export default function GroupWorkspace({ projectId }: { projectId: string }) {
               </div>
             ) : suggest && suggest.boundaries.length > 0 ? (
               /* Suggestions ready to accept right from the card */
-              <div className="gw-card-suggest-results">
+              <div className="gw-card-suggest-results" data-tour="batches-suggest-results">
                 <div className="gw-cresults-head">
                   <strong>✨ נמצאו {count(suggest.boundaries.length)} סשנים מוצעים</strong>
                   {suggest.visualOnly && <small>לפי מראה ויזואלי</small>}
@@ -1236,7 +1237,7 @@ export default function GroupWorkspace({ projectId }: { projectId: string }) {
               </div>
             ) : (
               /* Default action buttons */
-              <div className="gw-empty-actions">
+              <div className="gw-empty-actions" data-tour="batches-suggest-start">
                 <button type="button" className="btn btn-primary gw-btn-suggest" onClick={suggestNow} disabled={busy}>
                   <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
                     <path d="m12 3-1.9 5.8a2 2 0 0 1-1.3 1.3L3 12l5.8 1.9a2 2 0 0 1 1.3 1.3L12 21l1.9-5.8a2 2 0 0 1 1.3-1.3L21 12l-5.8-1.9a2 2 0 0 1-1.3-1.3Z" />
@@ -1261,7 +1262,7 @@ export default function GroupWorkspace({ projectId }: { projectId: string }) {
       )}
 
       </aside>
-      <section className="gw-gallery-pane" aria-label="תמונות במקבץ">
+      <section className="gw-gallery-pane" aria-label="תמונות במקבץ" data-tour="batches-photos">
 
       {/* ---- toolbar ---- */}
       <div className="gw-toolbar">
@@ -1314,7 +1315,7 @@ export default function GroupWorkspace({ projectId }: { projectId: string }) {
           )}
         </div>
 
-        <div className="gw-sizes" role="radiogroup" aria-label="גודל תמונות">
+        <div className="gw-sizes" role="radiogroup" aria-label="גודל תמונות" data-tour="batches-sizes">
           {(['s', 'm', 'l'] as const).map((s) => (
             <button
               key={s}
@@ -1431,7 +1432,7 @@ export default function GroupWorkspace({ projectId }: { projectId: string }) {
 
       {/* ---- selection toolbar ---- */}
       {selected.size > 0 && (
-        <div className="gw-selbar" role="toolbar" aria-label="פעולות על הבחירה">
+        <div className="gw-selbar" role="toolbar" aria-label="פעולות על הבחירה" data-tour="batches-selection">
           <span className="gw-selcount">
             <b className="mono">{count(selected.size)}</b> נבחרו
             {hidden > 0 && <> · <span className="mono">{count(hidden)}</span> מוסתרות</>}
@@ -1784,7 +1785,7 @@ const Cell = memo(function Cell({
         </button>
       )}
       {cutStrength && (
-        <div className={`gw-cut ${cutStrength}`} title={cutTitle}>
+        <div className={`gw-cut ${cutStrength}`} title={cutTitle} data-tour="batches-cut">
           <span className="gw-cut-chip">
             הצעה
             {cutActionable ? (

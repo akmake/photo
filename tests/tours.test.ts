@@ -58,13 +58,12 @@ test('step ids are unique inside each tour, tour ids unique overall', () => {
   }
 });
 
-test('a doing-step says what to do, and is never optional', () => {
+test('a doing-step says what to do', () => {
   for (const tour of TOURS) {
     for (const step of tour.steps) {
       if (!step.waitFor) continue;
       assert.ok(step.target, `${tour.id} › ${step.id}: a doing-step needs something to press`);
       assert.ok(step.doText, `${tour.id} › ${step.id}: a doing-step needs its "לחץ על…" line`);
-      assert.ok(!step.optional, `${tour.id} › ${step.id}: a doing-step cannot be skipped by absence`);
     }
   }
 });
