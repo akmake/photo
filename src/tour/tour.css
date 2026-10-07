@@ -274,3 +274,6 @@
 
 .tour-help-inline:hover { opacity: 1; background: rgba(127, 127, 127, 0.16); }
 .tour-help-inline:disabled { opacity: 0.3; cursor: default; background: none; }
+
+/* In a dialog head the "?" sits with the close button, at the far end. */
+.dialog-head > .tour-help-inline { margin-inline-start: auto; }

@@ -110,7 +110,7 @@ export default function ColorMatchPanel({
   const ready = Boolean(sourcePath && edited);
 
   return (
-    <div className="tz-cm">
+    <div className="tz-cm" data-tour="colormatch-panel">
       <div className="tz-cm-intro">
         <h3>התאמת צבעים</h3>
         <p>
@@ -121,7 +121,7 @@ export default function ColorMatchPanel({
 
       {/* ---------- the colours already learned and kept ---------- */}
       {(looks.looks.length > 0 || looks.status === 'down') && (
-        <section className="tz-cm-looks">
+        <section className="tz-cm-looks" data-tour="cm-looks">
           <header>
             <b>צבעים שמורים</b>
             {target.kind !== 'blocked' && <i>{target.label}</i>}
@@ -164,7 +164,7 @@ export default function ColorMatchPanel({
       )}
 
       {/* ---------- 1. the frame as it came out of the camera ---------- */}
-      <section className="tz-cm-step">
+      <section className="tz-cm-step" data-tour="cm-before">
         <header>
           <span className="tz-cm-n">1</span>
           <div>
@@ -197,7 +197,7 @@ export default function ColorMatchPanel({
       <div className="tz-cm-arrow" aria-hidden="true">↓</div>
 
       {/* ---------- 2. the same frame, graded somewhere else ---------- */}
-      <section className="tz-cm-step">
+      <section className="tz-cm-step" data-tour="cm-after">
         <header>
           <span className="tz-cm-n">2</span>
           <div>
@@ -269,7 +269,7 @@ export default function ColorMatchPanel({
 
       {/* ---------- 3. what came out, before it touches the set ---------- */}
       {learned && (
-        <section className="tz-cm-result">
+        <section className="tz-cm-result" data-tour="cm-result">
           <header>
             <span className="tz-cm-n">3</span>
             <div>
@@ -361,7 +361,7 @@ export default function ColorMatchPanel({
        * are tall, so an in-flow button sat below the fold — and the only button
        * he could see was the editor's "החל עריכה", which carries hand-set tools
        * and knows nothing of this pair. Clicking it did nothing, every time. */}
-      <div className="tz-cm-actions">
+      <div className="tz-cm-actions" data-tour="cm-actions">
         {!learned ? (
           <button
             type="button"

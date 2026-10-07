@@ -13,6 +13,7 @@ import { useMemo, useRef, useState } from 'react';
 import { exportFiles, pickFolder } from '../../api';
 import type { Frame } from '../../api';
 import { effectiveRecipe } from '../../studio/store';
+import { TourHelpButton } from '../../tour/TourProvider';
 
 type ExportFormat = 'jpeg' | 'png' | 'tiff';
 type SizePreset = 'full' | 'print' | 'web' | 'quick' | 'custom';
@@ -144,9 +145,10 @@ export default function ExportDialog({
         if (e.target === e.currentTarget && !running) onClose();
       }}
     >
-      <section className="dialog tz-export" role="dialog" aria-modal="true" aria-label="ייצוא תמונות">
+      <section className="dialog tz-export" role="dialog" aria-modal="true" aria-label="ייצוא תמונות" data-tour="edit-export-view">
         <header className="dialog-head">
           <h2>ייצוא תמונות</h2>
+          <TourHelpButton tour="edit-export" />
           <button className="dialog-x" onClick={onClose} disabled={running} aria-label="סגירה">×</button>
         </header>
 
@@ -161,7 +163,7 @@ export default function ExportDialog({
               <strong>גודל ומהירות</strong>
               <span>{sizeLabel}</span>
             </div>
-            <div className="tz-export-size-grid">
+            <div className="tz-export-size-grid" data-tour="export-size">
               {SIZE_PRESETS.map((preset) => (
                 <button
                   type="button"
@@ -199,7 +201,7 @@ export default function ExportDialog({
               <strong>פורמט</strong>
               <span>{formatLabel}</span>
             </div>
-            <div className="tz-export-formats" role="group" aria-label="פורמט קובץ">
+            <div className="tz-export-formats" role="group" aria-label="פורמט קובץ" data-tour="export-format">
               {([['jpeg', 'JPEG', 'קטן ומהיר'], ['png', 'PNG', 'ללא אובדן'], ['tiff', 'TIFF', 'קובץ מאסטר']] as const).map(([value, label, detail]) => (
                 <button type="button" key={value} className={format === value ? 'on' : ''} onClick={() => setFormat(value)} disabled={running}>
                   <b>{label}</b><small>{detail}</small>
@@ -217,7 +219,7 @@ export default function ExportDialog({
             )}
           </section>
 
-          <div className="tz-export-where">
+          <div className="tz-export-where" data-tour="export-where">
             <span className="tz-export-label">יעד</span>
             {dest
               ? <code dir="ltr">{dest}</code>

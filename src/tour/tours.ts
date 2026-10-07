@@ -13,12 +13,14 @@ import { WELCOME } from './content/welcome.ts';
 import { BATCHES } from './content/batches.ts';
 import { WORK, WORK_BURST, WORK_COMPARE, WORK_VIEWER } from './content/work.ts';
 import { SEND, SEND_STORAGE } from './content/send.ts';
+import { EDIT, EDIT_COLORMATCH, EDIT_EXPORT, EDIT_REVIEW } from './content/edit.ts';
 
 export const TOURS: Tour[] = [
   WELCOME,
   BATCHES,
   WORK, WORK_VIEWER, WORK_BURST, WORK_COMPARE,
   SEND, SEND_STORAGE,
+  EDIT, EDIT_COLORMATCH, EDIT_REVIEW, EDIT_EXPORT,
 ];
 
 /** The tour the "?" button plays on each screen. */

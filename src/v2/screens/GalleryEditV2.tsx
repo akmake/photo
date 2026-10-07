@@ -1211,7 +1211,7 @@ export default function GalleryEditV2({
             </button>
           )}
 
-          <div className="tz-ge-batch-tabs">
+          <div className="tz-ge-batch-tabs" data-tour="edit-sessions">
             <span style={{ fontSize: 13, fontWeight: 700, color: 'inherit', marginLeft: 6 }}>
               {selectedOnly ? 'בחירת הלקוח לפי סשנים:' : 'מקבץ עבודה:'}
             </span>
@@ -1271,6 +1271,7 @@ export default function GalleryEditV2({
             <button
               type="button"
               className={`tz-ge-choice-toggle ${showUnselected ? 'showing-all' : ''}`}
+              data-tour="edit-choice-toggle"
               onClick={() => {
                 const nextShowUnselected = !showUnselected;
                 setShowUnselected(nextShowUnselected);
@@ -1306,7 +1307,7 @@ export default function GalleryEditV2({
               השינויים לא נשמרו — נסה שוב
             </button>
           ) : (
-            <span className="tz-ge-save" title="כל שינוי נשמר בתיקיית הפרויקט ברגע שהוא נעשה">נשמר אוטומטית ✓</span>
+            <span className="tz-ge-save" title="כל שינוי נשמר בתיקיית הפרויקט ברגע שהוא נעשה" data-tour="edit-save">נשמר אוטומטית ✓</span>
           )}
           <button
             type="button"
@@ -1314,6 +1315,7 @@ export default function GalleryEditV2({
             onClick={() => setReviewing(true)}
             disabled={!visibleAll.length}
             title="כל התמונות כפי שהן אחרי העריכה"
+            data-tour="edit-review"
           >
             הסט הערוך · {visibleAll.filter((f) => isDone(f.name)).length}/{visibleAll.length}
           </button>
@@ -1323,6 +1325,7 @@ export default function GalleryEditV2({
             onClick={() => setExporting(true)}
             disabled={!visibleAll.length}
             title="כתיבת התמונות הערוכות לתיקייה"
+            data-tour="edit-export"
           >
             ייצוא תמונות
           </button>
@@ -1332,6 +1335,7 @@ export default function GalleryEditV2({
               className="tz-btn-projects-primary"
               style={{ padding: '7px 16px', fontSize: 13 }}
               onClick={onNext}
+              data-tour="edit-next"
             >
               המשך לעיצוב אלבום ←
             </button>
@@ -1362,7 +1366,7 @@ export default function GalleryEditV2({
       {/* 2. 3-COLUMN STUDIO WORKSPACE: Slide Deck (Right) | Canvas (Center) | Tools (Left) */}
       <div className="tz-ge-studio-workspace">
         {/* RIGHT COLUMN: POWERPOINT-STYLE SLIDE DECK */}
-        <aside className="tz-ge-slide-deck">
+        <aside className="tz-ge-slide-deck" data-tour="edit-slides">
           <div className="tz-ge-deck-header">
             <span>שקופיות ({slideFrames.length})</span>
             <span style={{ fontSize: 11.5, color: '#71717a' }}>בחר לעריכה</span>
@@ -1431,7 +1435,7 @@ export default function GalleryEditV2({
         <main className="tz-ge-canvas-stage">
           {/* Top Canvas Bar */}
           <div className="tz-ge-canvas-toolbar">
-            <div className="tz-ge-canvas-nav">
+            <div className="tz-ge-canvas-nav" data-tour="edit-nav">
               <button
                 type="button"
                 className="tz-ge-canvas-nav-btn"
@@ -1462,6 +1466,7 @@ export default function GalleryEditV2({
               {currentFrameComments.length > 0 && (
                 <div
                   className="tz-ge-comments-badge"
+                  data-tour="edit-comments"
                   title={currentFrameComments.map((c, i) => `#${i + 1}: ${c.text}`).join('\n')}
                 >
                   <span style={{ color: '#e86338' }}>💬</span>
@@ -1471,6 +1476,7 @@ export default function GalleryEditV2({
               {currentFrame && <button
                 type="button"
                 className={`tz-ge-object-entry${objectMode ? ' is-active' : ''}`}
+                data-tour="edit-object"
                 onClick={() => objectModeChange(objectMode ? null : 'select')}
                 aria-pressed={Boolean(objectMode)}
                 title="בחר אובייקט בתמונה והסר אותו"
@@ -1481,6 +1487,7 @@ export default function GalleryEditV2({
                 <button
                   type="button"
                   className={`tz-ge-done-btn${isDone(currentFrame.name) ? ' is-done' : ''}`}
+                  data-tour="edit-done"
                   onClick={finishCurrent}
                   title={isDone(currentFrame.name)
                     ? 'התמונה סומנה כגמורה — לחיצה מחזירה אותה לעריכה'
@@ -1493,6 +1500,7 @@ export default function GalleryEditV2({
                 <button
                   type="button"
                   className="tz-ge-push-btn"
+                  data-tour="edit-push"
                   onClick={finishCurrent}
                   title="עדכן גרסה חדשה ישירות לגלריית הלקוח (v2)"
                 >
@@ -1511,6 +1519,7 @@ export default function GalleryEditV2({
               <button
                 type="button"
                 className={`tz-ge-canvas-compare-btn ${showOriginal ? 'active' : ''}`}
+                data-tour="edit-original"
                 onMouseDown={() => setShowOriginal(true)}
                 onMouseUp={() => setShowOriginal(false)}
                 onMouseLeave={() => setShowOriginal(false)}
@@ -1524,6 +1533,7 @@ export default function GalleryEditV2({
 
           {/* Viewport */}
           <div
+            data-tour="edit-canvas"
             className={`tz-ge-canvas-viewport${
               canvasZoom > 1 && !brushOn && !maskPaintTool ? ' is-pannable' : ''
             }${panning ? ' is-panning' : ''}`}
@@ -1705,7 +1715,7 @@ export default function GalleryEditV2({
             )}
           </div>
           {currentFrame && (
-            <div className="tz-ge-zoom" role="group" aria-label="הגדלת התמונה">
+            <div className="tz-ge-zoom" role="group" aria-label="הגדלת התמונה" data-tour="edit-zoom">
               <button
                 type="button"
                 onClick={() => changeCanvasZoom(-0.25)}
@@ -1743,7 +1753,7 @@ export default function GalleryEditV2({
         {/* LEFT COLUMN: INSPECTOR & ACCORDION TOOLS PANEL */}
         <aside className="tz-ge-tools-panel">
           <div className="tz-ge-panel-head">
-            <div style={{ display: 'flex', gap: 6 }}>
+            <div style={{ display: 'flex', gap: 6 }} data-tour="edit-panel-tabs">
               <button
                 type="button"
                 className={`tz-sc-source-pill ${activeTab === 'primary' ? 'active' : ''}`}
@@ -1826,6 +1836,7 @@ export default function GalleryEditV2({
               <button
                 type="button"
                 className="tz-ge-sync-batch-btn"
+                data-tour="edit-apply-set"
                 onClick={handleSyncToBatch}
                 disabled={!currentFrame || slideFrames.length === 0 || Boolean(applyScope.blocked)}
                 title={applyScope.blocked ?? applyScope.label}
@@ -1852,6 +1863,7 @@ export default function GalleryEditV2({
               <button
                 type="button"
                 className="tz-ge-reset-btn"
+                data-tour="edit-reset"
                 onClick={handleResetFrame}
               >
                 אפס עריכה בתמונה זו

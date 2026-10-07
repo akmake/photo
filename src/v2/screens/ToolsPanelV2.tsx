@@ -27,6 +27,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
 import type { ToolDef, ToolInstance, ToolMask } from '../../types';
 import { MASK_REGIONS, TOOLS, defaultParams, isMaskable, isToolAtDefault } from '../../toolRegistry';
+import { MASK_HELP, toolHelp } from '../../tour/toolHelp';
 
 /** The sections, in the order the engine runs them. Names are what a
  *  photographer calls these stages, not what the code calls them. */
@@ -189,8 +190,8 @@ export default function ToolsPanelV2({
   };
 
   return (
-    <div className="tz-tp">
-      <nav className="tz-tp-tabs" role="tablist" aria-label="שלבי העריכה">
+    <div className="tz-tp" data-tour="edit-tools">
+      <nav className="tz-tp-tabs" role="tablist" aria-label="שלבי העריכה" data-tour="edit-tool-tabs">
         {sections.map((s) => {
           const n = activeIn(s.defs);
           return (
@@ -219,6 +220,7 @@ export default function ToolsPanelV2({
               const isOpen = open[def.id] ?? false;
               const changed = Boolean(inst && !isToolAtDefault(inst));
               const brush = def.id === BRUSH_TOOL;
+              const help = toolHelp(def.id);
               return (
                 <section
                   key={def.id}
@@ -261,6 +263,11 @@ export default function ToolsPanelV2({
 
                   {isOpen && (
                     <div className="tz-tp-body">
+                      {help && (
+                        <p className="tz-tp-help">
+                          <b>{help.what}</b> {help.when}
+                        </p>
+                      )}
                       {def.id === 'object-remove' ? (
                         <div className="tz-tp-object">
                           <p className="tz-tp-note">לחץ על העצם, או גרור מלבן סביבו — המלבן תופס את כל העצם גם כשהוא בנוי מכמה חלקים או צמוד למשהו אחר. בדוק את הבחירה לפני ההסרה.</p>
@@ -327,7 +334,7 @@ export default function ToolsPanelV2({
                                 '--tp-to': `${((Math.max(v, spec.min < 0 ? 0 : spec.min) - spec.min) / (spec.max - spec.min)) * 100}%`,
                               } as React.CSSProperties}
                             >
-                              <label htmlFor={`${def.id}-${spec.id}`}>{spec.label}</label>
+                              <label htmlFor={`${def.id}-${spec.id}`} data-help={help?.params[spec.id]}>{spec.label}</label>
                               {isToggle ? (
                                 <input
                                   id={`${def.id}-${spec.id}`}
@@ -389,6 +396,7 @@ export default function ToolsPanelV2({
                                 type="button"
                                 className={`tz-tp-chip ${mask ? '' : 'on'}`}
                                 onClick={() => pick(null)}
+                                data-help={MASK_HELP.all}
                               >
                                 כל התמונה
                               </button>
@@ -398,6 +406,7 @@ export default function ToolsPanelV2({
                                   type="button"
                                   className={`tz-tp-chip ${mask?.region === rg.id ? 'on' : ''}`}
                                   onClick={() => pick(rg.id)}
+                                  data-help={MASK_HELP[rg.id]}
                                 >
                                   {rg.label}
                                   {rg.id === PAINTED && painted > 0 && (
@@ -418,7 +427,7 @@ export default function ToolsPanelV2({
                                     {painting ? 'סיימתי לצבוע' : 'צבע על התמונה'}
                                   </button>
                                 )}
-                                <label className="tz-tp-mask-inv">
+                                <label className="tz-tp-mask-inv" data-help={MASK_HELP.invert}>
                                   <input
                                     type="checkbox"
                                     checked={Boolean(mask.invert)}
@@ -428,7 +437,7 @@ export default function ToolsPanelV2({
                                   הכל חוץ מזה
                                 </label>
                                 <div className="tz-tp-row">
-                                  <label htmlFor={`${def.id}-mask-feather`}>ריכוך הקצוות</label>
+                                  <label htmlFor={`${def.id}-mask-feather`} data-help={MASK_HELP.feather}>ריכוך הקצוות</label>
                                   <input
                                     className="tz-tp-val"
                                     type="number"

@@ -16,6 +16,7 @@ import { useFramePreview } from '../../studio/preview';
 import PhotoGrid from '../../components/photo-grid/PhotoGrid';
 import type { GridItem } from '../../components/photo-grid/PhotoGrid';
 import { useDims } from '../../components/photo-grid/useDims';
+import { TourHelpButton } from '../../tour/TourProvider';
 import './edited-review-v2.css';
 
 type Show = 'all' | 'done' | 'todo';
@@ -142,14 +143,14 @@ export default function EditedReviewV2({
   };
 
   return (
-    <div className="tz-er" role="dialog" aria-modal="true" aria-label="הסט הערוך">
+    <div className="tz-er" role="dialog" aria-modal="true" aria-label="הסט הערוך" data-tour="edit-review-view">
       <header className="tz-er-head">
         <strong>הסט הערוך</strong>
-        <span className="tz-er-count">
+        <span className="tz-er-count" data-tour="review-count">
           {doneCount.toLocaleString('he-IL')} מתוך {frames.length.toLocaleString('he-IL')} הסתיימו
           <span className="tz-er-bar"><i style={{ width: `${frames.length ? (doneCount / frames.length) * 100 : 0}%` }} /></span>
         </span>
-        <div className="tz-er-filters">
+        <div className="tz-er-filters" data-tour="review-filters">
           {([['all', 'הכול'], ['todo', 'עוד לא הסתיימו'], ['done', 'הסתיימו']] as [Show, string][]).map(([id, label]) => (
             <button key={id} type="button" className={`tz-er-filter${show === id ? ' is-on' : ''}`} onClick={() => setShow(id)}>
               {label}
@@ -160,6 +161,7 @@ export default function EditedReviewV2({
           </button>
         </div>
         {preview.stale && <span className="tz-er-fault">המנוע לא זמין — מוצגות התמונות בלי העריכה</span>}
+        <TourHelpButton tour="edit-review" />
         <button type="button" className="tz-er-close" onClick={onClose} aria-label="סגור">חזרה לעריכה ✕</button>
       </header>
 
@@ -191,7 +193,7 @@ export default function EditedReviewV2({
                 : before ? 'לפני העריכה' : waiting ? 'מכין את העריכה…' : 'אחרי העריכה'}
               {' · '}{current && isDone(current.name) ? <b className="tz-er-ok">הסתיימה ✓</b> : 'עוד לא הסתיימה'}
             </span>
-            <span className="tz-er-actions">
+            <span className="tz-er-actions" data-tour="review-actions">
               <button type="button" className="tz-er-btn" onMouseDown={() => setBefore(true)} onMouseUp={() => setBefore(false)} onMouseLeave={() => setBefore(false)}>
                 לפני <kbd>רווח</kbd>
               </button>
@@ -218,7 +220,7 @@ export default function EditedReviewV2({
               />
             )}
           </div>
-          <div className="tz-er-strip">{list.map((f) => tile(f, false))}</div>
+          <div className="tz-er-strip" data-tour="review-strip">{list.map((f) => tile(f, false))}</div>
         </>
       )}
       <p className="tz-er-keys">חצים — הבאה/קודמת · רווח — לפני · Enter — סיימתי · E — ערוך · G — רשת · Esc — חזרה</p>
