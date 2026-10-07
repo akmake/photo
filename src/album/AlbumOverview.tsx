@@ -138,7 +138,7 @@ export default function AlbumOverview({
   }
 
   return (
-    <section className={`album-overview${timelineOpen ? '' : ' timeline-collapsed'}`} aria-label="האלבום כולו">
+    <section className={`album-overview${timelineOpen ? '' : ' timeline-collapsed'}`} aria-label="האלבום כולו" data-tour="album-overview">
       <div
         className="album-book"
         ref={bookRef}
@@ -150,7 +150,7 @@ export default function AlbumOverview({
             * here, not an item in a menu — and choosing its photographs is the
             * same gesture as everywhere else in this screen, a frame dragged
             * from the strip onto the place it belongs. */}
-          <article className="album-book-cover">
+          <article className="album-book-cover" data-tour="album-cover">
             <header>
               <span>
                 <strong>כריכה</strong>
@@ -229,6 +229,7 @@ export default function AlbumOverview({
               )}
               <article
                 ref={(node) => { if (node) spreadRefs.current.set(spread.id, node); else spreadRefs.current.delete(spread.id); }}
+                data-tour="album-spread"
                 className={`album-book-spread${selected ? ' selected' : ''}${dragSpread === index ? ' dragging' : ''}${overSpread === index && dragSpread !== index ? ' drop-target' : ''}`}
                 onMouseEnter={() => setHoveredSpread(index)}
                 onMouseLeave={() => setHoveredSpread(null)}
@@ -276,11 +277,11 @@ export default function AlbumOverview({
               </Fragment>
             );
           })}
-          <button className="album-add-spread-inline" onClick={onAddSpread}>＋ כפולה</button>
+          <button className="album-add-spread-inline" onClick={onAddSpread} data-tour="album-add-spread">＋ כפולה</button>
         </div>
       </div>
 
-      <aside className="album-overview-timeline" aria-label="רצף תמונות">
+      <aside className="album-overview-timeline" aria-label="רצף תמונות" data-tour="album-timeline">
         <header>
           <div><strong>תמונות</strong><span>{order.length}</span></div>
           {!timelineOpen && <span>{order.length} תמונות · {project.spreads.length} כפולות</span>}

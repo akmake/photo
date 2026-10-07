@@ -133,7 +133,7 @@ export default function AlbumLibrary({
             <span>{albums.length ? `${albums.length} אלבומים` : 'אין עדיין אלבומים'}</span>
           </div>
         </div>
-        <button className="album-primary-button" onClick={openCreate}>
+        <button className="album-primary-button" onClick={openCreate} data-tour="album-new">
           <span aria-hidden="true">＋</span> אלבום חדש
         </button>
       </header>
@@ -151,6 +151,7 @@ export default function AlbumLibrary({
             return (
               <div
                 className="album-card"
+                data-tour="album-card"
                 key={album.id}
                 role="button"
                 tabIndex={0}
@@ -237,7 +238,7 @@ export default function AlbumLibrary({
 
       {creating && (
         <div className="album-modal-backdrop" onMouseDown={(event) => event.target === event.currentTarget && setCreating(false)}>
-          <section className="album-create-dialog" role="dialog" aria-modal="true" aria-labelledby="album-create-title" onKeyDown={(event) => event.key === 'Escape' && setCreating(false)}>
+          <section className="album-create-dialog" data-tour="album-create" role="dialog" aria-modal="true" aria-labelledby="album-create-title" onKeyDown={(event) => event.key === 'Escape' && setCreating(false)}>
             <header>
               <div><h2 id="album-create-title">אלבום חדש</h2><p>האלבום ייבנה מיד וייפתח כספר.</p></div>
               <button className="album-icon-button" onClick={() => setCreating(false)} aria-label="סגירה">×</button>
@@ -272,7 +273,7 @@ export default function AlbumLibrary({
                   <small>{customValid ? 'ס״מ · האלבום סגור' : 'רוחב וגובה 10–100 ס״מ'}</small>
                 </div>
               )}
-              <fieldset>
+              <fieldset data-tour="album-create-source">
                 <legend>מקור התמונות</legend>
                 {clientAlbums.map((album, index) => (
                   <label key={`${album.name}-${index}`} className="album-radio-row">

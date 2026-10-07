@@ -73,7 +73,7 @@ export default function ContextToolbar({ name, inline, menus, actions, onDone }:
     /* No "you have selected a photograph" label: the controls in the bar say
      * what is selected better than the word does, and the width they save is
      * width the spread gets. Canva does not label it either. */
-    <div className="ctx-bar" ref={bar} role="toolbar" aria-label={`כלי ${name}`}>
+    <div className="ctx-bar" ref={bar} role="toolbar" aria-label={`כלי ${name}`} data-tour={`album-toolbar-${name === 'תמונה' ? 'photo' : name === 'טקסט' ? 'text' : 'element'}`}>
       {inline && <div className="ctx-bar-inline">{inline}</div>}
 
       {menus.length > 0 && <span className="ctx-bar-sep" aria-hidden="true" />}

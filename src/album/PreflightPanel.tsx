@@ -14,7 +14,7 @@ export default function PreflightPanel({ issues, onNavigate, onClose }: Props) {
   const warnings = issues.filter((issue) => issue.severity === 'warning').length;
 
   return (
-    <div className="preflight-overlay" role="dialog" aria-modal="true" aria-label="בדיקת דפוס">
+    <div className="preflight-overlay" role="dialog" aria-modal="true" aria-label="בדיקת דפוס" data-tour="album-preflight-view">
       <header>
         <div>
           <strong>בדיקת דפוס מלאה</strong>

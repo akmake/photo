@@ -15,6 +15,10 @@ import { WORK, WORK_BURST, WORK_COMPARE, WORK_VIEWER } from './content/work.ts';
 import { SEND, SEND_STORAGE } from './content/send.ts';
 import { EDIT, EDIT_COLORMATCH, EDIT_EXPORT, EDIT_REVIEW } from './content/edit.ts';
 import { PHOTO_EDITOR } from './content/photoEditor.ts';
+import {
+  ALBUM, ALBUM_CREATE, ALBUM_CROP, ALBUM_DELIVERY, ALBUM_DESIGN, ALBUM_ELEMENT, ALBUM_PHOTO,
+  ALBUM_PREFLIGHT, ALBUM_REVIEW, ALBUM_TEXT,
+} from './content/album.ts';
 
 export const TOURS: Tour[] = [
   WELCOME,
@@ -23,6 +27,8 @@ export const TOURS: Tour[] = [
   SEND, SEND_STORAGE,
   EDIT, EDIT_COLORMATCH, EDIT_REVIEW, EDIT_EXPORT,
   PHOTO_EDITOR,
+  ALBUM, ALBUM_CREATE, ALBUM_DESIGN, ALBUM_PHOTO, ALBUM_TEXT, ALBUM_ELEMENT, ALBUM_CROP,
+  ALBUM_DELIVERY, ALBUM_PREFLIGHT, ALBUM_REVIEW,
 ];
 
 /** The tour the "?" button plays on each screen. */

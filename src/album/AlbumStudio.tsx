@@ -67,6 +67,7 @@ import { detectAlbumSessions, oneSession } from './sessionEngine';
 // selectors — .album-*, .library-*, .organize-*, .review-*, .cover-*,
 // .preflight-*, .tl-*, .abm-* — and all of those classes are used only by files
 // under src/album, so arriving late changes nothing anywhere else.
+import { TourHelpButton } from '../tour/TourProvider';
 import './album.css';
 import './album-redesign.css';
 
@@ -2622,7 +2623,7 @@ export default function AlbumStudio({ job, onBack }: {
   }
 
   return (
-    <div className="album-studio">
+    <div className="album-studio" data-tour="album-studio">
       <header className={`album-topbar ${mode}`}>
         <div className="album-topbar-identity">
           {/* The way out, and nothing else. The arrow points the way Hebrew
@@ -2646,6 +2647,7 @@ export default function AlbumStudio({ job, onBack }: {
           {(preflight.blockers > 0 || preflight.warnings > 0) && (
             <button
               className={`album-preflight-alert${preflight.blockers ? ' blocker' : ''}`}
+              data-tour="album-preflight"
               onClick={() => setShowPreflight(true)}
               title={preflight.blockers ? `${preflight.blockers} בעיות מונעות ייצוא` : `${preflight.warnings} אזהרות`}
             >
@@ -2656,17 +2658,19 @@ export default function AlbumStudio({ job, onBack }: {
             </button>
           )}
           {mode === 'design' && (
-            <div className="album-designer-nav">
+            <div className="album-designer-nav" data-tour="album-designer-nav">
               <button className="album-icon-button" onClick={() => setActiveSpread(spreadIndex - 1)} disabled={editingCover} aria-label="הקודם">‹</button>
               <span>{editingCover ? 'כריכה' : `${spreadIndex + 1} / ${project.spreads.length}`}</span>
               <button className="album-icon-button" onClick={() => setActiveSpread(spreadIndex + 1)} disabled={spreadIndex === project.spreads.length - 1} aria-label="הבא">›</button>
             </div>
           )}
-          <button className="album-icon-button" aria-label="ביטול" title="ביטול · Ctrl+Z" onClick={undoProject} disabled={!historyPast.length}><IcUndo size={18} /></button>
+          <TourHelpButton tour={mode === 'design' ? 'album-design' : 'album'} className="album-icon-button" />
+          <button className="album-icon-button" data-tour="album-undo" aria-label="ביטול" title="ביטול · Ctrl+Z" onClick={undoProject} disabled={!historyPast.length}><IcUndo size={18} /></button>
           <button className="album-icon-button" aria-label="ביצוע חוזר" title="ביצוע חוזר · Ctrl+Shift+Z" onClick={redoProject} disabled={!historyFuture.length}><IcUndo size={18} style={{ transform: 'scaleX(-1)' }} /></button>
           <div className="album-resize-wrap">
             <button
               className={`album-quiet-button album-resize-trigger ${showResizePanel ? 'on' : ''}`}
+              data-tour="album-resize"
               aria-expanded={showResizePanel}
               aria-haspopup="dialog"
               title="שינוי גודל האלבום"
@@ -2843,9 +2847,9 @@ export default function AlbumStudio({ job, onBack }: {
               </>
             )}
           </div>
-          <button className="album-quiet-button" onClick={() => autoBuildAlbum()} title="פריסת כל תמונות האלבום על עמודי הכספת"><IcSparkle size={16} /> בנייה אוטומטית</button>
-          <button className="album-quiet-button" onClick={() => setShowPreview(true)} title="תצוגה מקדימה של האלבום"><IcEye size={16} /> תצוגה</button>
-          <div className="album-more-wrap">
+          <button className="album-quiet-button" data-tour="album-autobuild" onClick={() => autoBuildAlbum()} title="פריסת כל תמונות האלבום על עמודי הכספת"><IcSparkle size={16} /> בנייה אוטומטית</button>
+          <button className="album-quiet-button" data-tour="album-preview" onClick={() => setShowPreview(true)} title="תצוגה מקדימה של האלבום"><IcEye size={16} /> תצוגה</button>
+          <div className="album-more-wrap" data-tour="album-more">
             <button className="album-icon-button" aria-label="פעולות נוספות" aria-expanded={showMoreMenu} onClick={() => setShowMoreMenu((value) => !value)}>•••</button>
             {showMoreMenu && (
               <div className="album-context-menu album-topbar-menu" role="menu">
@@ -2856,7 +2860,7 @@ export default function AlbumStudio({ job, onBack }: {
               </div>
             )}
           </div>
-          <button className="album-primary-button album-share-button" onClick={() => setShowDelivery(true)}><IcDownload size={16} /> {mode === 'design' ? 'שיתוף' : 'הגהה ומסירה'}</button>
+          <button className="album-primary-button album-share-button" data-tour="album-share" onClick={() => setShowDelivery(true)}><IcDownload size={16} /> {mode === 'design' ? 'שיתוף' : 'הגהה ומסירה'}</button>
         </div>
       </header>
 
@@ -3786,7 +3790,7 @@ export default function AlbumStudio({ job, onBack }: {
             />
           )}
           {cropIndex !== null && selectedSlot && selectedFrameSettings && selectedFramePhoto && (
-            <aside className="album-crop-panel" role="dialog" aria-label="חיתוך ומיקום תמונה">
+            <aside className="album-crop-panel" role="dialog" aria-label="חיתוך ומיקום תמונה" data-tour="album-crop">
               <header>
                 <button type="button" aria-label="סגירת החיתוך" onClick={() => setCropIndex(null)}>×</button>
                 <strong>חיתוך</strong>
@@ -3861,6 +3865,7 @@ export default function AlbumStudio({ job, onBack }: {
           )}
           <div
             className="album-canvas-area"
+            data-tour="album-canvas"
             onClick={(event) => {
               if (event.target === event.currentTarget) { setSelectedSlotIndex(null); setCropIndex(null); setSelectedElementId(null); setSelectedDecorId(null); }
             }}
@@ -4184,7 +4189,7 @@ export default function AlbumStudio({ job, onBack }: {
             </div>
           </div>
 
-          <footer className="album-page-strip" aria-label="עמודי האלבום">
+          <footer className="album-page-strip" aria-label="עמודי האלבום" data-tour="album-page-strip">
             <button className={`album-page-mini cover ${editingCover ? 'on' : ''}`} onClick={openCoverDesigner}>
               <span>כריכה</span><i />
             </button>
@@ -4210,7 +4215,7 @@ export default function AlbumStudio({ job, onBack }: {
           <>
           {/* Kept mounted, never unmounted: it threw the photographer back
             * to the first tab every time she touched a photo and came back. */}
-          <div className="album-panel-swap">
+          <div className="album-panel-swap" data-tour="album-panel">
           <SpreadPanel
             key={spread.id}
             collapsed={!panelOpen}
@@ -4295,7 +4300,7 @@ export default function AlbumStudio({ job, onBack }: {
 
       {showDelivery && (
         <div className="album-modal-backdrop" onMouseDown={(event) => event.target === event.currentTarget && setShowDelivery(false)}>
-          <section className="album-delivery-dialog" role="dialog" aria-modal="true" aria-labelledby="album-delivery-title">
+          <section className="album-delivery-dialog" role="dialog" aria-modal="true" aria-labelledby="album-delivery-title" data-tour="album-delivery">
             <header>
               <div>
                 <h2 id="album-delivery-title">הגהה ומסירה</h2>
