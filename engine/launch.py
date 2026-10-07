@@ -11,10 +11,12 @@ So the executable calls ITSELF with a flag. `teza-engine.exe` serves the studio;
 `teza-engine.exe --prep` is the background preparation worker that server.py
 spawns (see `_prep_process` there, which passes the flag when frozen).
 
-Both are started through runpy with `__main__` as the run name, so server.py and
-prep.py keep their `if __name__ == "__main__":` blocks and behave in the package
-exactly as they do from the command line. Nothing about them had to change to
-be packaged.
+Both are entered by CALLING them — `server.serve()`, `prep.main()` — and not
+through runpy as `__main__`, which is how this file did it until 07.10.2026.
+The packaged engine ships server.py and prep.py compiled to machine code
+(build_protected.py, docs/CODE-PROTECTION-TIMELINE.md), and runpy can only run
+a module it has the code object of. Their `if __name__ == "__main__":` blocks
+call the same two functions, so the command line behaves as it always did.
 """
 
 import multiprocessing
@@ -42,8 +44,6 @@ def main() -> None:
     if here not in sys.path:
         sys.path.insert(0, here)
 
-    import runpy
-
     if "--prep" in sys.argv[1:]:
         # The frozen preparation worker is another entry point into image work;
         # it must not bypass the HTTP server's license gate when run directly.
@@ -51,9 +51,11 @@ def main() -> None:
             import license_state
             if not license_state.status()["ok"]:
                 sys.exit("TEZA license required")
-        runpy.run_module("prep", run_name="__main__")
+        import prep
+        prep.main()
     else:
-        runpy.run_module("server", run_name="__main__")
+        import server
+        server.serve()
 
 
 if __name__ == "__main__":

@@ -38,6 +38,7 @@ const net = require('node:net');
 const path = require('node:path');
 const { startUpdates } = require('./updater.cjs');
 const { createServerOrigin } = require('./serverOrigin.cjs');
+const { checkInstallation } = require('./integrity.cjs');
 
 const DEV = !app.isPackaged;
 
@@ -186,6 +187,24 @@ async function startEngine(onLine) {
         } catch { /* logging must not break the launch */ }
       },
     });
+  }
+
+  /* THE SEAL. app.asar is sealed by Electron; the engine and the license files
+   * beside it are checked here, against digests sealed inside app.asar
+   * (integrity.cjs). A changed engine is how a license gate gets removed, so a
+   * damaged installation does not get an engine at all. */
+  if (!DEV) {
+    const damaged = checkInstallation(process.resourcesPath);
+    if (damaged.length) {
+      try {
+        fs.mkdirSync(LOG_DIR, { recursive: true });
+        const what = damaged.map((d) => `${d.file} (${d.why})`).join(', ');
+        fs.appendFileSync(path.join(LOG_DIR, 'engine.log'),
+          `\n--- ${new Date().toISOString()} installation check failed: ${what}\n`);
+      } catch { /* logging must not change the answer */ }
+      onLine('ההתקנה פגומה — יש להתקין את FrameOps מחדש');
+      return false;
+    }
   }
 
   fs.mkdirSync(LOG_DIR, { recursive: true });

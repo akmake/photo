@@ -65,3 +65,9 @@ output/
 # rebuildable binaries — the recipe is engine/teza-engine.spec.
 engine/.build/
 engine/.dist/
+
+# Build products of the protected package (scripts/protect-shell.cjs, engine/build_protected.py)
+electron/shell.jsc
+electron/.shell.bundle.cjs
+electron/engine-manifest.json
+engine/.protect/

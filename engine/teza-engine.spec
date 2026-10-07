@@ -36,7 +36,7 @@ HERE = os.path.abspath(os.getcwd())
 # functions, and launch.py reaches server and prep through runpy — which is a
 # runtime decision the analyser cannot follow. Listing the directory is the one
 # form of this that cannot go stale when a module is added.
-SKIP = {"launch", "setup_models", "export_onnx"}
+SKIP = {"launch", "setup_models", "export_onnx", "build_protected"}
 ENGINE_MODULES = sorted(
     name[:-3]
     for name in os.listdir(HERE)
@@ -88,6 +88,41 @@ a = Analysis(
     noarchive=False,
     optimize=0,
 )
+
+# ---------------------------------------------------------------- protection
+# TEZA_PROTECT=1 (set by `npm run build:engine`): our modules ship as the
+# machine code build_protected.py compiled, NOT as bytecode in the PYZ — which
+# anyone can list and read (docs/CODE-PROTECTION-TIMELINE.md). The analysis
+# above still runs on the .py files, because that is how PyInstaller learns
+# which libraries they import; only the result is swapped.
+#
+# Fail closed. A module missing from the compiled set, or compiled from a
+# source that has changed since, stops the build: shipping it as bytecode
+# instead would be the leak this exists to stop, and shipping the stale one
+# would be a different program from the one in the repository.
+if os.environ.get("TEZA_PROTECT") == "1":
+    import hashlib
+    import json
+
+    protect_dir = os.path.join(HERE, ".protect")
+    with open(os.path.join(protect_dir, "modules.json"), encoding="utf-8") as f:
+        built = json.load(f)
+    expected = set(ENGINE_MODULES) - set(built.get("cannot_compile", {}))
+    if set(built["modules"]) != expected:
+        raise SystemExit(
+            "protected build does not match the engine's modules: "
+            f"missing {sorted(expected - set(built['modules']))}, "
+            f"extra {sorted(set(built['modules']) - expected)} — run build_protected.py"
+        )
+    for name in built["modules"]:
+        with open(os.path.join(HERE, f"{name}.py"), "rb") as f:
+            if hashlib.sha256(f.read()).hexdigest() != built["sources"][name]:
+                raise SystemExit(f"{name}.py changed after it was compiled — run build_protected.py")
+    protected = set(built["modules"])
+    a.pure = [entry for entry in a.pure if entry[0] not in protected]
+    for file in built["files"]:
+        a.binaries.append((file, os.path.join(protect_dir, file), "EXTENSION"))
+    print(f"teza-engine.spec: {len(protected)} modules shipped compiled")
 
 pyz = PYZ(a.pure)
 

@@ -2506,7 +2506,15 @@ class Server(ThreadingHTTPServer):
             super().server_bind()
 
 
-if __name__ == "__main__":
+
+def serve() -> None:
+    """Run the engine: listen, warm what is slow, sweep what a stop left behind.
+
+    A function rather than the body of the `__main__` block so the packaged
+    engine can call it: there server.py is compiled to machine code (see
+    build_protected.py), and a compiled module cannot be run as `__main__` —
+    launch.py imports it and calls this instead. From the command line
+    nothing changed: `python server.py` still lands here."""
     import sys
 
     try:
@@ -2568,3 +2576,7 @@ if __name__ == "__main__":
         license_state.start_renewal()
 
     srv.serve_forever()
+
+
+if __name__ == "__main__":
+    serve()

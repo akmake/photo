@@ -160,6 +160,15 @@ npm run build
 אם השתנו קובצי מנוע, דרישות Python, מנגנון רישוי או קיבוע המפתח — לבנות את
 המנוע מחדש. `package:win:full` עושה זאת, אך יש לוודא שהסביבה והדרישות מעודכנות.
 
+### שלב ד0 — תנאים מוקדמים לחבילה מוגנת (מ־07.10.2026)
+
+החבילה נבנית **מוגנת** בלבד (החלטת הצלם, 07.10.2026; פירוט ב־`docs/CODE-PROTECTION-TIMELINE.md`).
+לפני האריזה הראשונה במחשב בונה:
+
+1. Visual Studio Build Tools עם **MSVC** וגם **Windows 11 SDK**. ב־07.10 במחשב הצלם קיים MSVC
+   (Build Tools 18) אבל **ה־SDK חסר** — בלעדיו הקימפול נכשל.
+2. Cython בסביבת המנוע: `engine\.venv\Scripts\python.exe -m pip install cython`.
+
 ### שלב ד — בניית חבילת Windows
 
 ```powershell
@@ -169,10 +178,21 @@ npm run package:win:full
 הפקודה:
 
 1. מקבעת את טביעת המפתח הציבורי במנוע.
-2. בונה את `teza-engine.exe` באמצעות PyInstaller.
-3. מריצה preflight נגד שרת הייצור.
-4. בונה את ממשק React.
-5. יוצרת מתקין NSIS, blockmap ו־`latest.yml` בתיקיית `release/`.
+2. **מקמפלת את כל המודולים שלנו במנוע לקוד מכונה** (`engine/build_protected.py` → `engine/.protect/`).
+   מודול שלא מתקמפל עוצר את הבנייה — הוא לא נארז כקוד קריא.
+3. בונה את `teza-engine.exe` באמצעות PyInstaller עם `TEZA_PROTECT=1`: המודולים שלנו נכנסים כ־`.pyd`
+   ולא כבייטקוד. הספק נכשל אם מודול חסר או אם המקור השתנה אחרי הקימפול.
+4. מריצה preflight נגד שרת הייצור.
+5. בונה את ממשק React.
+6. **`protect:shell`** — המעטפת (`electron/main.cjs` ושכנותיו) מקובצת, מכווצת ומומרת לבייטקוד של V8
+   (`electron/shell.jsc`), ונטענת בחזרה כבדיקה. החבילה מריצה את `electron/shell.loader.cjs`
+   (`build.extraMetadata.main`); `main.cjs` עצמו לא נכנס לחבילה (`build.files`).
+7. **`protect:manifest`** — טביעות SHA-256 של `teza-engine.exe`, של כל ה־`.pyd` שלנו ושל שני קובצי הרישוי
+   נכתבות ל־`electron/engine-manifest.json`, בתוך `app.asar`. המעטפת בודקת אותן לפני שהיא מפעילה את
+   המנוע; קובץ חסר או שונה → המנוע לא עולה, וכתוב "ההתקנה פגומה".
+8. יוצרת מתקין NSIS, blockmap ו־`latest.yml` בתיקיית `release/`, עם הפיוזים של Electron
+   (`build.electronFuses`): `app.asar` חתום בטביעה (שינוי בייט = התוכנה לא עולה), נטען רק מ־asar,
+   ואין `ELECTRON_RUN_AS_NODE` / `NODE_OPTIONS` / `--inspect`.
 
 אין להשתמש בקבצים ישנים שנשארו ב־`release/`. מקור האמת הוא שם הקובץ המופיע
 בתוך `release/latest.yml`, והוא חייב להתאים לגרסה שב־`package.json` ולשעת
@@ -199,6 +219,16 @@ npm run package:win:full
 - הגלריה הציבורית נפתחת מהקישור, מציגה תצוגות בלבד ושומרת בחירות והערות.
 - הורדת אלבום: זו בעיה שדווחה בעבר ונשמרה להמשך; לפני מסירה שטוענת שהיכולת
   קיימת חייבים לבדוק אותה בפועל.
+
+**בדיקות ההגנה** (חובה בחבילה המוגנת הראשונה; אחר כך בכל אריזה — כולן על `release/win-unpacked`):
+
+- `engine\.venv\Scripts\python.exe -m PyInstaller.utils.cliutils.archive_viewer -r -b release\win-unpacked\resources\engine\teza-engine.exe`
+  — **אסור** שיופיעו `cleanup`, `masks`, `server`, `license_state` וכו'. ב־`_internal\` — קובצי `.pyd` שלהם.
+- `resources\app.asar` לא מכיל `electron/main.cjs` (`npx @electron/asar list`), כן מכיל `shell.jsc`.
+- `npx @electron/fuses read --app release\win-unpacked\FrameOps.exe` — הפיוזים כמו ב־`package.json`.
+- שינוי בייט אחד בעותק של `app.asar` → התוכנה לא עולה. להחזיר את המקור אחרי הבדיקה.
+- שינוי בייט אחד ב־`.pyd` אחד או ב־`license-public.pem` → בחלון כתוב "ההתקנה פגומה" והמנוע לא עולה.
+- כל בדיקות "מחשב נקי" שלמעלה עוברות על החבילה המוגנת — המנוע המקומפל חייב לעבוד כמו הרגיל.
 
 ### שלב ו — פרסום עדכון
 
@@ -310,6 +340,7 @@ package:win:full: עבר/נכשל
 |---|---:|---|---|
 | 18.09.2026 | 0.1.0 | נבנתה מקומית | קדמה לרישוי החדש; לא למסירה כמוצר הנוכחי |
 | 24.09.2026 01:30 | 0.2.0 | נבנתה מקומית | מפתח הייצור קיים ו־preflight עבר מאוחר יותר, אך החבילה קדמה לתיקון פס החלון ולשינוי שם המוצר; אין למסור אותה כחבילה הסופית |
+| 07.10.2026 | — | **לא נארז** | הוכנה תצורת החבילה המוגנת (§6 ד0–ד, בדיקות ההגנה בשלב ה). נבדק בלי אריזה: המעטפת מתקמפלת לבייטקוד ונטענת ב־Electron 44.4.2; בדיקת הטביעות (4 בדיקות); 104/104. **לא נבדק:** קימפול המנוע (חסר Windows SDK), הפיוזים וטביעת ה־asar בחבילה אמיתית, הפעלת התוכנה הארוזה. הצלם: "לא לארוז מחדש כרגע" |
 | 25.09.2026 02:39 | 0.2.1 | נבנתה מקומית | commit `9a04ba7`; ענף main; לא נכלל: `third_party/` (לא בגיט). preflight עבר מול הייצור; `npm test` 91/91; build עבר. `FrameOps-Setup-0.2.1.exe`, 1,776,456,560 בתים. גיבוי מפתח פרטי — **לא נבדק**; מחשב נקי — **לא בוצע**. **פורסם** ל-`appuser@46.224.63.165:/home/appuser/teza-data/updates` (הראשון בתיקייה); נבדק מבחוץ: latest.yml 0.2.1 עם no-cache, המתקין בגודל הנכון עם Range (206), השם הקבוע והמפה עונים 200. לא נמסר ללקוח. כלי הסרת האובייקט: המילוי היוצר (RORem, 7GB) **לא בחבילה** — אצל צלם הסרה שיש מאחוריה עצם חוזרת למילוי הרגיל |
 
 ---
@@ -328,5 +359,9 @@ package:win:full: עבר/נכשל
 | העלאת מתקין ועדכון | `scripts/release-upload.cjs` |
 | הודעת מעבר דומיין | `scripts/announce-move.cjs` |
 | חוזה הרישוי המלא | `docs/LICENSING.md` |
+| קימפול המנוע לקוד מכונה | `engine/build_protected.py` · `engine/teza-engine.spec` (`TEZA_PROTECT`) |
+| המעטפת כבייטקוד | `scripts/protect-shell.cjs` · `electron/bytecode.cjs` · `electron/shell.loader.cjs` |
+| חותמת המנוע וקובצי הרישוי | `scripts/engine-manifest.cjs` · `electron/integrity.cjs` |
+| הממצאים, ההחלטות ומה נבדק | `docs/CODE-PROTECTION-TIMELINE.md` |
 | המסמך הנוכחי | `docs/PACKAGING.md` |
 
