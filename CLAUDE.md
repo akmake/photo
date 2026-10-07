@@ -2,11 +2,13 @@
 
 ## 0. קודם כול: זו התוכנה, לא האתר
 
-המוצר בנוי משני חלקים נפרדים, בשתי תיקיות נפרדות:
+המוצר (FrameOps) בנוי משני חלקים נפרדים, בשתי תיקיות נפרדות תחת תיקיית אב אחת
+`C:\Users\yosef dahan\Documents\GitHub\FrameOps` (מאז 07.10.2026; בגיטהאב נשארו שני
+פרויקטים נפרדים):
 
 | | **התוכנה — התיקייה הזו** | **האתר** |
 |---|---|---|
-| נתיב | `C:\Users\yosef dahan\Documents\GitHub\photo` | `C:\Users\yosef dahan\Documents\GitHub\ManagPhoto` |
+| נתיב | `C:\Users\yosef dahan\Documents\GitHub\FrameOps\photo` | `C:\Users\yosef dahan\Documents\GitHub\FrameOps\ManagPhoto` |
 | GitHub | `akmake/photo` | `akmake/ManagPhoto` |
 | איפה רץ | אצל הצלם על המחשב. נארז לקובץ EXE ומופץ. **לא באינטרנט** | באינטרנט. שם כל התנועה |
 | מי משתמש | הצלם בלבד | צלמים שקונים מנוי, והלקוחות של הצלמים |
@@ -144,12 +146,12 @@
 
 ### מלכודות
 
-- **`engine/_*.py`** (קידומת קו תחתון) — סקריפטי אבחון חד-פעמיים, **לא מוצר**.
-  יש עשרות. לא לתקן אותם ולא ללמוד מהם על התנהגות נוכחית.
-- **`test-results/`** — פלט של ריצות עבר. תמונות, לא קוד מקור.
 - **`src/album/layoutEngine.ts`** — מחולל contact-sheet. **לעולם לא לחווט
   אותו לאלבום האוטומטי.**
-- **`_archive_chabad/`**, **`teza-new/`**, **`experiments/`** — לא המוצר.
+- **`experiments/`** — לא המוצר (אבל `experiments/holdout.py` הוא בדיקת התאמת הצבע).
+- ב-07.10.2026 הוסרו מכאן כל מה שלא מחובר למוצר: סקריפטי האבחון `engine/_*.py`,
+  `test-results/`, `_archive_chabad/`, `teza-new/`, `tmp/`, השירות `smart-cleanup-agent/`
+  ו-`third_party/`. מסמך שמפנה אליהם — הם בהיסטוריית הגיט, לא על הדיסק.
 - מסמך בן חודש יכול להיות לא מעודכן. אם הוא סותר את הקוד — **הקוד הוא
   האמת, והסתירה מדווחת למשתמש.**
 
