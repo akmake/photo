@@ -67,6 +67,13 @@ function findTarget(name: string | undefined): HTMLElement | null {
   return null;
 }
 
+/** Where a tour opens: its first step that is on screen (a situation that is
+ *  not here is not the place to begin). */
+function firstShowable(tour: Tour): number {
+  const i = tour.steps.findIndex((s) => !(s.optional && s.target && !findTarget(s.target)));
+  return i < 0 ? 0 : i;
+}
+
 export function TourProvider({ screen, children }: { screen: string; children: ReactNode }) {
   const [run, setRun] = useState<{ tour: Tour; index: number } | null>(null);
   const runRef = useRef(run);
@@ -74,7 +81,7 @@ export function TourProvider({ screen, children }: { screen: string; children: R
 
   const start = useCallback((id: string) => {
     const tour = tourById(id);
-    if (tour && tour.steps.length) setRun({ tour, index: 0 });
+    if (tour && tour.steps.length) setRun({ tour, index: firstShowable(tour) });
   }, []);
 
   /* Something that opened over the screen (the viewer, a panel) and has a tour
@@ -96,7 +103,7 @@ export function TourProvider({ screen, children }: { screen: string; children: R
         if (gone >= 2) { markSeen(current.tour.id); setRun(null); gone = 0; }
         return;
       }
-      if (!current && open && !hasSeen(open.id)) setRun({ tour: open, index: 0 });
+      if (!current && open && !hasSeen(open.id)) setRun({ tour: open, index: firstShowable(open) });
     };
     const t = window.setInterval(poll, 600);
     return () => window.clearInterval(t);
@@ -105,7 +112,7 @@ export function TourProvider({ screen, children }: { screen: string; children: R
   const screenTour = useMemo(() => contextTour ?? tourForScreen(screen), [contextTour, screen]);
 
   const startScreenTour = useCallback(() => {
-    if (screenTour) setRun({ tour: screenTour, index: 0 });
+    if (screenTour) setRun({ tour: screenTour, index: firstShowable(screenTour) });
   }, [screenTour]);
 
   /* A FIRST VISIT plays the screen's tour by itself — on ARRIVAL only. A tour
@@ -121,7 +128,7 @@ export function TourProvider({ screen, children }: { screen: string; children: R
     if (!tour) return;
     // Let the screen paint first: a tour over a blank frame points at nothing.
     const t = window.setTimeout(() => {
-      if (!runRef.current) setRun({ tour, index: 0 });
+      if (!runRef.current) setRun({ tour, index: firstShowable(tour) });
     }, 700);
     return () => window.clearTimeout(t);
   }, [screen, screenTour]);
@@ -311,9 +318,19 @@ function TourLayer({
 
   const go = useCallback((to: number, dir: 1 | -1) => {
     direction.current = dir;
-    if (to >= tour.steps.length) { handlers.current.onClose(); return; }
-    handlers.current.onIndex(Math.max(0, to));
-  }, [tour.steps.length]);
+    /* A situation that is not on screen is passed over NOW, not after waiting
+     * for it: the other phase of a screen can be half a tour long, and a
+     * third of a second of nothing per absent step reads as a hang. The
+     * patience in the watch below is for a screen still loading, not this. */
+    let i = to;
+    while (i >= 0 && i < tour.steps.length) {
+      const s = tour.steps[i];
+      if (!(s.optional && s.target && !findTarget(s.target))) break;
+      i += dir;
+    }
+    if (i >= tour.steps.length) { handlers.current.onClose(); return; }
+    handlers.current.onIndex(Math.max(0, i < 0 ? to : i));
+  }, [tour.steps]);
 
   /* Back goes to the nearest earlier step that can be shown right now — a step
    * whose button is on this screen, or a card that needs none. */
@@ -434,6 +451,13 @@ function TourLayer({
     if (found && !doing) primary.current?.focus({ preventScroll: true });
   }, [found, doing, step]);
 
+  /* The light GLIDES between two targets, but it APPEARS on the first one.
+   * Coming from a card in the middle of the screen there is no "from": a glide
+   * would grow a white dot out of the centre of the screen. */
+  const lastHole = useRef<Box | null>(null);
+  const appearing = Boolean(hole) && !lastHole.current;
+  useEffect(() => { lastHole.current = hole; }, [hole]);
+
   const vw = window.innerWidth;
   const vh = window.innerHeight;
   const centered = !hole;
@@ -462,7 +486,7 @@ function TourLayer({
   return createPortal(
     <div className="tour-root" dir="rtl">
       <div
-        className={`tour-hole${doing && !centered ? ' is-doing' : ''}${centered ? ' is-centered' : ''}`}
+        className={`tour-hole${doing && !centered ? ' is-doing' : ''}${centered ? ' is-centered' : ''}${appearing ? ' no-glide' : ''}`}
         style={{ top: spot.top, left: spot.left, width: spot.width, height: spot.height }}
         aria-hidden="true"
       />
@@ -498,7 +522,7 @@ function TourLayer({
 
         <div className="tour-foot">
           <div className="tour-progress" aria-label={`שלב ${index + 1} מתוך ${tour.steps.length}`}>
-            <span className="tour-progress-count">{index + 1} / {tour.steps.length}</span>
+            <span className="tour-progress-count">{index + 1} מתוך {tour.steps.length}</span>
             <span className="tour-progress-track">
               <span style={{ width: `${((index + 1) / tour.steps.length) * 100}%` }} />
             </span>

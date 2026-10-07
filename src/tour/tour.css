@@ -38,6 +38,7 @@
 }
 
 .tour-hole.is-centered::after { display: none; }
+.tour-hole.no-glide { transition: none; }
 
 /* A doing-step breathes: this is the thing to press. */
 .tour-hole.is-doing::after {
