@@ -478,3 +478,7 @@ a.tz-client-chip:hover { border-color: var(--tz-brand); color: var(--tz-brand); 
   .tz-client-row { grid-template-columns: 1fr; }
   .tz-client-money { justify-content: flex-start; }
 }
+
+/* הגדרות · הדרכה — two actions side by side, each as wide as its words. */
+.tz-set-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.tz-set-actions .tz-btn-peach { width: auto; padding: 9px 14px; }

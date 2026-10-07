@@ -132,7 +132,7 @@ export default function CloudImportDialog({
     <div className="scrim" role="presentation" onMouseDown={(event) => {
       if (event.currentTarget === event.target && !importing) onClose();
     }}>
-      <section className={`dialog cloud-dialog ${browsing ? '' : 'cloud-dialog-compact'}`} role="dialog" aria-modal="true" aria-label={`ייבוא מהענן: ${NAMES[provider]}`}>
+      <section className={`dialog cloud-dialog ${browsing ? '' : 'cloud-dialog-compact'}`} data-tour="import-cloud" role="dialog" aria-modal="true" aria-label={`ייבוא מהענן: ${NAMES[provider]}`}>
         <header className="dialog-head">
           <IcCloud size={20} />
           <h2><span>ייבוא מהענן</span><bdi dir="ltr">{NAMES[provider]}</bdi></h2>

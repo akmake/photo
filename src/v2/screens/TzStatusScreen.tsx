@@ -242,7 +242,7 @@ export default function TzStatusScreen({
       {/* 2. Middle Row: 3 Columns */}
       <div className="tz-grid-3">
         {/* Col 1: Client Info */}
-        <div className="tz-card">
+        <div className="tz-card" data-tour="project-client">
           <div className="tz-panel-title">פרטי הלקוח</div>
 
           <div className="tz-client-header">
@@ -303,7 +303,7 @@ export default function TzStatusScreen({
         </div>
 
         {/* Col 2: Summary of Photos */}
-        <div className="tz-card" style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+        <div className="tz-card" data-tour="project-summary" style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
           <div>
             <div className="tz-panel-title">סיכום תמונות</div>
 
@@ -341,7 +341,7 @@ export default function TzStatusScreen({
         </div>
 
         {/* Col 3: Recent Activity */}
-        <div className="tz-card">
+        <div className="tz-card" data-tour="project-activity">
           <div className="tz-panel-title">פעילות אחרונה</div>
 
           {activity.length === 0 ? (
@@ -376,7 +376,7 @@ export default function TzStatusScreen({
         {/* Message to Client — goes out through WhatsApp, to the number on
             the project. No number, no send: a button that pretends is worse
             than one that says why it cannot. */}
-        <div className="tz-card">
+        <div className="tz-card" data-tour="project-message">
           <div className="tz-box-title">הודעה ללקוח</div>
           <div className="tz-box-sub">
             {phone
@@ -409,7 +409,7 @@ export default function TzStatusScreen({
         </div>
 
         {/* Share Link */}
-        <div className="tz-card">
+        <div className="tz-card" data-tour="project-link">
           <div className="tz-box-title">קישור לגלריה</div>
           <div className="tz-box-sub">שלח ללקוח קישור לצפייה ובחירת תמונות</div>
 

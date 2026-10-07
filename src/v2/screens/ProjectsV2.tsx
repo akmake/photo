@@ -110,13 +110,13 @@ export default function ProjectsV2({
   return (
     <div className="tz-projects-container">
       {/* 1. Header with Title & Quick Actions */}
-      <section className="tz-projects-header">
+      <section className="tz-projects-header" data-tour="projects-header">
         <div className="tz-projects-header-title">
           <div className="tz-projects-badge-tag">ניהול תיקים</div>
           <h1>פרויקטים</h1>
           <p>כל התיקים בסטודיו, מנוהלים וממוינים לפי השלב שבו הם נמצאים כעת.</p>
         </div>
-        <div className="tz-projects-header-actions">
+        <div className="tz-projects-header-actions" data-tour="projects-new">
           <button className="tz-btn-projects-primary" type="button" onClick={() => setCreating(true)}>
             <span className="tz-btn-icon">＋</span> פרויקט חדש
           </button>
@@ -131,7 +131,7 @@ export default function ProjectsV2({
       </section>
 
       {/* 2. Key Metrics Row — Clean, Luxury Studio Typography, No Cheap Colored Boxes */}
-      <section className="tz-projects-metrics">
+      <section className="tz-projects-metrics" data-tour="projects-metrics">
         <div className="tz-pmetric-card">
           <div className="tz-pmetric-label">פרויקטים פעילים</div>
           <div className="tz-pmetric-value">{active.length}</div>
@@ -168,7 +168,7 @@ export default function ProjectsV2({
       {/* 3. Toolbar: Search & Filter Pills */}
       <div className="tz-ptoolbar">
         <div className="tz-ptoolbar-right">
-          <div className="tz-psearch-box">
+          <div className="tz-psearch-box" data-tour="projects-search">
             <TzIconSearch size={15} />
             <input
               type="text"
@@ -184,7 +184,7 @@ export default function ProjectsV2({
             )}
           </div>
 
-          <div className="tz-pfilter-pills">
+          <div className="tz-pfilter-pills" data-tour="projects-filters">
             {FILTERS.map((item) => (
               <button
                 key={item.id}
@@ -205,7 +205,7 @@ export default function ProjectsV2({
 
       {/* 4. Projects Grid — Clean, High-End Photography First, No Clutter */}
       {filtered.length > 0 ? (
-        <div className="tz-projects-grid">
+        <div className="tz-projects-grid" data-tour="projects-grid">
           {filtered.map((project, idx) => {
             const prog = progressOf(project);
             const bal = openBalance(project);
@@ -216,6 +216,7 @@ export default function ProjectsV2({
               <div
                 key={project.id}
                 className="tz-project-card"
+                data-tour="projects-card"
                 onClick={() => onOpenProject(project.id)}
                 role="button"
                 tabIndex={0}
@@ -250,6 +251,7 @@ export default function ProjectsV2({
                   <button
                     type="button"
                     className="tz-pcard-del"
+                    data-tour="projects-delete"
                     title="מחיקת הפרויקט"
                     aria-label={`מחיקת הפרויקט של ${project.client}`}
                     onClick={(e) => {

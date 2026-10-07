@@ -69,3 +69,23 @@ test('a doing-step says what to do', () => {
     }
   }
 });
+
+/* Every screen the photographer can reach has a tour behind its "?". The
+ * screens are read from the app itself — the rail and the project's stages —
+ * so a stage added there without a tour fails here, by name. */
+test('every screen in the rail and every project stage has a tour', () => {
+  const app = readFileSync('src/v2/V2App.tsx', 'utf8');
+  const block = (name: string) => {
+    const at = app.indexOf(`const ${name} = [`);
+    assert.ok(at >= 0, `${name} not found in V2App.tsx`);
+    return app.slice(at, app.indexOf('];', at));
+  };
+  const ids = [
+    ...[...block('BUSINESS_NAV').matchAll(/id: '([a-z-]+)'/g)].map((m) => m[1]),
+    ...[...block('PROJECT_STAGES').matchAll(/id: '([a-z-]+)'/g)].map((m) => m[1]),
+    'settings',
+  ];
+  const covered = new Set(TOURS.filter((t) => !t.trigger).map((t) => t.screen));
+  const missing = ids.filter((id) => !covered.has(id));
+  assert.deepEqual(missing, [], `screens with no tour:\n${missing.join('\n')}`);
+});

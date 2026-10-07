@@ -235,7 +235,7 @@ export default function ImportV2({
 
       {/* 3. Live Progress Bar (when copying files) */}
       {busy && (
-        <div className="tz-import-progress-card">
+        <div className="tz-import-progress-card" data-tour="import-progress">
           <div className="tz-import-prog-head">
             <strong>מעתיק תמונות לתיקיית הפרויקט…</strong>
             <span className="tz-import-prog-count">
@@ -262,7 +262,7 @@ export default function ImportV2({
 
       {/* 4b. Files that did not arrive — named, and retryable. */}
       {!busy && failed.length > 0 && (
-        <div className="tz-import-error-banner tz-import-failed">
+        <div className="tz-import-error-banner tz-import-failed" data-tour="import-failed">
           <div className="tz-import-failed-head">
             <span>
               ⚠️ {failed.length.toLocaleString('he-IL')} תמונות לא הועתקו לפרויקט.
@@ -289,7 +289,7 @@ export default function ImportV2({
 
       {/* 5. The one line above the photographs */}
       {ready && frames.length > 0 && (
-        <div className="tz-import-results-head">
+        <div className="tz-import-results-head" data-tour="import-results">
           <div className="tz-import-results-title">
             <TzIconGallery size={17} />
             <span>תמונות שיובאו לפרויקט ({frames.length.toLocaleString('he-IL')})</span>

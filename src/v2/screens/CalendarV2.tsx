@@ -109,7 +109,7 @@ export default function CalendarV2({
           <h1>יומן</h1>
           <p>כל צילום שקבעת, לפי התאריך שרשום בפרויקט עצמו.</p>
         </div>
-        <div className="tz-biz-head-figures">
+        <div className="tz-biz-head-figures" data-tour="calendar-figures">
           <div>
             <small>צילומים קרובים</small>
             <strong>{upcoming.length}</strong>
@@ -122,7 +122,7 @@ export default function CalendarV2({
       </section>
 
       <div className="tz-cal-layout">
-        <div className="tz-card tz-cal-month">
+        <div className="tz-card tz-cal-month" data-tour="calendar-month">
           <div className="tz-cal-top-row">
             <button
               type="button"
@@ -205,7 +205,7 @@ export default function CalendarV2({
             </div>
           )}
 
-          <div className="tz-card">
+          <div className="tz-card" data-tour="calendar-upcoming">
             <div className="tz-panel-head-row">
               <span className="tz-panel-head-title">הצילומים הבאים</span>
             </div>
@@ -236,7 +236,7 @@ export default function CalendarV2({
           </div>
 
           {undated.length > 0 && (
-            <div className="tz-card">
+            <div className="tz-card" data-tour="calendar-undated">
               <div className="tz-panel-head-row">
                 <span className="tz-panel-head-title">בלי תאריך צילום</span>
               </div>

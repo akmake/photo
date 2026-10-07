@@ -126,7 +126,7 @@ export default function TodayV2({ onNavigate, onOpenProject, onNewProject }: Das
         </div>
       )}
 
-      <section className="tdash-metrics" aria-label="מדדי סטודיו">
+      <section className="tdash-metrics" aria-label="מדדי סטודיו" data-tour="today-metrics">
         {[
           { label: 'פרויקטים פעילים', value: data.active.length, note: 'נמצאים בתהליך' },
           { label: 'תמונות ממתינות', value: data.photosPending, note: 'טרם עובדו' },
@@ -143,10 +143,10 @@ export default function TodayV2({ onNavigate, onOpenProject, onNewProject }: Das
 
       <div className="tdash-grid">
         <div className="tdash-main">
-          <section className="tdash-panel tdash-projects">
+          <section className="tdash-panel tdash-projects" data-tour="today-projects">
             <div className="tdash-panel-head">
               <div><span className="tdash-kicker">תמונת עבודה</span><h2>פרויקטים פעילים</h2></div>
-              <button className="tdash-text-link" type="button" onClick={() => onNavigate('projects')}>כל הפרויקטים <span aria-hidden="true">←</span></button>
+              <button data-tour="today-all-projects" className="tdash-text-link" type="button" onClick={() => onNavigate('projects')}>כל הפרויקטים <span aria-hidden="true">←</span></button>
             </div>
             <div className="tdash-table-wrap">
               <table className="tdash-table">
@@ -171,7 +171,7 @@ export default function TodayV2({ onNavigate, onOpenProject, onNewProject }: Das
             </div>
           </section>
 
-          <section className="tdash-panel tdash-calendar">
+          <section className="tdash-panel tdash-calendar" data-tour="today-calendar">
             <div className="tdash-panel-head">
               <div><span className="tdash-kicker">לוח זמנים</span><h2>יומן צילומים</h2></div>
               <button className="tdash-text-link" type="button" onClick={() => onNavigate('calendar')}>ליומן המלא <span aria-hidden="true">←</span></button>
@@ -203,7 +203,7 @@ export default function TodayV2({ onNavigate, onOpenProject, onNewProject }: Das
         </div>
 
         <aside className="tdash-side">
-          <section className="tdash-panel tdash-attention">
+          <section className="tdash-panel tdash-attention" data-tour="today-attention">
             <div className="tdash-panel-head"><div><span className="tdash-kicker">סדר יום</span><h2>דורש תשומת לב</h2></div><span className="tdash-count">{data.attention.length}</span></div>
             <div className="tdash-attention-list">
               {data.attention.slice(0, 5).map(({ project, label, detail, tone }) => <button type="button" className="tdash-attention-row" key={project.id} onClick={() => openProject(project)}><span className={`tdash-attention-mark tdash-mark-${tone}`} /><span className="tdash-attention-copy"><strong>{label}</strong><small>{project.client} · {detail}</small></span><span className="tdash-row-arrow" aria-hidden="true">←</span></button>)}
@@ -212,7 +212,7 @@ export default function TodayV2({ onNavigate, onOpenProject, onNewProject }: Das
             <button className="tdash-side-link" type="button" onClick={() => onNavigate('projects')}>לניהול פרויקטים <span aria-hidden="true">←</span></button>
           </section>
 
-          <section className="tdash-panel tdash-activity">
+          <section className="tdash-panel tdash-activity" data-tour="today-activity">
             <div className="tdash-panel-head"><div><span className="tdash-kicker">עדכונים</span><h2>פעילות אחרונה</h2></div></div>
             {projects.slice(0, 4).map((project) => <button className="tdash-activity-row" type="button" key={project.id} onClick={() => openProject(project)}><span className="tdash-activity-line" /><span><strong>{project.client}</strong><small>{projectStatus(project).label} · {relativeDate(project.createdAt)}</small></span><span className="tdash-row-arrow" aria-hidden="true">←</span></button>)}
             {!projects.length && <p className="tdash-empty-inline">פעילות הפרויקטים תופיע כאן.</p>}

@@ -89,7 +89,7 @@ export default function ClientsV2({
           <h1>לקוחות</h1>
           <p>כל מי שצילמת עבורו, כמה עבודה הביא וכמה הוא עדיין חייב.</p>
         </div>
-        <div className="tz-biz-head-figures">
+        <div className="tz-biz-head-figures" data-tour="clients-figures">
           <div>
             <small>היקף כולל</small>
             <strong>₪{totalScope.toLocaleString('he-IL')}</strong>
@@ -102,7 +102,7 @@ export default function ClientsV2({
       </section>
 
       <div className="tz-biz-toolbar">
-        <div className="tz-psearch-box">
+        <div className="tz-psearch-box" data-tour="clients-search">
           <TzIconSearch size={15} />
           <input
             type="text"
@@ -143,7 +143,7 @@ export default function ClientsV2({
           </p>
         </div>
       ) : (
-        <ul className="tz-client-list">
+        <ul className="tz-client-list" data-tour="clients-list">
           {shown.map((c) => (
             <li key={c.name}>
               <div className="tz-client-row">

@@ -12,6 +12,7 @@
  */
 
 import React, { useEffect, useState } from 'react';
+import { forgetSeen } from '../../tour/seen';
 import { getWorkspaceRoot, reload, setWorkspaceRoot, useStudio } from '../../studio/store';
 import { pickFolder } from '../../api';
 import { dbHealth } from '../../db';
@@ -19,9 +20,12 @@ import type { DbHealth } from '../../db';
 import './today-redesign.css';
 import './business-v2.css';
 
-export default function SettingsV2() {
+/** Every action is a button: the tours that played once by themselves can be
+ *  asked for again from here — the first-launch one, or all of them. */
+export default function SettingsV2({ onReplayWelcome }: { onReplayWelcome?: () => void }) {
   const { projects, status, fault, saveFault } = useStudio();
   const [root, setRoot] = useState<string | null>(null);
+  const [toursNote, setToursNote] = useState<string | null>(null);
   const [rootRead, setRootRead] = useState(false);
   const [health, setHealth] = useState<DbHealth | null>(null);
   const [busy, setBusy] = useState(false);
@@ -95,7 +99,7 @@ export default function SettingsV2() {
       {problem && <div className="tz-biz-problem">{problem}</div>}
 
       <div className="tz-set-grid">
-        <div className="tz-card tz-set-block">
+        <div className="tz-card tz-set-block" data-tour="settings-folder">
           <h2>תיקיית העבודה</h2>
           <p>כאן נפתחת תיקייה לכל פרויקט חדש. התמונות שכבר על הדיסק לא זזות משום מקום.</p>
           <div className="tz-set-value" dir="ltr">
@@ -106,7 +110,7 @@ export default function SettingsV2() {
           </button>
         </div>
 
-        <div className="tz-card tz-set-block">
+        <div className="tz-card tz-set-block" data-tour="settings-engine">
           <h2>המנוע המקומי</h2>
           <p>התוכנה עובדת מול מנוע שרץ על המחשב הזה בלבד. בלעדיו אין קריאה מהדיסק ואין שמירה.</p>
           <div className="tz-set-rows">
@@ -138,7 +142,7 @@ export default function SettingsV2() {
           </button>
         </div>
 
-        <div className="tz-card tz-set-block">
+        <div className="tz-card tz-set-block" data-tour="settings-data">
           <h2>קובץ הנתונים</h2>
           <p>כל מה שהתוכנה יודעת על העבודה יושב בקובץ אחד. אפשר להעתיק אותו לגיבוי.</p>
           <div className="tz-set-value" dir="ltr">
@@ -157,6 +161,30 @@ export default function SettingsV2() {
           {health && !health.ok && (
             <div className="tz-biz-problem">{health.error || 'קובץ הנתונים לא נקרא.'}</div>
           )}
+        </div>
+
+        <div className="tz-card tz-set-block" data-tour="settings-tours">
+          <h2>הדרכה</h2>
+          <p>כל מסך מסביר את עצמו בפעם הראשונה שנכנסים אליו, והכפתור "?" למעלה מסביר שוב בכל רגע.</p>
+          {toursNote && <div className="tz-set-value">{toursNote}</div>}
+          <div className="tz-set-actions">
+            {onReplayWelcome && (
+              <button
+                className="tz-btn-peach"
+                type="button"
+                onClick={() => { forgetSeen(['welcome']); onReplayWelcome(); }}
+              >
+                ההיכרות הראשונה, שוב
+              </button>
+            )}
+            <button
+              className="tz-btn-peach"
+              type="button"
+              onClick={() => { forgetSeen(); setToursNote('כל ההדרכות יעלו שוב בכניסה הבאה לכל מסך.'); }}
+            >
+              הצג שוב את כל ההדרכות
+            </button>
+          </div>
         </div>
       </div>
     </div>

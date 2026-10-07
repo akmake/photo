@@ -205,7 +205,7 @@ export default function V2App({ onSwitchToV1, onOpenProjectV1 }: V2AppProps) {
     if (activeNav === 'settings') {
       return (
         <Suspense fallback={<Waiting what="ההגדרות" />}>
-          <SettingsV2 />
+          <SettingsV2 onReplayWelcome={() => setActiveNav('today')} />
         </Suspense>
       );
     }
