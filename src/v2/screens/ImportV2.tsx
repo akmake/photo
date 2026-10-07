@@ -186,12 +186,13 @@ export default function ImportV2({
           </p>
         </div>
 
-        <div className="tz-import-actions">
+        <div className="tz-import-actions" data-tour="import-actions">
           <button
             className="tz-btn-projects-primary"
             type="button"
             onClick={runImport}
             disabled={busy}
+            data-tour="import-from-disk"
           >
             <TzIconUpload size={16} />
             {busy ? 'מייבא תמונות…' : 'ייבא תמונות מהמחשב / כרטיס'}
@@ -218,7 +219,7 @@ export default function ImportV2({
       </section>
 
       {/* 2. Destination Info Card */}
-      <div className="tz-import-destination-card">
+      <div className="tz-import-destination-card" data-tour="import-destination">
         <div className="tz-import-dest-info">
           <span className="tz-dest-label">נתיב שמירת הפרויקט:</span>
           <code className="tz-dest-path" dir="ltr">

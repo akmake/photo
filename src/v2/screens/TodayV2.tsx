@@ -116,7 +116,7 @@ export default function TodayV2({ onNavigate, onOpenProject, onNewProject }: Das
           <h1>{greeting}. זה הסטודיו שלך.</h1>
           <p>העבודה הפתוחה, מה שמחכה לך והצילומים הבאים — במקום אחד.</p>
         </div>
-        <button className="tdash-primary" type="button" onClick={newProject}>פרויקט חדש <span aria-hidden="true">＋</span></button>
+        <button className="tdash-primary" type="button" onClick={newProject} data-tour="today-new-project">פרויקט חדש <span aria-hidden="true">＋</span></button>
       </header>
 
       {status === 'down' && (

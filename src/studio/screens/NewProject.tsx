@@ -129,7 +129,7 @@ export default function NewProject({
 
   return (
     <div className="project-create-overlay">
-      <div className="project-create" role="dialog" aria-modal="true" aria-label="פרויקט חדש">
+      <div className="project-create" role="dialog" aria-modal="true" aria-label="פרויקט חדש" data-tour="new-project">
         <form onSubmit={submit}>
           <header className="project-create-header">
             <button type="button" onClick={onClose} aria-label="סגור">×</button>
@@ -205,7 +205,7 @@ export default function NewProject({
                       <strong>₪{balance.toLocaleString('he-IL')}</strong>
                     </div>
                   )}
-                  <fieldset className="project-create-deliverables">
+                  <fieldset className="project-create-deliverables" data-tour="new-project-deliverables">
                     <legend>מה מוסרים ללקוח?</legend>
                     <label className={hasGallery ? 'is-selected' : ''}>
                       <input type="checkbox" checked={hasGallery} onChange={(e) => setGallery(e.target.checked)} />
@@ -263,7 +263,7 @@ export default function NewProject({
 
           <footer className="project-create-footer">
             <button type="button" className="is-quiet" onClick={step === 1 ? onClose : () => setStep(1)}>{step === 1 ? 'ביטול' : 'חזרה'}</button>
-            <button type="submit" className="is-primary" disabled={!ready}>{step === 1 ? 'המשך לפרטי המסירה' : 'יצירת הפרויקט'}</button>
+            <button type="submit" className="is-primary" disabled={!ready} data-tour={step === 2 ? 'new-project-submit' : 'new-project-next'}>{step === 1 ? 'המשך לפרטי המסירה' : 'יצירת הפרויקט'}</button>
           </footer>
         </form>
       </div>

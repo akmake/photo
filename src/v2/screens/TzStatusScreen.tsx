@@ -177,7 +177,7 @@ export default function TzStatusScreen({
   const strokeDashoffset = circumference - ((progressPercent / 100) * circumference);
 
   return (
-    <div className="tz-status-screen">
+    <div className="tz-status-screen" data-tour="project-status">
       {/* 1. Overall Status Card (Top) */}
       <section className="tz-card">
         <div className="tz-overall-top">
@@ -216,7 +216,7 @@ export default function TzStatusScreen({
           </div>
 
           {/* Milestones Track */}
-          <div className="tz-milestones-track">
+          <div className="tz-milestones-track" data-tour="project-progress">
             <div className="tz-track-line" />
 
             {steps.map((step) => (

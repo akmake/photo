@@ -16,6 +16,7 @@ import {
   TzIconLayers, TzIconSend, TzIconSliders, TzIconSparkle, TzIconUpload, TzIconUsers,
 } from './TzIcons';
 import './tz-exact.css';
+import { TourProvider, useTour } from '../tour/TourProvider';
 
 const AlbumStudio = lazy(() => import('../album/AlbumStudio'));
 
@@ -46,6 +47,26 @@ const SCREEN_TITLE: Record<string, string> = {
   experiments: 'כלים בניסיון',
   settings: 'הגדרות',
 };
+
+/** The "?" of every screen: replays that screen's tour. Disabled — and says
+ *  why — on a screen whose tour is not written yet, rather than doing nothing. */
+function HelpButton() {
+  const tour = useTour();
+  const ready = Boolean(tour.screenTour);
+  return (
+    <button
+      className="tz-icon-button"
+      type="button"
+      data-tour="help-button"
+      title={ready ? 'הדרכה למסך הזה' : 'ההדרכה למסך הזה עוד לא נכתבה'}
+      aria-label="הדרכה למסך הזה"
+      disabled={!ready || tour.active}
+      onClick={tour.startScreenTour}
+    >
+      <TzIconHelp size={18} />
+    </button>
+  );
+}
 
 /** A screen on its way in. Named, so a slow first load says which one. */
 function Waiting({ what }: { what: string }) {
@@ -316,7 +337,12 @@ export default function V2App({ onSwitchToV1, onOpenProjectV1 }: V2AppProps) {
     );
   }
 
+  /* Which screen the tour engine is looking at: the rail item, or — inside a
+   * project — the stage. Its "?" button and first-visit tours key on this. */
+  const tourScreen = activeNav === 'project-detail' ? activeStage : activeNav;
+
   return (
+    <TourProvider screen={tourScreen}>
     <div className={`tz-app ${isEditing ? 'is-editing' : ''} ${isGrouping ? 'is-grouping' : ''}`}>
       {/* 1. SIDEBAR (Placed on Right in natural RTL) */}
       <aside className={`tz-sidebar ${isSidebarCollapsed ? 'collapsed' : ''}`}>
@@ -333,6 +359,7 @@ export default function V2App({ onSwitchToV1, onOpenProjectV1 }: V2AppProps) {
           </button>
 
           <div className="tz-sidebar-bell-wrap">
+            <HelpButton />
             <button
               className="tz-icon-button"
               type="button"
@@ -400,7 +427,7 @@ export default function V2App({ onSwitchToV1, onOpenProjectV1 }: V2AppProps) {
         </button>
 
         {/* Business Navigation items */}
-        <nav className="tz-nav-list">
+        <nav className="tz-nav-list" data-tour="nav-business">
           {BUSINESS_NAV.map((item) => {
             const Icon = item.icon;
             const isActive = activeNav === item.id || (item.id === 'projects' && activeNav === 'project-detail');
@@ -471,7 +498,7 @@ export default function V2App({ onSwitchToV1, onOpenProjectV1 }: V2AppProps) {
 
         {/* Stage Tabs Bar (shown only when in single project cockpit mode) */}
         {activeNav === 'project-detail' && (
-          <nav className="tz-tabs-bar">
+          <nav className="tz-tabs-bar" data-tour="project-stages">
             {PROJECT_STAGES.map((tab) => {
               const Icon = tab.icon;
               const isActive = activeStage === tab.id;
@@ -481,6 +508,7 @@ export default function V2App({ onSwitchToV1, onOpenProjectV1 }: V2AppProps) {
                   type="button"
                   className={`tz-tab ${isActive ? 'active' : ''}`}
                   onClick={() => setActiveStage(tab.id)}
+                  data-tour={`stage-${tab.id}`}
                 >
                   <Icon size={16} />
                   <span>{tab.label}</span>
@@ -509,5 +537,6 @@ export default function V2App({ onSwitchToV1, onOpenProjectV1 }: V2AppProps) {
         />
       )}
     </div>
+    </TourProvider>
   );
 }

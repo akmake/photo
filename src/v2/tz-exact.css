@@ -517,6 +517,15 @@
   color: #000;
 }
 
+.tz-icon-button:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.tz-icon-button:disabled:hover {
+  color: #71717a;
+}
+
 .tz-badge-dot {
   position: absolute;
   top: 1px;
@@ -1088,6 +1097,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
+  gap: 2px;
 }
 
 .tz-sidebar .tz-alerts {

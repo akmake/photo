@@ -1,0 +1,257 @@
+/* The tour layer. Sits above everything the app can open, dialogs included. */
+
+.tour-root {
+  --tour-brand: var(--tz-brand, #ea6a3c);
+  --tour-brand-soft: var(--tz-brand-light, #fff7f3);
+  --tour-ink: var(--tz-text-main, #2d2d2d);
+  --tour-sub: var(--tz-text-sub, #52525b);
+  --tour-muted: var(--tz-text-muted, #71717a);
+  --tour-line: var(--tz-border, #e7e5e2);
+  --tour-dim: rgba(20, 18, 16, 0.58);
+  --tour-glide: 340ms cubic-bezier(0.22, 0.8, 0.24, 1);
+
+  position: fixed;
+  inset: 0;
+  z-index: 2147483000;
+  pointer-events: none;
+  font-family: var(--tz-font, 'Assistant', 'Segoe UI', sans-serif);
+}
+
+/* The light: a hole whose shadow is the darkness. It does not take clicks —
+ * the panes do that — so it can glide freely between targets. */
+.tour-hole {
+  position: fixed;
+  border-radius: 12px;
+  box-shadow: 0 0 0 200vmax var(--tour-dim);
+  transition: top var(--tour-glide), left var(--tour-glide),
+    width var(--tour-glide), height var(--tour-glide), border-radius var(--tour-glide);
+  pointer-events: none;
+}
+
+.tour-hole::after {
+  content: '';
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  border: 1.5px solid rgba(255, 255, 255, 0.9);
+  opacity: 0.9;
+}
+
+.tour-hole.is-centered::after { display: none; }
+
+/* A doing-step breathes: this is the thing to press. */
+.tour-hole.is-doing::after {
+  border-color: var(--tour-brand);
+  animation: tour-breathe 1.6s ease-in-out infinite;
+}
+
+@keyframes tour-breathe {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(234, 106, 60, 0.55); }
+  50% { box-shadow: 0 0 0 9px rgba(234, 106, 60, 0); }
+}
+
+.tour-pane {
+  position: fixed;
+  pointer-events: auto;
+  background: transparent;
+  cursor: default;
+}
+
+/* ---------------------------------------------------------------- bubble */
+
+.tour-bubble {
+  position: fixed;
+  width: min(360px, calc(100vw - 32px));
+  max-height: calc(100vh - 32px);
+  overflow: auto;
+  pointer-events: auto;
+  background: #fff;
+  color: var(--tour-ink);
+  border-radius: 16px;
+  padding: 18px 20px 16px;
+  box-shadow:
+    0 24px 48px -12px rgba(20, 18, 16, 0.32),
+    0 4px 12px -2px rgba(20, 18, 16, 0.12),
+    0 0 0 1px rgba(20, 18, 16, 0.04);
+  text-align: right;
+  animation: tour-in 260ms cubic-bezier(0.22, 0.8, 0.24, 1);
+  transition: top var(--tour-glide), left var(--tour-glide), opacity 160ms ease;
+}
+
+.tour-bubble.is-centered {
+  width: min(440px, calc(100vw - 32px));
+  padding: 26px 28px 20px;
+}
+
+.tour-bubble.is-waiting {
+  visibility: hidden;
+  animation: none;
+  pointer-events: none;
+}
+
+@keyframes tour-in {
+  from { opacity: 0; transform: translateY(6px) scale(0.985); }
+  to { opacity: 1; transform: none; }
+}
+
+.tour-arrow {
+  position: absolute;
+  width: 14px;
+  height: 14px;
+  background: #fff;
+  transform: rotate(45deg);
+  border-radius: 2px;
+}
+
+.tour-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.tour-kicker {
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: var(--tour-brand);
+}
+
+.tour-skip {
+  border: 0;
+  background: none;
+  padding: 4px 6px;
+  margin: -4px -6px;
+  border-radius: 6px;
+  font: inherit;
+  font-size: 12px;
+  color: var(--tour-muted);
+  cursor: pointer;
+}
+
+.tour-skip:hover { color: var(--tour-ink); background: #f4f4f5; }
+
+.tour-title {
+  margin: 0 0 6px;
+  font-family: var(--tz-font-display, 'Rubik', sans-serif);
+  font-size: 17px;
+  font-weight: 600;
+  line-height: 1.3;
+  color: var(--tour-ink);
+}
+
+.tour-bubble.is-centered .tour-title { font-size: 22px; margin-bottom: 10px; }
+
+.tour-body p {
+  margin: 0 0 8px;
+  font-size: 14px;
+  line-height: 1.62;
+  color: var(--tour-sub);
+}
+
+.tour-body p:last-child { margin-bottom: 0; }
+
+.tour-bubble.is-centered .tour-body p { font-size: 15px; }
+
+.tour-do {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+  padding: 9px 12px;
+  border-radius: 10px;
+  background: var(--tour-brand-soft);
+  border: 1px solid var(--tz-brand-stroke, #fed7aa);
+  color: #9a3412;
+  font-size: 13.5px;
+  font-weight: 600;
+}
+
+.tour-do svg { flex: none; color: var(--tour-brand); }
+
+.tour-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin-top: 16px;
+}
+
+.tour-progress {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.tour-progress-count {
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: var(--tour-muted);
+  white-space: nowrap;
+}
+
+.tour-progress-track {
+  position: relative;
+  width: 64px;
+  height: 4px;
+  border-radius: 4px;
+  background: #f0eeeb;
+  overflow: hidden;
+}
+
+.tour-progress-track span {
+  position: absolute;
+  inset-block: 0;
+  right: 0;
+  border-radius: inherit;
+  background: var(--tour-brand);
+  transition: width var(--tour-glide);
+}
+
+.tour-actions {
+  display: flex;
+  gap: 8px;
+  flex: none;
+}
+
+.tour-btn {
+  border: 0;
+  border-radius: 9px;
+  padding: 8px 16px;
+  font: inherit;
+  font-size: 13.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 140ms ease, color 140ms ease, box-shadow 140ms ease;
+}
+
+.tour-btn.is-primary {
+  background: var(--tour-brand);
+  color: #fff;
+  box-shadow: 0 2px 8px rgba(234, 106, 60, 0.32);
+}
+
+.tour-btn.is-primary:hover { background: #d95a2d; }
+
+.tour-btn.is-quiet {
+  background: #f4f4f5;
+  color: var(--tour-sub);
+}
+
+.tour-btn.is-quiet:hover { background: #e9e9ec; color: var(--tour-ink); }
+
+.tour-btn:focus-visible,
+.tour-skip:focus-visible {
+  outline: 2px solid var(--tour-brand);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tour-hole,
+  .tour-bubble,
+  .tour-progress-track span { transition: none; }
+  .tour-bubble { animation: none; }
+  .tour-hole.is-doing::after { animation: none; }
+}
