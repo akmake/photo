@@ -28,6 +28,7 @@ import { defaultParams, getTool } from '../../toolRegistry';
 import ManualBrush, { DEFAULT_R, MAX_R, MIN_R } from './ManualBrush';
 import ObjectPickLayer, { type ObjectBox } from './ObjectPickLayer';
 import ObjectMaskPreview from './ObjectMaskPreview';
+import { TourHelpButton } from '../../tour/TourProvider';
 import './photo-editor.css';
 
 export type EditorTab = 'crop' | 'adjust' | 'filter' | 'markup' | 'erase' | 'object' | 'background';
@@ -552,12 +553,13 @@ export default function PhotoEditor({
 
   /* ============================================================ render */
   return (
-    <div className="tz-pe" dir="rtl" role="dialog" aria-modal="true" aria-label="עריכת תמונה">
+    <div className="tz-pe" dir="rtl" role="dialog" aria-modal="true" aria-label="עריכת תמונה" data-tour="photo-editor">
       <header className="tz-pe-top">
         <div className="tz-pe-top-side">
           <span className="tz-pe-name" dir="ltr">{name}</span>
+          <TourHelpButton tour="photo-editor" />
         </div>
-        <nav className="tz-pe-tabs" role="tablist">
+        <nav className="tz-pe-tabs" role="tablist" data-tour="pe-tabs">
           {TABS.map((t, i) => (
             <button
               key={t.id}
@@ -573,7 +575,7 @@ export default function PhotoEditor({
             </button>
           ))}
         </nav>
-        <div className="tz-pe-top-side is-end">
+        <div className="tz-pe-top-side is-end" data-tour="pe-actions">
           <button
             type="button"
             className="tz-pe-btn is-quiet"
@@ -711,7 +713,7 @@ export default function PhotoEditor({
           )}
 
           {tab === 'crop' && (
-            <div className="tz-pe-cropbar">
+            <div className="tz-pe-cropbar" data-tour="pe-crop">
               <Dial value={geo.angle} onChange={(a) => setParams('geometry', { angle: a })} />
               <div className="tz-pe-cropbar-row">
                 <div className="tz-pe-cropbar-side">
@@ -760,7 +762,7 @@ export default function PhotoEditor({
         </main>
 
         {tab !== 'crop' && (
-          <aside className="tz-pe-panel">
+          <aside className="tz-pe-panel" data-tour={`pe-panel-${tab}`}>
             {tab === 'adjust' && ADJUST.map((sec) => (
               <section key={sec.title} className="tz-pe-sec">
                 <h3>{sec.title}</h3>
