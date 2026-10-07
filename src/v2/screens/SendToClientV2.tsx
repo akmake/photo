@@ -160,7 +160,7 @@ export default function SendToClientV2({
   return (
     <div className="tz-stage-container">
       {/* Top Stage Header */}
-      <section className="tz-stage-header">
+      <section className="tz-stage-header" data-tour="send-header">
         <div className="tz-stage-header-copy">
           <div className="tz-stage-tag">שלב 4 · שלח ללקוח</div>
           <h1>גלריית בחירה אישית ללקוח</h1>
@@ -177,6 +177,7 @@ export default function SendToClientV2({
             style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
             onClick={() => setShowStorageModal(true)}
             title="צפה בכל הגלריות שבאחסון ונצל אפשרויות לפינוי מקום"
+            data-tour="send-storage"
           >
             <TzIconCloud size={16} />
             <span>ניהול אחסון וגלריות</span>
@@ -195,6 +196,7 @@ export default function SendToClientV2({
               className="tz-btn-projects-primary"
               type="button"
               onClick={onNext}
+              data-tour="send-next"
             >
               המשך לעריכה ←
             </button>
@@ -320,7 +322,7 @@ function CreateGalleryFlow({
   if (progress) {
     const pct = progress.total ? Math.round((progress.done / progress.total) * 100) : 0;
     return (
-      <div className="tz-sc-progress-card">
+      <div className="tz-sc-progress-card" data-tour="send-progress">
         <div className="tz-sc-card-header">
           <div className="tz-sc-card-title-wrap">
             <h3 className="tz-sc-card-title">
@@ -383,7 +385,7 @@ function CreateGalleryFlow({
               </p>
             )}
 
-            <div className="tz-sc-source-pills">
+            <div className="tz-sc-source-pills" data-tour="send-source">
               <button
                 type="button"
                 className={`tz-sc-source-pill ${source === 'all' ? 'active' : ''}`}
@@ -431,13 +433,14 @@ function CreateGalleryFlow({
               <input
                 type="text"
                 className="tz-sc-title-input"
+                data-tour="send-title"
                 value={galleryTitle}
                 onChange={(e) => setGalleryTitle(e.target.value)}
                 placeholder="לדוגמה: יובל ודניאל - חתונת צהריים"
               />
             </div>
 
-            <div className="tz-sc-presets-wrap">
+            <div className="tz-sc-presets-wrap" data-tour="send-presets">
               <span className="tz-sc-presets-label">חבילות אלבומים נפוצות לבחירה מהירה:</span>
               <div className="tz-sc-presets-list">
                 {ALBUM_PRESETS.map((p) => (
@@ -454,7 +457,7 @@ function CreateGalleryFlow({
               </div>
             </div>
 
-            <div className="tz-sc-albums-list">
+            <div className="tz-sc-albums-list" data-tour="send-albums">
               {albums.map((album, i) => (
                 <div key={i} className="tz-sc-album-row">
                   <input
@@ -565,7 +568,7 @@ function CreateGalleryFlow({
               </button>
             </div>
 
-            <div className="tz-sc-quota-summary">
+            <div className="tz-sc-quota-summary" data-tour="send-quota">
               <span>סה״כ מכסת בחירה ללקוח:</span>
               <strong>{totalQuota} תמונות ב-{albums.length} אלבומים</strong>
             </div>
@@ -579,6 +582,7 @@ function CreateGalleryFlow({
             <button
               type="button"
               className="tz-sc-publish-btn"
+              data-tour="send-publish"
               onClick={handleCreate}
               disabled={!chosenFrames.length}
             >
@@ -806,7 +810,7 @@ function LiveGalleryFlow({
   return (
     <div className="tz-sc-container">
       {/* Live Header Bar */}
-      <div className="tz-sc-live-header">
+      <div className="tz-sc-live-header" data-tour="send-status">
         <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
           {status === 'frozen' ? (
             <span className="tz-sc-status-pill frozen">הגלריה מוקפאת — הקישור אינו זמין</span>
@@ -828,7 +832,7 @@ function LiveGalleryFlow({
           )}
         </div>
 
-        <div className="tz-sc-live-actions">
+        <div className="tz-sc-live-actions" data-tour="send-live-actions">
           {status === 'active' ? (
             <button
               type="button"
@@ -888,7 +892,7 @@ function LiveGalleryFlow({
       </div>
 
       {/* Quick Tools & Operations Bar */}
-      <div className="tz-sc-quick-tools">
+      <div className="tz-sc-quick-tools" data-tour="send-quick-tools">
         <span style={{ fontSize: 12.5, fontWeight: 700, color: '#52525b' }}>פעולות מהירות לצלם:</span>
 
         {state && state.selection.length > 0 && (
@@ -949,7 +953,7 @@ function LiveGalleryFlow({
       {/* Frames that never reached the gallery. The client cannot see them,
           and until now nothing said so once the upload screen had gone. */}
       {(unpublished.length > 0 || resending) && (
-        <div className="tz-sc-unpublished" aria-live="polite">
+        <div className="tz-sc-unpublished" aria-live="polite" data-tour="send-unpublished">
           {resending ? (
             <span>
               שולח שוב {resending.done.toLocaleString('he-IL')} מתוך {resending.total.toLocaleString('he-IL')}…
@@ -991,7 +995,7 @@ function LiveGalleryFlow({
               </div>
             </div>
 
-            <div className="tz-sc-link-row">
+            <div className="tz-sc-link-row" data-tour="send-link">
               <span className="tz-sc-url-text">
                 {url || 'קישור ציבורי יחובר בעת פרסום שרת הגלריות'}
               </span>
@@ -1017,7 +1021,7 @@ function LiveGalleryFlow({
 
             {whatsappUrl ? (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                <div className="tz-sc-wa-tabs">
+                <div className="tz-sc-wa-tabs" data-tour="send-whatsapp">
                   <button
                     type="button"
                     className={`tz-sc-wa-tab ${waMode === 'invite' ? 'active' : ''}`}
@@ -1061,7 +1065,7 @@ function LiveGalleryFlow({
               </p>
             )}
 
-            <div className="tz-sc-creds-row">
+            <div className="tz-sc-creds-row" data-tour="send-creds">
               <div className="tz-sc-creds-values">
                 <span>משתמש: <code>{link.username}</code></span>
                 {accessPassword && <span>סיסמה: <code>{accessPassword}</code></span>}
@@ -1234,7 +1238,7 @@ function LiveGalleryFlow({
                   </div>
                 </div>
               ) : (
-                <div className="tz-sc-meters-grid">
+                <div className="tz-sc-meters-grid" data-tour="send-meters">
                   {state.gallery.albums.map((album) => {
                     const used = state.counts[album.id] ?? 0;
                     const isFull = used >= album.quota;
@@ -1261,7 +1265,7 @@ function LiveGalleryFlow({
 
           {/* Card 3: Client Selections Imported */}
           {link.importedAt && (
-            <div className="tz-sc-imported-card">
+            <div className="tz-sc-imported-card" data-tour="send-imported">
               <div className="tz-sc-imported-copy">
                 <TzIconCheckCircle size={22} />
                 <span>
@@ -1350,7 +1354,7 @@ function ClientFeedbackQueue({
   const openFrame = opened ? frames.find((f) => f.name === opened) : undefined;
 
   return (
-    <div className="tz-sc-comments-card">
+    <div className="tz-sc-comments-card" data-tour="send-comments">
       <div className="tz-sc-card-header">
         <div className="tz-sc-card-title-wrap">
           <h3 className="tz-sc-card-title">
@@ -1511,7 +1515,7 @@ function StudioBrandCard() {
   if (!loaded) return null;
 
   return (
-    <div className="tz-sc-card">
+    <div className="tz-sc-card" data-tour="send-brand">
       <div className="tz-sc-card-header">
         <div className="tz-sc-card-title-wrap">
           <h3 className="tz-sc-card-title">מיתוג ולוגו הסטודיו</h3>
@@ -1652,7 +1656,7 @@ function StorageManagerModal({
 
   return (
     <div className="tz-sc-modal-overlay" onClick={onClose}>
-      <div className="tz-sc-modal-box" onClick={(e) => e.stopPropagation()}>
+      <div className="tz-sc-modal-box" onClick={(e) => e.stopPropagation()} data-tour="send-storage-modal">
         <div className="tz-sc-modal-header">
           <div className="tz-sc-modal-title">
             <TzIconCloud size={22} />
