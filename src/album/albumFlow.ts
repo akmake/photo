@@ -1,9 +1,11 @@
-import { newInstance } from './templates/library';
-import { rankTemplates, splitForLibrary } from './templates/choose';
+import { newInstance } from './templates/library.ts';
+import { rankTemplates, splitForLibrary } from './templates/choose.ts';
 import type { AlbumPhoto, AlbumSession, AlbumSpread } from './model';
 import type { ColorDirection } from './albumColor';
-import { measureDirection, pageColors, tintedBackground } from './albumColor';
-import { getAlbumStyle } from './styleEngine';
+import { measureDirection, pageColors, tintedBackground } from './albumColor.ts';
+import { getAlbumStyle } from './styleEngine.ts';
+import { planAlbum } from './autoLayout.ts';
+import type { AlbumTemplate } from './templates/types';
 
 /* The album is a timeline with cuts.
  *
@@ -155,13 +157,31 @@ export function buildAlbumFromGroups(
   styleName?: string,
   groupSessionIds: Array<string | undefined> = [],
 ): AlbumSpread[] {
-  const stamp = Date.now();
-  const style = getAlbumStyle(styleName);
-  const spreadAspect = pageAspect * 2;
-  const pieces: Array<{ photoIds: string[]; sessionId: string | undefined }> = [];
+  const pieces: Piece[] = [];
   groups.forEach((group, index) => {
     splitForLibrary(group).forEach((photoIds) => pieces.push({ photoIds, sessionId: groupSessionIds[index] }));
   });
+  return spreadsFromPieces(pieces, photos, pageAspect, styleName);
+}
+
+/** One spread to be: its photos, its chapter, and — when the automatic layout
+ *  already chose it — its page and the photos in the order of that page's
+ *  places. Without a page, the best-fitting one is chosen here. */
+interface Piece {
+  photoIds: string[];
+  sessionId: string | undefined;
+  page?: { template: AlbumTemplate; photoIds: string[] };
+}
+
+function spreadsFromPieces(
+  pieces: Piece[],
+  photos: AlbumPhoto[],
+  pageAspect: number,
+  styleName?: string,
+): AlbumSpread[] {
+  const stamp = Date.now();
+  const style = getAlbumStyle(styleName);
+  const spreadAspect = pageAspect * 2;
 
   /* The colour of a page comes from the photographs on it — see albumColor.ts.
    * A chapter is coloured as a whole, so the pages of one scene belong
@@ -184,10 +204,10 @@ export function buildAlbumFromGroups(
   );
 
   const spreads: AlbumSpread[] = [];
-  pieces.forEach(({ photoIds, sessionId }, index) => {
+  pieces.forEach(({ photoIds, sessionId, page }, index) => {
     const sessionStart = Boolean(sessionId) && sessionId !== pieces[index - 1]?.sessionId;
     const recent = spreads.slice(-4).map((spread) => spread.templateInstance?.templateId ?? '');
-    const choice = rankTemplates(photoIds, photos, spreadAspect, recent)[0];
+    const choice = page ?? rankTemplates(photoIds, photos, spreadAspect, recent)[0];
     const chapter = (sessionId ? chapterDirections.get(sessionId) : null) ?? albumDirection;
     const designedBackground = style.backgrounds[index % style.backgrounds.length];
     spreads.push({
@@ -273,17 +293,17 @@ export function buildAutomaticAlbum(
   const orphans = unique.filter((id) => !seen.has(id));
   if (orphans.length) chapters.push({ id: undefined, label: '', photoIds: orphans });
 
-  const groups: string[][] = [];
-  const sessionIds: Array<string | undefined> = [];
-  chapters.forEach((session) => {
-    const chapterGroups = groupsFromCuts(
-      session.photoIds,
-      contextualCuts(session.photoIds, photos, styleName),
-    );
-    chapterGroups.forEach((group) => {
-      groups.push(group);
-      sessionIds.push(session.id);
-    });
-  });
-  return buildAlbumFromGroups(groups, photos, pageAspect, styleName, sessionIds);
+  /* Cuts, pages and places are chosen together — see autoLayout.ts. The pace
+   * is the style's own average spread from its rhythm. */
+  const rhythm = getAlbumStyle(styleName).rhythm;
+  const pace = rhythm.reduce((sum, value) => sum + value, 0) / Math.max(1, rhythm.length);
+  const planned = planAlbum(chapters, photos, pageAspect * 2, { pace });
+  return spreadsFromPieces(
+    planned.flatMap((spread) => (spread.fit
+      ? [{ photoIds: spread.fit.photoIds, sessionId: spread.sessionId, page: spread.fit }]
+      : splitForLibrary(spread.photoIds).map((photoIds) => ({ photoIds, sessionId: spread.sessionId })))),
+    photos,
+    pageAspect,
+    styleName,
+  );
 }
