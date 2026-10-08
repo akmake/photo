@@ -316,7 +316,8 @@ export default function V2App({ onSwitchToV1, onOpenProjectV1 }: V2AppProps) {
    * project — the stage. Its "?" button and first-visit tours key on this. */
   const tourScreen = activeNav === 'project-detail' ? activeStage : activeNav;
 
-  const themed = activeNav === 'projects' || activeNav === 'today' || isWorking;
+  const isStatus = activeNav === 'project-detail' && activeStage === 'client-status';
+  const themed = activeNav === 'projects' || activeNav === 'today' || isWorking || isStatus;
 
   return (
     <TourProvider screen={tourScreen}>
