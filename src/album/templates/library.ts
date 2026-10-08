@@ -57,8 +57,67 @@ const BY_ID = new Map(TEMPLATE_LIBRARY.map((template) => [template.id, template]
 /** Page 4 — the page the template system was first built and checked against. */
 export const VAULT_PAGE_4: AlbumTemplate = BY_ID.get('vault-p004')!;
 
+/* MIRRORED PAGES. Every album designer flips a layout left-to-right
+ * (SmartAlbums calls it Spread Mirroring): the hero moves to the other page,
+ * the faces turn into the spread instead of out of it, and a library of 145
+ * pages becomes one of nearly twice as many. Only the automatic layout reaches
+ * for them; the template panel keeps showing the Vault as designed.
+ *
+ * A page is mirrored only when every layer on it can move without being drawn
+ * backwards: photos, colour fields, frames and plain text. The designer's own
+ * lettering is a vector drawing — mirrored, it would read backwards — so a page
+ * carrying it is left as it is. A page that is its own mirror adds nothing. */
+const MIRROR_SUFFIX = '~m';
+
+function mirrorable(template: AlbumTemplate): boolean {
+  return template.layers.every((layer) => layer.type === 'photo'
+    || (layer.type === 'shape' && (layer.shape === 'rect' || layer.shape === 'ellipse'))
+    || (layer.type === 'text' && !layer.outline));
+}
+
+function mirrorTemplate(template: AlbumTemplate): AlbumTemplate {
+  return {
+    ...template,
+    id: `${template.id}${MIRROR_SUFFIX}`,
+    name: `${template.name} · ראי`,
+    layers: template.layers.map((layer) => {
+      const box = { ...layer.box, x: 1 - layer.box.x - layer.box.width };
+      if ((layer.type === 'photo' || layer.type === 'shape') && layer.feather) {
+        const feather = { ...layer.feather, x1: 1 - layer.feather.x1, x2: 1 - layer.feather.x2 };
+        return { ...layer, box, feather } as TemplateLayer;
+      }
+      return { ...layer, box } as TemplateLayer;
+    }),
+  };
+}
+
+function symmetric(template: AlbumTemplate, mirror: AlbumTemplate): boolean {
+  const key = (t: AlbumTemplate) => t.layers
+    .map((l) => `${l.type}:${l.box.x.toFixed(3)},${l.box.y.toFixed(3)},${l.box.width.toFixed(3)},${l.box.height.toFixed(3)}`)
+    .sort().join('|');
+  return key(template) === key(mirror);
+}
+
+const MIRRORED: AlbumTemplate[] = TEMPLATE_LIBRARY
+  .filter(mirrorable)
+  .map((template) => [template, mirrorTemplate(template)] as const)
+  .filter(([template, mirror]) => !symmetric(template, mirror))
+  .map(([, mirror]) => mirror);
+const MIRROR_BY_ID = new Map(MIRRORED.map((template) => [template.id, template]));
+
 export function findTemplate(id: string): AlbumTemplate | undefined {
-  return BY_ID.get(id);
+  return BY_ID.get(id) ?? MIRROR_BY_ID.get(id);
+}
+
+/** The page a mirrored page was flipped from — the same design, for variety. */
+export function designOf(id: string): string {
+  return id.endsWith(MIRROR_SUFFIX) ? id.slice(0, -MIRROR_SUFFIX.length) : id;
+}
+
+/** Every page the automatic layout may use for this many photos: the Vault as
+ *  designed, and each of its pages mirrored. */
+export function layoutCandidates(photoCount: number): AlbumTemplate[] {
+  return [...templatesFor(photoCount), ...MIRRORED.filter((template) => template.photoCount === photoCount)];
 }
 
 /** Designs a spread with this many photos can take. Every design fits every

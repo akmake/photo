@@ -41,8 +41,13 @@ function measure(name: string, spreads: any[]) {
     });
     rows.push({ template: sp.templateInstance.templateId, colors: sp.templateInstance.colors, session: sp.sessionId, placed });
   });
-  const summary = { name, spreads: spreads.length, counts: counts.join(','), facesCut: cut, facesOnFold: fold,
-    keptAvg: +(keptSum / places).toFixed(3), keptMin: +keptMin.toFixed(3), repeatsIn3: repeats };
+  const tids = spreads.map((s) => s.templateInstance.templateId);
+  const uses = new Map<string, number>(); tids.forEach((t) => uses.set(t, (uses.get(t) ?? 0) + 1));
+  let within6 = 0; tids.forEach((t, i) => { if (tids.slice(Math.max(0, i - 6), i).includes(t)) within6++; });
+  const hist: Record<number, number> = {}; counts.forEach((c) => { hist[c] = (hist[c] ?? 0) + 1; });
+  const summary = { name, spreads: spreads.length, photosPerSpread: hist, facesCut: cut, facesOnFold: fold,
+    keptAvg: +(keptSum / places).toFixed(3), keptMin: +keptMin.toFixed(3), repeatsIn3: repeats, repeatsIn6: within6,
+    distinctPages: uses.size, mostUsed: [...uses].sort((a, b) => b[1] - a[1]).slice(0, 4).map(([t, n]) => `${t}x${n}`).join(' ') };
   console.log(JSON.stringify(summary));
   return { summary, rows };
 }

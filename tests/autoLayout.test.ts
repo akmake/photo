@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import { buildAutomaticAlbum } from '../src/album/albumFlow.ts';
 import { assessCrop } from '../src/album/cropEngine.ts';
 import { faceOnFold, fitPage, FOLD_CLEARANCE, planAlbum } from '../src/album/autoLayout.ts';
-import { findTemplate, fittedTemplate, photoLayers, templatesFor } from '../src/album/templates/library.ts';
+import { designOf, findTemplate, fittedTemplate, layoutCandidates, photoLayers, templatesFor } from '../src/album/templates/library.ts';
 import type { AlbumPhoto } from '../src/album/model';
 
 const SPREAD = (280 / 210) * 2;
@@ -114,4 +114,31 @@ test('ninety photos are laid out in well under a second', () => {
   const t = performance.now();
   buildAutomaticAlbum(many.map((p) => p.id), many, 280 / 210, undefined, sessions);
   assert.ok(performance.now() - t < 1000, `${Math.round(performance.now() - t)} ms`);
+});
+
+test('a mirrored page is the same design turned around, and resolves by id', () => {
+  const mirrored = layoutCandidates(2).filter((t) => t.id.endsWith('~m'));
+  assert.ok(mirrored.length > 20, `only ${mirrored.length} mirrored two-photo pages`);
+  for (const m of mirrored) {
+    const base = findTemplate(designOf(m.id))!;
+    assert.equal(findTemplate(m.id), m);
+    m.layers.forEach((layer, i) => {
+      const b = base.layers[i].box;
+      assert.ok(Math.abs(layer.box.x - (1 - b.x - b.width)) < 1e-9, `${m.id} ${layer.id}`);
+      assert.equal(layer.box.y, b.y);
+    });
+    assert.ok(!m.layers.some((l) => l.type === 'text' && l.outline), `${m.id} mirrors drawn lettering`);
+  }
+});
+
+test('a portrait-heavy shoot does not lean on one page', () => {
+  // 60 portraits in two chapters: the Vault has one page for two portraits and
+  // one for three, so only variety-aware cutting keeps them from repeating
+  const many = Array.from({ length: 60 }, (_, i) => photo(`q${i}`, i % 5 === 4 ? 'landscape' : 'portrait', 0.4));
+  const sessions = [0, 30].map((a, c) => ({ id: `q${c}`, label: '', photoIds: many.slice(a, a + 30).map((p) => p.id) }));
+  const plan = planAlbum(sessions, many, SPREAD, { pace: 3 });
+  const designs = plan.map((s) => designOf(s.fit!.template.id));
+  designs.forEach((d, i) => assert.notEqual(d, designs[i - 1], `design ${d} twice in a row at ${i}`));
+  const most = Math.max(...[...new Set(designs)].map((d) => designs.filter((x) => x === d).length));
+  assert.ok(most <= Math.ceil(plan.length / 4), `one design used ${most} of ${plan.length} times`);
 });

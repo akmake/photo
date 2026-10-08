@@ -2,7 +2,7 @@ import type { AlbumPhoto, LayoutSlot } from './model';
 import type { AlbumTemplate } from './templates/types';
 import { assessCrop } from './cropEngine.ts';
 import { fittedTemplate } from './templates/adapt.ts';
-import { photoLayers, templatesFor } from './templates/library.ts';
+import { designOf, layoutCandidates, photoLayers } from './templates/library.ts';
 
 /* Automatic album layout — which photos share a spread, on which Vault page,
  * and which photo takes which place. See docs/ALBUM-LAYOUT-ALGORITHM.md.
@@ -33,13 +33,25 @@ export const FOLD_CLEARANCE = 15 / 560;
  *  to ten, but a designer reaches for those by hand, not by default. */
 const MAX_RUN = 6;
 const EXHAUSTIVE_LIMIT = 6;
-/** How many of a spread's best pages the sequence pass may choose between. */
-const KEEP_PAGES = 3;
-const RECENT_WINDOW = 3;
-const REPEAT_PENALTY = 0.35;
-/** Every earlier use of a page anywhere in the book costs a little, so the
- *  album does not lean on three favourite pages. */
-const REUSE_PENALTY = 0.06;
+/* VARIETY. The sequence pass may choose any page that carries the spread
+ * nearly as well as the best one — within PAGE_TOLERANCE of its score, which
+ * is ~5% more of the photos cropped away. Keeping only the best three made a
+ * 420-photo book use one page 26 times and another 25 (measured 08.10). */
+const PAGE_TOLERANCE = 0.05;
+const MIN_CHOICES = 3;
+/** A page seen on the last spreads costs this much, fading with distance. */
+const RECENCY = [0.6, 0.5, 0.4, 0.3, 0.2, 0.15, 0.1, 0.05];
+/** Every earlier use of a page anywhere in the book costs this much more. */
+const REUSE_PENALTY = 0.03;
+/* THE CUTS MUST KNOW ABOUT VARIETY TOO. The Vault has exactly one page that
+ * carries two portraits and one for three (p068, p091); a newborn shoot is ~60%
+ * portraits. Choosing pages more freely cannot fix that — only cutting
+ * differently can: four portraits have five pages, a portrait with a landscape
+ * has twenty-four. So pagination itself pays for a run with few pages, for a
+ * page the book has already used, and for the same page twice in a row. */
+const SCARCITY = 0.8;
+const USED_BEFORE = 0.12;
+const SAME_PAGE_IN_A_ROW = 1.0;
 /** Pace: how hard a spread is pulled towards the style's photos-per-spread. */
 const PACE_WEIGHT = 0.5;
 /** Two spreads in a row with the same number of photos read as a grid. */
@@ -204,7 +216,7 @@ export function rankPages(
   const photos = photoIds.map((id) => byId.get(id)).filter((photo): photo is AlbumPhoto => Boolean(photo));
   if (photos.length !== photoIds.length || !photos.length) return [];
   const out: PageFit[] = [];
-  for (const designed of templatesFor(photos.length)) {
+  for (const designed of layoutCandidates(photos.length)) {
     const fit = fitPage(photos, designed, spreadAspect, clearance);
     if (fit) out.push(fit);
   }
@@ -214,6 +226,8 @@ export function rankPages(
 interface RunChoice {
   value: number;
   pages: PageFit[];
+  /** The one page that carries this run, when there is only one. */
+  only?: string;
 }
 
 /** A book opens on one photograph, and so does a long chapter: designers give
@@ -259,6 +273,8 @@ export function paginateChapter(
   spreadAspect: number,
   options: LayoutOptions,
   opensAlbum = false,
+  /** page id → times the book has used it before this chapter */
+  used: Map<string, number> = new Map(),
 ): Array<{ photoIds: string[]; pages: PageFit[] }> {
   const n = photoIds.length;
   if (!n) return [];
@@ -270,6 +286,9 @@ export function paginateChapter(
     if (!runs.has(key)) {
       const ids = photoIds.slice(start, end);
       const pages = rankPages(ids, byId, spreadAspect, clearance);
+      const choices = pages.filter((page) => page.score >= pages[0].score - PAGE_TOLERANCE);
+      // the cheapest-used of the pages that carry it well — what a repeat would cost
+      const leastUsed = Math.min(...choices.map((page) => used.get(page.template.id) ?? 0));
       runs.set(key, pages.length
         ? {
           value: spreadValue(ids.length, pages[0].score, ids.map((id) => byId.get(id)!), {
@@ -278,8 +297,9 @@ export function paginateChapter(
             opensChapter: start === 0,
             chapterLength: n,
             chapterMedian,
-          }),
-          pages: pages.slice(0, KEEP_PAGES),
+          }) - SCARCITY / choices.length - USED_BEFORE * leastUsed,
+          pages: pages.filter((page, i) => i < MIN_CHOICES || page.score >= pages[0].score - PAGE_TOLERANCE),
+          only: choices.length === 1 ? choices[0].template.id : undefined,
         }
         : null);
     }
@@ -298,7 +318,10 @@ export function paginateChapter(
       for (let prev = 0; prev <= MAX_RUN; prev += 1) {
         const before = best[end - k][prev];
         if (before === NONE) continue;
-        const value = before + run.value - (prev === k && k > 1 ? SAME_COUNT_PENALTY : 0);
+        const previous = prev > 0 ? runAt(end - k - prev, end - k) : null;
+        const value = before + run.value
+          - (prev === k && k > 1 ? SAME_COUNT_PENALTY : 0)
+          - (run.only && previous?.only === run.only ? SAME_PAGE_IN_A_ROW : 0);
         if (value > best[end][k]) {
           best[end][k] = value;
           from[end][k] = prev;
@@ -328,6 +351,21 @@ export function paginateChapter(
 
 /** The whole album: chapters in order, each paginated, then each spread's page
  *  chosen so the book does not repeat itself. */
+/** What using this page now costs the book's variety. */
+function variety(templateId: string, used: string[]): number {
+  // a page's mirror is the same design turned around: half a repeat
+  const design = designOf(templateId);
+  let cost = 0;
+  for (let back = 1; back <= RECENCY.length && back <= used.length; back += 1) {
+    const earlier = used[used.length - back];
+    if (designOf(earlier) === design) {
+      cost += RECENCY[back - 1] * (earlier === templateId ? 1 : 0.5);
+      break;
+    }
+  }
+  return cost + REUSE_PENALTY * used.filter((id) => designOf(id) === design).length;
+}
+
 export function planAlbum(
   chapters: Array<{ id: string | undefined; photoIds: string[] }>,
   photos: AlbumPhoto[],
@@ -337,17 +375,32 @@ export function planAlbum(
   const byId = new Map(photos.map((photo) => [photo.id, photo]));
   const planned: PlannedSpread[] = [];
   const recent: string[] = [];
-  chapters.forEach((chapter, index) => {
-    for (const run of paginateChapter(chapter.photoIds, byId, spreadAspect, options, index === 0)) {
+  const used = new Map<string, number>();
+  /* A chapter of one photo is a detection artefact more often than a story
+   * beat, and a lone portrait has no page in the Vault at all. It joins the
+   * chapter before it (or after it, when it opens the book). */
+  const merged: Array<{ id: string | undefined; photoIds: string[] }> = [];
+  chapters.filter((chapter) => chapter.photoIds.length).forEach((chapter) => {
+    if (chapter.photoIds.length === 1 && merged.length) {
+      merged[merged.length - 1] = { ...merged[merged.length - 1], photoIds: [...merged[merged.length - 1].photoIds, ...chapter.photoIds] };
+    } else if (merged.length === 1 && merged[0].photoIds.length === 1) {
+      merged[0] = { ...chapter, photoIds: [...merged[0].photoIds, ...chapter.photoIds] };
+    } else {
+      merged.push(chapter);
+    }
+  });
+  merged.forEach((chapter, index) => {
+    for (const run of paginateChapter(chapter.photoIds, byId, spreadAspect, options, index === 0, used)) {
       const pick = run.pages
         .map((page) => ({
           page,
-          value: page.score
-            - (recent.slice(-RECENT_WINDOW).includes(page.template.id) ? REPEAT_PENALTY : 0)
-            - REUSE_PENALTY * recent.filter((id) => id === page.template.id).length,
+          value: page.score - variety(page.template.id, recent),
         }))
         .sort((a, b) => b.value - a.value)[0]?.page ?? null;
-      if (pick) recent.push(pick.template.id);
+      if (pick) {
+        recent.push(pick.template.id);
+        used.set(pick.template.id, (used.get(pick.template.id) ?? 0) + 1);
+      }
       planned.push({ sessionId: chapter.id, fit: pick, photoIds: pick?.photoIds ?? run.photoIds });
     }
   });
