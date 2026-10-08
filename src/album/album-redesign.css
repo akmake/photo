@@ -1043,7 +1043,10 @@
 .sp-photo-filters { display: grid; grid-template-columns: repeat(3, 1fr); gap: 2px; padding: 3px; border-radius: 7px; background: #f1f2f4; }
 .sp-photo-filters button { min-width: 0; min-height: 29px; padding: 0 4px; border: 0; border-radius: 5px; color: #5d636a; background: transparent; font-size: 10px; }
 .sp-photo-filters button.on { color: #6f2bd4; background: #fff; box-shadow: 0 1px 2px rgb(0 0 0 / .09); font-weight: 700; }
-.sp-photo-grid { min-height: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); align-content: start; gap: 7px; overflow-y: auto; scrollbar-width: thin; }
+/* rows are max-content: the grid has a fixed height and scrolls, and with plain
+ * auto rows the browser shrank every square tile to fit that height — 60 photos
+ * came out as thin slivers. max-content keeps each tile as tall as it is wide. */
+.sp-photo-grid { min-height: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); grid-auto-rows: max-content; align-content: start; gap: 7px; overflow-y: auto; scrollbar-width: thin; }
 .sp-photo-thumb { position: relative; width: 100%; aspect-ratio: 1; padding: 0; overflow: hidden; border: 2px solid transparent; border-radius: 4px; background: #eceef0; opacity: .94; }
 .sp-photo-thumb:hover, .sp-photo-thumb.selected { border-color: #8b3dff; opacity: 1; }
 .sp-photo-thumb img { width: 100%; height: 100%; display: block; object-fit: cover; }
