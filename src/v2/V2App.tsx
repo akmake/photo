@@ -317,7 +317,7 @@ export default function V2App({ onSwitchToV1, onOpenProjectV1 }: V2AppProps) {
   const tourScreen = activeNav === 'project-detail' ? activeStage : activeNav;
 
   const isStatus = activeNav === 'project-detail' && activeStage === 'client-status';
-  const themed = activeNav === 'projects' || activeNav === 'today' || isWorking || isStatus;
+  const themed = activeNav === 'projects' || activeNav === 'today' || isWorking || isStatus || isImporting;
 
   return (
     <TourProvider screen={tourScreen}>

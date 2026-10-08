@@ -1,0 +1,241 @@
+/* ייבוא תמונות in the FrameOps.dc.html language. Reads the --fo-* tokens of
+   the frame (v2/frame.css), so it follows the light/dark choice. The gallery
+   below is the same PhotoGrid as everywhere; only its ground is themed. */
+
+.fo-im {
+  background: var(--fo-bg);
+  color: var(--fo-text);
+  font: 400 13px/1.4 var(--fo-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+.fo-im-head {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  /* The 16px gutter is the gallery's own, so everything here stands over the
+   * first column of photographs and not to one side of it. */
+  padding: 16px 16px 12px;
+}
+
+/* ---------- the three sources ---------- */
+
+.fo-im-sources {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 10px;
+}
+
+.fo-im-src {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-height: 72px;
+  padding: 12px 14px;
+  border: 1px solid var(--fo-line);
+  border-radius: 10px;
+  background: var(--fo-panel);
+  color: var(--fo-text);
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+  transition: border-color .15s, background .15s, transform .15s, box-shadow .15s;
+}
+.fo-im-src:hover:not(:disabled) {
+  border-color: var(--fo-line2);
+  background: var(--fo-raised);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, .08);
+  transform: translateY(-1px);
+}
+.fo-im-src:disabled { opacity: .5; cursor: progress; }
+.fo-im-src.is-disk { border-color: var(--fo-accent); box-shadow: inset 0 0 0 1px var(--fo-accent); }
+.fo-im-src.is-disk:hover:not(:disabled) { box-shadow: inset 0 0 0 1px var(--fo-accent), 0 6px 18px rgba(0, 0, 0, .08); }
+
+.fo-im-src-mark {
+  width: 44px;
+  height: 44px;
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 11px;
+  background: #fff;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, .07), 0 2px 6px rgba(0, 0, 0, .08);
+}
+.fo-im-src-mark.is-disk { background: var(--fo-accent); color: var(--fo-accent-ink); box-shadow: none; }
+.fo-im-src.is-off .fo-im-src-mark { filter: grayscale(1); opacity: .6; }
+
+.fo-im-src-copy { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.fo-im-src-copy strong { font-size: 14px; font-weight: 600; text-align: right; }
+.fo-im-src-copy small {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--fo-text2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.fo-im-src.is-off .fo-im-src-copy small { color: var(--fo-text3); }
+.fo-im-src-go { flex: none; color: var(--fo-text3); font-size: 15px; transition: transform .15s, color .15s; }
+.fo-im-src:hover:not(:disabled) .fo-im-src-go { color: var(--fo-text); transform: translateX(-3px); }
+
+/* ---------- destination ---------- */
+
+.fo-im-dest {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  min-height: 36px;
+  padding: 0 12px;
+  border-radius: 8px;
+  background: var(--fo-panel);
+  border: 1px solid var(--fo-line);
+  color: var(--fo-text2);
+  font-size: 12.5px;
+}
+.fo-im-dest svg { flex: none; color: var(--fo-text3); }
+.fo-im-dest-label { flex: none; }
+.fo-im-dest-path {
+  min-width: 0;
+  padding: 2px 8px;
+  border-radius: 4px;
+  background: var(--fo-bg);
+  color: var(--fo-text);
+  font-size: 11.5px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.fo-im-dest-note { flex: none; margin-inline-start: auto; color: var(--fo-text3); font-size: 12px; }
+.fo-im-link {
+  flex: none;
+  border: 0;
+  background: transparent;
+  color: var(--fo-accent);
+  font: 600 12.5px var(--fo-sans);
+  cursor: pointer;
+  padding: 4px 6px;
+  border-radius: 5px;
+}
+.fo-im-link:hover { background: var(--fo-accent-soft); }
+
+/* ---------- progress ---------- */
+
+.fo-im-progress {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: var(--fo-panel);
+  border: 1px solid var(--fo-accent);
+}
+.fo-im-progress-mark {
+  width: 36px;
+  height: 36px;
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9px;
+  background: #fff;
+  color: #18181b;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, .07);
+}
+.fo-im-progress-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 7px; }
+.fo-im-progress-head { display: flex; justify-content: space-between; gap: 12px; font-size: 13px; }
+.fo-im-progress-head strong { font-weight: 600; }
+.fo-im-progress-head .fo-mono { font-size: 12px; color: var(--fo-accent); }
+.fo-im-track { height: 5px; border-radius: 3px; background: var(--fo-control); overflow: hidden; }
+.fo-im-track i { display: block; height: 100%; background: var(--fo-accent); transition: width .25s; }
+.fo-im-skipped { font-size: 12px; color: var(--fo-text2); }
+
+/* ---------- errors ---------- */
+
+.fo-im-error {
+  padding: 10px 14px;
+  border-radius: 8px;
+  border: 1px solid rgba(217, 83, 79, .45);
+  background: rgba(217, 83, 79, .1);
+  color: #d9534f;
+  font-size: 13px;
+}
+.fo-im-error.is-list { display: grid; gap: 10px; }
+.fo-im-failed-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.fo-im-error ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  max-height: 180px;
+  overflow: auto;
+  display: grid;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--fo-text2);
+}
+.fo-im-error li { display: flex; justify-content: space-between; gap: 12px; }
+
+/* ---------- the line above the photographs ---------- */
+
+.fo-im-results {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  padding-top: 6px;
+  font-size: 12.5px;
+}
+.fo-im-results strong { font-size: 13px; font-weight: 600; }
+.fo-im-results-n { font-size: 12px; color: var(--fo-text3); }
+.fo-im-legend { display: flex; gap: 14px; margin-inline-start: 8px; color: var(--fo-text2); }
+.fo-im-legend > span { display: inline-flex; align-items: center; gap: 6px; }
+.fo-im-legend i { width: 8px; height: 8px; border-radius: 2px; }
+.fo-im-legend i.is-raw { background: var(--fo-line2); }
+.fo-im-legend i.is-working { background: var(--fo-gold); }
+.fo-im-legend i.is-ready { background: var(--fo-green); }
+.fo-im-legend b { font-weight: 500; color: var(--fo-text); }
+.fo-im-spacer { flex: 1; }
+.fo-im-graded {
+  padding: 2px 9px;
+  border-radius: 10px;
+  background: var(--fo-accent-soft);
+  color: var(--fo-accent);
+  font-size: 11.5px;
+  font-weight: 600;
+}
+.fo-im-hint { font-size: 12px; color: var(--fo-text3); }
+
+/* ---------- empty ---------- */
+
+.fo-im-empty {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0 16px;
+  padding: 28px 20px;
+  border: 1px dashed var(--fo-line2);
+  border-radius: 10px;
+  color: var(--fo-text2);
+}
+.fo-im-empty strong { font-size: 15px; color: var(--fo-text); }
+.fo-im-empty p { margin: 0; max-width: 60ch; line-height: 1.55; }
+
+/* ---------- the gallery ---------- */
+
+.fo-im .tz-import-pg { --pg-bg: var(--fo-bg); --pg-ph: var(--fo-thumb); --pg-ink: var(--fo-text); --pg-accent: var(--fo-accent); background: var(--fo-bg); }
+.fo-im .tz-import-pg .tz-pg-tile.s-ready { box-shadow: inset 0 -3px 0 var(--fo-green); }
+.fo-im .tz-import-pg .tz-pg-tile.s-working { box-shadow: inset 0 -3px 0 var(--fo-gold); }
+.fo-im .tz-import-pg-bar .tz-frame-statuses { background: rgba(255, 255, 255, .95); border-radius: 7px; padding: 2px; gap: 2px; }
+.fo-im .tz-frame-status-btn {
+  border: 0;
+  border-radius: 5px;
+  padding: 3px 8px;
+  background: transparent;
+  color: #3f3f46;
+  font: 500 11px var(--fo-sans);
+}
+.fo-im .tz-frame-status-btn:hover { background: #ececef; color: #18181b; }
+.fo-im .tz-frame-status-btn.active { background: var(--fo-accent); color: #fff; font-weight: 600; }

@@ -14,15 +14,13 @@ const NAMES: Record<CloudProvider, string> = {
 
 type Crumb = { id?: string; name: string };
 
-export default function CloudImportDialog({
-  provider,
-  onClose,
-  onImport,
-}: {
-  provider: CloudProvider;
-  onClose: () => void;
-  onImport: (entries: CloudEntry[]) => Promise<void>;
-}) {
+/** The connection and the folder being browsed — shared by every view of the
+ *  cloud import, so the studio screen and the project screen cannot drift. */
+export function useCloudBrowser(
+  provider: CloudProvider,
+  onImport: (entries: CloudEntry[]) => Promise<void>,
+  onClose: () => void,
+) {
   const [connection, setConnection] = useState<CloudProviderStatus | null>(null);
   const [entries, setEntries] = useState<CloudEntry[]>([]);
   const [crumbs, setCrumbs] = useState<Crumb[]>([{ name: NAMES[provider] }]);
@@ -127,6 +125,28 @@ export default function CloudImportDialog({
     setEntries([]);
     setCrumbs([{ name: NAMES[provider] }]);
   }, [provider]);
+
+  return {
+    connection, entries, crumbs, checking, loading, connecting, importing, error,
+    images, browsing, checkConnection, connect, openFolder, jump, runImport, disconnect,
+  };
+}
+
+export const CLOUD_NAMES = NAMES;
+
+export default function CloudImportDialog({
+  provider,
+  onClose,
+  onImport,
+}: {
+  provider: CloudProvider;
+  onClose: () => void;
+  onImport: (entries: CloudEntry[]) => Promise<void>;
+}) {
+  const {
+    connection, entries, crumbs, checking, loading, connecting, importing, error,
+    images, browsing, checkConnection, connect, openFolder, jump, runImport, disconnect,
+  } = useCloudBrowser(provider, onImport, onClose);
 
   return (
     <div className="scrim" role="presentation" onMouseDown={(event) => {
