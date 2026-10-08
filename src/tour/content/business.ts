@@ -202,24 +202,25 @@ export const PROJECTS: Tour = {
   title: 'פרויקטים',
   steps: [
     {
-      id: 'metrics',
-      target: 'projects-metrics',
-      title: 'העסק במספרים',
-      body: 'פרויקטים פעילים, תמונות שמחכות, אלבומים בעבודה, וכמה כסף עוד פתוח לגבייה.',
+      id: 'queue',
+      target: 'projects-queue',
+      optional: true,
+      title: 'דורש טיפול',
+      body: 'לקוח שאתה ממתין לו, צילום בשבוע הקרוב, ויתרה שנשארה פתוחה אחרי מסירה. הכפתור בכל שורה לוקח ישר למקום הנכון.',
       placement: 'bottom',
     },
     {
       id: 'find',
-      target: 'projects-search',
+      target: 'frame-search',
       title: 'למצוא פרויקט',
-      body: 'חיפוש לפי שם לקוח או סוג אירוע.',
+      body: 'חיפוש לפי שם לקוח, אירוע או מקום — מכל מסך. גם Ctrl K פותח אותו.',
       placement: 'bottom',
     },
     {
       id: 'filters',
       target: 'projects-filters',
       title: 'לפי מצב',
-      body: 'בעבודה · אישור לקוח · מתוכנן · נמסר.',
+      body: 'בעבודה · ממתין ללקוח · לפני צילום · נמסר. ליד כל מצב — כמה פרויקטים יש בו.',
       placement: 'bottom',
     },
     {
@@ -227,7 +228,7 @@ export const PROJECTS: Tour = {
       target: 'projects-card',
       optional: true,
       title: 'כרטיס פרויקט',
-      body: 'תמונת שער, סוג האירוע, התאריך והמצב. לחיצה פותחת את הפרויקט.',
+      body: 'תמונת שער, סוג האירוע, התאריך והמצב. לחיצה מציגה את הפרטים בפאנל שבצד; לחיצה כפולה או Enter פותחת את הפרויקט.',
     },
     {
       id: 'delete',

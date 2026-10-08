@@ -1,4 +1,4 @@
-import React, { Suspense, lazy, useMemo, useState } from 'react';
+import React, { Suspense, lazy, useEffect, useMemo, useState } from 'react';
 import { useStudio } from '../studio/store';
 import NewProject from '../studio/screens/NewProject';
 import TzStatusScreen from './screens/TzStatusScreen';
@@ -11,12 +11,16 @@ import WorkStageV2 from './screens/WorkStageV2';
 import GalleryEditV2 from './screens/GalleryEditV2';
 import { shootDay } from './screens/CalendarV2';
 import {
-  TzIconBell, TzIconBook, TzIconCalendar, TzIconFilter, TzIconFlask,
-  TzIconFolder, TzIconGear, TzIconHeart, TzIconHelp, TzIconHome,
-  TzIconLayers, TzIconSend, TzIconSliders, TzIconSparkle, TzIconUpload, TzIconUsers,
+  TzIconBook, TzIconFilter, TzIconLayers, TzIconSend, TzIconSliders, TzIconUpload, TzIconUsers,
 } from './TzIcons';
+import '@fontsource/ibm-plex-sans-hebrew/400.css';
+import '@fontsource/ibm-plex-sans-hebrew/500.css';
+import '@fontsource/ibm-plex-sans-hebrew/600.css';
 import './tz-exact.css';
-import { TourProvider, useTour } from '../tour/TourProvider';
+import './frame.css';
+import { TourProvider } from '../tour/TourProvider';
+import { QuickSearch, StatusBar, TopBar, readTheme, saveTheme, BUSINESS_TABS, TOOL_ITEMS } from './Frame';
+import type { Theme } from './Frame';
 
 const AlbumStudio = lazy(() => import('../album/AlbumStudio'));
 
@@ -36,38 +40,6 @@ interface V2AppProps {
   onOpenProjectV1?: (id: string) => void;
 }
 
-/** What the top bar says on each screen. */
-const SCREEN_TITLE: Record<string, string> = {
-  today: 'היום בסטודיו',
-  projects: 'פרויקטים בסטודיו',
-  clients: 'לקוחות',
-  calendar: 'יומן הצילומים',
-  'smart-cleanup': 'ניקוי חכם',
-  lab: 'מעבדה',
-  experiments: 'כלים בניסיון',
-  settings: 'הגדרות',
-};
-
-/** The "?" of every screen: replays that screen's tour. Disabled — and says
- *  why — on a screen whose tour is not written yet, rather than doing nothing. */
-function HelpButton() {
-  const tour = useTour();
-  const ready = Boolean(tour.screenTour);
-  return (
-    <button
-      className="tz-icon-button"
-      type="button"
-      data-tour="help-button"
-      title={ready ? 'הדרכה למסך הזה' : 'ההדרכה למסך הזה עוד לא נכתבה'}
-      aria-label="הדרכה למסך הזה"
-      disabled={!ready || tour.active}
-      onClick={tour.startScreenTour}
-    >
-      <TzIconHelp size={18} />
-    </button>
-  );
-}
-
 /** A screen on its way in. Named, so a slow first load says which one. */
 function Waiting({ what }: { what: string }) {
   return (
@@ -82,14 +54,38 @@ export default function V2App({ onSwitchToV1, onOpenProjectV1 }: V2AppProps) {
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
   const [activeStage, setActiveStage] = useState('client-status');
   const [editTargetFrame, setEditTargetFrame] = useState<string | null>(null);
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   /* פרויקט חדש opens here rather than on the projects screen, so the button on
    * the dashboard opens the form instead of merely walking you to the screen
    * that has the button that opens the form. */
   const [creating, setCreating] = useState(false);
-  const [alerts, setAlerts] = useState(false);
   const [labView, setLabView] = useState<'tools' | 'compare'>('tools');
+  const [theme, setTheme] = useState<Theme>(readTheme);
+  const [searching, setSearching] = useState(false);
+  /* The details panel beside a list. Open by default on a window wide enough
+   * to hold it and the list together; closed below that, and it follows the
+   * window across that line — never fighting a choice made at the same width. */
+  const [inspector, setInspector] = useState(() => window.innerWidth >= 1180);
   const studio = useStudio();
+
+  useEffect(() => {
+    let wide = window.innerWidth >= 1180;
+    const onResize = () => {
+      const now = window.innerWidth >= 1180;
+      if (now !== wide) { wide = now; setInspector(now); }
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        setSearching(true);
+      }
+    };
+    window.addEventListener('resize', onResize);
+    window.addEventListener('keydown', onKey);
+    return () => {
+      window.removeEventListener('resize', onResize);
+      window.removeEventListener('keydown', onKey);
+    };
+  }, []);
 
   const isEditing = activeNav === 'project-detail' && activeStage === 'gallery-edit';
   const isGrouping = activeNav === 'project-detail' && activeStage === 'batches';
@@ -98,23 +94,17 @@ export default function V2App({ onSwitchToV1, onOpenProjectV1 }: V2AppProps) {
   const isAlbumMode = activeNav === 'project-detail' && activeStage === 'album-design';
   // ייבוא is the gallery itself: it owns the whole area and the only scroll.
   const isImporting = activeNav === 'project-detail' && activeStage === 'gallery-upload';
-  const isSidebarCollapsed = sidebarCollapsed || isEditing || isGrouping || isWorking || isAlbumMode;
 
-  // Active project selection
   const selectedProject = studio.projects.find((p) => p.id === selectedProjectId) || studio.projects[0];
-  const imported = studio.projects.reduce((sum, p) => sum + (p.imported || 0), 0);
-  const rendered = studio.projects.reduce((sum, p) => sum + (p.rendered || 0), 0);
-  /* Nothing imported means an EMPTY bar. It used to mean 39% — a number with no
-   * source, sitting under the words "מצב ספרייה ומנוע" on a studio where not a
-   * single photograph had been read yet. */
-  const processedPercent = imported ? Math.min(100, Math.round((rendered / imported) * 100)) : 0;
-
-  // Storage for client gallery uploads (max 50 GB)
-  const MAX_STORAGE_GB = 50;
-  const galleryProjects = studio.projects.filter((p) => p.hasGallery || p.state === 'waiting' || p.at >= 3);
-  const uploadedPhotosCount = galleryProjects.reduce((sum, p) => sum + (p.imported || 0), 0);
-  const usedGb = Math.min(MAX_STORAGE_GB, Number(((uploadedPhotosCount * 1.8) / 1024).toFixed(1)));
-  const storagePercent = Math.min(100, Math.round((usedGb / MAX_STORAGE_GB) * 100));
+  /* ייבוא needs a project to import INTO. Inside a project that is the open
+   * one; on the projects list, the one selected there. Nowhere else is there a
+   * right answer, so the button says what it needs instead of guessing — it
+   * used to drop the photographs into whichever project happened to be first. */
+  const importTarget = activeNav === 'project-detail'
+    ? selectedProject
+    : activeNav === 'projects' && selectedProjectId
+    ? studio.projects.find((p) => p.id === selectedProjectId)
+    : undefined;
 
   /* What actually wants the photographer today. The bell used to carry a red
    * "3" that was written into the markup and never moved, on an installation
@@ -134,21 +124,6 @@ export default function V2App({ onSwitchToV1, onOpenProjectV1 }: V2AppProps) {
       .sort((a, b) => a.when.getTime() - b.when.getTime());
     return { waiting, soon, count: waiting.length + soon.length };
   }, [studio.projects]);
-
-  // The actual business sections of TEZA
-  const BUSINESS_NAV = [
-    { id: 'today', label: 'היום', icon: TzIconHome },
-    { id: 'projects', label: 'פרויקטים', icon: TzIconFolder, count: studio.projects.length },
-    { id: 'clients', label: 'לקוחות', icon: TzIconUsers },
-    { id: 'calendar', label: 'יומן', icon: TzIconCalendar },
-  ];
-
-  // The actual workshop / lab tools of TEZA
-  const WORKSHOP_NAV = [
-    { id: 'smart-cleanup', label: 'ניקוי חכם', icon: TzIconSparkle, isAi: true },
-    { id: 'lab', label: 'מעבדה', icon: TzIconSliders },
-    { id: 'experiments', label: 'כלים בניסיון', icon: TzIconFlask },
-  ];
 
   // The actual stages of a project in TEZA
   const PROJECT_STAGES = [
@@ -238,6 +213,10 @@ export default function V2App({ onSwitchToV1, onOpenProjectV1 }: V2AppProps) {
       return (
         <ProjectsV2
           onOpenProject={handleOpenProject}
+          onNewProject={() => setCreating(true)}
+          selectedId={selectedProjectId}
+          onSelect={setSelectedProjectId}
+          inspector={inspector}
         />
       );
     }
@@ -323,7 +302,7 @@ export default function V2App({ onSwitchToV1, onOpenProjectV1 }: V2AppProps) {
     return (
       <div style={{ padding: '80px', textAlign: 'center', color: 'var(--tz-text-muted)' }}>
         <h2 style={{ color: 'var(--tz-text-main)', marginBottom: '8px', fontSize: '20px' }}>
-          מסך {BUSINESS_NAV.find((i) => i.id === activeNav)?.label || WORKSHOP_NAV.find((i) => i.id === activeNav)?.label || activeNav}
+          מסך {[...BUSINESS_TABS, ...TOOL_ITEMS].find((i) => i.id === activeNav)?.label || activeNav}
         </h2>
         <p>המסך הזה יעוצב בהמשך לפי הסדר ובאותה שפה נקייה ומדויקת.</p>
         <button
@@ -341,156 +320,34 @@ export default function V2App({ onSwitchToV1, onOpenProjectV1 }: V2AppProps) {
    * project — the stage. Its "?" button and first-visit tours key on this. */
   const tourScreen = activeNav === 'project-detail' ? activeStage : activeNav;
 
+  const themed = activeNav === 'projects';
+
   return (
     <TourProvider screen={tourScreen}>
-    <div className={`tz-app ${isEditing ? 'is-editing' : ''} ${isGrouping ? 'is-grouping' : ''}`}>
-      {/* 1. SIDEBAR (Placed on Right in natural RTL) */}
-      <aside className={`tz-sidebar ${isSidebarCollapsed ? 'collapsed' : ''}`}>
-        {/* Top Header Row of Sidebar: Toggle button + Bell */}
-        <div className="tz-sidebar-top-row">
-          <button
-            type="button"
-            className="tz-sidebar-toggle-btn"
-            onClick={() => setSidebarCollapsed(!isSidebarCollapsed)}
-            title={isSidebarCollapsed ? 'הרחב תפריט' : 'כווץ תפריט לסרגל סמלים'}
-            style={{ marginBottom: 0 }}
-          >
-            {isSidebarCollapsed ? '›' : '‹'}
-          </button>
-
-          <div className="tz-sidebar-bell-wrap">
-            <HelpButton />
-            <button
-              className="tz-icon-button"
-              type="button"
-              title={attention.count ? `${attention.count} דברים פתוחים` : 'אין כרגע דבר שממתין לך'}
-              onClick={() => setAlerts((open) => !open)}
-              aria-expanded={alerts}
-            >
-              <TzIconBell size={18} />
-              {attention.count > 0 && <span className="tz-badge-dot">{attention.count}</span>}
-            </button>
-
-            {alerts && (
-              <>
-                <div className="tz-alerts-catch" onClick={() => setAlerts(false)} />
-                <div className="tz-alerts" role="dialog" aria-label="מה פתוח">
-                  <div className="tz-alerts-head">מה מחכה לך</div>
-                  {attention.count === 0 && (
-                    <p className="tz-alerts-none">אין כרגע צילום קרוב ואף לקוח לא ממתין לתשובה.</p>
-                  )}
-                  {attention.soon.map(({ project, when }) => (
-                    <button
-                      key={`s-${project.id}`}
-                      type="button"
-                      className="tz-alerts-row"
-                      onClick={() => { setAlerts(false); handleOpenProject(project.id); }}
-                    >
-                      <strong>{project.event || 'צילום'} — {project.client}</strong>
-                      <small>צילום ב־{when.toLocaleDateString('he-IL', { day: 'numeric', month: 'long' })}</small>
-                    </button>
-                  ))}
-                  {attention.waiting.map((project) => (
-                    <button
-                      key={`w-${project.id}`}
-                      type="button"
-                      className="tz-alerts-row"
-                      onClick={() => { setAlerts(false); handleOpenProject(project.id, 'send-to-client'); }}
-                    >
-                      <strong>{project.client}</strong>
-                      <small>{project.waitingSince ? `ממתין לאישור מאז ${project.waitingSince}` : 'ממתין לאישור הלקוח'}</small>
-                    </button>
-                  ))}
-                </div>
-              </>
-            )}
-          </div>
-        </div>
-
-        {/* Logo: FrameOps (clickable to return to today) */}
-        <button
-          type="button"
-          className="tz-logo-wrap"
-          onClick={() => setActiveNav('today')}
-          title="FrameOps — חזרה לדף היום"
-        >
-          <img
-            src={`${import.meta.env.BASE_URL}frameops-logo.png`}
-            alt="FrameOps — studio operations for photographers"
-            className="tz-logo-full"
-          />
-          <img
-            src={`${import.meta.env.BASE_URL}frameops-mark.png`}
-            alt="FrameOps"
-            className="tz-logo-mark"
-          />
-        </button>
-
-        {/* Business Navigation items */}
-        <nav className="tz-nav-list" data-tour="nav-business">
-          {BUSINESS_NAV.map((item) => {
-            const Icon = item.icon;
-            const isActive = activeNav === item.id || (item.id === 'projects' && activeNav === 'project-detail');
-            return (
-              <button
-                key={item.id}
-                type="button"
-                className={`tz-nav-item ${isActive ? 'active' : ''}`}
-                onClick={() => {
-                  setActiveNav(item.id);
-                }}
-              >
-                <span className="tz-nav-icon"><Icon size={17} /></span>
-                <span>{item.label}</span>
-                {item.count !== undefined && item.count > 0 && (
-                  <span className="tz-nav-counter">{item.count}</span>
-                )}
-              </button>
-            );
-          })}
-
-        </nav>
-
-        {/* Storage Card: Client Gallery Uploads (out of 50 GB) */}
-        <div className="tz-storage-card">
-          <div className="tz-storage-title">
-            <span style={{ fontSize: '13px' }}>☁</span>
-            <span>הועלה לבחירת לקוחות</span>
-          </div>
-          <div className="tz-storage-bar">
-            <div className="tz-storage-fill" style={{ width: `${Math.max(storagePercent, usedGb > 0 ? 4 : 0)}%` }} />
-          </div>
-          <div className="tz-storage-numbers" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span><strong>{usedGb} GB</strong> מתוך {MAX_STORAGE_GB} GB</span>
-            <span style={{ color: 'var(--tz-text-muted)', fontSize: '11px' }}>{storagePercent}%</span>
-          </div>
-        </div>
-
-        {/* Settings */}
-        <button
-          type="button"
-          className={`tz-nav-item ${activeNav === 'settings' ? 'active' : ''}`}
-          onClick={() => setActiveNav('settings')}
-          style={{ marginBottom: '4px' }}
-        >
-          <span className="tz-nav-icon"><TzIconGear size={17} /></span>
-          <span>הגדרות</span>
-        </button>
-
-        {/* The studio itself */}
-        <button
-          className="tz-nav-user-item"
-          type="button"
-          title="המערכת והתיקיות"
-          onClick={() => setActiveNav('settings')}
-        >
-          <div className="tz-user-avatar-initial">T</div>
-          <div className="tz-nav-user-copy">
-            <strong>הסטודיו שלי</strong>
-            <small>{studio.projects.length} פרויקטים</small>
-          </div>
-        </button>
-      </aside>
+    <div
+      className={`tz-app fo-app ${isEditing ? 'is-editing' : ''} ${isGrouping ? 'is-grouping' : ''}`}
+      data-theme={theme}
+    >
+      <TopBar
+        activeNav={activeNav}
+        onNav={setActiveNav}
+        projectCount={studio.projects.length}
+        onNewProject={() => setCreating(true)}
+        onImport={importTarget ? () => handleOpenProject(importTarget.id, 'gallery-upload') : undefined}
+        importHint={importTarget
+          ? `ייבוא תמונות אל ${importTarget.client}`
+          : 'בחר פרויקט ברשימת הפרויקטים, או פתח אחד, כדי לייבא אליו תמונות'}
+        onSearch={() => setSearching(true)}
+        attention={attention}
+        onOpenProject={handleOpenProject}
+        inspector={activeNav === 'projects' ? { open: inspector, toggle: () => setInspector((o) => !o) } : null}
+        theme={theme}
+        onTheme={() => setTheme((t) => {
+          const next: Theme = t === 'dark' ? 'light' : 'dark';
+          saveTheme(next);
+          return next;
+        })}
+      />
 
       {/* 2. MAIN CONTENT WRAPPER */}
       <div className="tz-main-wrapper">
@@ -519,10 +376,27 @@ export default function V2App({ onSwitchToV1, onOpenProjectV1 }: V2AppProps) {
         )}
 
         {/* Content Area */}
-        <main className={`tz-content-scroll ${isAlbumMode ? 'album-mode' : ''} ${isGrouping ? 'groups-mode' : ''} ${isImporting ? 'import-mode' : ''}`}>
+        <main className={`tz-content-scroll fo-content ${themed ? 'is-themed' : ''} ${isAlbumMode ? 'album-mode' : ''} ${isGrouping ? 'groups-mode' : ''} ${isImporting ? 'import-mode' : ''}`}>
           {renderMainContent()}
         </main>
       </div>
+
+      <StatusBar
+        status={studio.status}
+        fault={studio.fault}
+        saveFault={studio.saveFault}
+        projects={studio.projects}
+      />
+
+      {searching && (
+        <QuickSearch
+          projects={studio.projects}
+          onClose={() => setSearching(false)}
+          onOpenProject={(id) => handleOpenProject(id)}
+          onNav={setActiveNav}
+          onNewProject={() => setCreating(true)}
+        />
+      )}
 
       {/* One job opens from everywhere: the dashboard, the rail, the empty
         * projects screen. The form lives here so none of them has to walk the
