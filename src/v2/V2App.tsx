@@ -10,17 +10,15 @@ import SendToClientV2 from './screens/SendToClientV2';
 import WorkStageV2 from './screens/WorkStageV2';
 import GalleryEditV2 from './screens/GalleryEditV2';
 import { shootDay } from './screens/CalendarV2';
-import {
-  TzIconBook, TzIconFilter, TzIconLayers, TzIconSend, TzIconSliders, TzIconUpload, TzIconUsers,
-} from './TzIcons';
 import '@fontsource/ibm-plex-sans-hebrew/400.css';
 import '@fontsource/ibm-plex-sans-hebrew/500.css';
 import '@fontsource/ibm-plex-sans-hebrew/600.css';
 import './tz-exact.css';
 import './frame.css';
 import { TourProvider } from '../tour/TourProvider';
+import ProjectFrame from './ProjectFrame';
 import {
-  QuickSearch, StatusBar, TopBar, readTheme, saveTheme, saveLastOpen, BUSINESS_TABS, TOOL_ITEMS, PROJECT_STAGE_LABEL,
+  QuickSearch, StatusBar, TopBar, readTheme, saveTheme, saveLastOpen, BUSINESS_TABS, TOOL_ITEMS,
 } from './Frame';
 import type { Theme } from './Frame';
 
@@ -128,16 +126,6 @@ export default function V2App({ onSwitchToV1, onOpenProjectV1 }: V2AppProps) {
   }, [studio.projects]);
 
   // The actual stages of a project in TEZA
-  const PROJECT_STAGES = [
-    { id: 'client-status', icon: TzIconUsers },
-    { id: 'gallery-upload', icon: TzIconUpload },
-    { id: 'batches', icon: TzIconLayers },
-    { id: 'work', icon: TzIconFilter },
-    { id: 'send-to-client', icon: TzIconSend },
-    { id: 'gallery-edit', icon: TzIconSliders },
-    { id: 'album-design', icon: TzIconBook },
-  ].map((s) => ({ ...s, label: PROJECT_STAGE_LABEL[s.id] }));
-
   /* Remember where the photographer is, for היום's "המשך מאיפה שעצרת". */
   useEffect(() => {
     if (activeNav === 'project-detail' && selectedProjectId) saveLastOpen(selectedProjectId, activeStage);
@@ -328,7 +316,7 @@ export default function V2App({ onSwitchToV1, onOpenProjectV1 }: V2AppProps) {
    * project — the stage. Its "?" button and first-visit tours key on this. */
   const tourScreen = activeNav === 'project-detail' ? activeStage : activeNav;
 
-  const themed = activeNav === 'projects' || activeNav === 'today';
+  const themed = activeNav === 'projects' || activeNav === 'today' || isWorking;
 
   return (
     <TourProvider screen={tourScreen}>
@@ -361,26 +349,14 @@ export default function V2App({ onSwitchToV1, onOpenProjectV1 }: V2AppProps) {
       <div className="tz-main-wrapper">
 
 
-        {/* Stage Tabs Bar (shown only when in single project cockpit mode) */}
-        {activeNav === 'project-detail' && (
-          <nav className="tz-tabs-bar" data-tour="project-stages">
-            {PROJECT_STAGES.map((tab) => {
-              const Icon = tab.icon;
-              const isActive = activeStage === tab.id;
-              return (
-                <button
-                  key={tab.id}
-                  type="button"
-                  className={`tz-tab ${isActive ? 'active' : ''}`}
-                  onClick={() => setActiveStage(tab.id)}
-                  data-tour={`stage-${tab.id}`}
-                >
-                  <Icon size={16} />
-                  <span>{tab.label}</span>
-                </button>
-              );
-            })}
-          </nav>
+        {/* Inside a project: which project, and its stages. */}
+        {activeNav === 'project-detail' && selectedProject && (
+          <ProjectFrame
+            project={selectedProject}
+            stage={activeStage}
+            onStage={setActiveStage}
+            onBack={() => setActiveNav('projects')}
+          />
         )}
 
         {/* Content Area */}

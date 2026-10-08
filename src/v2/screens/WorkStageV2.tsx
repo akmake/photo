@@ -500,6 +500,7 @@ export default function WorkStageV2({
   const analysed = result ? result.frames.length : 0;
   const pending = result ? result.pending.length : frames.length;
   const going = frames.length - counts.reject;
+  const decided = frames.length - counts.open;
   const bulk = filter === 'suggested' ? flat.filter((n) => suggested(n)) : [];
 
   const FILTERS: [Filter, string, number][] = [
@@ -514,69 +515,62 @@ export default function WorkStageV2({
   return (
     <div className="tz-ws" dir="rtl">
       <header className="tz-ws-top">
-        <div className="tz-ws-top-side">
-          {onBack && (
-            <button type="button" className="tz-ws-back" onClick={onBack} title="חזרה לסשנים">
-              <span aria-hidden>→</span> סשנים
-            </button>
-          )}
-          <div className="tz-ws-title" data-tour="work-title">
-            <b>סינון</b>
-            <span>{[project.client, project.event].filter(Boolean).join(' · ')}</span>
-          </div>
-        </div>
-
         <nav className="tz-ws-filters" aria-label="תצוגה" data-tour="work-filters">
           {FILTERS.map(([id, label, n]) => (
             <button
               key={id}
               type="button"
               className={`tz-ws-filter is-${id}${filter === id ? ' is-on' : ''}`}
+              aria-pressed={filter === id}
               onClick={() => { setFilter(id); gridRef.current?.scrollToTop(); }}
             >
-              {label}<i>{n.toLocaleString('he-IL')}</i>
+              <span className="tz-ws-filter-dot" aria-hidden />
+              {label}<i>{n.toLocaleString('en-US')}</i>
             </button>
           ))}
         </nav>
 
-        <div className="tz-ws-top-side is-end">
-          <button
-            type="button"
-            className={`tz-ws-stacking${comparePick ? ' is-on' : ''}`}
-            onClick={() => setComparePick((v) => (v ? null : []))}
-            title="לחץ, ואז בחר 2 עד 4 תמונות להצגה זו לצד זו"
-            data-tour="work-compare"
-          >
-            השוואה
+        <span className="tz-ws-flex" />
+
+        <span className="tz-ws-progress" data-tour="work-title" title="על כמה תמונות כבר החלטת">
+          הוחלטו <b>{decided.toLocaleString('en-US')}/{frames.length.toLocaleString('en-US')}</b>
+          <span className="tz-ws-meter"><i style={{ width: `${frames.length ? (decided / frames.length) * 100 : 0}%` }} /></span>
+        </span>
+        {fault ? (
+          <span className="tz-ws-note is-fault" title={fault} data-tour="work-fault">אין הצעות מהמנוע — אפשר להחליט ידנית</span>
+        ) : pending > 0 && frames.length > 0 ? (
+          <span className="tz-ws-note" data-tour="work-analyzing">
+            מנתח {analysed.toLocaleString('en-US')}/{frames.length.toLocaleString('en-US')}
+            <span className="tz-ws-meter"><i style={{ width: `${(analysed / frames.length) * 100}%` }} /></span>
+          </span>
+        ) : null}
+        <button
+          type="button"
+          className={`tz-ws-stacking${comparePick ? ' is-on' : ''}`}
+          onClick={() => setComparePick((v) => (v ? null : []))}
+          title="לחץ, ואז בחר 2 עד 4 תמונות להצגה זו לצד זו"
+          data-tour="work-compare"
+        >
+          השוואה
+        </button>
+        <button
+          type="button"
+          className={`tz-ws-stacking${stacking ? ' is-on' : ''}`}
+          onClick={() => setStacking((v) => !v)}
+          title="רצפים של תמונות כמעט זהות — בערימה אחת או פרושים"
+          data-tour="work-stacking"
+        >
+          {stacking ? 'רצפים מקובצים' : 'רצפים פרושים'}
+        </button>
+        <label className="tz-ws-size" title="גודל התמונות בגלריה" data-tour="work-size">
+          <input type="range" min={120} max={440} step={10} value={size} onChange={(e) => setSize(Number(e.target.value))} aria-label="גודל התמונות" />
+        </label>
+        {onNext && (
+          <button type="button" className="tz-ws-next" onClick={onNext} data-tour="work-next">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="m22 2-7 20-4-9-9-4Z" /><path d="M22 2 11 13" /></svg>
+            לשליחה ללקוח · {going.toLocaleString('en-US')}
           </button>
-          <button
-            type="button"
-            className={`tz-ws-stacking${stacking ? ' is-on' : ''}`}
-            onClick={() => setStacking((v) => !v)}
-            title="רצפים של תמונות כמעט זהות — בערימה אחת או פרושים"
-            data-tour="work-stacking"
-          >
-            {stacking ? 'רצפים מקובצים' : 'רצפים פרושים'}
-          </button>
-          <label className="tz-ws-size" title="גודל התמונות בגלריה" data-tour="work-size">
-            <span aria-hidden>▫</span>
-            <input type="range" min={120} max={440} step={10} value={size} onChange={(e) => setSize(Number(e.target.value))} aria-label="גודל התמונות" />
-            <span aria-hidden>◻</span>
-          </label>
-          {fault ? (
-            <span className="tz-ws-note is-fault" title={fault} data-tour="work-fault">אין הצעות מהמנוע — אפשר להחליט ידנית</span>
-          ) : pending > 0 && frames.length > 0 ? (
-            <span className="tz-ws-note" data-tour="work-analyzing">
-              מנתח {analysed.toLocaleString('he-IL')}/{frames.length.toLocaleString('he-IL')}
-              <span className="tz-ws-meter"><i style={{ width: `${(analysed / frames.length) * 100}%` }} /></span>
-            </span>
-          ) : null}
-          {onNext && (
-            <button type="button" className="tz-ws-next" onClick={onNext} data-tour="work-next">
-              לשליחה ללקוח · {going.toLocaleString('he-IL')} ←
-            </button>
-          )}
-        </div>
+        )}
       </header>
 
       {batches.length > 0 && (
@@ -661,14 +655,29 @@ export default function WorkStageV2({
                 <button type="button" onClick={() => decide(bulk, 'reject', `${bulk.length} תמונות הוסרו`)}>הסר את כולן</button>
               </div>
             ) : null}
-            footer={flat.length ? (
-              <p className="tz-ws-end">
-                {flat.length.toLocaleString('he-IL')} תמונות בתצוגה · חצים למעבר · K שמור · M מתלבט · X הסר · לחיצה כפולה או Enter לתצוגה גדולה · Ctrl/Shift לבחירת כמה · C להשוואה
-              </p>
-            ) : null}
           />
         )}
       </div>
+
+      {/* The keys, always in sight, and the shot details of the frame in hand. */}
+      <footer className="tz-ws-foot">
+        <span><kbd>K</kbd>שמור</span>
+        <span><kbd>M</kbd>מתלבט</span>
+        <span><kbd>X</kbd>הסר</span>
+        <span><kbd>U</kbd>בטל</span>
+        <span><kbd dir="ltr">← →</kbd>מעבר</span>
+        <span><kbd>Enter</kbd>תצוגה גדולה</span>
+        <span><kbd>C</kbd>השוואה</span>
+        <span className="tz-ws-foot-dim">Ctrl/Shift — כמה יחד</span>
+        <span className="tz-ws-flex" />
+        <span className="tz-ws-foot-dim">{flat.length.toLocaleString('en-US')} בתצוגה</span>
+        {sel && frameByName.get(sel) && (
+          <>
+            <span className="tz-ws-foot-name" dir="ltr">{sel}</span>
+            <ShotLine path={frameByName.get(sel)!.path} />
+          </>
+        )}
+      </footer>
 
       {undo && (
         <div className="tz-ws-toast" role="status">
@@ -1680,10 +1689,14 @@ function ShotLine({ path }: { path: string }) {
   const [info, setInfo] = useState<{ path: string; data: ShotInfo | null } | null>(null);
   useEffect(() => {
     let alive = true;
-    shotInfo(path)
-      .then((data) => { if (alive) setInfo({ path, data }); })
-      .catch(() => { if (alive) setInfo({ path, data: null }); });
-    return () => { alive = false; };
+    // Walking the set with the arrows passes many frames a second; ask only
+    // for the one he stops on.
+    const t = window.setTimeout(() => {
+      shotInfo(path)
+        .then((data) => { if (alive) setInfo({ path, data }); })
+        .catch(() => { if (alive) setInfo({ path, data: null }); });
+    }, 150);
+    return () => { alive = false; window.clearTimeout(t); };
   }, [path]);
   if (!info || info.path !== path) return <span className="tz-ws-shot" />;
   if (!info.data) return <span className="tz-ws-shot is-fault">לא ניתן לקרוא את פרטי הצילום</span>;

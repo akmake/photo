@@ -746,3 +746,140 @@
 .tz-ws-pg .tz-pg-tile:hover .tz-ws-pg-stack,
 .tz-ws-pg .tz-pg-tile.is-current .tz-ws-pg-stack { bottom: 46px; }
 .tz-ws-pg-stack { transition: bottom 0.12s; }
+
+/* =====================================================================
+ * FrameOps frame (09.10.2026, the FrameOps.dc.html handoff).
+ * סינון no longer takes the whole window: it sits inside the project, under
+ * the top bar and the stage bar, and reads the frame's light/dark tokens.
+ * The viewer, the burst window and the comparison still open over everything.
+ * ===================================================================== */
+
+.tz-ws {
+  --ws-ground: var(--fo-cull, #e6e6e9);
+  --ws-paper: var(--fo-panel, #fafafb);
+  --ws-line: var(--fo-line, #dcdce0);
+  --ws-well: var(--fo-thumb, #e2e2e5);
+  --ws-ink: var(--fo-text, #18181b);
+  --ws-muted: var(--fo-text2, #52525a);
+  --ws-brand: var(--fo-accent, #c94f24);
+
+  position: relative;
+  inset: auto;
+  z-index: auto;
+  flex: 1;
+  min-height: 0;
+  font: 400 13px/1.4 var(--fo-sans, inherit);
+  -webkit-font-smoothing: antialiased;
+}
+.fo-app[data-theme='dark'] .tz-ws {
+  --ws-keep: #3f9a5c;
+  --ws-keep-wash: rgba(63, 154, 92, .18);
+  --ws-maybe: #d4a23c;
+  --ws-maybe-wash: rgba(212, 162, 60, .18);
+  --ws-out: #d9534f;
+  --ws-out-wash: rgba(217, 83, 79, .18);
+}
+.tz-ws kbd {
+  font: 500 10.5px/1 var(--fo-mono, monospace);
+  padding: 2px 6px;
+  border-radius: 3px;
+  border: 1px solid var(--fo-line2, #c9c9ce);
+  background: transparent;
+  color: var(--ws-ink);
+}
+
+.tz-ws-top {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 14px;
+  height: auto;
+  min-height: 44px;
+  padding: 8px 14px;
+  background: var(--fo-bg, var(--ws-paper));
+  border-bottom: 1px solid var(--ws-line);
+}
+.tz-ws-flex { flex: 1; }
+
+.tz-ws-filters { padding: 0; gap: 2px; background: transparent; border: 0; border-radius: 0; }
+.tz-ws-filter {
+  height: 26px;
+  padding: 0 9px;
+  gap: 6px;
+  border-radius: 13px;
+  font-size: 12.5px;
+  color: var(--ws-muted);
+}
+.tz-ws-filter.is-on { background: var(--fo-control, #dcdce0); color: var(--ws-ink); font-weight: 400; box-shadow: none; }
+.tz-ws-filter i { font-family: var(--fo-mono, inherit); font-size: 11px; opacity: .8; }
+.tz-ws-filter-dot { width: 7px; height: 7px; border-radius: 50%; background: transparent; flex: none; }
+.tz-ws-filter.is-open .tz-ws-filter-dot { background: var(--fo-text3, #6b6b73); }
+.tz-ws-filter.is-keep .tz-ws-filter-dot { background: var(--ws-keep); }
+.tz-ws-filter.is-maybe .tz-ws-filter-dot { background: var(--ws-maybe); }
+.tz-ws-filter.is-reject .tz-ws-filter-dot { background: var(--ws-out); }
+.tz-ws-filter.is-suggested .tz-ws-filter-dot { background: var(--ws-brand); border-radius: 2px; }
+
+.tz-ws-progress { display: inline-flex; align-items: center; gap: 8px; font-size: 12px; color: var(--ws-muted); white-space: nowrap; }
+.tz-ws-progress b { font: 500 12px var(--fo-mono, inherit); color: var(--ws-ink); direction: ltr; }
+.tz-ws-progress .tz-ws-meter { width: 90px; height: 4px; background: var(--fo-control, var(--ws-line)); }
+.tz-ws-progress .tz-ws-meter i { background: var(--ws-brand); }
+
+.tz-ws-stacking {
+  height: 28px;
+  padding: 0 11px;
+  border: 1px solid var(--fo-line2, var(--ws-line));
+  border-radius: 6px;
+  background: var(--fo-raised, var(--ws-paper));
+  color: var(--ws-ink);
+  font-size: 12.5px;
+}
+.tz-ws-stacking.is-on { background: var(--fo-accent-soft, var(--ws-paper)); border-color: var(--ws-brand); color: var(--ws-ink); }
+.tz-ws-size input { width: 80px; }
+
+.tz-ws-next {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 28px;
+  padding: 0 12px;
+  border-radius: 6px;
+  font-size: 12.5px;
+  background: var(--ws-brand);
+  color: var(--fo-accent-ink, #fff) !important;
+}
+.tz-ws-next:hover { background: var(--ws-brand); filter: brightness(1.08); }
+
+.tz-ws-batches { justify-content: flex-start; background: var(--fo-bg, var(--ws-paper)); padding: 6px 14px; }
+.tz-ws-batches button { height: 26px; font-size: 12.5px; }
+.tz-ws-batches button.is-on { background: var(--fo-control, var(--ws-ground)); border-color: transparent; font-weight: 600; }
+.tz-ws-batches button i { font-family: var(--fo-mono, inherit); font-size: 11px; }
+
+.tz-ws-comparebar { background: var(--fo-bg, var(--ws-paper)); }
+
+.tz-ws-pg { --pg-bg: var(--ws-ground); --pg-ph: var(--ws-well); --pg-ink: var(--ws-ink); --pg-accent: var(--ws-brand); }
+.tz-ws-pg .tz-pg-title { font-size: 12.5px; font-weight: 600; }
+.tz-ws-pg-count { font-family: var(--fo-mono, inherit); font-size: 11.5px; color: var(--fo-text3, var(--ws-muted)); }
+.tz-ws-pg .tz-pg-tile.in-stack { background: var(--fo-control, #d9d9d6); }
+.fo-app[data-theme='dark'] .tz-ws-pg .tz-pg-tile.is-selected { background: rgba(234, 106, 60, .22); }
+
+.tz-ws-foot {
+  flex: none;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 0 14px;
+  background: var(--fo-bg, var(--ws-paper));
+  border-top: 1px solid var(--ws-line);
+  font-size: 11.5px;
+  color: var(--ws-muted);
+  white-space: nowrap;
+  overflow: hidden;
+}
+.tz-ws-foot > span { display: inline-flex; align-items: center; gap: 6px; }
+.tz-ws-foot-dim { color: var(--fo-text3, var(--ws-muted)); }
+.tz-ws-foot-name { font: 400 11.5px var(--fo-mono, inherit); color: var(--ws-ink); }
+.tz-ws-foot .tz-ws-shot { font: 400 11.5px var(--fo-mono, inherit); color: var(--ws-muted); gap: 10px; }
+.tz-ws-foot .tz-ws-shot b { font-weight: 400; color: var(--ws-ink); }
+.tz-ws-toast { bottom: 56px; }
+.tz-ws-pickbar { bottom: 48px; }
