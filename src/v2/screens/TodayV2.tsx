@@ -78,7 +78,7 @@ function Filmstrip({ project }: { project: Project }) {
   return (
     <div className="fo-td-film">
       {picks.map((f) => (
-        <span key={f.path}><img src={thumbUrl(f.shown || f.path, 120, f.version)} alt="" loading="lazy" /></span>
+        <span key={f.path}><img src={thumbUrl(f.shown || f.path, 120, f.version)} alt="" /></span>
       ))}
     </div>
   );
@@ -90,8 +90,23 @@ export default function TodayV2({ onNavigate, onOpenProject, onNewProject, inspe
   const now = new Date();
   const midnight = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
 
-  const last = readLastOpen();
-  const lastProject = last ? projects.find((p) => p.id === last.id && p.state !== 'done') : undefined;
+  const remembered = readLastOpen();
+  const rememberedProject = remembered
+    ? projects.find((p) => p.id === remembered.id && p.state !== 'done')
+    : undefined;
+  /* With no "where was I" yet — a new install, or a project since delivered —
+   * the card shows the active project instead, and says so in its label. It is
+   * the work in hand, not a guess at where he stopped: in progress first, then
+   * waiting on the client, then before the shoot; the newest among equals. */
+  const activeProject = rememberedProject
+    ? undefined
+    : [...projects]
+        .filter((p) => p.state !== 'done')
+        .sort((a, b) =>
+          ({ work: 0, waiting: 1, shoot: 2, done: 3 }[a.state] - { work: 0, waiting: 1, shoot: 2, done: 3 }[b.state])
+          || (b.createdAt || '').localeCompare(a.createdAt || ''))[0];
+  const lastProject = rememberedProject ?? activeProject;
+  const last = rememberedProject ? remembered : null;
 
   const data = useMemo(() => {
     const active = projects.filter((p) => p.state !== 'done');
@@ -151,13 +166,13 @@ export default function TodayV2({ onNavigate, onOpenProject, onNewProject, inspe
 
   /* Enter continues where you stopped — the button carries the ↵ hint. */
   useEffect(() => {
-    if (!lastProject || !last) return;
+    if (!lastProject) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== 'Enter') return;
       const el = document.activeElement;
       if (el && el !== document.body) return;
       e.preventDefault();
-      onOpenProject?.(lastProject.id, last.stage);
+      onOpenProject?.(lastProject.id, last?.stage);
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
@@ -195,7 +210,7 @@ export default function TodayV2({ onNavigate, onOpenProject, onNewProject, inspe
             </div>
           )}
 
-          {lastProject && last && (
+          {lastProject && (
             <section className="fo-td-card fo-td-continue" data-tour="today-continue">
               <div className="fo-td-cover">
                 {getProjectCover(lastProject, 640)
@@ -204,10 +219,15 @@ export default function TodayV2({ onNavigate, onOpenProject, onNewProject, inspe
                 {lastProject.imported > 0 && <span className="fo-td-chip fo-mono">{lastProject.imported.toLocaleString('en-US')}</span>}
               </div>
               <div className="fo-td-continue-copy">
-                <span className="fo-td-label">המשך מאיפה שעצרת</span>
+                <span className="fo-td-label">{last ? 'המשך מאיפה שעצרת' : 'הפרויקט הפעיל'}</span>
                 <div className="fo-td-continue-title">
                   <strong>{lastProject.client}</strong>
-                  <span>{[lastProject.event, PROJECT_STAGE_LABEL[last.stage], ago(last.at)].filter(Boolean).join(' · ')}</span>
+                  <span>
+                    {(last
+                      ? [lastProject.event, PROJECT_STAGE_LABEL[last.stage], ago(last.at)]
+                      : [lastProject.event, lastProject.location, STAGES[Math.min(lastProject.at, STAGES.length - 1)]?.label, lastProject.date]
+                    ).filter(Boolean).join(' · ')}
+                  </span>
                 </div>
                 <div className="fo-td-stats">
                   <span><span>יובאו </span><span className="fo-mono">{lastProject.imported.toLocaleString('en-US')}</span> תמונות</span>
@@ -217,10 +237,18 @@ export default function TodayV2({ onNavigate, onOpenProject, onNewProject, inspe
                 <Filmstrip project={lastProject} />
                 <div className="fo-td-spacer" />
                 <div className="fo-td-actions">
-                  <button type="button" className="fo-btn is-primary" onClick={() => open(lastProject, last.stage)}>
-                    המשך · {PROJECT_STAGE_LABEL[last.stage] || 'הפרויקט'}<span className="fo-mono fo-td-enter">↵</span>
-                  </button>
-                  <button type="button" className="fo-btn" onClick={() => open(lastProject)}>פתח פרויקט</button>
+                  {last ? (
+                    <>
+                      <button type="button" className="fo-btn is-primary" onClick={() => open(lastProject, last.stage)}>
+                        המשך · {PROJECT_STAGE_LABEL[last.stage] || 'הפרויקט'}<span className="fo-mono fo-td-enter">↵</span>
+                      </button>
+                      <button type="button" className="fo-btn" onClick={() => open(lastProject)}>פתח פרויקט</button>
+                    </>
+                  ) : (
+                    <button type="button" className="fo-btn is-primary" onClick={() => open(lastProject)}>
+                      פתח פרויקט<span className="fo-mono fo-td-enter">↵</span>
+                    </button>
+                  )}
                 </div>
               </div>
             </section>
