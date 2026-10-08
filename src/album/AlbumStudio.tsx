@@ -1,4 +1,4 @@
-﻿import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   IcBook, IcCheck, IcChevron, IcDownload, IcEye, IcGallery,
   IcSparkle, IcUndo,
@@ -211,6 +211,9 @@ export default function AlbumStudio({ job, onBack }: {
   /* `organize` is the album; `design` is one spread. The module opens on the
    * album, because that is the question a photographer actually asks first. */
   const [mode, setMode] = useState<'organize' | 'design'>('organize');
+  const canvasAreaRef = useRef<HTMLDivElement>(null);
+  const [canvasRoom, setCanvasRoom] = useState({ width: 800, height: 500 });
+  const [viewZoom, setViewZoom] = useState<number | null>(null);
   /* Null means the library is showing. An album is a saved thing you come back
    * to, so nothing is open until the photographer picks one. */
   const [activeAlbumId, setActiveAlbumId] = useState<string | null>(null);
@@ -220,7 +223,6 @@ export default function AlbumStudio({ job, onBack }: {
   const [showMoreMenu, setShowMoreMenu] = useState(false);
   const [showDelivery, setShowDelivery] = useState(false);
   const [showPhotoPicker, setShowPhotoPicker] = useState(false);
-  const [timelineOpen, setTimelineOpen] = useState(true);
   const [overviewScrollTop, setOverviewScrollTop] = useState(0);
   const [pendingSpreadDelete, setPendingSpreadDelete] = useState<number | null>(null);
   const [showAlbumSettings, setShowAlbumSettings] = useState(false);
@@ -606,6 +608,25 @@ export default function AlbumStudio({ job, onBack }: {
   const sheetWidthMm = editingCover ? profile.coverSpec.totalWidthMm : profile.spreadWidthMm;
   const sheetHeightMm = editingCover ? profile.coverSpec.totalHeightMm : profile.spreadHeightMm;
   const sheetAspect = sheetWidthMm / Math.max(1, sheetHeightMm);
+  const pixelsPerMm = 96 / 25.4;
+  const fitZoom = Math.min(canvasRoom.width / (sheetWidthMm * pixelsPerMm), canvasRoom.height / (sheetHeightMm * pixelsPerMm)) * 100;
+  const displayZoom = viewZoom ?? fitZoom;
+  useEffect(() => {
+    const area = canvasAreaRef.current;
+    if (!area) return;
+    const measure = () => {
+      const css = getComputedStyle(area);
+      setCanvasRoom({
+        width: Math.max(1, area.clientWidth - parseFloat(css.paddingLeft) - parseFloat(css.paddingRight)),
+        height: Math.max(1, area.clientHeight - parseFloat(css.paddingTop) - parseFloat(css.paddingBottom)),
+      });
+    };
+    const observer = new ResizeObserver(measure);
+    observer.observe(area);
+    measure();
+    return () => observer.disconnect();
+  }, [mode, activeAlbumId, cropIndex]);
+  useEffect(() => { setViewZoom(null); }, [activeAlbumId, sheetWidthMm, sheetHeightMm, mode]);
   const layoutCandidates = useMemo(
     () => buildAlbumLayoutCandidates(
       spread.photoIds,
@@ -1306,6 +1327,7 @@ export default function AlbumStudio({ job, onBack }: {
     commitProject((current) => ({
       ...current,
       spreads: next,
+      photoSelection: [...new Set([...(current.photoSelection ?? existingPhotoIds), ...added])],
       sessions: [...existingSessions, newSession],
       activeSpreadId: additions[0]?.id ?? current.activeSpreadId,
     }));
@@ -3143,9 +3165,7 @@ export default function AlbumStudio({ job, onBack }: {
             photos={photos}
             profile={profile}
             issues={preflightIssues}
-            timelineOpen={timelineOpen}
             initialScrollTop={overviewScrollTop}
-            onTimelineOpen={setTimelineOpen}
             onScrollTop={setOverviewScrollTop}
             onSelectSpread={setActiveSpread}
             onOpenSpread={(index) => {
@@ -3153,13 +3173,11 @@ export default function AlbumStudio({ job, onBack }: {
               setMode('design');
             }}
             onReorderSpreads={reorderSpread}
-            onChangeGroups={changeAlbumGroups}
             onCycleLayout={(index, direction) => cycleLayout(direction, index)}
             onAddSpread={addSpread}
             onRemoveSpread={removeSpreadAt}
             onAddPhotos={() => setShowPhotoPicker(true)}
             onOpenCover={openCoverDesigner}
-            onSetCoverPhoto={setCoverPhoto}
           />
         ) : (
           <>
@@ -3865,6 +3883,7 @@ export default function AlbumStudio({ job, onBack }: {
           )}
           <div
             className="album-canvas-area"
+            ref={canvasAreaRef}
             data-tour="album-canvas"
             onClick={(event) => {
               if (event.target === event.currentTarget) { setSelectedSlotIndex(null); setCropIndex(null); setSelectedElementId(null); setSelectedDecorId(null); }
@@ -3874,6 +3893,10 @@ export default function AlbumStudio({ job, onBack }: {
               className={`album-spread ${showGuides ? 'show-guides' : ''} ${activeTemplate ? 'tpl-mode' : ''} ${editingCover ? 'cover-sheet' : ''}`}
               style={{
                 background: spreadPaper,
+                width: sheetWidthMm * pixelsPerMm * displayZoom / 100,
+                height: sheetHeightMm * pixelsPerMm * displayZoom / 100,
+                maxWidth: 'none',
+                maxHeight: 'none',
                 aspectRatio: `${sheetWidthMm} / ${sheetHeightMm}`,
                 '--spread-aspect': sheetAspect,
               } as React.CSSProperties}
@@ -4189,22 +4212,36 @@ export default function AlbumStudio({ job, onBack }: {
             </div>
           </div>
 
+          <div className="album-view-controls">
+            <span className="album-view-dimensions">{editingCover ? `גיליון כריכה · ${sheetWidthMm / 10} × ${sheetHeightMm / 10} ס״מ` : `עמוד ${profile.closedWidthMm / 10} × ${profile.closedHeightMm / 10} ס״מ · כפולה ${sheetWidthMm / 10} × ${sheetHeightMm / 10} ס״מ`}</span>
+            <div className="album-view-zoom" role="group" aria-label="זום תצוגת האלבום">
+              <button className="album-quiet-button" onClick={() => setViewZoom(null)} aria-pressed={viewZoom === null}>התאם לחלון</button>
+              <button className="album-icon-button" aria-label="הקטנת התצוגה" onClick={() => setViewZoom(Math.max(5, displayZoom - 10))}>−</button>
+              <input type="range" min="5" max="200" value={Math.min(200, Math.max(5, displayZoom))} aria-label="זום תצוגה" onChange={(event) => setViewZoom(Number(event.target.value))} />
+              <output>{Math.round(displayZoom)}%</output>
+              <button className="album-icon-button" aria-label="הגדלת התצוגה" onClick={() => setViewZoom(Math.min(200, displayZoom + 10))}>＋</button>
+            </div>
+          </div>
           <footer className="album-page-strip" aria-label="עמודי האלבום" data-tour="album-page-strip">
-            <button className={`album-page-mini cover ${editingCover ? 'on' : ''}`} onClick={openCoverDesigner}>
-              <span>כריכה</span><i />
+            <button className={`album-page-mini cover ${editingCover ? 'on' : ''}`} onClick={openCoverDesigner} aria-label="עריכת כריכת האלבום" aria-pressed={editingCover}>
+              <div className="album-page-thumbnail" aria-hidden="true">
+                <SpreadThumb spread={coverSheet} photos={photos} profile={profile}
+                  template={coverTemplateOf(coverSheet, profile, project.openingDirection ?? 'rtl')}
+                  widthMm={profile.coverSpec.totalWidthMm} heightMm={profile.coverSpec.totalHeightMm}
+                  showGutter={false} showPageNumbers={false} />
+              </div>
+              <span>כריכת האלבום</span>
             </button>
+            <span className="album-page-divider" aria-hidden="true" />
             {project.spreads.map((item, index) => (
-              <button key={item.id} className={`album-page-mini ${!editingCover && index === spreadIndex ? 'on' : ''}`} onClick={() => setActiveSpread(index)}>
-                <span>{index + 1}</span>
-                <i style={{ background: item.background }}>
-                  {item.photoIds.slice(0, 3).map((photoId) => {
-                    const photo = photos.find((candidate) => candidate.id === photoId);
-                    return photo ? <img key={photoId} src={smallUrl(photo.url)} alt="" /> : null;
-                  })}
-                </i>
+              <button key={item.id} className={`album-page-mini ${!editingCover && index === spreadIndex ? 'on' : ''}`} onClick={() => setActiveSpread(index)} aria-label={`עריכת כפולה ${index + 1}`} aria-pressed={!editingCover && index === spreadIndex}>
+                <div className="album-page-thumbnail" aria-hidden="true">
+                  <SpreadThumb spread={item} photos={photos} profile={profile} styleName={project.styleName} showPageNumbers={false} />
+                </div>
+                <span>כפולה {index + 1}</span>
               </button>
             ))}
-            <button className="album-page-add" onClick={addSpread} aria-label="הוספת כפולה">＋</button>
+            <button className="album-page-add" onClick={addSpread} aria-label="הוספת כפולה"><span aria-hidden="true">＋</span><span>הוסף כפולה</span></button>
           </footer>
           <input ref={fileInput} type="file" accept="image/*" multiple hidden onChange={(event) => handleFiles(event.target.files)} />
         </main>
@@ -4275,10 +4312,12 @@ export default function AlbumStudio({ job, onBack }: {
         <AlbumPhotoPicker
           photos={photos}
           albumName={project.name}
-          existingPhotoIds={project.photoSelection ?? project.spreads.flatMap((item) => item.photoIds).filter(Boolean)}
+          purpose={mode === 'organize' ? 'place' : 'add'}
+          existingPhotoIds={mode === 'organize' ? project.spreads.flatMap((item) => item.photoIds).filter(Boolean) : project.photoSelection ?? project.spreads.flatMap((item) => item.photoIds).filter(Boolean)}
           onCancel={() => setShowPhotoPicker(false)}
           onContinue={(ids) => {
-            addToAlbumPhotos(ids);
+            if (mode === 'organize') addPhotosToAlbum(ids);
+            else addToAlbumPhotos(ids);
             setShowPhotoPicker(false);
           }}
         />

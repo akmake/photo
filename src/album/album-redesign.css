@@ -405,12 +405,12 @@
   min-width: 0;
   min-height: 0;
   display: grid;
-  grid-template-rows: minmax(0, 1fr) 154px;
+  grid-template-rows: minmax(0, 1fr);
   color: var(--ink);
   background: radial-gradient(circle at 50% 15%, rgb(255 255 255 / .045), transparent 36%),
     var(--album-chrome);
 }
-.album-overview.timeline-collapsed { grid-template-rows: minmax(0, 1fr) 42px; }
+.album-overview-actions { display: flex; justify-content: flex-start; margin-bottom: 22px; }
 
 .album-book { min-height: 0; overflow: auto; scrollbar-color: #555 transparent; scroll-behavior: smooth; }
 .album-book-column { width: min(900px, calc(100% - 96px)); margin: 0 auto; padding: 34px 0 70px; }
@@ -489,12 +489,12 @@
 .album-overview-timeline > header { display: flex; align-items: center; gap: 10px; padding: 0 13px; border-bottom: 1px solid var(--line-strong); }
 .album-overview-timeline > header > div { display: flex; align-items: center; gap: 7px; }
 .album-overview-timeline > header strong { font-size: 12px; }
-.album-overview-timeline > header span { color: var(--ink-3); font-size: 10px; }
+.album-overview-timeline > header span { color: var(--ink-3); font-size: 11px; }
 .album-overview-timeline > header .album-quiet-button { margin-inline-start: auto; min-height: 28px; color: var(--ink); border-color: var(--line-strong); background: var(--card); font-size: 11px; }
 .album-overview-timeline > header .album-icon-button { min-height: 28px; color: var(--ink); }
 .album-timeline-scroll { min-height: 0; display: flex; align-items: center; gap: 0; padding: 10px 14px; direction: rtl; overflow-x: auto; overflow-y: hidden; scrollbar-width: thin; }
 .album-timeline-run { flex: 0 0 auto; display: flex; align-items: center; direction: rtl; }
-.album-timeline-photo { position: relative; width: 74px; height: 76px; padding: 0; overflow: hidden; border: 2px solid transparent; border-radius: var(--r-photo); background: var(--album-chrome); opacity: .76; }
+.album-timeline-photo { position: relative; width: 74px; height: 76px; padding: 0; overflow: hidden; border: 2px solid transparent; border-radius: var(--r-photo); background: var(--album-chrome); cursor: pointer; }
 .album-timeline-photo img { width: 100%; height: 100%; display: block; object-fit: contain; }
 .album-timeline-photo:hover,
 .album-timeline-photo.highlighted { opacity: 1; border-color: #8b8e8e; }
@@ -507,11 +507,17 @@
 .album-timeline-cut.session-boundary { width: 42px; cursor: default; }
 .album-timeline-cut.session-boundary span { width: 34px; height: 58px; color: var(--ink); background: var(--card-2); font: 8px/1 var(--font-ui); writing-mode: vertical-rl; }
 .album-timeline-cut.session-boundary:hover span { height: 58px; background: var(--card-2); }
-.album-unplaced { flex: 0 0 auto; display: flex; align-items: center; gap: 5px; margin-inline-start: 22px; padding-inline-start: 16px; border-inline-start: 1px solid var(--line-strong); }
-.album-unplaced > span { width: 60px; color: var(--ink-3); font-size: 9px; line-height: 1.25; }
-.album-unplaced button { width: 48px; height: 56px; padding: 0; overflow: hidden; border: 1px solid var(--line-strong); border-radius: 4px; opacity: .55; }
-.album-unplaced button:hover { opacity: 1; border-color: #888; }
-.album-unplaced img { width: 100%; height: 100%; object-fit: contain; }
+.album-unplaced { flex: 0 0 auto; display: flex; align-items: center; gap: 8px; margin-inline-start: 20px; padding-inline-start: 20px; border-inline-start: 1px solid var(--line); }
+.album-unplaced.only-available { margin-inline-start: 0; padding-inline-start: 0; border-inline-start: 0; }
+.album-unplaced-heading { width: 156px; display: grid; gap: 5px; padding-inline-end: 12px; }
+.album-unplaced-heading strong { color: var(--ink-2); font-size: 12px; font-weight: 600; }
+.album-unplaced-heading span { color: var(--ink-3); font-size: 11px; line-height: 1.5; }
+.album-unplaced button { flex: 0 0 auto; width: 62px; height: 72px; padding: 3px; overflow: hidden; border: 1px solid var(--line); border-radius: var(--r-sm, 8px); background: var(--card-2); cursor: pointer; transition: border-color .14s ease, background .14s ease; }
+.album-unplaced button:hover { border-color: var(--album-copper); background: var(--card); }
+.album-unplaced img { width: 100%; height: 100%; display: block; object-fit: contain; border-radius: 4px; }
+.album-unplaced .album-unplaced-more { width: 82px; display: grid; align-content: center; justify-items: center; gap: 5px; border-style: dashed; color: var(--ink-2); background: transparent; }
+.album-unplaced-more strong { font-size: 17px; font-weight: 600; }
+.album-unplaced-more span { color: var(--ink-3); font-size: 10px; }
 .album-timeline-empty { min-height: 56px; display: inline-flex; align-items: center; gap: 8px; margin: auto; padding: 0 18px; border: 1px dashed var(--line-strong); border-radius: var(--r-sm); color: var(--ink); background: transparent; }
 
 /* ---------- spread designer ---------- */
@@ -530,11 +536,17 @@
 /* Three rows, placed by name rather than by order: the tools bar is only
  * present while something is selected, and an implicitly-placed tray would
  * slide up into the canvas row every time the photographer let go. */
-.album-workspace.design > .album-center { grid-area: canvas; min-width: 0; min-height: 0; display: grid; grid-template-rows: auto minmax(0, 1fr) 86px; direction: rtl; background: var(--album-chrome); }
+.album-workspace.design > .album-center { grid-area: canvas; min-width: 0; min-height: 0; display: grid; grid-template-rows: auto minmax(0, 1fr) auto 86px; direction: rtl; background: var(--album-chrome); }
 .album-workspace.design > .album-center > .ctx-bar { grid-row: 1; }
 .album-workspace.design > .album-center > .album-canvas-area { grid-row: 2; }
 .album-workspace.design > .album-center > .album-photo-tray { grid-row: 3; }
-.album-workspace.design > .album-center > .album-page-strip { grid-row: 3; }
+.album-workspace.design > .album-center > .album-page-strip { grid-row: 4; }
+.album-view-controls { grid-row: 3; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 6px 18px; padding: 7px 18px; color: var(--ink-3); background: var(--card); border-top: 1px solid var(--line); }
+.album-view-dimensions { font-size: 11px; }
+.album-view-zoom { display: flex; align-items: center; gap: 6px; }
+.album-view-zoom .album-quiet-button { min-height: 28px; font-size: 11px; }
+.album-view-zoom input { width: 100px; accent-color: var(--album-copper); }
+.album-view-zoom output { min-width: 36px; font-size: 11px; direction: ltr; text-align: center; }
 .album-workspace.design > .album-layout-panel { grid-area: inspector; width: auto; min-width: 0; min-height: 0; display: block; overflow-y: auto; direction: rtl; border: 0; border-inline-start: 1px solid var(--line); color: var(--ink); background: var(--card); }
 
 /* The column is its rail alone whenever the panel is closed — which is how it
@@ -641,15 +653,17 @@
 .album-picker-toolbar > div { display: flex; gap: 3px; padding: 3px; border-radius: var(--r-sm); background: var(--card-2); }
 .album-picker-toolbar > div button { min-height: 30px; padding: 0 11px; border: 0; border-radius: 6px; color: var(--ink-3); background: transparent; font-size: 11px; }
 .album-picker-toolbar > div button.on { color: var(--ink); background: var(--card); box-shadow: var(--shadow-sm); font-weight: 700; }
-.album-picker-grid-new { min-height: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(132px, 1fr)); align-content: start; gap: 10px; padding: 18px 24px 30px; overflow: auto; }
-.album-picker-grid-new > button { position: relative; aspect-ratio: 4 / 3; padding: 0; overflow: hidden; border: 2px solid transparent; border-radius: var(--r-photo); background: var(--card-2); }
+.album-picker-grid-new { min-height: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(132px, 1fr)); grid-auto-rows: 156px; align-content: start; gap: 14px; padding: 18px 24px 30px; overflow: auto; }
+.album-picker-grid-new > button { position: relative; min-width: 0; min-height: 0; height: 156px; display: grid; grid-template-rows: minmax(0, 1fr) 28px; padding: 5px; overflow: hidden; border: 2px solid transparent; border-radius: var(--r-photo); background: var(--card-2); cursor: pointer; }
 .album-picker-grid-new > button:hover:not(:disabled) { transform: translateY(-1px); box-shadow: var(--shadow); }
 .album-picker-grid-new > button.selected { border-color: var(--album-copper); box-shadow: 0 0 0 2px var(--accent-soft); }
-.album-picker-grid-new > button.existing { opacity: .38; filter: grayscale(.3); }
-.album-picker-grid-new img { width: 100%; height: 100%; display: block; object-fit: contain; }
+.album-picker-grid-new > button.existing { cursor: default; }
+.album-picker-grid-new img { min-height: 0; width: 100%; height: 100%; display: block; object-fit: contain; }
+.album-picker-photo-name { min-width: 0; align-self: center; padding: 0 4px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; color: var(--ink-2); font-size: 11px; text-align: start; }
 .album-picker-grid-new .album-picker-check { position: absolute; top: 7px; inset-inline-end: 7px; width: auto; min-width: 24px; height: 24px; display: grid; place-items: center; padding: 0 6px; border: 1px solid rgb(255 255 255 / .72); border-radius: 999px; color: white; background: rgb(20 22 23 / .72); font-size: 9px; opacity: 1; }
 .album-picker-grid-new > button.selected .album-picker-check { background: var(--album-copper); }
-.album-picker-empty-new { grid-column: 1 / -1; min-height: 260px; display: grid; place-content: center; justify-items: center; gap: 8px; color: var(--ink-3); }
+.album-picker-grid-new > button:not(.selected):not(.existing) .album-picker-check { width: 22px; min-width: 0; height: 22px; padding: 0; border-radius: 5px; background: rgb(255 255 255 / .85); border-color: var(--line-strong); }
+.album-picker-empty-new { grid-column: 1 / -1; min-height: 156px; display: grid; place-content: center; justify-items: center; gap: 12px; color: var(--ink-3); }
 .album-photo-picker > footer { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 0 24px; border-top: 1px solid var(--line); }
 .album-photo-picker > footer > span { display: grid; gap: 2px; }
 .album-photo-picker > footer small { color: var(--ink-3); }
@@ -925,6 +939,8 @@
   position: relative;
   z-index: 0;
   isolation: isolate;
+  align-items: safe center;
+  justify-items: safe center;
   padding: clamp(18px, 3vh, 34px) clamp(18px, 3vw, 46px);
   background: #f1f2f4;
 }
@@ -1138,13 +1154,18 @@
 .sp-app-grid span { font-size: 11px; font-weight: 700; }
 .sp-app-grid small { color: var(--ink-3); font-size: 9px; line-height: 1.35; }
 
-.album-page-strip { min-width: 0; display: flex; align-items: center; justify-content: center; gap: 8px; padding: 9px 14px; overflow-x: auto; border-top: 1px solid var(--line); background: #fff; box-shadow: 0 -2px 8px rgb(25 28 32 / .05); direction: rtl; }
-.album-page-mini { position: relative; flex: 0 0 auto; width: 88px; height: 62px; display: grid; grid-template-rows: 14px 1fr; gap: 3px; padding: 3px; border: 2px solid transparent; border-radius: 5px; color: var(--ink-3); background: transparent; font-size: 9px; }
-.album-page-mini i { min-width: 0; display: flex; overflow: hidden; border: 1px solid #dfe1e4; background: #fff; box-shadow: 0 1px 3px rgb(25 28 32 / .1); }
-.album-page-mini i img { min-width: 0; flex: 1; object-fit: cover; }
-.album-page-mini.on { border-color: #8b3dff; color: #6f2bd4; background: #f4edff; }
-.album-page-mini.cover { width: 58px; }
-.album-page-add { flex: 0 0 auto; width: 36px; height: 36px; border: 1px solid #d7dade; border-radius: 6px; color: var(--ink); background: #fff; font-size: 20px; }
+.album-page-strip { min-width: 0; display: flex; align-items: center; justify-content: safe center; gap: 12px; padding: 6px 18px; overflow-x: auto; border-top: 1px solid var(--line); background: var(--card); direction: rtl; }
+.album-page-mini { position: relative; flex: 0 0 auto; width: 106px; height: 72px; display: grid; grid-template-rows: minmax(0, 1fr) 16px; gap: 5px; padding: 5px 6px; border: 1px solid transparent; border-radius: var(--r-sm, 8px); color: var(--ink-2); background: transparent; cursor: pointer; transition: background .14s ease, border-color .14s ease; }
+.album-page-mini > span { font-size: 11px; line-height: 16px; font-weight: 600; white-space: nowrap; }
+.album-page-thumbnail { min-width: 0; min-height: 0; display: grid; place-items: center; pointer-events: none; }
+.album-page-thumbnail > .album-preview-spread { width: auto; height: 100%; max-width: 100%; margin: 0; border: 1px solid var(--line-strong, var(--line)); box-shadow: 0 2px 4px rgb(25 28 32 / .08); overflow: hidden; }
+.album-page-mini:hover { background: var(--card-2); border-color: var(--line); }
+.album-page-mini.on { border-color: var(--album-copper); color: var(--album-copper); background: color-mix(in srgb, var(--album-copper) 7%, var(--card)); }
+.album-page-divider { flex: 0 0 1px; height: 40px; margin-inline: 2px; background: var(--line); }
+.album-page-add { flex: 0 0 auto; min-width: 94px; height: 60px; display: grid; align-content: center; justify-items: center; gap: 3px; padding: 5px 10px; border: 1px dashed var(--line-strong, var(--line)); border-radius: var(--r-sm, 8px); color: var(--ink-3); background: transparent; cursor: pointer; }
+.album-page-add > span:first-child { font-size: 22px; line-height: 24px; }
+.album-page-add > span:last-child { font-size: 11px; font-weight: 600; }
+.album-page-add:hover { color: var(--album-copper); border-color: var(--album-copper); background: var(--card-2); }
 
 .album-overview { color: var(--ink); background: #f1f2f4; }
 .album-book-spread-canvas { box-shadow: 0 3px 13px rgb(28 31 35 / .18); }
