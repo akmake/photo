@@ -25,13 +25,17 @@ import './business-v2.css';
 export function shootDay(project: Project): Date | null {
   const [day, month] = (project.date || '').split('.').map(Number);
   if (!day || !month || day > 31 || month > 12) return null;
-  const opened = new Date(project.createdAt);
-  const year = Number.isFinite(opened.getTime()) ? opened.getFullYear() : new Date().getFullYear();
-  const candidate = new Date(year, month - 1, day);
-  if (Number.isFinite(opened.getTime()) && candidate < opened) {
-    return new Date(year + 1, month - 1, day);
-  }
-  return candidate;
+  /* `date` carries no year, so it is the dd.mm NEAREST to the day the project
+   * was opened. It used to be "the first dd.mm on or after the moment it was
+   * opened" — which sent a shoot entered the same day (midnight is before the
+   * moment of opening) or the day after it happened a whole year forward, and
+   * היום announced a newborn session from last month as the next shoot. */
+  const created = new Date(project.createdAt);
+  const opened = Number.isFinite(created.getTime()) ? created : new Date();
+  const base = new Date(opened.getFullYear(), opened.getMonth(), opened.getDate()).getTime();
+  return [-1, 0, 1]
+    .map((dy) => new Date(opened.getFullYear() + dy, month - 1, day))
+    .sort((a, b) => Math.abs(a.getTime() - base) - Math.abs(b.getTime() - base))[0];
 }
 
 function dayKey(date: Date) {

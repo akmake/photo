@@ -19,7 +19,9 @@ import '@fontsource/ibm-plex-sans-hebrew/600.css';
 import './tz-exact.css';
 import './frame.css';
 import { TourProvider } from '../tour/TourProvider';
-import { QuickSearch, StatusBar, TopBar, readTheme, saveTheme, BUSINESS_TABS, TOOL_ITEMS } from './Frame';
+import {
+  QuickSearch, StatusBar, TopBar, readTheme, saveTheme, saveLastOpen, BUSINESS_TABS, TOOL_ITEMS, PROJECT_STAGE_LABEL,
+} from './Frame';
 import type { Theme } from './Frame';
 
 const AlbumStudio = lazy(() => import('../album/AlbumStudio'));
@@ -127,14 +129,19 @@ export default function V2App({ onSwitchToV1, onOpenProjectV1 }: V2AppProps) {
 
   // The actual stages of a project in TEZA
   const PROJECT_STAGES = [
-    { id: 'client-status', label: 'סטטוס לקוח', icon: TzIconUsers },
-    { id: 'gallery-upload', label: 'ייבוא תמונות', icon: TzIconUpload },
-    { id: 'batches', label: 'סשנים', icon: TzIconLayers },
-    { id: 'work', label: 'סינון', icon: TzIconFilter },
-    { id: 'send-to-client', label: 'שלח ללקוח', icon: TzIconSend },
-    { id: 'gallery-edit', label: 'עריכה', icon: TzIconSliders },
-    { id: 'album-design', label: 'אלבום', icon: TzIconBook },
-  ];
+    { id: 'client-status', icon: TzIconUsers },
+    { id: 'gallery-upload', icon: TzIconUpload },
+    { id: 'batches', icon: TzIconLayers },
+    { id: 'work', icon: TzIconFilter },
+    { id: 'send-to-client', icon: TzIconSend },
+    { id: 'gallery-edit', icon: TzIconSliders },
+    { id: 'album-design', icon: TzIconBook },
+  ].map((s) => ({ ...s, label: PROJECT_STAGE_LABEL[s.id] }));
+
+  /* Remember where the photographer is, for היום's "המשך מאיפה שעצרת". */
+  useEffect(() => {
+    if (activeNav === 'project-detail' && selectedProjectId) saveLastOpen(selectedProjectId, activeStage);
+  }, [activeNav, selectedProjectId, activeStage]);
 
   const projectTitle = selectedProject
     ? [selectedProject.client, selectedProject.event].filter(Boolean).join(' – ')
@@ -157,6 +164,7 @@ export default function V2App({ onSwitchToV1, onOpenProjectV1 }: V2AppProps) {
           }}
           onOpenProject={handleOpenProject}
           onNewProject={() => setCreating(true)}
+          inspector={inspector}
         />
       );
     }
@@ -320,7 +328,7 @@ export default function V2App({ onSwitchToV1, onOpenProjectV1 }: V2AppProps) {
    * project — the stage. Its "?" button and first-visit tours key on this. */
   const tourScreen = activeNav === 'project-detail' ? activeStage : activeNav;
 
-  const themed = activeNav === 'projects';
+  const themed = activeNav === 'projects' || activeNav === 'today';
 
   return (
     <TourProvider screen={tourScreen}>
@@ -340,7 +348,7 @@ export default function V2App({ onSwitchToV1, onOpenProjectV1 }: V2AppProps) {
         onSearch={() => setSearching(true)}
         attention={attention}
         onOpenProject={handleOpenProject}
-        inspector={activeNav === 'projects' ? { open: inspector, toggle: () => setInspector((o) => !o) } : null}
+        inspector={activeNav === 'projects' || activeNav === 'today' ? { open: inspector, toggle: () => setInspector((o) => !o) } : null}
         theme={theme}
         onTheme={() => setTheme((t) => {
           const next: Theme = t === 'dark' ? 'light' : 'dark';

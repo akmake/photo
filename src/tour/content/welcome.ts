@@ -28,7 +28,7 @@ export const WELCOME: Tour = {
     },
     {
       id: 'new-project',
-      target: 'today-new-project',
+      target: 'projects-new',
       waitFor: 'new-project',
       title: 'כל עבודה היא פרויקט',
       body:
@@ -115,7 +115,7 @@ export const WELCOME: Tour = {
       body:
         'בכל מסך, הכפתור הזה מסביר את המסך שאתה נמצא בו.\n\n' +
         'עכשיו ייבא את הצילום — ומשם ממשיכים לשלב הבא.',
-      placement: 'side',
+      placement: 'bottom',
     },
   ],
 };

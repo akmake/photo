@@ -34,6 +34,45 @@ export function saveTheme(theme: Theme) {
   }
 }
 
+/** The stages of a project, by the id the project screen routes on. */
+export const PROJECT_STAGE_LABEL: Record<string, string> = {
+  'client-status': 'סטטוס לקוח',
+  'gallery-upload': 'ייבוא תמונות',
+  batches: 'סשנים',
+  work: 'סינון',
+  'send-to-client': 'שלח ללקוח',
+  'gallery-edit': 'עריכה',
+  'album-design': 'אלבום',
+};
+
+/* Where the photographer last was — the project and the stage — so היום can
+ * offer to continue there. Nothing in the studio records it, and it is a
+ * convenience of this one machine, so it lives beside the theme choice. */
+const LAST_KEY = 'frameops_last_open';
+
+export interface LastOpen {
+  id: string;
+  stage: string;
+  at: number;
+}
+
+export function readLastOpen(): LastOpen | null {
+  try {
+    const v = JSON.parse(localStorage.getItem(LAST_KEY) || 'null');
+    return v && typeof v.id === 'string' && typeof v.stage === 'string' && Number.isFinite(v.at) ? v : null;
+  } catch {
+    return null;
+  }
+}
+
+export function saveLastOpen(id: string, stage: string) {
+  try {
+    localStorage.setItem(LAST_KEY, JSON.stringify({ id, stage, at: Date.now() }));
+  } catch {
+    /* this session only */
+  }
+}
+
 export const BUSINESS_TABS = [
   { id: 'today', label: 'היום' },
   { id: 'projects', label: 'פרויקטים' },

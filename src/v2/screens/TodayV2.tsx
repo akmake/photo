@@ -1,226 +1,314 @@
-import { useMemo, useState } from 'react';
-import '@fontsource/ibm-plex-sans-hebrew/400.css';
-import '@fontsource/ibm-plex-sans-hebrew/700.css';
-import { STAGES, useStudio } from '../../studio/store';
+/* היום — the FrameOps.dc.html handoff (claude.ai/design), 09.10.2026.
+ *
+ * Three questions, in the order a morning asks them: where was I (המשך מאיפה
+ * שעצרת), what is waiting on me (תור עבודה), and what is coming (the next two
+ * weeks, and the business in four numbers, in the side panel).
+ *
+ * The handoff was a demo. What the studio does not record is not drawn: a
+ * shoot has a date and no hour, so the agenda shows no times; nothing tracks
+ * background jobs, so there is no jobs table. "Where was I" is remembered on
+ * this machine from the moment this screen shipped — until a project has been
+ * opened once, that card is simply not there. */
+import { useEffect, useMemo } from 'react';
+import { STAGES, useStudio, useProjectFiles } from '../../studio/store';
 import type { Project } from '../../studio/store';
+import { thumbUrl } from '../../api';
 import { getProjectCover } from '../projectCovers';
+import { PROJECT_STAGE_LABEL, readLastOpen } from '../Frame';
 import { shootDay } from './CalendarV2';
-import './today-sharp.css';
+import './today-frame.css';
 
 type DashboardProps = {
   onNavigate: (section: string) => void;
   onOpenProject?: (id: string, stage?: string) => void;
   onNewProject?: () => void;
+  inspector: boolean;
 };
 
-function projectStatus(project: Project) {
-  if (project.state === 'done') return { label: 'נמסר', tone: 'done' };
-  if (project.state === 'waiting') return { label: 'ממתין ללקוח', tone: 'waiting' };
-  if (project.state === 'shoot') return { label: 'צילום מתוכנן', tone: 'planned' };
-  if (project.at >= 5) return { label: 'עיצוב אלבום', tone: 'work' };
-  if (project.at >= 4) return { label: 'עריכה', tone: 'work' };
-  if (project.at >= 2) return { label: 'בחירה', tone: 'work' };
-  return { label: 'בעבודה', tone: 'work' };
+const DAY = 86_400_000;
+
+function shekels(n: number) {
+  return `₪${n.toLocaleString('en-US')}`;
 }
 
-function progressOf(project: Project) {
-  const last = Math.max(1, STAGES.length - 1);
-  return Math.round((Math.min(last, Math.max(0, project.at)) / last) * 100);
+function openBalance(project: Project): number {
+  return Math.max(0, (project.price ?? 0) - (project.paid ?? 0));
 }
 
-function projectDate(project: Project) {
-  const date = shootDay(project);
-  return date ? date.toLocaleDateString('he-IL', { day: 'numeric', month: 'short', year: 'numeric' }) : 'לא נקבע';
+function ddmm(date: Date) {
+  return `${String(date.getDate()).padStart(2, '0')}.${String(date.getMonth() + 1).padStart(2, '0')}`;
 }
 
-function relativeDate(value: string) {
-  const date = new Date(value);
-  if (!Number.isFinite(date.getTime())) return '—';
-  const days = Math.max(0, Math.floor((Date.now() - date.getTime()) / 86_400_000));
-  if (days === 0) return 'היום';
-  if (days === 1) return 'אתמול';
-  if (days < 7) return `לפני ${days} ימים`;
-  return date.toLocaleDateString('he-IL', { day: 'numeric', month: 'short' });
+function ago(ms: number) {
+  const min = Math.max(0, Math.round((Date.now() - ms) / 60_000));
+  if (min < 2) return 'נפתח עכשיו';
+  if (min < 60) return `נפתח לפני ${min} דקות`;
+  const h = Math.round(min / 60);
+  if (h < 24) return h === 1 ? 'נפתח לפני שעה' : h === 2 ? 'נפתח לפני שעתיים' : `נפתח לפני ${h} שעות`;
+  const d = Math.round(h / 24);
+  return d === 1 ? 'נפתח אתמול' : `נפתח לפני ${d} ימים`;
 }
 
-function monthGrid(view: Date) {
-  const first = new Date(view.getFullYear(), view.getMonth(), 1);
-  const start = new Date(view.getFullYear(), view.getMonth(), 1 - first.getDay());
-  return Array.from({ length: 42 }, (_, index) => {
-    const date = new Date(start);
-    date.setDate(start.getDate() + index);
-    return { date, current: date.getMonth() === view.getMonth() };
-  });
+function dayName(date: Date, midnight: number) {
+  const diff = Math.round((date.getTime() - midnight) / DAY);
+  if (diff === 0) return 'היום';
+  if (diff === 1) return `מחר · ${date.toLocaleDateString('he-IL', { weekday: 'long' })}`;
+  return date.toLocaleDateString('he-IL', { weekday: 'long' });
 }
 
-function Cover({ project }: { project: Project }) {
-  const image = getProjectCover(project, 160);
-  if (image) {
-    return <img className="tdash-cover" src={image} alt="" style={{ objectPosition: project.pos || 'center 30%' }} />;
+const STATE_COLOR: Record<Project['state'], string> = {
+  shoot: 'var(--fo-blue)',
+  work: 'var(--fo-text3)',
+  waiting: 'var(--fo-accent)',
+  done: 'var(--fo-green)',
+};
+
+/** A strip of the project's own frames, spread across the shoot. */
+function Filmstrip({ project }: { project: Project }) {
+  const { frames, ready } = useProjectFiles(project.id);
+  const picks = useMemo(() => {
+    if (frames.length <= 9) return frames;
+    return Array.from({ length: 9 }, (_, i) => frames[Math.round((i * (frames.length - 1)) / 8)]);
+  }, [frames]);
+  if (!ready) {
+    const n = Math.min(9, project.imported || 0);
+    return n ? <div className="fo-td-film">{Array.from({ length: n }, (_, i) => <span key={i} />)}</div> : null;
   }
-  return <span className="tdash-cover tdash-cover-empty" aria-hidden="true">{project.client.trim().charAt(0) || '—'}</span>;
+  if (!picks.length) return null;
+  return (
+    <div className="fo-td-film">
+      {picks.map((f) => (
+        <span key={f.path}><img src={thumbUrl(f.shown || f.path, 120, f.version)} alt="" loading="lazy" /></span>
+      ))}
+    </div>
+  );
 }
 
-export default function TodayV2({ onNavigate, onOpenProject, onNewProject }: DashboardProps) {
+export default function TodayV2({ onNavigate, onOpenProject, onNewProject, inspector }: DashboardProps) {
   const { projects, status, fault } = useStudio();
-  const [calendarView, setCalendarView] = useState(() => new Date());
+
+  const now = new Date();
+  const midnight = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+
+  const last = readLastOpen();
+  const lastProject = last ? projects.find((p) => p.id === last.id && p.state !== 'done') : undefined;
 
   const data = useMemo(() => {
-    const active = projects.filter((project) => project.state !== 'done');
-    const waiting = active.filter((project) => project.state === 'waiting');
-    const today = new Date();
-    const midnight = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime();
-    const shoots = active
-      .map((project) => ({ project, date: shootDay(project) }))
-      .filter((item): item is { project: Project; date: Date } =>
-        item.project.state === 'shoot' && item.date !== null && item.date.getTime() >= midnight)
-      .sort((a, b) => a.date.getTime() - b.date.getTime());
-    const work = active.filter((project) => project.state === 'work');
-    const attention = [
-      ...waiting.map((project) => ({ project, label: 'ממתין לתשובת לקוח', detail: project.waitingSince ? `מאז ${project.waitingSince}` : 'נדרשת בדיקה', tone: 'waiting' })),
-      ...shoots.filter((item) => item.date.getTime() < midnight + 7 * 86_400_000)
-        .map(({ project, date }) => ({ project, label: 'צילום קרוב', detail: date.toLocaleDateString('he-IL', { day: 'numeric', month: 'short' }), tone: 'planned' })),
-      ...work.map((project) => ({ project, label: 'להמשך עבודה', detail: projectStatus(project).label, tone: 'work' })),
-    ].filter((item, index, list) => list.findIndex((entry) => entry.project.id === item.project.id) === index);
-    const byDay = new Map<string, Project[]>();
-    for (const project of projects) {
-      const date = shootDay(project);
-      if (!date) continue;
-      const key = `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`;
-      byDay.set(key, [...(byDay.get(key) || []), project]);
+    const active = projects.filter((p) => p.state !== 'done');
+    const dated = projects
+      .map((project) => ({ project, when: shootDay(project) }))
+      .filter((x): x is { project: Project; when: Date } => x.when !== null);
+    const todayShoots = dated.filter((x) => x.project.state !== 'done' && x.when.getTime() === midnight);
+    const next = dated
+      .filter((x) => x.project.state !== 'done' && x.when.getTime() > midnight)
+      .sort((a, b) => a.when.getTime() - b.when.getTime())[0];
+    const twoWeeks = dated
+      .filter((x) => x.when.getTime() >= midnight && x.when.getTime() < midnight + 14 * DAY)
+      .sort((a, b) => a.when.getTime() - b.when.getTime());
+    const agenda: { date: Date; items: Project[] }[] = [];
+    for (const x of twoWeeks) {
+      const day = agenda.find((d) => d.date.getTime() === x.when.getTime());
+      if (day) day.items.push(x.project);
+      else agenda.push({ date: x.when, items: [x.project] });
     }
+
+    type Row = { project: Project; kind: 'client' | 'shoot' | 'money' | 'work'; title: string; when: string; action: string; stage: string };
+    const queue: Row[] = [];
+    for (const p of active.filter((x) => x.state === 'waiting')) {
+      queue.push({ project: p, kind: 'client', title: 'ממתין לתשובת הלקוח', when: p.waitingSince || '—', action: 'לשליחה ללקוח', stage: 'send-to-client' });
+    }
+    for (const { project: p, when } of dated) {
+      if (p.state === 'done' || when.getTime() < midnight || when.getTime() >= midnight + 7 * DAY) continue;
+      const d = Math.round((when.getTime() - midnight) / DAY);
+      queue.push({
+        project: p,
+        kind: 'shoot',
+        title: [`צילום ${d === 0 ? 'היום' : d === 1 ? 'מחר' : `בעוד ${d} ימים`}`, p.location].filter(Boolean).join(' · '),
+        when: ddmm(when),
+        action: 'פתח הכנה',
+        stage: 'client-status',
+      });
+    }
+    for (const p of projects.filter((x) => x.state === 'done' && openBalance(x) > 0)) {
+      queue.push({ project: p, kind: 'money', title: `יתרה פתוחה אחרי מסירה · ${shekels(openBalance(p))}`, when: '—', action: 'לפרויקט', stage: 'client-status' });
+    }
+    for (const p of active.filter((x) => x.state === 'work')) {
+      const stage = STAGES[Math.min(p.at, STAGES.length - 1)]?.label;
+      queue.push({ project: p, kind: 'work', title: stage ? `בעבודה · ${stage}` : 'בעבודה', when: '—', action: 'פתח', stage: 'client-status' });
+    }
+
     return {
       active,
-      shoots,
-      attention,
-      byDay,
-      photosPending: active.reduce((sum, project) => sum + Math.max(0, (project.imported || 0) - (project.rendered || 0)), 0),
-      albums: active.filter((project) => project.hasAlbum && project.at >= 4).length,
-      delivered: projects.filter((project) => project.state === 'done').length,
-      imported: projects.reduce((sum, project) => sum + (project.imported || 0), 0),
-      rendered: projects.reduce((sum, project) => sum + (project.rendered || 0), 0),
+      todayShoots,
+      next,
+      agenda,
+      queue,
+      waiting: active.filter((p) => p.state === 'waiting').length,
+      balance: projects.reduce((sum, p) => sum + openBalance(p), 0),
+      delivered: projects.filter((p) => p.state === 'done').length,
     };
-  }, [projects]);
+  }, [projects, midnight]);
 
-  const today = new Date();
-  const todayKey = `${today.getFullYear()}-${today.getMonth()}-${today.getDate()}`;
-  const greeting = today.getHours() < 12 ? 'בוקר טוב' : today.getHours() < 18 ? 'צהריים טובים' : 'ערב טוב';
-  const openProject = (project: Project) => onOpenProject?.(project.id);
-  const newProject = () => (onNewProject ? onNewProject() : onNavigate('projects'));
+  /* Enter continues where you stopped — the button carries the ↵ hint. */
+  useEffect(() => {
+    if (!lastProject || !last) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Enter') return;
+      const el = document.activeElement;
+      if (el && el !== document.body) return;
+      e.preventDefault();
+      onOpenProject?.(lastProject.id, last.stage);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [lastProject, last?.stage, onOpenProject]);
+
+  const open = (p: Project, stage?: string) => onOpenProject?.(p.id, stage);
+  const dot = { client: 'var(--fo-accent)', shoot: 'var(--fo-blue)', money: 'var(--fo-gold)', work: 'var(--fo-text3)' };
 
   return (
-    <div className="tdash" dir="rtl">
-      <header className="tdash-header">
-        <div>
-          <div className="tdash-eyebrow">FrameOps / סקירת סטודיו <span>·</span> {today.toLocaleDateString('he-IL', { weekday: 'long', day: 'numeric', month: 'long' })}</div>
-          <h1>{greeting}. זה הסטודיו שלך.</h1>
-          <p>העבודה הפתוחה, מה שמחכה לך והצילומים הבאים — במקום אחד.</p>
+    <div className="fo-today" dir="rtl">
+      <main className="fo-td-main">
+        <div className="fo-td-bar">
+          <span className="fo-td-heading">היום</span>
+          <span className="fo-td-date">{now.toLocaleDateString('he-IL', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}</span>
+          <span className="fo-td-spacer" />
+          <span className="fo-td-pill">
+            {data.todayShoots.length
+              ? <><span className="fo-dot" style={{ background: 'var(--fo-blue)' }} />צילום היום · {data.todayShoots.map((x) => x.project.client).join(', ')}</>
+              : 'אין צילום היום'}
+          </span>
+          {data.next && (
+            <button type="button" className="fo-td-pill is-link" onClick={() => open(data.next!.project)}>
+              <span className="fo-dot" style={{ background: 'var(--fo-blue)' }} />
+              הבא:{data.next.when.getTime() < midnight + 7 * DAY ? ` ${dayName(data.next.when, midnight).split(' · ')[0]}` : ''}{' '}
+              <span className="fo-mono">{ddmm(data.next.when)}</span> · {data.next.project.client}
+            </button>
+          )}
         </div>
-        <button className="tdash-primary" type="button" onClick={newProject} data-tour="today-new-project">פרויקט חדש <span aria-hidden="true">＋</span></button>
-      </header>
 
-      {status === 'down' && (
-        <div className="tdash-alert" role="alert">
-          <strong>לא ניתן לעדכן את תמונת המצב</strong>
-          <span>{fault || 'המנוע המקומי אינו זמין כרגע.'}</span>
-        </div>
-      )}
-
-      <section className="tdash-metrics" aria-label="מדדי סטודיו" data-tour="today-metrics">
-        {[
-          { label: 'פרויקטים פעילים', value: data.active.length, note: 'נמצאים בתהליך' },
-          { label: 'תמונות ממתינות', value: data.photosPending, note: 'טרם עובדו' },
-          { label: 'אלבומים בעבודה', value: data.albums, note: 'בפרויקטים פעילים' },
-          { label: 'פרויקטים שנמסרו', value: data.delivered, note: 'מתחילת העבודה' },
-        ].map((metric) => (
-          <div className="tdash-metric" key={metric.label}>
-            <span className="tdash-metric-label">{metric.label}</span>
-            <strong>{metric.value.toLocaleString('he-IL')}</strong>
-            <span className="tdash-metric-note">{metric.note}</span>
-          </div>
-        ))}
-      </section>
-
-      <div className="tdash-grid">
-        <div className="tdash-main">
-          <section className="tdash-panel tdash-projects" data-tour="today-projects">
-            <div className="tdash-panel-head">
-              <div><span className="tdash-kicker">תמונת עבודה</span><h2>פרויקטים פעילים</h2></div>
-              <button data-tour="today-all-projects" className="tdash-text-link" type="button" onClick={() => onNavigate('projects')}>כל הפרויקטים <span aria-hidden="true">←</span></button>
+        <div className="fo-td-scroll">
+          {status === 'down' && (
+            <div className="fo-td-fault" role="alert">
+              <strong>לא ניתן לקרוא את הסטודיו</strong>
+              <span>המנוע המקומי לא ענה, אז מה שמופיע כאן חסר — זה לא אומר שאין עבודה.{fault ? ` (${fault})` : ''}</span>
             </div>
-            <div className="tdash-table-wrap">
-              <table className="tdash-table">
-                <thead><tr><th>פרויקט</th><th>צילום</th><th>שלב</th><th>התקדמות</th><th>עודכן</th></tr></thead>
-                <tbody>
-                  {data.active.slice(0, 6).map((project) => {
-                    const state = projectStatus(project);
-                    const progress = progressOf(project);
-                    return (
-                      <tr key={project.id}>
-                        <td><button className="tdash-project-link" type="button" onClick={() => openProject(project)}><Cover project={project} /><span><strong>{project.event || project.client}</strong><small>{project.client}</small></span></button></td>
-                        <td className="tdash-cell-muted">{projectDate(project)}</td>
-                        <td><span className={`tdash-state tdash-state-${state.tone}`}>{state.label}</span></td>
-                        <td><div className="tdash-progress"><span className="tdash-progress-track"><span style={{ width: `${progress}%` }} /></span><small>{progress}%</small></div></td>
-                        <td className="tdash-cell-muted">{relativeDate(project.createdAt)}</td>
-                      </tr>
-                    );
-                  })}
-                  {!data.active.length && <tr><td className="tdash-empty" colSpan={5}>{status === 'loading' ? 'טוען פרויקטים…' : status === 'down' ? 'הפרויקטים אינם זמינים כרגע.' : 'אין כרגע פרויקטים פעילים. אפשר להתחיל מפרויקט חדש.'}</td></tr>}
-                </tbody>
-              </table>
-            </div>
-          </section>
+          )}
 
-          <section className="tdash-panel tdash-calendar" data-tour="today-calendar">
-            <div className="tdash-panel-head">
-              <div><span className="tdash-kicker">לוח זמנים</span><h2>יומן צילומים</h2></div>
-              <button className="tdash-text-link" type="button" onClick={() => onNavigate('calendar')}>ליומן המלא <span aria-hidden="true">←</span></button>
-            </div>
-            <div className="tdash-calendar-body">
-              <div className="tdash-calendar-month">
-                <div className="tdash-calendar-toolbar">
-                  <strong>{calendarView.toLocaleDateString('he-IL', { month: 'long', year: 'numeric' })}</strong>
-                  <div>
-                    <button type="button" aria-label="החודש הקודם" onClick={() => setCalendarView(new Date(calendarView.getFullYear(), calendarView.getMonth() - 1, 1))}>›</button>
-                    <button type="button" aria-label="החודש הבא" onClick={() => setCalendarView(new Date(calendarView.getFullYear(), calendarView.getMonth() + 1, 1))}>‹</button>
-                  </div>
+          {lastProject && last && (
+            <section className="fo-td-card fo-td-continue" data-tour="today-continue">
+              <div className="fo-td-cover">
+                {getProjectCover(lastProject, 640)
+                  ? <img src={getProjectCover(lastProject, 640)!} alt="" style={{ objectPosition: lastProject.pos || 'center 40%' }} />
+                  : <span className="fo-td-cover-empty">טרם יובאו תמונות</span>}
+                {lastProject.imported > 0 && <span className="fo-td-chip fo-mono">{lastProject.imported.toLocaleString('en-US')}</span>}
+              </div>
+              <div className="fo-td-continue-copy">
+                <span className="fo-td-label">המשך מאיפה שעצרת</span>
+                <div className="fo-td-continue-title">
+                  <strong>{lastProject.client}</strong>
+                  <span>{[lastProject.event, PROJECT_STAGE_LABEL[last.stage], ago(last.at)].filter(Boolean).join(' · ')}</span>
                 </div>
-                <div className="tdash-weekdays">{['א׳', 'ב׳', 'ג׳', 'ד׳', 'ה׳', 'ו׳', 'ש׳'].map((day) => <span key={day}>{day}</span>)}</div>
-                <div className="tdash-days">{monthGrid(calendarView).map(({ date, current }) => {
-                  const key = `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`;
-                  const shoots = data.byDay.get(key) || [];
-                  const className = `tdash-day${current ? '' : ' is-outside'}${key === todayKey ? ' is-today' : ''}${shoots.length ? ' has-shoot' : ''}`;
-                  return shoots.length ? <button key={key} type="button" className={className} title={shoots.map((project) => project.client).join(', ')} onClick={() => openProject(shoots[0])}>{date.getDate()}</button> : <span key={key} className={className}>{date.getDate()}</span>;
-                })}</div>
+                <div className="fo-td-stats">
+                  <span><span>יובאו </span><span className="fo-mono">{lastProject.imported.toLocaleString('en-US')}</span> תמונות</span>
+                  {lastProject.picked > 0 && <span><span>הלקוח בחר </span><span className="fo-mono">{lastProject.picked.toLocaleString('en-US')}</span></span>}
+                  {lastProject.rendered > 0 && <span><span>מוכנות </span><span className="fo-mono">{lastProject.rendered.toLocaleString('en-US')}</span></span>}
+                </div>
+                <Filmstrip project={lastProject} />
+                <div className="fo-td-spacer" />
+                <div className="fo-td-actions">
+                  <button type="button" className="fo-btn is-primary" onClick={() => open(lastProject, last.stage)}>
+                    המשך · {PROJECT_STAGE_LABEL[last.stage] || 'הפרויקט'}<span className="fo-mono fo-td-enter">↵</span>
+                  </button>
+                  <button type="button" className="fo-btn" onClick={() => open(lastProject)}>פתח פרויקט</button>
+                </div>
               </div>
-              <div className="tdash-upcoming">
-                <h3>הצילומים הקרובים</h3>
-                {data.shoots.slice(0, 3).map(({ project, date }) => <button className="tdash-upcoming-row" type="button" key={project.id} onClick={() => openProject(project)}><span className="tdash-date-tile"><strong>{date.getDate()}</strong><small>{date.toLocaleDateString('he-IL', { month: 'short' })}</small></span><span><strong>{project.event || 'צילום'}</strong><small>{project.client}</small></span><span className="tdash-row-arrow" aria-hidden="true">←</span></button>)}
-                {!data.shoots.length && <p className="tdash-empty-inline">אין צילומים קרובים ביומן.</p>}
-              </div>
+            </section>
+          )}
+
+          <section className="fo-td-card" data-tour="today-queue">
+            <div className="fo-td-card-head">
+              <span className="fo-td-card-title">תור עבודה</span>
+              <span className="fo-mono fo-td-count">{data.queue.length}</span>
+              <span className="fo-td-spacer" />
+              <span className="fo-td-hint">לפי דחיפות · לקוח ממתין › צילום קרוב › כסף › עבודה פתוחה</span>
             </div>
+            {data.queue.length > 0 && (
+              <div className="fo-td-row is-head"><span /><span>מה</span><span>פרויקט</span><span>מתי</span><span /></div>
+            )}
+            {data.queue.map((q, i) => (
+              <div
+                key={`${q.kind}-${q.project.id}`}
+                className={`fo-td-row ${q.kind === 'client' ? 'is-hot' : ''}`}
+                role="button"
+                tabIndex={0}
+                onClick={() => open(q.project, q.stage)}
+                onKeyDown={(e) => { if (e.key === 'Enter') { e.stopPropagation(); open(q.project, q.stage); } }}
+              >
+                <span className="fo-td-dot" style={{ background: dot[q.kind], borderRadius: q.kind === 'money' ? 2 : '50%' }} />
+                <span className="fo-td-what">{q.title}</span>
+                <span className="fo-td-proj">{[q.project.client, q.project.event].filter(Boolean).join(' · ')}</span>
+                <span className="fo-mono fo-td-when">{q.when}</span>
+                <button
+                  type="button"
+                  className={`fo-btn fo-td-act ${i === 0 && q.kind === 'client' ? 'is-primary' : ''}`}
+                  onClick={(e) => { e.stopPropagation(); open(q.project, q.stage); }}
+                >
+                  {q.action}
+                </button>
+              </div>
+            ))}
+            {!data.queue.length && (
+              <div className="fo-td-none">
+                {status === 'loading' && !projects.length
+                  ? 'קורא את הסטודיו…'
+                  : status === 'down'
+                  ? 'לא ניתן לקרוא את הפרויקטים כרגע.'
+                  : projects.length
+                  ? 'אין כרגע דבר שממתין לך.'
+                  : <>אין עדיין פרויקטים. <button type="button" className="fo-btn is-primary" onClick={onNewProject}>פרויקט חדש</button></>}
+              </div>
+            )}
           </section>
         </div>
+      </main>
 
-        <aside className="tdash-side">
-          <section className="tdash-panel tdash-attention" data-tour="today-attention">
-            <div className="tdash-panel-head"><div><span className="tdash-kicker">סדר יום</span><h2>דורש תשומת לב</h2></div><span className="tdash-count">{data.attention.length}</span></div>
-            <div className="tdash-attention-list">
-              {data.attention.slice(0, 5).map(({ project, label, detail, tone }) => <button type="button" className="tdash-attention-row" key={project.id} onClick={() => openProject(project)}><span className={`tdash-attention-mark tdash-mark-${tone}`} /><span className="tdash-attention-copy"><strong>{label}</strong><small>{project.client} · {detail}</small></span><span className="tdash-row-arrow" aria-hidden="true">←</span></button>)}
-              {!data.attention.length && <p className="tdash-empty-inline">אין כרגע פריטים שמצריכים טיפול.</p>}
-            </div>
-            <button className="tdash-side-link" type="button" onClick={() => onNavigate('projects')}>לניהול פרויקטים <span aria-hidden="true">←</span></button>
-          </section>
-
-          <section className="tdash-panel tdash-activity" data-tour="today-activity">
-            <div className="tdash-panel-head"><div><span className="tdash-kicker">עדכונים</span><h2>פעילות אחרונה</h2></div></div>
-            {projects.slice(0, 4).map((project) => <button className="tdash-activity-row" type="button" key={project.id} onClick={() => openProject(project)}><span className="tdash-activity-line" /><span><strong>{project.client}</strong><small>{projectStatus(project).label} · {relativeDate(project.createdAt)}</small></span><span className="tdash-row-arrow" aria-hidden="true">←</span></button>)}
-            {!projects.length && <p className="tdash-empty-inline">פעילות הפרויקטים תופיע כאן.</p>}
-          </section>
-
-          <div className="tdash-system"><span className={`tdash-system-dot ${status === 'ready' ? 'is-ready' : status === 'down' ? 'is-down' : ''}`} /><span>{status === 'ready' ? 'המנוע המקומי מחובר' : status === 'down' ? 'המנוע המקומי מנותק' : 'מתחבר למנוע המקומי'}</span><small>{data.rendered.toLocaleString('he-IL')} / {data.imported.toLocaleString('he-IL')} תמונות עובדו</small></div>
+      {inspector && (
+        <aside className="fo-td-aside">
+          <div className="fo-td-aside-head">
+            <span>14 הימים הקרובים</span>
+            <span className="fo-mono">{ddmm(now)} — {ddmm(new Date(midnight + 13 * DAY))}</span>
+          </div>
+          <div className="fo-td-agenda" data-tour="today-agenda">
+            {data.agenda.map(({ date, items }) => (
+              <div key={date.getTime()} className="fo-td-day">
+                <div className="fo-td-day-head">
+                  <span className={date.getTime() - midnight <= DAY ? 'is-near' : ''}>{dayName(date, midnight)}</span>
+                  <span className="fo-mono">{ddmm(date)}</span>
+                </div>
+                {items.map((p) => (
+                  <button key={p.id} type="button" className="fo-td-event" onClick={() => open(p)}>
+                    <span className="fo-td-event-bar" style={{ background: STATE_COLOR[p.state] }} />
+                    <span className="fo-td-event-copy">
+                      <strong>{[p.event || 'צילום', p.client].join(' · ')}</strong>
+                      {p.location && <small>{p.location}</small>}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            ))}
+            {!data.agenda.length && <p className="fo-td-none">אין צילומים ביומן בשבועיים הקרובים.</p>}
+            <button type="button" className="fo-td-link" onClick={() => onNavigate('calendar')}>ליומן המלא ←</button>
+          </div>
+          <div className="fo-td-biz" data-tour="today-business">
+            <span className="fo-td-label">מצב עסקי</span>
+            <button type="button" onClick={() => onNavigate('projects')}><span>פרויקטים פעילים</span><span className="fo-mono">{data.active.length}</span></button>
+            <button type="button" onClick={() => onNavigate('projects')}><span>ממתינים ללקוח</span><span className="fo-mono">{data.waiting}</span></button>
+            <button type="button" onClick={() => onNavigate('clients')}><span>יתרה פתוחה</span><span className="fo-mono" style={{ color: data.balance ? 'var(--fo-accent)' : undefined }}>{shekels(data.balance)}</span></button>
+            <button type="button" onClick={() => onNavigate('projects')}><span>נמסרו</span><span className="fo-mono">{data.delivered}</span></button>
+          </div>
         </aside>
-      </div>
+      )}
     </div>
   );
 }
