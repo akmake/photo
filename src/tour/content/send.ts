@@ -163,7 +163,7 @@ export const SEND: Tour = {
       title: 'הלוגו שלך',
       body:
         'הלוגו מופיע ללקוח בכניסה ובראש הגלריה. מומלץ PNG עם רקע שקוף — רואים כאן איך הוא ייראה על רקע בהיר ועל כהה.',
-      placement: 'side',
+      placement: 'top',
     },
     {
       id: 'storage',
@@ -175,9 +175,9 @@ export const SEND: Tour = {
     },
     {
       id: 'next',
-      target: 'send-next',
+      target: 'stage-gallery-edit',
       title: 'לעריכה',
-      body: 'לא חייבים לחכות ללקוח — אפשר להתחיל לערוך כבר עכשיו.',
+      body: 'לא חייבים לחכות ללקוח — "עריכה" בפס השלבים, ואפשר להתחיל לערוך כבר עכשיו.',
       placement: 'bottom',
     },
   ],

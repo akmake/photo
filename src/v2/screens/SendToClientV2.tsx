@@ -53,6 +53,7 @@ import {
 } from '../TzIcons';
 import './stages-v2.css';
 import './send-to-client-v2.css';
+import './send-frame.css';
 
 const ENGINE = 'http://127.0.0.1:8756';
 
@@ -77,7 +78,6 @@ function formatBytes(bytes: number): string {
 interface AlbumPreset {
   id: string;
   label: string;
-  icon: string;
   albums: DraftAlbum[];
 }
 
@@ -85,7 +85,6 @@ const ALBUM_PRESETS: AlbumPreset[] = [
   {
     id: 'wedding',
     label: 'חתונה קלאסית',
-    icon: '💍',
     albums: [
       { name: 'האלבום הראשי (הזוג)', quota: 80 },
       { name: 'אלבום הורי החתן', quota: 40 },
@@ -95,7 +94,6 @@ const ALBUM_PRESETS: AlbumPreset[] = [
   {
     id: 'barmitzvah',
     label: 'בר / בת מצווה',
-    icon: '👑',
     albums: [
       { name: 'אלבום בוק', quota: 40 },
       { name: 'אלבום אירוע', quota: 50 },
@@ -105,7 +103,6 @@ const ALBUM_PRESETS: AlbumPreset[] = [
   {
     id: 'brit',
     label: 'ברית / ניובורן',
-    icon: '👶',
     albums: [
       { name: 'אלבום דיגיטלי', quota: 35 },
       { name: 'תמונות ממוסגרות', quota: 3 },
@@ -114,7 +111,6 @@ const ALBUM_PRESETS: AlbumPreset[] = [
   {
     id: 'family',
     label: 'משפחה / הריון',
-    icon: '🌿',
     albums: [
       { name: 'אלבום משפחתי', quota: 30 },
       { name: 'תמונות להגדלה', quota: 2 },
@@ -123,7 +119,6 @@ const ALBUM_PRESETS: AlbumPreset[] = [
   {
     id: 'single',
     label: 'אלבום יחיד',
-    icon: '📷',
     albums: [{ name: 'האלבום הראשי', quota: 50 }],
   },
 ];
@@ -157,57 +152,34 @@ export default function SendToClientV2({
   const watch = useGalleryWatch(project.id);
   const { link, state } = watch;
 
+  /* One short bar. The stage bar above already says where this is and leads on
+   * to עריכה, so the old "שלב 4" heading and its back/next buttons are gone. */
   return (
-    <div className="tz-stage-container">
-      {/* Top Stage Header */}
-      <section className="tz-stage-header" data-tour="send-header">
-        <div className="tz-stage-header-copy">
-          <div className="tz-stage-tag">שלב 4 · שלח ללקוח</div>
-          <h1>גלריית בחירה אישית ללקוח</h1>
-          <p>
-            יצירת קישור מעוצב ומאובטח עבור <strong>{project.client}</strong>. הלקוח מסמן את התמונות לאלבומים השונים ומעיר הערות ישירות מהנייד או המחשב,
-            והבחירה מסתנכרנת ישירות לכאן.
-          </p>
+    <div className="fo-sc">
+      <div className="fo-sc-bar" data-tour="send-header">
+        <div className="fo-sc-bar-title">
+          <strong>גלריה לבחירת הלקוח</strong>
+          <span>
+            {link
+              ? `הקישור אצל ${project.client} — הבחירה וההערות חוזרות לכאן`
+              : `${project.client} יבחר מהנייד או מהמחשב, והבחירה תחזור לכאן`}
+          </span>
         </div>
-
-        <div className="tz-stage-actions">
-          <button
-            className="tz-btn-projects-secondary"
-            type="button"
-            style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
-            onClick={() => setShowStorageModal(true)}
-            title="צפה בכל הגלריות שבאחסון ונצל אפשרויות לפינוי מקום"
-            data-tour="send-storage"
-          >
-            <TzIconCloud size={16} />
-            <span>ניהול אחסון וגלריות</span>
-          </button>
-          {onBack && (
-            <button
-              className="tz-btn-projects-secondary"
-              type="button"
-              onClick={onBack}
-            >
-              ← חזרה לסשנים
-            </button>
-          )}
-          {onNext && (
-            <button
-              className="tz-btn-projects-primary"
-              type="button"
-              onClick={onNext}
-              data-tour="send-next"
-            >
-              המשך לעריכה ←
-            </button>
-          )}
-        </div>
-      </section>
+        <span className="fo-sc-fill" />
+        <button
+          className="fo-btn"
+          type="button"
+          onClick={() => setShowStorageModal(true)}
+          title="כל הגלריות שבאחסון, ופינוי מקום"
+          data-tour="send-storage"
+        >
+          <TzIconCloud size={15} />
+          ניהול אחסון
+        </button>
+      </div>
 
       {!ready ? (
-        <div className="tz-sc-card">
-          <p style={{ margin: 0, color: '#71717a' }}>טוען את נתוני הפרויקט והקבצים...</p>
-        </div>
+        <div className="fo-sc-loading">טוען את התמונות של הפרויקט…</div>
       ) : !link ? (
         <CreateGalleryFlow
           projectId={project.id}
@@ -317,287 +289,197 @@ function CreateGalleryFlow({
     } catch (e) {
       setError(e instanceof Error ? e.message : 'יצירת הגלריה נכשלה');
     }
-  }, [albums, batches, chosenFrames, clientName, projectId]);
+  }, [albums, batches, chosenFrames, clientName, galleryTitle, projectId]);
 
   if (progress) {
     const pct = progress.total ? Math.round((progress.done / progress.total) * 100) : 0;
     return (
-      <div className="tz-sc-progress-card" data-tour="send-progress">
-        <div className="tz-sc-card-header">
-          <div className="tz-sc-card-title-wrap">
-            <h3 className="tz-sc-card-title">
-              <TzIconUpload size={20} />
-              מפרסם תמונות לגלריית הלקוח
-            </h3>
-            <p className="tz-sc-card-desc">
-              התמונות מומרות לתצוגה קלה ומאובטחת ועולות לשרת הגלריה...
-            </p>
-          </div>
-          <span className="tz-sc-status-pill active">{pct}% הושלמו</span>
+      <div className="fo-sc-scroll">
+        <div className="fo-sc-col">
+          <section className="fo-sc-card fo-sc-progress" data-tour="send-progress">
+            <div className="fo-sc-progress-head">
+              <strong>מעלה את התמונות לגלריה של {clientName}…</strong>
+              <span className="fo-mono">{progress.done.toLocaleString('en-US')} / {progress.total.toLocaleString('en-US')} · {pct}%</span>
+            </div>
+            <div className="fo-sc-track"><i style={{ width: `${pct}%` }} /></div>
+            <p className="fo-sc-note">כל תמונה מומרת לגרסת תצוגה קלה ומוגנת. המקור נשאר אצלך במחשב.</p>
+            {oneTimePassword && (
+              <p className="fo-sc-note">סיסמת הכניסה שנוצרה: <b className="fo-mono">{oneTimePassword}</b></p>
+            )}
+            {progress.failed.length > 0 && (
+              <div className="fo-sc-error">
+                {progress.failed.length.toLocaleString('en-US')} תמונות לא עלו. אחרי הסיום אפשר לשלוח אותן שוב.
+              </div>
+            )}
+          </section>
         </div>
-
-        <div className="tz-sc-progress-bar-bg">
-          <div className="tz-sc-progress-bar-fill" style={{ width: `${pct}%` }} />
-        </div>
-
-        <div className="tz-sc-progress-meta">
-          <span>
-            הועלו {progress.done} מתוך {progress.total} תמונות
-          </span>
-          {oneTimePassword && (
-            <span>
-              סיסמת גישה שנוצרה: <strong>{oneTimePassword}</strong>
-            </span>
-          )}
-        </div>
-
-        {progress.failed.length > 0 && (
-          <div style={{ background: '#fef2f2', padding: 12, borderRadius: 10, color: '#ef4444', fontSize: 13 }}>
-            {progress.failed.length} תמונות לא עלו. בדוק את חיבור הרשת.
-          </div>
-        )}
       </div>
     );
   }
 
+  const albumsWord = albums.length === 1 ? 'אלבום אחד' : `${albums.length} אלבומים`;
+  const adjust = (i: number, delta: number) => setAlbums((list) =>
+    list.map((a, n) => (n === i ? { ...a, quota: Math.max(1, (a.quota || 0) + delta) } : a)));
+
   return (
-    <div className="tz-sc-container">
-      <div className="tz-sc-grid-2col">
-        {/* Left Column: Source & Albums */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
-          {/* Card 1: Source */}
-          <div className="tz-sc-card">
-            <div className="tz-sc-card-header">
-              <div className="tz-sc-card-title-wrap">
-                <h3 className="tz-sc-card-title">
-                  <TzIconLayers size={18} />
-                  מקור התמונות לגלריה
-                </h3>
-                <p className="tz-sc-card-desc">
-                  בחר אילו תמונות יפורסמו לבחירת הלקוח. המקור נשאר שמור אצלך, לגלריה עולות רק גרסאות תצוגה מוגנות.
+    <>
+      <div className="fo-sc-scroll">
+        <div className="fo-sc-col">
+          {/* 1 — which photographs */}
+          <section className="fo-sc-card" data-tour="send-source">
+            <div className="fo-sc-step">
+              <span className="fo-sc-step-n">1</span>
+              <div>
+                <h3>אילו תמונות עולות לגלריה</h3>
+                <p>
+                  כל הפרויקט, או סשן אחד. לגלריה עולות רק גרסאות תצוגה מוגנות — המקור נשאר אצלך.
+                  {takenOut > 0 && <> <b>{takenOut.toLocaleString('en-US')}</b> תמונות שהוצאו בסינון לא יעלו.</>}
                 </p>
               </div>
             </div>
-
-            {takenOut > 0 && (
-              <p className="tz-sc-card-desc">
-                {takenOut.toLocaleString('he-IL')} תמונות שהוצאו בסינון לא יעלו לגלריה.
-              </p>
-            )}
-
-            <div className="tz-sc-source-pills" data-tour="send-source">
+            <div className="fo-sc-chips">
               <button
                 type="button"
-                className={`tz-sc-source-pill ${source === 'all' ? 'active' : ''}`}
+                className={`fo-sc-chip${source === 'all' ? ' is-on' : ''}`}
+                aria-pressed={source === 'all'}
                 onClick={() => setSource('all')}
               >
-                כל תמונות הפרויקט
-                <span className="tz-sc-pill-badge">{going.length}</span>
+                כל הפרויקט <span className="fo-mono">{going.length.toLocaleString('en-US')}</span>
               </button>
-
               {batches.map((b) => {
                 const count = notRejected(projectId, framesInBatch(projectId, b.id)).length;
                 return (
                   <button
                     key={b.id}
                     type="button"
-                    className={`tz-sc-source-pill ${source === b.id ? 'active' : ''}`}
+                    className={`fo-sc-chip${source === b.id ? ' is-on' : ''}`}
+                    aria-pressed={source === b.id}
                     onClick={() => setSource(b.id)}
                   >
-                    {b.name}
-                    <span className="tz-sc-pill-badge">{count}</span>
+                    {b.name} <span className="fo-mono">{count.toLocaleString('en-US')}</span>
                   </button>
                 );
               })}
             </div>
-          </div>
+          </section>
 
-          {/* Card 2: Albums & Quotas */}
-          <div className="tz-sc-card">
-            <div className="tz-sc-card-header">
-              <div className="tz-sc-card-title-wrap">
-                <h3 className="tz-sc-card-title">
-                  <TzIconSend size={18} />
-                  הגדרת שם הגלריה ומכסות האלבומים
-                </h3>
-                <p className="tz-sc-card-desc">
-                  התאם את שם הגלריה והאלבומים לבחירת הלקוח. המערכת תאכוף את המכסה ותאפשר בחירה נפרדת לכל אלבום.
-                </p>
+          {/* 2 — what the client chooses */}
+          <section className="fo-sc-card">
+            <div className="fo-sc-step">
+              <span className="fo-sc-step-n">2</span>
+              <div>
+                <h3>מה הלקוח בוחר</h3>
+                <p>לכל אלבום מכסה משלו. הגלריה לא נותנת לבחור יותר מהמכסה, ובוחרים לכל אלבום בנפרד.</p>
               </div>
             </div>
 
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-              <label style={{ fontSize: 13, fontWeight: 700, color: '#27272a' }}>
-                שם הגלריה / האירוע (יוצג ללקוח בכניסה ובקישור):
-              </label>
+            <label className="fo-sc-field">
+              <span>שם הגלריה — מה שהלקוח רואה בכניסה</span>
               <input
                 type="text"
-                className="tz-sc-title-input"
                 data-tour="send-title"
                 value={galleryTitle}
                 onChange={(e) => setGalleryTitle(e.target.value)}
-                placeholder="לדוגמה: יובל ודניאל - חתונת צהריים"
+                placeholder="יובל ודניאל — חתונת צהריים"
               />
+            </label>
+
+            <div className="fo-sc-presets" data-tour="send-presets">
+              <span>חבילות מוכנות:</span>
+              {ALBUM_PRESETS.map((p) => (
+                <button
+                  key={p.id}
+                  type="button"
+                  className="fo-sc-preset"
+                  title={p.albums.map((a) => `${a.name} · ${a.quota}`).join('\n')}
+                  onClick={() => setAlbums(p.albums.map((a) => ({ ...a })))}
+                >
+                  {p.label}
+                </button>
+              ))}
             </div>
 
-            <div className="tz-sc-presets-wrap" data-tour="send-presets">
-              <span className="tz-sc-presets-label">חבילות אלבומים נפוצות לבחירה מהירה:</span>
-              <div className="tz-sc-presets-list">
-                {ALBUM_PRESETS.map((p) => (
-                  <button
-                    key={p.id}
-                    type="button"
-                    className="tz-sc-preset-pill"
-                    onClick={() => setAlbums(p.albums.map((a) => ({ ...a })))}
-                  >
-                    <span>{p.icon}</span>
-                    <span>{p.label}</span>
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <div className="tz-sc-albums-list" data-tour="send-albums">
+            <div className="fo-sc-albums" data-tour="send-albums">
               {albums.map((album, i) => (
-                <div key={i} className="tz-sc-album-row">
+                <div key={i} className="fo-sc-album">
                   <input
                     type="text"
-                    className="tz-sc-album-name-input"
+                    className="fo-sc-album-name"
                     value={album.name}
-                    placeholder="שם האלבום (לדוגמה: הזוג)"
-                    onChange={(e) =>
-                      setAlbums((list) =>
-                        list.map((a, n) => (n === i ? { ...a, name: e.target.value } : a)),
-                      )
-                    }
+                    placeholder="שם האלבום — למשל: הזוג"
+                    aria-label="שם האלבום"
+                    onChange={(e) => setAlbums((list) => list.map((a, n) => (n === i ? { ...a, name: e.target.value } : a)))}
                   />
-
-                  <div className="tz-sc-stepper">
-                    <button
-                      type="button"
-                      className="tz-sc-step-btn"
-                      title="-5 תמונות"
-                      onClick={() =>
-                        setAlbums((list) =>
-                          list.map((a, n) =>
-                            n === i ? { ...a, quota: Math.max(1, (a.quota || 0) - 5) } : a,
-                          ),
-                        )
-                      }
-                    >
-                      -5
-                    </button>
-                    <button
-                      type="button"
-                      className="tz-sc-step-btn"
-                      title="-1 תמונה"
-                      onClick={() =>
-                        setAlbums((list) =>
-                          list.map((a, n) =>
-                            n === i ? { ...a, quota: Math.max(1, (a.quota || 0) - 1) } : a,
-                          ),
-                        )
-                      }
-                    >
-                      <TzIconMinus size={13} />
-                    </button>
-
+                  <div className="fo-sc-stepper" role="group" aria-label={`מכסה ל${album.name || 'אלבום'}`}>
+                    <button type="button" onClick={() => adjust(i, -5)} title="פחות 5">−5</button>
+                    <button type="button" onClick={() => adjust(i, -1)} title="פחות 1">−</button>
                     <input
                       type="number"
                       min={1}
-                      className="tz-sc-step-val"
+                      className="fo-mono"
                       value={album.quota}
-                      onChange={(e) =>
-                        setAlbums((list) =>
-                          list.map((a, n) =>
-                            n === i ? { ...a, quota: Number(e.target.value) || 0 } : a,
-                          ),
-                        )
-                      }
+                      aria-label="כמה תמונות"
+                      onChange={(e) => setAlbums((list) => list.map((a, n) => (n === i ? { ...a, quota: Number(e.target.value) || 0 } : a)))}
                     />
-                    <span className="tz-sc-step-label">תמונות</span>
-
-                    <button
-                      type="button"
-                      className="tz-sc-step-btn"
-                      title="+1 תמונה"
-                      onClick={() =>
-                        setAlbums((list) =>
-                          list.map((a, n) =>
-                            n === i ? { ...a, quota: (a.quota || 0) + 1 } : a,
-                          ),
-                        )
-                      }
-                    >
-                      <TzIconPlus size={13} />
-                    </button>
-                    <button
-                      type="button"
-                      className="tz-sc-step-btn"
-                      title="+5 תמונות"
-                      onClick={() =>
-                        setAlbums((list) =>
-                          list.map((a, n) =>
-                            n === i ? { ...a, quota: (a.quota || 0) + 5 } : a,
-                          ),
-                        )
-                      }
-                    >
-                      +5
-                    </button>
+                    <button type="button" onClick={() => adjust(i, 1)} title="עוד 1">+</button>
+                    <button type="button" onClick={() => adjust(i, 5)} title="עוד 5">+5</button>
                   </div>
-
+                  <span className="fo-sc-album-unit">תמונות</span>
                   <button
                     type="button"
-                    className="tz-sc-del-btn"
-                    title="הסר אלבום"
+                    className="fo-sc-icon-btn"
+                    title="הסר את האלבום"
+                    aria-label="הסר את האלבום"
+                    disabled={albums.length <= 1}
                     onClick={() => setAlbums((list) => list.filter((_, n) => n !== i))}
                   >
-                    <TzIconTrash size={15} />
+                    <TzIconTrash size={14} />
                   </button>
                 </div>
               ))}
-
-              <button
-                type="button"
-                className="tz-sc-add-album-btn"
-                onClick={() => setAlbums((l) => [...l, { name: '', quota: 40 }])}
-              >
-                <TzIconPlus size={15} />
-                הוסף אלבום נוסף לבחירה
+              <button type="button" className="fo-sc-add" onClick={() => setAlbums((l) => [...l, { name: '', quota: 40 }])}>
+                <TzIconPlus size={14} />
+                עוד אלבום
               </button>
             </div>
+          </section>
 
-            <div className="tz-sc-quota-summary" data-tour="send-quota">
-              <span>סה״כ מכסת בחירה ללקוח:</span>
-              <strong>{totalQuota} תמונות ב-{albums.length} אלבומים</strong>
-            </div>
-
-            {error && (
-              <div style={{ background: '#fef2f2', padding: 12, borderRadius: 10, color: '#ef4444', fontSize: 13 }}>
-                {error}
+          {/* 3 — how it looks to the client */}
+          <section className="fo-sc-card fo-sc-brand-step">
+            <div className="fo-sc-step">
+              <span className="fo-sc-step-n">3</span>
+              <div>
+                <h3>איך זה נראה אצל הלקוח</h3>
+                <p>הלוגו שלך בכניסה ובראש הגלריה. נשמר פעם אחת, לכל הגלריות.</p>
               </div>
-            )}
-
-            <button
-              type="button"
-              className="tz-sc-publish-btn"
-              data-tour="send-publish"
-              onClick={handleCreate}
-              disabled={!chosenFrames.length}
-            >
-              <TzIconSend size={18} />
-              צור גלריה ופרסם {chosenFrames.length} תמונות ל{clientName}
-            </button>
-          </div>
-        </div>
-
-        {/* Right Column: Studio Brand */}
-        <div>
-          <StudioBrandCard />
+            </div>
+            <StudioBrandCard bare />
+          </section>
         </div>
       </div>
-    </div>
+
+      {/* What will be sent, and the one button that sends it. */}
+      <div className="fo-sc-publish" data-tour="send-quota">
+        <div className="fo-sc-publish-sum">
+          <strong>
+            <span className="fo-mono">{chosenFrames.length.toLocaleString('en-US')}</span> תמונות עולות
+            {' · '}
+            {clientName} בוחר <span className="fo-mono">{totalQuota.toLocaleString('en-US')}</span> ב{albumsWord}
+          </strong>
+          {error && <span className="fo-sc-publish-err" role="alert">{error}</span>}
+        </div>
+        <button
+          type="button"
+          className="fo-btn is-primary fo-sc-publish-btn"
+          data-tour="send-publish"
+          onClick={handleCreate}
+          disabled={!chosenFrames.length}
+        >
+          <TzIconSend size={16} />
+          צור את הגלריה ושלח
+        </button>
+      </div>
+    </>
   );
 }
 
@@ -808,7 +690,8 @@ function LiveGalleryFlow({
   const isImported = Boolean(link.importedAt);
 
   return (
-    <div className="tz-sc-container">
+    <div className="fo-sc-scroll">
+    <div className="fo-sc-col fo-sc-live">
       {/* Live Header Bar */}
       <div className="tz-sc-live-header" data-tour="send-status">
         <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
@@ -893,7 +776,7 @@ function LiveGalleryFlow({
 
       {/* Quick Tools & Operations Bar */}
       <div className="tz-sc-quick-tools" data-tour="send-quick-tools">
-        <span style={{ fontSize: 12.5, fontWeight: 700, color: '#52525b' }}>פעולות מהירות לצלם:</span>
+        <span className="fo-sc-tools-label">פעולות:</span>
 
         {state && state.selection.length > 0 && (
           <>
@@ -904,7 +787,7 @@ function LiveGalleryFlow({
               title="העתק רשימת שמות קבצים שנבחרו לחיפוש מהיר בלייטרום או Finder"
             >
               <TzIconCopy size={14} />
-              {copiedLightroom ? 'הועתק ללוח! ✓' : 'העתק שמות ללייטרום 📋'}
+              {copiedLightroom ? 'הועתק' : 'העתק שמות קבצים'}
             </button>
 
             <button
@@ -914,7 +797,7 @@ function LiveGalleryFlow({
               title="הורד דוח טקסט מסודר של כל הבחירות לפי אלבום"
             >
               <TzIconDownload size={14} />
-              דוח בחירות (TXT) 📄
+              דוח בחירות
             </button>
 
             <button
@@ -924,7 +807,6 @@ function LiveGalleryFlow({
               onClick={handlePurgeUnselected}
               title="מחק מהאחסון רק את התמונות שהלקוח לא בחר כדי לפנות נפח ענן יקר"
             >
-              <span>🧹</span>
               {purging ? 'מפנה מקום...' : 'פנה תמונות שלא נבחרו'}
             </button>
           </>
@@ -945,9 +827,7 @@ function LiveGalleryFlow({
       </div>
 
       {purgeNotice && (
-        <div style={{ background: '#ecfdf5', border: '1px solid #a7f3d0', padding: 12, borderRadius: 10, color: '#065f46', fontSize: 13, fontWeight: 600 }}>
-          {purgeNotice}
-        </div>
+        <div className="fo-sc-notice">{purgeNotice}</div>
       )}
 
       {/* Frames that never reached the gallery. The client cannot see them,
@@ -1226,7 +1106,7 @@ function LiveGalleryFlow({
                         watch.refresh();
                       }}
                     >
-                      שמור שינויים באלבומים ✓
+                      שמור את השינויים
                     </button>
                     <button
                       type="button"
@@ -1313,6 +1193,7 @@ function LiveGalleryFlow({
           <StudioBrandCard />
         </div>
       </div>
+    </div>
     </div>
   );
 }
@@ -1479,7 +1360,7 @@ function ClientFeedbackQueue({
    STUDIO BRAND CARD
    ========================================================================== */
 
-function StudioBrandCard() {
+function StudioBrandCard({ bare = false }: { bare?: boolean } = {}) {
   const [logo, setLogo] = useState<string | null>(null);
   const [loaded, setLoaded] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -1488,7 +1369,9 @@ function StudioBrandCard() {
   useEffect(() => {
     getBrand()
       .then((b) => setLogo(b.logo))
-      .catch(() => setError('לא ניתן לקרוא את הלוגו'))
+      /* Say what actually failed — usually that the website, where the logo
+       * lives, did not answer — not a generic "cannot read". */
+      .catch((e) => setError(e instanceof Error && e.message ? e.message : 'לא ניתן לקרוא את הלוגו'))
       .finally(() => setLoaded(true));
   }, []);
 
@@ -1515,15 +1398,17 @@ function StudioBrandCard() {
   if (!loaded) return null;
 
   return (
-    <div className="tz-sc-card" data-tour="send-brand">
-      <div className="tz-sc-card-header">
-        <div className="tz-sc-card-title-wrap">
-          <h3 className="tz-sc-card-title">מיתוג ולוגו הסטודיו</h3>
-          <p className="tz-sc-card-desc">
-            הלוגו שלך מופיע בכניסה ובראש הגלריה של הלקוח, מעניק מראה יוקרתי ומקצועי.
-          </p>
+    <div className={bare ? 'fo-sc-brand' : 'tz-sc-card'} data-tour="send-brand">
+      {!bare && (
+        <div className="tz-sc-card-header">
+          <div className="tz-sc-card-title-wrap">
+            <h3 className="tz-sc-card-title">הלוגו של הסטודיו</h3>
+            <p className="tz-sc-card-desc">
+              מופיע בכניסה ובראש הגלריה של הלקוח.
+            </p>
+          </div>
         </div>
-      </div>
+      )}
 
       <div className="tz-sc-brand-grid">
         <div className="tz-sc-swatches">
@@ -1564,9 +1449,7 @@ function StudioBrandCard() {
           מומלץ להעלות קובץ PNG עם רקע שקוף. כך הלוגו ייראה חד ומדויק על כל רקע ומכשיר.
         </p>
 
-        {error && (
-          <div style={{ color: '#ef4444', fontSize: 12 }}>{error}</div>
-        )}
+        {error && <div className="fo-sc-error">{error}</div>}
       </div>
     </div>
   );
@@ -1669,9 +1552,7 @@ function StorageManagerModal({
 
         <div className="tz-sc-modal-body">
           {actionNotice && (
-            <div style={{ background: '#ecfdf5', border: '1px solid #a7f3d0', padding: 12, borderRadius: 10, color: '#065f46', fontSize: 13, fontWeight: 600 }}>
-              {actionNotice}
-            </div>
+            <div className="fo-sc-notice">{actionNotice}</div>
           )}
 
           {/* Storage Bar Overview */}
@@ -1773,7 +1654,7 @@ function StorageManagerModal({
                                 onClick={() => handlePurge(g)}
                                 title="מחק תמונות שלא נבחרו כדי לפנות מקום"
                               >
-                                🧹 פנה לא-נבחרים
+                                פנה לא-נבחרים
                               </button>
                             )}
                             <button
