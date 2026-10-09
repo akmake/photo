@@ -98,8 +98,8 @@ export default function ApplySet({
     return (
       <p className="hint">
         {batchId
-          ? 'אין תמונות במקבץ הזה עדיין.'
-          : 'כל התמונות שויכו לסשנים — בחר מקבץ למעלה כדי להחיל עליו.'}
+          ? 'אין תמונות בסשן הזה עדיין.'
+          : 'כל התמונות שויכו לסשנים — בחר סשן למעלה כדי להחיל עליו.'}
       </p>
     );
   }
@@ -124,7 +124,7 @@ export default function ApplySet({
         {!running ? (
           <button className="btn btn-primary" onClick={run} disabled={!steps.length}>
             <IcSparkle size={16} />
-            החל על המקבץ
+            החל על הסשן
           </button>
         ) : (
           <button className="btn" onClick={() => { cancelled.current = true; }}>עצור</button>
@@ -145,7 +145,7 @@ export default function ApplySet({
 
       {!steps.length && (
         <p className="hint">
-          אין עדיין מה להחיל — קבע צבע או כלי על המקבץ, ואז הקבצים ייכתבו.
+          אין עדיין מה להחיל — קבע צבע או כלי על הסשן, ואז הקבצים ייכתבו.
         </p>
       )}
 

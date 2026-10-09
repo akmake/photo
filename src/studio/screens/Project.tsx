@@ -301,7 +301,7 @@ export default function Project({
             )}
 
             {view === 'edit' && (
-              <Stage title="עריכה" sub="בחר מקבץ, קבע לו את הצבע שלו, ואז החל">
+              <Stage title="עריכה" sub="בחר סשן, קבע לו את הצבע שלו, ואז החל">
                 <EditStage project={project} onOpenTool={onOpenTool} />
               </Stage>
             )}
@@ -463,7 +463,7 @@ function EditStage({
 
       <p className="hint">
         התאמת צבעים לומדת את הצבע שלך מזוג אחד — מקור וערוך — וקובעת אותו על
-        {current ? ` המקבץ "${current.name}"` : ' כל הסט'}. המתכון הידני הוא
+        {current ? ` הסשן "${current.name}"` : ' כל הסט'}. המתכון הידני הוא
         הדרך השנייה: סליידרים על תמונת ייחוס.
       </p>
 

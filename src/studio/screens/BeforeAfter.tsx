@@ -60,7 +60,7 @@ export default function BeforeAfter({
             לפני ואחרי
             <span className="mono ba-n">{frames.length.toLocaleString('he-IL')}</span>
           </h2>
-          <p>המראה שנלמד, על כל תמונה במקבץ. לחיצה על זוג מגדילה אותו.</p>
+          <p>המראה שנלמד, על כל תמונה בסשן. לחיצה על זוג מגדילה אותו.</p>
           <button className="dialog-x" onClick={onClose} aria-label="סגור">✕</button>
         </div>
 

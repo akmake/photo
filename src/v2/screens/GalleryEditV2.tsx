@@ -417,8 +417,8 @@ export default function GalleryEditV2({
       const label = at === '__all__'
         ? 'על כל בחירת הלקוח'
         : at === null
-          ? 'על התמונות שנבחרו ללא מקבץ'
-          : `על בחירת הלקוח במקבץ ${currentBatch?.name ?? ''}`.trim();
+          ? 'על התמונות שנבחרו ללא סשן'
+          : `על בחירת הלקוח בסשן ${currentBatch?.name ?? ''}`.trim();
       return { batchId: null, label, count: n, blocked: null, preciseFrames: true };
     }
     if (at === '__all__') {
@@ -432,13 +432,13 @@ export default function GalleryEditV2({
         count: n,
         blocked: all
           ? null
-          : 'התמונות שאינן במקבץ אינן שכבה בפני עצמה, אז אי אפשר לקבוע עליהן מראה בלי לגעת בשאר. בחר מקבץ, או "כל התמונות".',
+          : 'התמונות שאינן בסשן אינן שכבה בפני עצמה, אז אי אפשר לקבוע עליהן מראה בלי לגעת בשאר. בחר סשן, או "כל התמונות".',
         preciseFrames: false,
       };
     }
     return {
       batchId: at,
-      label: `על המקבץ ${currentBatch?.name ?? ''}`.trim(),
+      label: `על הסשן ${currentBatch?.name ?? ''}`.trim(),
       count: n,
       blocked: null,
       preciseFrames: false,
@@ -1213,7 +1213,7 @@ export default function GalleryEditV2({
 
           <div className="tz-ge-batch-tabs" data-tour="edit-sessions">
             <span style={{ fontSize: 13, fontWeight: 700, color: 'inherit', marginLeft: 6 }}>
-              {selectedOnly ? 'בחירת הלקוח לפי סשנים:' : 'מקבץ עבודה:'}
+              {selectedOnly ? 'בחירת הלקוח לפי סשנים:' : 'סשן:'}
             </span>
 
             {(visibleBatches.length > 0 || visibleAll.length > 0) && (
@@ -1259,7 +1259,7 @@ export default function GalleryEditV2({
                   setActiveSlideIndex(0);
                 }}
               >
-                <span>ללא מקבץ</span>
+                <span>ללא סשן</span>
                 <span className="tz-ge-batch-pill-badge">{visibleUnassigned.length}</span>
               </button>
             )}
@@ -1390,7 +1390,7 @@ export default function GalleryEditV2({
           <div className="tz-ge-deck-scroll">
             {slideFrames.length === 0 ? (
               <div style={{ padding: 20, textAlign: 'center', color: '#a1a1aa', fontSize: 12 }}>
-                {selectedOnly ? 'אין תמונות שבחר הלקוח במקבץ זה' : 'אין תמונות במקבץ זה'}
+                {selectedOnly ? 'אין תמונות שבחר הלקוח בסשן זה' : 'אין תמונות בסשן זה'}
               </div>
             ) : (
               slideFrames.map((f, idx) => {

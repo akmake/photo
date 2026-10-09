@@ -82,7 +82,7 @@ export default function FramePicker({
               className={`fp-batch ${at === null ? 'on' : ''}`}
               onClick={() => setAt(null)}
             >
-              <b>ללא מקבץ</b>
+              <b>ללא סשן</b>
               <span className="mono">{loose.length}</span>
             </button>
           )}
@@ -90,7 +90,7 @@ export default function FramePicker({
       )}
 
       {shown.length === 0 ? (
-        <p className="pf-empty">אין תמונות במקבץ הזה.</p>
+        <p className="pf-empty">אין תמונות בסשן הזה.</p>
       ) : (
         <div className="pf-grid">
           {/* The shared gallery: pick by the photograph itself, in its real

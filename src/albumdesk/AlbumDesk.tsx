@@ -5,7 +5,7 @@
  * הסדר שבו הדברים נבנו הוא הסדר שבו הם באמת קורים כשמרכיבים אלבום:
  *
  *   1. מה עוד לא בשימוש  — בלי זה שמים את אותה תמונה פעמיים ומגלים בדפוס.
- *   2. איזה מקבץ         — מרכיבים כפולה בתוך רגע אחד, לא מתוך 400 תמונות.
+ *   2. איזה סשן         — מרכיבים כפולה בתוך רגע אחד, לא מתוך 400 תמונות.
  *   3. תבנית לעמוד       — אחרי שיודעים כמה תמונות, לא לפני.
  *   4. הזזה בתוך המסגרת  — הפעולה שנעשית מאות פעמים באלבום אחד.
  *
@@ -705,7 +705,7 @@ export default function AlbumDesk({
                 className={`ad-chip${trayBatch === 'loose' ? ' on' : ''}`}
                 onClick={() => setTrayBatch('loose')}
               >
-                ללא מקבץ<span className="ad-chip-n">{loose.length}</span>
+                ללא סשן<span className="ad-chip-n">{loose.length}</span>
               </button>
             )}
           </div>
@@ -722,7 +722,7 @@ export default function AlbumDesk({
           <div className="ad-thumbs">
             {trayFrames.length === 0 && (
               <p className="ad-empty">
-                {showUsed ? 'אין תמונות במקבץ הזה.' : 'כל התמונות במקבץ הזה כבר באלבום.'}
+                {showUsed ? 'אין תמונות בסשן הזה.' : 'כל התמונות בסשן הזה כבר באלבום.'}
               </p>
             )}
             {trayFrames.map((f) => {

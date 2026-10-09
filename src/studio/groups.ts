@@ -1,6 +1,6 @@
 /* Groups — grouping rules as pure functions.
  *
- *   edit   קבוצת עריכה   a LIGHT. Lives in `batches` / `assign`, and owns a
+ *   edit   סשן          a LIGHT. Lives in `batches` / `assign`, and owns a
  *                        colour recipe in `recipe.perBatch`.
  *   story  רצף           a CHAPTER of the day. Lives in `moments` /
  *                        `momentAssign`, and owns nothing but membership.

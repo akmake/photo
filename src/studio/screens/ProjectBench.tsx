@@ -89,11 +89,11 @@ export default function ProjectBench({
             className="dialog cm-picker"
             role="dialog"
             aria-modal="true"
-            aria-label="בחר מקבץ ותמונה"
+            aria-label="בחר סשן ותמונה"
             onMouseDown={(e) => e.stopPropagation()}
           >
             <div className="dialog-head">
-              <h2>בחר מקבץ, ואז תמונה</h2>
+              <h2>בחר סשן, ואז תמונה</h2>
               {path && (
                 <button className="dialog-x" onClick={() => setPicking(false)} aria-label="סגור">
                   ✕

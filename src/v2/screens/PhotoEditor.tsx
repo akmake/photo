@@ -79,7 +79,7 @@ const ADJUST: { title: string; controls: Control[] }[] = [
   },
 ];
 
-/* ---- "החל על כל המקבץ": the התאמה sliders, the סנן, and the background (its
+/* ---- "החל על כל הסשן": the התאמה sliders, the סנן, and the background (its
  * brush included, landing at the same place on every frame). Crop, markup,
  * erase and object removal stay on this photograph — as he decided. */
 const SHARED_TOOLS = [...new Set([
@@ -154,7 +154,7 @@ export default function PhotoEditor({
   frame: Frame;
   name: string;
   onClose: () => void;
-  /** "החל על כל המקבץ" happened: how many other frames, which batch, and how to
+  /** "החל על כל הסשן" happened: how many other frames, which batch, and how to
    *  put them back. The caller SAYS so — the editor closes at once, and the
    *  other frames re-render one by one over seconds, so without a word the
    *  press looked like it did nothing. */
@@ -593,10 +593,10 @@ export default function PhotoEditor({
               onClick={saveToBatch}
               disabled={!sharedSteps.length}
               title={sharedSteps.length
-                ? `שומר את התמונה הזו, ונותן את העריכה שלה ל־${batch.others.length.toLocaleString('he-IL')} התמונות האחרות${batch.name ? ` ב„${batch.name}”` : ' במקבץ'}. חיתוך, סימון, מחיקה והסרת אובייקט נשארים רק בתמונה הזו.`
+                ? `שומר את התמונה הזו, ונותן את העריכה שלה ל־${batch.others.length.toLocaleString('he-IL')} התמונות האחרות${batch.name ? ` ב„${batch.name}”` : ' בסשן'}. חיתוך, סימון, מחיקה והסרת אובייקט נשארים רק בתמונה הזו.`
                 : 'אין עדיין בתמונה הזו עריכה להעביר.'}
             >
-              החל על כל המקבץ
+              החל על כל הסשן
             </button>
           )}
           <button type="button" className="tz-pe-btn is-primary" onClick={save} disabled={!dirty}>שמור</button>

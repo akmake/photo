@@ -5,7 +5,7 @@
  * correction after it a rebuild (פרק, then mark again). Here the division is
  * live data that is always open to change:
  *
- *   filters      כל התמונות and ללא מקבץ are compact views, not fake groups.
+ *   filters      כל התמונות and ללא סשן are compact views, not fake groups.
  *   strip        only real groups are shown as large, legible cards.
  *   sheet        the active group's photographs, dense, virtualised.
  *   selection    checkbox first; Shift/Ctrl are shortcuts, never the interface.

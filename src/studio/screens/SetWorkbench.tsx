@@ -491,7 +491,7 @@ export default function SetWorkbench({
           * The slide panel of a presentation tool, and for the same reason: the
           * thing you do most while editing one item is move to the next one. */}
         {strip.length > 0 && (
-          <nav className="wb-strip scroll-y" aria-label="תמונות המקבץ">
+          <nav className="wb-strip scroll-y" aria-label="תמונות הסשן">
             {strip.map((f, i) => {
               const own = frameSteps(project.id, f.path).length;
               return (
@@ -516,7 +516,7 @@ export default function SetWorkbench({
         <main className="wb-canvas">
           {!frame ? (
             <div className="wb-empty">
-              <p>בחר מקבץ, ומתוכו תמונה. מה שתכוון כאן נשמר לתמונה הזאת בלבד.</p>
+              <p>בחר סשן, ומתוכו תמונה. מה שתכוון כאן נשמר לתמונה הזאת בלבד.</p>
               <button className="btn btn-primary" onClick={() => setPicking(true)}>
                 בחר תמונה
               </button>
@@ -851,13 +851,13 @@ export default function SetWorkbench({
                 onClick={saveToBatch}
                 disabled={busy || !frame}
               >
-                החל על כל {batchName ? `"${batchName}"` : 'המקבץ'}
+                החל על כל {batchName ? `"${batchName}"` : 'הסשן'}
               </button>
               <Report reports={reports} delta={delta} blocked={blocked} />
 
               <p className="wb-note">
                 ברירת המחדל היא התמונה הזאת בלבד — ריטוש נשפט על פנים אחת, והגדרה
-                שמחמיאה לפריים הזה היא ניחוש לגבי כל שאר הפנים במקבץ. שום קובץ עדיין
+                שמחמיאה לפריים הזה היא ניחוש לגבי כל שאר הפנים בסשן. שום קובץ עדיין
                 לא נכתב.
               </p>
             </div>
@@ -871,11 +871,11 @@ export default function SetWorkbench({
             className="dialog cm-picker"
             role="dialog"
             aria-modal="true"
-            aria-label="בחר מקבץ ותמונה"
+            aria-label="בחר סשן ותמונה"
             onMouseDown={(e) => e.stopPropagation()}
           >
             <div className="dialog-head">
-              <h2>בחר מקבץ, ואז תמונה</h2>
+              <h2>בחר סשן, ואז תמונה</h2>
               <button className="dialog-x" onClick={() => setPicking(false)} aria-label="סגור">✕</button>
             </div>
             <div className="dialog-body cm-picker-body">

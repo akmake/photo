@@ -120,11 +120,11 @@ export default function ColorMatch({
   /** With no batches at all there is nothing to choose — the set IS the scope,
    *  and a selector with one dead option is worse than none. */
   const scoped = batches.length > 0;
-  const scopeLabel = current ? current.name : scoped ? 'ללא מקבץ' : 'כל הסט';
+  const scopeLabel = current ? current.name : scoped ? 'ללא סשן' : 'כל הסט';
   /** For a sentence: a named batch gets quoted, the leftovers get described. */
   const scopePhrase = current
-    ? `מקבץ "${current.name}"`
-    : scoped ? 'התמונות ללא מקבץ' : 'הפרויקט';
+    ? `סשן "${current.name}"`
+    : scoped ? 'התמונות ללא סשן' : 'הפרויקט';
 
   const existing = colorStep(project.id, at);
   /** Batches still waiting for a look — the useful thing to offer someone who
@@ -189,7 +189,7 @@ export default function ColorMatch({
       <header className="cm-head">
         <button className="cm-back" onClick={onBack}>← חזרה לפרויקט</button>
         <h1>התאמת צבעים</h1>
-        <p>{project.client} · זוג אחד, ומכאן על כל המקבץ.</p>
+        <p>{project.client} · זוג אחד, ומכאן על כל הסשן.</p>
       </header>
 
       {/* ---------- already done? say so BEFORE any work ----------
@@ -231,8 +231,8 @@ export default function ColorMatch({
             * is a sentence that offers an option that does not exist. */}
           {scoped && ungraded > 0 && (
             <p className="cm-known-else">
-              או בחר מקבץ אחר למטה — {ungraded === 1
-                ? 'מקבץ אחד עדיין בלי מראה'
+              או בחר סשן אחר למטה — {ungraded === 1
+                ? 'סשן אחד עדיין בלי מראה'
                 : `${ungraded} סשנים עדיין בלי מראה`}.
             </p>
           )}
@@ -244,8 +244,8 @@ export default function ColorMatch({
         <section className="cm-step">
           <div className="cm-step-bar">
             <span className="cm-n mono">1</span>
-            <h2>המקבץ</h2>
-            <p>לאיזה אור המראה הזה שייך. מה שיילמד כאן יחול על המקבץ הזה בלבד.</p>
+            <h2>הסשן</h2>
+            <p>לאיזה אור המראה הזה שייך. מה שיילמד כאן יחול על הסשן הזה בלבד.</p>
           </div>
 
           <div className="cm-scope">
@@ -271,7 +271,7 @@ export default function ColorMatch({
                 className={`cm-scope-pick ${at === null ? 'on' : ''}`}
                 onClick={() => chooseBatch(null)}
               >
-                <b>ללא מקבץ</b>
+                <b>ללא סשן</b>
                 <span className="mono">
                   {unassignedFrames(project.id).length.toLocaleString('he-IL')}
                 </span>
@@ -317,7 +317,7 @@ export default function ColorMatch({
                 : (
                   <span className="cm-slot-empty">
                     {scope.length
-                      ? (scoped ? 'בחר תמונה מהמקבץ' : 'בחר תמונה מהפרויקט')
+                      ? (scoped ? 'בחר תמונה מהסשן' : 'בחר תמונה מהפרויקט')
                       : 'אין כאן תמונות'}
                   </span>
                 )}
@@ -414,7 +414,7 @@ export default function ColorMatch({
           <div className="cm-step-bar">
             <span className="cm-n mono">{scoped ? 3 : 2}</span>
             <h2>מה נלמד</h2>
-            <p>לפני שקובעים על מקבץ שלם — מה שהמודל עשה על התמונה הזאת עצמה.</p>
+            <p>לפני שקובעים על סשן שלם — מה שהמודל עשה על התמונה הזאת עצמה.</p>
           </div>
 
           <div className="cm-result">

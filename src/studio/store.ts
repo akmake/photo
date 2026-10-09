@@ -1302,7 +1302,7 @@ export function setFrameStep(projectId: string, frame: string, step: ToolInstanc
  * honest: hidden, unselected photographs in the same batch are untouched.
  *
  * `withHandwork` copies the steps AS THEY ARE, strokes included — the editor's
- * "החל על כל המקבץ", where the photographer asked for his marks, erasures and
+ * "החל על כל הסשן", where the photographer asked for his marks, erasures and
  * background brush to land on every frame of the batch at the same place. */
 export function setFrameSteps(projectId: string, frames: string[], steps: ToolInstance[], withHandwork = false) {
   if (!frames.length || !steps.length) return;

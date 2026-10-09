@@ -161,7 +161,7 @@ export default function WorkStageV2({
     }
     if (batch === 'all' || batch === 'none') {
       const loose = names.filter((n) => !of.get(n) && matches(n));
-      if (loose.length) out.push({ id: 'none', title: batches.length ? 'ללא מקבץ' : '', names: loose });
+      if (loose.length) out.push({ id: 'none', title: batches.length ? 'ללא סשן' : '', names: loose });
     }
     return out;
     // `cull` changes the filtered views; batchOfFrame reads the same store.
@@ -574,7 +574,7 @@ export default function WorkStageV2({
       </header>
 
       {batches.length > 0 && (
-        <div className="tz-ws-batches" role="tablist" aria-label="מקבץ" data-tour="work-sessions">
+        <div className="tz-ws-batches" role="tablist" aria-label="סשן" data-tour="work-sessions">
           <button type="button" role="tab" aria-selected={batch === 'all'} className={batch === 'all' ? 'is-on' : ''} onClick={() => { setBatch('all'); gridRef.current?.scrollToTop(); }}>
             כל הסשנים<i>{frames.length.toLocaleString('he-IL')}</i>
           </button>
@@ -585,7 +585,7 @@ export default function WorkStageV2({
           ))}
           {batchCounts.none > 0 && (
             <button type="button" role="tab" aria-selected={batch === 'none'} className={batch === 'none' ? 'is-on' : ''} onClick={() => { setBatch('none'); gridRef.current?.scrollToTop(); }}>
-              ללא מקבץ<i>{batchCounts.none.toLocaleString('he-IL')}</i>
+              ללא סשן<i>{batchCounts.none.toLocaleString('he-IL')}</i>
             </button>
           )}
         </div>
