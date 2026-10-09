@@ -283,14 +283,18 @@ def _even_profile(values, weights, s, bins):
     return v / np.maximum(w, 1e-6), w
 
 
-def _even_light(rgb, strength):
-    """Lift the face's shadow side toward its mirror. uint8 in/out."""
+def _person_regions(rgb):
+    """Each face's working ground, shared by the face-light balance and the
+    skin colour: the crop around it (reaching neck, ears and hands), its own
+    axes, where its skin is READ (face skin in the oval swept to the
+    hairline), and the WEIGHT it is changed with — that person's skin, never
+    hair, fading over EVEN_REACH face widths and, in a group, kept to the
+    ground nearer this face than any other."""
     faces = masks._face_landmarks(rgb)
-    if not faces or strength <= 0:
-        return rgb, 0
+    if not faces:
+        return []
     h, w = rgb.shape[:2]
-    out = rgb.copy()
-    done = 0
+    regions = []
     skin_full = None
     ovals = [np.array([[l[i].x * w, l[i].y * h] for i in masks.FACE_OVAL], np.float32) for l in faces]
     widths = [abs(l[masks.FACE_RIGHT].x - l[masks.FACE_LEFT].x) * w for l in faces]
@@ -341,7 +345,7 @@ def _even_light(rgb, strength):
         ext_neg = max(float(-s_pts.min()), 0.15)
         s = np.where(s >= 0, s / ext_pos, s / ext_neg) / EVEN_SPAN
 
-        # Where the light is READ: face skin inside the landmark oval, swept
+        # Where the skin is READ: face skin inside the landmark oval, swept
         # toward the crown so the forehead up to the hairline counts.
         swept = oval.copy()
         for t in np.linspace(0.0, EVEN_FOREHEAD_REACH * fws, 8)[1:]:
@@ -351,15 +355,70 @@ def _even_light(rgb, strength):
         if read.sum() < 16:
             continue
 
+        # Where it is CHANGED: this person's skin, fading with distance from
+        # the face over EVEN_REACH face widths. A smooth field, no edge.
+        dist = cv2.distanceTransform((1 - swept).astype(np.uint8), cv2.DIST_L2, 5) / max(fws, 1.0)
+        fade = np.clip(1.0 - (dist / EVEN_REACH) ** 2, 0.0, 1.0) ** 2
+        # In a group the field reaches the next person. Each face keeps only
+        # the ground nearer to it than to any other face (distance in each
+        # face's own widths), with a soft border: measured on a family of
+        # seven, a neighbour's lift brightened an evenly lit face by 3 L.
+        for fj, other in enumerate(ovals):
+            if fj == fi or widths[fj] < 24:
+                continue
+            o = np.zeros((sh, sw), np.uint8)
+            cv2.fillPoly(o, [((other - [x0, y0]) * [sx, sy]).astype(np.int32)], 1)
+            if not o.any():
+                continue
+            d_o = cv2.distanceTransform((1 - o).astype(np.uint8), cv2.DIST_L2, 5) / max(widths[fj] * k, 1.0)
+            fade *= np.clip(0.5 + (d_o - dist) / 0.4, 0.0, 1.0)
+        skin_soft = cv2.GaussianBlur(skin, (0, 0), max(0.5, EVEN_SKIN_SOFT * fws))
+        # never the hair: lifted, the dark strands at the hairline turned red
+        hair = small(masks.get_mask(rgb, "hair"))
+        weight = np.clip(skin_soft * (1.0 - hair) * fade, 0.0, 1.0)
+        regions.append({'box': (x0, y0, x1, y1), 'size': (sw, sh), 'fws': fws,
+                        's': s, 'read': read, 'weight': weight})
+    return regions
+
+
+def _read_scale(fws):
+    """How much smaller a smooth field is READ than the working size: a
+    quarter (the wide blurs over the neck-and-ears crop cost ~0.9 s of a
+    1.5 s pass at full working size), but never below ~80 px across the face
+    — a 45 px face read at a quarter was 12 px wide, too few to tell one side
+    from the other."""
+    return int(max(1, min(4, fws // 80)))
+
+
+def _write_back(out, box, crop, lab, weight_full):
+    """Lab back to the frame, through the weight: pixels the field does not
+    reach keep their exact bytes instead of a Lab round trip."""
+    x0, y0, x1, y1 = box
+    moved = cv2.cvtColor(lab, cv2.COLOR_LAB2RGB) * 255.0
+    blend = crop * 255.0 + (moved - crop * 255.0) * np.clip(weight_full * 4.0, 0.0, 1.0)
+    out[y0:y1, x0:x1] = np.clip(blend + 0.5, 0, 255).astype(np.uint8)
+
+
+def _even_light(rgb, strength):
+    """Lift the face's shadow side toward its mirror. uint8 in/out."""
+    if strength <= 0:
+        return rgb, 0
+    regions = _person_regions(rgb)
+    if not regions:
+        return rgb, 0
+    out = rgb.copy()
+    done = 0
+    for r in regions:
+        x0, y0, x1, y1 = r['box']
+        sw, sh = r['size']
+        fws, s, read, weight = r['fws'], r['s'], r['read'], r['weight']
+        cw, ch = x1 - x0, y1 - y0
         crop = out[y0:y1, x0:x1].astype(np.float32) / 255.0
         lab = cv2.cvtColor(crop, cv2.COLOR_RGB2LAB)
         lab_s = cv2.resize(lab, (sw, sh), interpolation=cv2.INTER_AREA)
         # The light is a broad trend (blur of ~0.18 face width), so it is READ
-        # on a quarter-size copy: at the working size the wide blurs over the
-        # neck-and-ears crop cost ~0.9 s of a 1.5 s pass.
-        # ...but never below ~80 px across the face: a 45 px face read at a
-        # quarter was 12 px wide, too few to tell one side from the other.
-        q = int(max(1, min(4, fws // 80)))
+        # on a smaller copy (see _read_scale).
+        q = _read_scale(fws)
         tw, th = max(4, sw // q), max(4, sh // q)
         lab_t = cv2.resize(lab_s, (tw, th), interpolation=cv2.INTER_AREA)
         read_t = cv2.resize(read, (tw, th), interpolation=cv2.INTER_AREA)
@@ -404,8 +463,7 @@ def _even_light(rgb, strength):
         cap = np.where(mirror, np.maximum(1.0, cp[::-1] / np.maximum(cp, 1e-3)), 1.0)
         cap = np.where(mirror, cap, cap[near])
         chroma_b = np.clip(gain_b ** EVEN_CHROMA_FOLLOW, 1.0, cap)
-        # 3 — where it applies: this person's skin, fading with distance from
-        # the face over EVEN_REACH face widths. A smooth field, no edge.
+        # 3 — over this person's skin (_person_regions' weight).
         pos = (sb + 1.0) * 0.5 * (bins - 1)
         lo_i = np.floor(pos).astype(np.int32)
         hi_i = np.minimum(lo_i + 1, bins - 1)
@@ -414,26 +472,6 @@ def _even_light(rgb, strength):
         def at(arr):
             return arr[lo_i] * (1 - f) + arr[hi_i] * f
 
-        dist = cv2.distanceTransform((1 - swept).astype(np.uint8), cv2.DIST_L2, 5) / max(fws, 1.0)
-        fade = np.clip(1.0 - (dist / EVEN_REACH) ** 2, 0.0, 1.0) ** 2
-        # In a group the field reaches the next person. Each face keeps only
-        # the ground nearer to it than to any other face (distance in each
-        # face's own widths), with a soft border: measured on a family of
-        # seven, a neighbour's lift brightened an evenly lit face by 3 L.
-        for fj, other in enumerate(ovals):
-            if fj == fi or widths[fj] < 24:
-                continue
-            o = np.zeros((sh, sw), np.uint8)
-            cv2.fillPoly(o, [((other - [x0, y0]) * [sx, sy]).astype(np.int32)], 1)
-            if not o.any():
-                continue
-            d_o = cv2.distanceTransform((1 - o).astype(np.uint8), cv2.DIST_L2, 5) / max(widths[fj] * k, 1.0)
-            fade *= np.clip(0.5 + (d_o - dist) / 0.4, 0.0, 1.0)
-        skin_soft = cv2.GaussianBlur(skin, (0, 0), max(0.5, EVEN_SKIN_SOFT * fws))
-        # never the hair: lifted, the dark strands at the hairline turned red
-        hair = small(masks.get_mask(rgb, "hair"))
-        weight = np.clip(skin_soft * (1.0 - hair) * fade, 0.0, 1.0)
-
         gain = 1.0 + (at(gain_b) - 1.0) * weight
         cgain = 1.0 + (at(chroma_b) - 1.0) * weight
         fields = np.dstack([gain - 1.0, cgain - 1.0, weight]).astype(np.float32)
@@ -441,31 +479,200 @@ def _even_light(rgb, strength):
         lab[..., 0] = np.clip(lab[..., 0] * (1.0 + full[..., 0]), 0.0, 100.0)
         lab[..., 1] *= 1.0 + full[..., 1]
         lab[..., 2] *= 1.0 + full[..., 1]
-        moved = cv2.cvtColor(lab, cv2.COLOR_LAB2RGB) * 255.0
-        # written back through the weight, so pixels the field does not reach
-        # keep their exact bytes instead of a Lab round trip
-        wgt_full = full[..., 2:3]
-        blend = crop * 255.0 + (moved - crop * 255.0) * np.clip(wgt_full * 4.0, 0.0, 1.0)
-        out[y0:y1, x0:x1] = np.clip(blend + 0.5, 0, 255).astype(np.uint8)
+        _write_back(out, r['box'], crop, lab, full[..., 2:3])
         done += 1
     return out, done
+
+
+# --- skin colour, where the light burnt it out ------------------------------
+#
+# 2026-10-09, the photographer on chayamushka-132: "it's nice that there is
+# light there, but I want real skin colour." Measured: the lit side reads
+# L 92–97 with chroma 4–9; the rest of the face chroma 25–30, at the SAME hue.
+# The light did not change the skin's hue, it washed its colour out. So this
+# is not a light tool: it puts the skin's own colour back and leaves the light.
+#
+# The retoucher's way is a Color-mode layer — hue and saturation, luminosity
+# kept — painted with a big soft brush in a mid-tone sampled from the same
+# face, never from a burnt spot (tutvid, tipsquirrel, daystarvisions). darktable's
+# colour reconstruction (method only, GPL) does the same automatically: a
+# bright pixel takes its colour only from pixels BELOW a lightness threshold,
+# with a preference for the skin hue so cloth and hair do not bleed in.
+#
+# Here: the person's own skin colour is read from the face's MID-TONES, and
+# wherever the light washed it out, colour is added back in the skin's own
+# hue, in the smooth low layer (texture is not colour).
+#
+# Attempt 1 (2026-10-09) took the colour from the darker 60% of the face and
+# added it wherever the skin held less. Two failures, seen in close-up:
+#  - 204: newborn shadow skin is far redder than the skin itself (C 41 at
+#    L 26, C 23 at L 58) — the lit forehead, not burnt at all (L 70), turned
+#    red. So: the source is the middle band, and only BURNT skin is touched
+#    (SKIN_COLOR_WASH_*: healthy skin held its colour up to L ~75 on every
+#    face measured — 1898 L 74 C 32, 9435 L 67 C 30, 1791 L 75 C 23 — and
+#    the washed sides of 132 and 57 fell to C 14 at L 86, C 6 at L 94).
+#  - 132: at L 94 sRGB cannot hold skin colour; the added colour overflowed,
+#    the overflow was cut per channel and the face went orange. So: where the
+#    colour cannot fit, the burnt white comes down just enough for it to fit
+#    (never more than SKIN_COLOR_MAX_DROP), and every pixel is kept inside
+#    sRGB by shortening ITS added colour, never by cutting a channel.
+SKIN_COLOR_BAND = (0.35, 0.65)   # the source: the middle band of the face skin's lightness
+SKIN_COLOR_SIGMA = 0.06          # the colour field's blur, fraction of face width
+SKIN_COLOR_KEEP = 0.9            # the target is 90% of the source's colour: skin is not one flat tone
+SKIN_COLOR_WASH_FROM, SKIN_COLOR_WASH_FULL = 74.0, 86.0  # where skin counts as washed out (low-layer L)
+SKIN_COLOR_MAX_DROP = 8.0        # most lightness given up, at 100, so the colour fits
+SKIN_COLOR_GAMUT = 0.92          # stay this far inside sRGB
+
+
+_XYZ_TO_RGB = np.float32([[3.240479, -1.53715, -0.498535],
+                          [-0.969256, 1.875991, 0.041556],
+                          [0.055648, -0.204043, 1.057311]])
+
+
+def _in_gamut(lab):
+    """Lab (OpenCV's: D65, sRGB) inside sRGB. Written out because OpenCV's own
+    LAB2RGB clips silently — every colour 'fits' through it (measured: skin
+    chroma 60 'fitting' at L 98)."""
+    lab = np.asarray(lab, np.float32)
+    fy = (lab[..., 0] + 16.0) / 116.0
+    f = np.stack([fy + lab[..., 1] / 500.0, fy, fy - lab[..., 2] / 200.0], axis=-1)
+    xyz = np.where(f > 6.0 / 29.0, f ** 3, 3.0 * (6.0 / 29.0) ** 2 * (f - 4.0 / 29.0))
+    xyz = xyz * np.float32([0.950456, 1.0, 1.088754])
+    rgb = xyz @ _XYZ_TO_RGB.T
+    return ((rgb >= -1e-4) & (rgb <= 1.0 + 1e-4)).all(axis=-1)
+
+
+def _chroma_ceiling(L, hue, cap):
+    """Largest chroma (<= cap) inside sRGB at lightness L and the given hue,
+    per pixel of a field (bisection)."""
+    L = np.asarray(L, np.float32)
+    lo = np.zeros_like(L)
+    hi = np.full_like(L, cap)
+    ca, sa = np.cos(hue), np.sin(hue)
+    for _ in range(8):
+        mid = (lo + hi) * 0.5
+        ok = _in_gamut(np.stack([L, mid * ca, mid * sa], axis=-1))
+        lo = np.where(ok, mid, lo)
+        hi = np.where(ok, hi, mid)
+    return lo
+
+
+def _lightness_ceiling(chroma, hue):
+    """Highest lightness at which `chroma` in `hue` is inside sRGB."""
+    lo, hi = 0.0, 100.0
+    ca, sa = np.cos(hue), np.sin(hue)
+    for _ in range(12):
+        mid = (lo + hi) * 0.5
+        if _in_gamut(np.float32([[[mid, chroma * ca, chroma * sa]]]))[0, 0]:
+            lo = mid
+        else:
+            hi = mid
+    return lo
+
+
+def _shorten_to_gamut(base, add):
+    """base + add in Lab, with each pixel's `add` shortened just enough to
+    stay inside sRGB (a channel cut instead shifts the hue)."""
+    out = base + add
+    moved = np.abs(add).sum(axis=-1) > 1e-4
+    bad = np.zeros(moved.shape, bool)
+    bad[moved] = ~_in_gamut(out[moved])
+    if not bad.any():
+        return out
+    b, d = base[bad][None], add[bad][None]
+    lo = np.zeros(b.shape[1], np.float32)
+    hi = np.ones(b.shape[1], np.float32)
+    for _ in range(7):
+        mid = (lo + hi) * 0.5
+        ok = _in_gamut(b + d * mid[None, :, None])[0]
+        lo = np.where(ok, mid, lo)
+        hi = np.where(ok, hi, mid)
+    out[bad] = (b + d * lo[None, :, None])[0]
+    return out
+
+
+def _skin_color(rgb, strength):
+    """Give washed-out skin its own colour back. uint8 in/out, plus how many
+    faces were changed and how many were found (a face with no burnt skin is
+    found and left alone — not the same as no face)."""
+    if strength <= 0:
+        return rgb, 0, 0
+    regions = _person_regions(rgb)
+    if not regions:
+        return rgb, 0, 0
+    out = rgb.copy()
+    done = 0
+    for r in regions:
+        x0, y0, x1, y1 = r['box']
+        sw, sh = r['size']
+        fws, read, weight = r['fws'], r['read'], r['weight']
+        cw, ch = x1 - x0, y1 - y0
+        crop = out[y0:y1, x0:x1].astype(np.float32) / 255.0
+        lab = cv2.cvtColor(crop, cv2.COLOR_RGB2LAB)
+        lab_s = cv2.resize(lab, (sw, sh), interpolation=cv2.INTER_AREA)
+        sigma = max(1.0, SKIN_COLOR_SIGMA * fws)
+        reach = np.maximum(weight, read)
+        den = np.maximum(cv2.GaussianBlur(reach, (0, 0), sigma), 1e-4)
+        L_low, a_low, b_low = (cv2.GaussianBlur(lab_s[..., c] * reach, (0, 0), sigma) / den for c in range(3))
+        C_low = np.hypot(a_low, b_low)
+
+        # The source: the middle band of this face's skin. Its hue weighted
+        # by chroma (a grey pixel says nothing about hue), its colour the
+        # median there.
+        m = read > 0.5
+        if m.sum() < 16:
+            continue
+        lo_q, hi_q = np.quantile(L_low[m], SKIN_COLOR_BAND)
+        src = m & (L_low >= lo_q) & (L_low <= hi_q)
+        if src.sum() < 8:
+            continue
+        hue = float(np.arctan2(b_low[src].sum(), a_low[src].sum()))
+        target = SKIN_COLOR_KEEP * float(np.median(C_low[src]))
+
+        t = np.clip((L_low - SKIN_COLOR_WASH_FROM) / (SKIN_COLOR_WASH_FULL - SKIN_COLOR_WASH_FROM), 0.0, 1.0)
+        wash = t * t * (3.0 - 2.0 * t) * weight * strength
+        if wash.max() <= 0.0:
+            continue
+        # where the colour cannot fit at this lightness, come down to where it does
+        L_fit = _lightness_ceiling(target / SKIN_COLOR_GAMUT, hue)
+        drop = np.clip(L_low - L_fit, 0.0, SKIN_COLOR_MAX_DROP) * wash
+        live = wash > 1e-3
+        ceiling = np.zeros_like(L_low)
+        ceiling[live] = SKIN_COLOR_GAMUT * _chroma_ceiling((L_low - drop)[live], hue, target)
+        add = np.maximum(0.0, np.minimum(target, ceiling) - C_low) * wash
+        fields = np.dstack([-drop, add * np.cos(hue), add * np.sin(hue), weight]).astype(np.float32)
+        full = cv2.resize(fields, (cw, ch), interpolation=cv2.INTER_LINEAR)
+        lab = _shorten_to_gamut(lab, full[..., :3])
+        _write_back(out, r['box'], crop, lab, full[..., 3:4])
+        done += 1
+    return out, done, len(regions)
 
 
 def apply(rgb, params: dict):
     """params: { amount, people, skin, fabric, background, radius, even,
     warmth, saturation, shadows, highlights: 0..100 / ±100 }"""
     even = common.clamp01(params.get("even", 0))
+    tone = common.clamp01(params.get("skinColor", 0))
     src_rgb = rgb
     meta_even = 0
+    meta_tone = tone_seen = 0
     if even > 0:
         # before any glow, so the glow grows from the evened face; the masks
         # below are still asked of the ORIGINAL frame (their cache identity)
         rgb, meta_even = _even_light(rgb, even)
+    if tone > 0:
+        # after the light: the colour is given back to the skin as it now is
+        rgb, meta_tone, tone_seen = _skin_color(rgb, tone)
     out, meta = _glow(src_rgb, rgb, params)
+    if meta_tone:
+        meta["applied"] = 1
+        meta["skinColorFaces"] = meta_tone
+    elif tone_seen:
+        meta["skinNotWashed"] = True
     if meta_even:
         meta["applied"] = 1
         meta["evenFaces"] = meta_even
-    elif even > 0:
+    elif (even > 0 or tone > 0) and not meta_tone and not tone_seen:
         # the slider is up and nothing moved: say why (lab/explain.ts `noFace`)
         # instead of looking like a weak effect
         meta["noFace"] = True

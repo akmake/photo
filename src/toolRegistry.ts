@@ -551,6 +551,10 @@ export const TOOLS: ToolDef[] = [
       // plentiful, up in the shadow side — toward one even level (glow.py
       // _even_light). 100 = the face's lighting fully evened.
       { id: 'even', label: 'איזון אור על הפנים', min: 0, max: 100, step: 1, default: 0 },
+      // Not a light either: where the light washed the skin out to white, its
+      // own colour (read from the face's mid-tones) comes back; the burnt
+      // white comes down only as far as that colour needs (glow.py _skin_color).
+      { id: 'skinColor', label: 'צבע עור אחיד', min: 0, max: 100, step: 1, default: 0 },
       { id: 'fabric', label: 'בגדים ולבנים', min: 0, max: 100, step: 1, default: 0 },
       // Her move in the video: the glow generated over everything and then
       // erased off the figures, so the warmth stays behind them. It could not

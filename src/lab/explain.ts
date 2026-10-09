@@ -82,6 +82,7 @@ const BLOCKERS: Record<string, (v: MetaValue, meta: Meta) => string> = {
   },
   irisTooSmall: (v) => `הקשתית קטנה מדי (${v} עיניים) — הכלי דילג`,
   noFace: () => 'לא זוהו פנים — הכלי דילג',
+  skinNotWashed: () => 'העור בפנים לא נשרף מהאור — אין צבע להחזיר, הכלי לא שינה דבר',
   noHair: () => 'לא זוהה שיער — הכלי דילג',
   error: (v) => `שגיאה: ${v}`,
 };
