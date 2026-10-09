@@ -38,16 +38,19 @@ import { IcCheck, IcUndo } from '../../design/Icons';
 import { justify } from '../../components/photo-grid/justify';
 import { useDims } from '../../components/photo-grid/useDims';
 import './GroupWorkspace.css';
+import './gw-v3.css';
 
 /* ------------------------------------------------------------------ words */
 
 const WORDS = {
   edit: {
-    title: 'סשנים', one: 'מקבץ', many: 'סשנים', none: 'ללא מקבץ',
-    moveTo: 'העברה למקבץ', remove: 'הוצא מהמקבץ', removed: 'הוצאו מהמקבץ',
-    create: 'מקבץ חדש', createVerb: 'יצירת מקבץ', createCta: 'צור והעבר',
-    split: 'פצל מקבץ', merge: 'מזג עם…', del: 'מחק מקבץ', unnamed: 'מקבץ ללא שם',
-    plus: '+ מקבץ', empty: 'המקבץ ריק', suggest: 'הצע סשנים', nameField: 'שם המקבץ',
+    // ONE word for this concept, everywhere the photographer reads it: סשן.
+    // Not מקבץ, not קבוצה (decided 09.10.2026).
+    title: 'סשנים', one: 'סשן', many: 'סשנים', none: 'ללא סשן',
+    moveTo: 'העברה לסשן', remove: 'הוצא מהסשן', removed: 'הוצאו מהסשן',
+    create: 'סשן חדש', createVerb: 'יצירת סשן', createCta: 'צור והעבר',
+    split: 'פצל סשן', merge: 'מזג עם…', del: 'מחק סשן', unnamed: 'סשן ללא שם',
+    plus: '+ סשן', empty: 'הסשן ריק', suggest: 'הצע חלוקה', nameField: 'שם הסשן',
   },
 } as const;
 
@@ -62,7 +65,18 @@ type Size = 's' | 'm' | 'l';
  *  (spec §29), and medium never drops under 6 (§302). */
 const TARGET: Record<Size, number> = { s: 128, m: 196, l: 288 };
 const GAP = 6;
-const SEP_H = 34;
+/** A session's header row inside the sheet: its colour, name, count and span. */
+const SEP_H = 42;
+
+/* Each session has its own colour, the same on the day map, on its chip, on
+ * its header and as a thin bar under each of its photographs — so a frame in
+ * the wrong session shows from across the room. Muted, legible on light and
+ * dark, and never painted over the picture itself. By the session's place in
+ * the order, so the colours are stable while nothing is reordered. */
+const HUES = [
+  '#E07A4F', '#8B7FE0', '#2AA58A', '#D9628D', '#4C8FE0',
+  '#C98A2B', '#6FA33A', '#3AA6B9', '#A35FB5', '#8A8F98',
+];
 // The engine opens a chunk's frames in parallel, so a chunk of 8 capped it at 8
 // lanes. 48 lets it use the machine; the counter still moves every second or two.
 const EMBED_CHUNK = 48;
@@ -156,7 +170,9 @@ function firstRowAt(rows: Row[], y: number): number {
   let hi = rows.length;
   while (lo < hi) {
     const mid = (lo + hi) >> 1;
-    if (rows[mid].top + rows[mid].h < y) lo = mid + 1;
+    // A row that ENDS exactly at y is above it: a session scrolled to its own
+    // header must read as that session, not the one before.
+    if (rows[mid].top + rows[mid].h <= y) lo = mid + 1;
     else hi = mid;
   }
   return lo;
@@ -591,6 +607,71 @@ export default function GroupWorkspace({ projectId }: { projectId: string }) {
     [suggest],
   );
 
+  /* ---- the day map ---- */
+
+  const colorOf = useCallback((id: string | null): string | undefined => {
+    if (id === null) return undefined;
+    const i = groups.findIndex((g) => g.id === id);
+    return i < 0 ? undefined : HUES[i % HUES.length];
+  }, [groups]);
+
+  /* The whole shoot in capture order, as runs of one owner — exactly the
+   * blocks the sheet shows in כל התמונות, in miniature. A session split in two
+   * places shows twice, which is the truth about it. */
+  const runs = useMemo(() => {
+    const out: { owner: string | null; first: string; from: number; n: number }[] = [];
+    frames.forEach((f, i) => {
+      const o = ownerOf(f);
+      const last = out[out.length - 1];
+      if (last && last.owner === o) last.n += 1;
+      else out.push({ owner: o, first: f.name, from: i, n: 1 });
+    });
+    return out;
+  }, [frames, ownerOf]);
+  const frameIndex = useMemo(() => new Map(frames.map((f, i) => [f.name, i])), [frames]);
+
+  /* Where the sheet is: the first photograph on screen, as a place on the map. */
+  // A header row at the top stands for the photographs right under it.
+  const hereAt = firstRowAt(layout.rows, scrollTop);
+  const hereRow = layout.rows[hereAt]?.type === 'sep' ? layout.rows[hereAt + 1] : layout.rows[hereAt];
+  const hereName = hereRow?.type === 'cells' ? hereRow.items[0]?.name : undefined;
+  const hereIndex = view === 'all' && hereName ? frameIndex.get(hereName) ?? -1 : -1;
+
+  /* The header of the block being read stays at the top of the sheet. */
+  const stickySep = (() => {
+    if (!separate) return null;
+    let k = firstRowAt(layout.rows, scrollTop);
+    while (k >= 0 && layout.rows[k]?.type !== 'sep') k -= 1;
+    const row = k >= 0 ? layout.rows[k] : undefined;
+    return row && row.type === 'sep' && scrollTop > row.top ? row : null;
+  })();
+
+  /* A click on the map brings that block to the top of the sheet. */
+  const pendingScroll = useRef<string | null>(null);
+  const goToRun = (first: string) => {
+    if (view !== 'all') {
+      pendingScroll.current = first;
+      switchView('all');
+      return;
+    }
+    const k = layout.rows.findIndex((r) => r.type === 'sep' && r.key === `sep-${first}`);
+    const r = layout.where.get(first);
+    const top = k >= 0 ? layout.rows[k].top : r !== undefined ? layout.rows[r].top : null;
+    if (top !== null && sheetRef.current) {
+      sheetRef.current.scrollTop = top;
+      setScrollTop(top);
+    }
+  };
+  useEffect(() => {
+    const first = pendingScroll.current;
+    if (!first || view !== 'all') return;
+    const k = layout.rows.findIndex((r) => r.type === 'sep' && r.key === `sep-${first}`);
+    if (k < 0 || !sheetRef.current) return;
+    pendingScroll.current = null;
+    sheetRef.current.scrollTop = layout.rows[k].top;
+    setScrollTop(layout.rows[k].top);
+  }, [view, layout]);
+
   /* ---- floating UI anchors ---- */
 
   const anchorOf = (el: Element, above = false) => {
@@ -879,16 +960,17 @@ export default function GroupWorkspace({ projectId }: { projectId: string }) {
     const d = dragRef.current;
     const strip = stripRef.current;
     if (!d || !strip) return;
+    // The chips run right to left: the first session sits at the right edge.
     const r = strip.getBoundingClientRect();
-    if (e.clientY < r.top + 56) strip.scrollTop -= 18;
-    else if (e.clientY > r.bottom - 56) strip.scrollTop += 18;
+    if (e.clientX < r.left + 56) strip.scrollLeft -= 18;
+    else if (e.clientX > r.right - 56) strip.scrollLeft += 18;
     if (d.type !== 'group') return;
     e.preventDefault();
     const tiles = [...strip.querySelectorAll<HTMLElement>('[data-group-tile]')];
     let idx = tiles.length;
     for (let i = 0; i < tiles.length; i += 1) {
       const tr = tiles[i].getBoundingClientRect();
-      if (e.clientY < tr.top + tr.height / 2) { idx = i; break; }
+      if (e.clientX > tr.left + tr.width / 2) { idx = i; break; }
     }
     setDropBefore(idx);
   }
@@ -963,32 +1045,80 @@ export default function GroupWorkspace({ projectId }: { projectId: string }) {
     ? (selected.has(menu.name) ? selNames : [menu.name])
     : [];
 
+  const progressLine = busy ? (
+    <div className="gw-progress" aria-live="polite">
+      <span className="gw-cprog-spinner" />
+      <span>
+        {analysis?.phase === 'embed' && (
+          analysis.done === 0
+            ? 'טוען את מודל הזיהוי…'
+            : <>קורא <span className="mono">{count(analysis.done)} / {count(analysis.total)}</span> תמונות</>
+        )}
+        {analysis?.phase === 'group' && 'מחפש איפה האור והסצנה מתחלפים…'}
+      </span>
+      <span className="gw-progress-track">
+        <i
+          className={analysis?.phase === 'group' ? 'indeterminate' : ''}
+          style={{
+            width: analysis?.phase === 'embed' && analysis.total > 0
+              ? `${Math.max(4, Math.round((analysis.done / analysis.total) * 100))}%`
+              : '100%',
+          }}
+        />
+      </span>
+      <button type="button" className="gw-link" onClick={() => { stopAnalysis.current = true; }}>עצור</button>
+    </div>
+  ) : null;
+
+  const sepHeader = (gid: string | null, key: string, sticky = false) => {
+    const g = gid ? groups.find((x) => x.id === gid) : undefined;
+    const list = members.get(gid) ?? [];
+    const graded = !!g && (state.recipe.perBatch[g.id] ?? []).some((t) => t.enabled);
+    const color = colorOf(gid);
+    return (
+      <div className={`gw-sep-in${sticky ? ' is-sticky' : ''}`} key={key}>
+        <span className={`gw-swatch${gid ? '' : ' is-none'}`} style={color ? { background: color } : undefined} />
+        <button type="button" className="gw-sep-name" onClick={() => switchView(gid ?? 'none')} title={gid ? `הצג רק את „${nameOf(gid)}”` : `הצג רק תמונות ${W.none}`}>
+          {nameOf(gid)}
+        </button>
+        <span className="mono gw-sep-n">{count(list.length)}</span>
+        {spanOf(list) && <bdi dir="ltr" className="mono gw-sep-span">{spanOf(list)}</bdi>}
+        {graded && <span className="gw-graded">עריכת צבע</span>}
+        <span className="gw-sep-fill" />
+        {g && (
+          <button
+            type="button"
+            className="gw-icon gw-sep-more"
+            aria-label={`פעולות על ${g.name}`}
+            onClick={(e) => { setPop(null); setMenu({ kind: 'group', id: g.id, ...anchorOf(e.currentTarget) }); }}
+          >
+            ⋯
+          </button>
+        )}
+      </div>
+    );
+  };
+
   return (
     <div
-      className={`gw ${selected.size ? 'gw-selecting' : ''}`}
+      className={`gw gw-v3 ${selected.size ? 'gw-selecting' : ''}`}
       dir="rtl"
       ref={rootRef}
     >
-      <div className="gw-workarea">
-      <aside className="gw-overview" aria-label={`ניווט ${W.many}`} data-tour="batches-overview">
-      {/* ---- header ---- */}
-      <header className="gw-head">
-        <div className="gw-heading">
+      {/* ---- one bar: what this is, the views, and the tools ---- */}
+      <header className="gw-bar">
+        <div className="gw-bar-title">
           <strong>{W.title}</strong>
-          <p className="gw-stats">
+          <span className="gw-stats">
             <span className="mono">{count(groups.length)}</span> {W.many}
             <i aria-hidden>·</i>
             <span className="mono">{count(frames.length)}</span> תמונות
-          </p>
+          </span>
         </div>
+
         <div className="gw-view-switch" role="group" aria-label="תצוגת תמונות" data-tour="batches-views">
-          <button
-            type="button"
-            className={view === 'all' ? 'on' : ''}
-            onClick={() => switchView('all')}
-            aria-pressed={view === 'all'}
-          >
-            כל התמונות <span className="mono">{count(frames.length)}</span>
+          <button type="button" className={view === 'all' ? 'on' : ''} onClick={() => switchView('all')} aria-pressed={view === 'all'}>
+            כל היום <span className="mono">{count(frames.length)}</span>
           </button>
           <button
             type="button"
@@ -1000,6 +1130,42 @@ export default function GroupWorkspace({ projectId }: { projectId: string }) {
             {W.none} <span className="mono">{count(unassigned.length)}</span>
           </button>
         </div>
+
+        <span className="gw-bar-fill" />
+
+        <div className="gw-suggest" aria-live="polite">
+          {analysis?.phase === 'error' && <span className="gw-error">{analysis.text}</span>}
+          {analysis?.phase === 'note' && <span className="gw-note">{analysis.text}</span>}
+          {!firstRun && suggest && suggest.boundaries.length > 0 && (
+            <>
+              <span>
+                {suggest.boundaries.length === 1
+                  ? 'הצעה אחת לפצל'
+                  : <><span className="mono">{count(suggest.boundaries.length)}</span> הצעות לפצל</>}
+                {suggest.unread > 0 && <> · <span className="mono">{count(suggest.unread)}</span> לא נקראו</>}
+              </span>
+              <button type="button" className="btn" onClick={() => setSuggest({ ...suggest, shown: !suggest.shown })}>
+                {suggest.shown ? 'הסתר' : 'הצג'}
+              </button>
+              <button type="button" className="btn btn-primary" onClick={acceptAll}>פצל בכולם</button>
+              <button type="button" className="gw-link" onClick={() => setSuggest(null)}>נקה</button>
+            </>
+          )}
+          {!busy && !firstRun && !(suggest && suggest.boundaries.length) && (
+            <button
+              type="button"
+              className="btn gw-suggest-btn"
+              onClick={suggestNow}
+              title={`המערכת מציעה איפה לפצל, לפי הפסקות בזמן ושינוי בסצנה — ב${view === 'all' ? 'כל היום' : 'תמונות המוצגות'}. שום דבר לא משתנה עד שתאשר.`}
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                <path d="m12 3-1.9 5.8a2 2 0 0 1-1.3 1.3L3 12l5.8 1.9a2 2 0 0 1 1.3 1.3L12 21l1.9-5.8a2 2 0 0 1 1.3-1.3L21 12l-5.8-1.9a2 2 0 0 1-1.3-1.3Z" />
+              </svg>
+              {W.suggest}
+            </button>
+          )}
+        </div>
+
         <div className="gw-head-actions" data-tour="batches-tools">
           <input
             type="search"
@@ -1009,6 +1175,20 @@ export default function GroupWorkspace({ projectId }: { projectId: string }) {
             value={query}
             onChange={(e) => setQuery(e.target.value)}
           />
+          <div className="gw-sizes" role="radiogroup" aria-label="גודל תמונות" data-tour="batches-sizes">
+            {(['s', 'm', 'l'] as const).map((s) => (
+              <button
+                key={s}
+                type="button"
+                role="radio"
+                aria-checked={size === s}
+                className={size === s ? 'on' : ''}
+                onClick={() => { setSize(s); writePref('teza.groups.size', s); }}
+              >
+                {s === 's' ? 'קטן' : s === 'm' ? 'בינוני' : 'גדול'}
+              </button>
+            ))}
+          </div>
           <button
             type="button"
             className="gw-icon"
@@ -1047,388 +1227,280 @@ export default function GroupWorkspace({ projectId }: { projectId: string }) {
         </div>
       )}
 
-      {/* Live running progress indicator if scanning while groups exist */}
-      {busy && groups.length > 0 && (
-        <div className="gw-sidebar-progress" aria-live="polite">
-          <div className="gw-cprog-head">
-            <div className="gw-cprog-title">
-              <span className="gw-cprog-spinner" />
-              <span>
-                {analysis?.phase === 'embed' && (
-                  analysis.done === 0
-                    ? 'טוען את מודל הזיהוי…'
-                    : `קורא ${count(analysis.done)} / ${count(analysis.total)} תמונות`
-                )}
-                {analysis?.phase === 'group' && 'מנתח ומחפש גבולות…'}
-              </span>
-            </div>
-            {analysis?.phase === 'embed' && analysis.total > 0 && (
-              <span className="gw-cprog-pct">
-                {Math.round((analysis.done / analysis.total) * 100)}%
-              </span>
-            )}
-          </div>
-          <div className="gw-cprog-track">
-            <div
-              className={`gw-cprog-fill ${analysis?.phase === 'group' ? 'indeterminate' : ''}`}
-              style={{
-                width: analysis?.phase === 'embed' && analysis.total > 0
-                  ? `${Math.max(6, Math.round((analysis.done / analysis.total) * 100))}%`
-                  : '100%',
-              }}
-            />
-          </div>
-          <button
-            type="button"
-            className="gw-btn-stop-sm"
-            onClick={() => { stopAnalysis.current = true; }}
-          >
-            עצור
-          </button>
-        </div>
-      )}
-
-      {/* ---- real groups only: filters live in the header ---- */}
-      {groups.length > 0 ? (
-      <div className="gw-strip-shell" data-tour="batches-strip">
-        <nav
-          className="gw-strip"
-          ref={stripRef}
-          dir="rtl"
-          aria-label={W.many}
-          onDragOver={onStripDragOver}
-          onDrop={onStripDrop}
-          onDragLeave={(e) => { if (e.currentTarget === e.target) setDropBefore(null); }}
-        >
-        {groups.map((g, i) => (
-          <GroupTile
-            key={g.id}
-            group={g}
-            members={members.get(g.id) ?? []}
-            active={view === g.id}
-            dropping={dropTarget === g.id}
-            dropBefore={dropBefore === i}
-            dropAfter={dropBefore === groups.length && i === groups.length - 1}
-            renaming={renaming === g.id}
-            graded={(state.recipe.perBatch[g.id] ?? []).some((t) => t.enabled)}
-            words={W}
-            coverUrl={(p) => preview.url(p, 360)}
-            onSelect={() => { if (view !== g.id) switchView(g.id); }}
-            onMenu={(el) => { setPop(null); setMenu({ kind: 'group', id: g.id, ...anchorOf(el) }); }}
-            onContext={(x, y) => { setPop(null); setMenu({ kind: 'group', id: g.id, x, y }); }}
-            onRenameStart={() => setRenaming(g.id)}
-            onRename={(name) => rename(g.id, name)}
-            onRenameCancel={() => setRenaming(null)}
-            onDragStart={(e) => {
-              dragRef.current = { type: 'group', id: g.id };
-              e.dataTransfer.effectAllowed = 'move';
-              e.dataTransfer.setData('text/plain', g.name);
-            }}
-            onDragEnd={() => { dragRef.current = null; setDropBefore(null); setDropTarget(null); }}
-            dropProps={frameDropProps(g.id, (names) => move(names, g.id))}
-          />
-        ))}
-
-        <button
-          type="button"
-          className={`gw-tile-plus ${dropTarget === 'plus' ? 'drop' : ''}`}
-          data-tour="batches-new"
-          onClick={(e) => openNew([], anchorOf(e.currentTarget))}
-          {...frameDropProps('plus', (names) => {
-            const el = stripRef.current?.querySelector('.gw-tile-plus');
-            openNew(names, el ? anchorOf(el) : centre());
+      {/* ---- the day: the whole shoot as one band, then the sessions ---- */}
+      <section className="gw-day" aria-label="מפת היום" data-tour="batches-overview">
+        <div className="gw-map" data-tour="batches-map">
+          {runs.map((r) => {
+            const pct = (r.n / frames.length) * 100;
+            const color = colorOf(r.owner);
+            const here = hereIndex >= r.from && hereIndex < r.from + r.n;
+            const label = nameOf(r.owner);
+            const run = frames.slice(r.from, r.from + r.n);
+            return (
+              <button
+                key={`${r.owner ?? 'none'}-${r.first}`}
+                type="button"
+                className={`gw-map-run${r.owner ? '' : ' is-none'}${here ? ' is-here' : ''}${dropTarget === `map-${r.first}` ? ' drop' : ''}`}
+                style={{ flexGrow: r.n, background: color }}
+                title={`${label} · ${count(r.n)} תמונות${spanOf(run) ? ` · ${spanOf(run)}` : ''}`}
+                onClick={() => goToRun(r.first)}
+                {...frameDropProps(`map-${r.first}`, (names) => move(names, r.owner))}
+              >
+                {pct >= 9 && <span className="gw-map-label">{label}</span>}
+                {pct >= 15 && <span className="gw-map-n mono">{count(r.n)}</span>}
+              </button>
+            );
           })}
-        >
-          {W.plus}
-        </button>
-        </nav>
-      </div>
-      ) : (
-        <div className="gw-empty-groups">
-          <div className="gw-empty-card">
-            <div className="gw-empty-icon-box">
-              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-                <polygon points="12 2 2 7 12 12 22 7 12 2" />
-                <polyline points="2 17 12 22 22 17" />
-                <polyline points="2 12 12 17 22 12" />
-              </svg>
+          {suggest?.shown && suggest.boundaries.map((b) => {
+            const i = frameIndex.get(b.beforeFrame);
+            if (i === undefined) return null;
+            return (
+              <i
+                key={`cut-${b.afterFrame}`}
+                className={`gw-map-cut ${b.strength}`}
+                style={{ insetInlineStart: `${(i / frames.length) * 100}%` }}
+                title={b.gapMinutes ? `הצעה לפצל: ${b.gapMinutes} דקות הפסקה` : 'הצעה לפצל: שינוי בסצנה'}
+              />
+            );
+          })}
+        </div>
+        <div className="gw-axis" aria-hidden>
+          {runs.map((r) => {
+            const pct = (r.n / frames.length) * 100;
+            const at = (r.from / frames.length) * 100;
+            const t = clock(frames[r.from]?.shot ?? 0);
+            return pct >= 7 && t ? (
+              <span key={`t-${r.first}`} className="mono" style={{ insetInlineStart: `${at}%` }}>{t}</span>
+            ) : null;
+          })}
+          {frames.length > 0 && clock(frames[frames.length - 1].shot) && (
+            <span className="mono is-end">{clock(frames[frames.length - 1].shot)}</span>
+          )}
+        </div>
+
+        {progressLine}
+
+        {groups.length > 0 ? (
+          <nav
+            className="gw-chips"
+            ref={stripRef}
+            dir="rtl"
+            aria-label={W.many}
+            data-tour="batches-strip"
+            onDragOver={onStripDragOver}
+            onDrop={onStripDrop}
+            onDragLeave={(e) => { if (e.currentTarget === e.target) setDropBefore(null); }}
+          >
+            {groups.map((g, i) => (
+              <SessionChip
+                key={g.id}
+                group={g}
+                color={HUES[i % HUES.length]}
+                members={members.get(g.id) ?? []}
+                active={view === g.id}
+                dropping={dropTarget === g.id}
+                dropBefore={dropBefore === i}
+                dropAfter={dropBefore === groups.length && i === groups.length - 1}
+                renaming={renaming === g.id}
+                graded={(state.recipe.perBatch[g.id] ?? []).some((t) => t.enabled)}
+                words={W}
+                coverUrl={(p) => preview.url(p, 120)}
+                onSelect={() => switchView(view === g.id ? 'all' : g.id)}
+                onMenu={(el) => { setPop(null); setMenu({ kind: 'group', id: g.id, ...anchorOf(el) }); }}
+                onContext={(x, y) => { setPop(null); setMenu({ kind: 'group', id: g.id, x, y }); }}
+                onRenameStart={() => setRenaming(g.id)}
+                onRename={(name) => rename(g.id, name)}
+                onRenameCancel={() => setRenaming(null)}
+                onDragStart={(e) => {
+                  dragRef.current = { type: 'group', id: g.id };
+                  e.dataTransfer.effectAllowed = 'move';
+                  e.dataTransfer.setData('text/plain', g.name);
+                }}
+                onDragEnd={() => { dragRef.current = null; setDropBefore(null); setDropTarget(null); }}
+                dropProps={frameDropProps(g.id, (names) => move(names, g.id))}
+              />
+            ))}
+            <button
+              type="button"
+              className={`gw-chip-plus ${dropTarget === 'plus' ? 'drop' : ''}`}
+              data-tour="batches-new"
+              onClick={(e) => openNew(selected.size ? selNames : [], anchorOf(e.currentTarget))}
+              title={selected.size ? `סשן חדש מ־${count(selected.size)} התמונות שנבחרו` : 'סשן חדש וריק'}
+              {...frameDropProps('plus', (names) => {
+                const el = stripRef.current?.querySelector('.gw-chip-plus');
+                openNew(names, el ? anchorOf(el) : centre());
+              })}
+            >
+              {W.plus}
+            </button>
+          </nav>
+        ) : (
+          <div className="gw-first" data-tour="batches-suggest-start">
+            <div className="gw-first-copy">
+              <strong>הצילום עוד לא מחולק לסשנים</strong>
+              <p>סשן הוא חלק מהיום שצולם באותו אור ובאותו מקום — כך בוחרים ועורכים אותו יחד. המערכת יכולה להציע איפה לפצל, לפי הפסקות בזמן ושינוי בסצנה; שום דבר לא נשמר עד שתאשר.</p>
             </div>
-            <div>
-              <span className="gw-empty-kicker">התחלה מהירה</span>
-              <strong>חלק את הצילום לסשנים ברורים</strong>
-              <p>מקבץ מרכז תמונות שתרצה לבחור ולערוך יחד. אפשר לקבל הצעה אוטומטית או להתחיל ידנית.</p>
-            </div>
-
-            {/* Error or Note message if any */}
-            {analysis?.phase === 'error' && (
-              <div className="gw-card-alert gw-card-alert-error">
-                <span>{analysis.text}</span>
-              </div>
-            )}
-            {analysis?.phase === 'note' && (
-              <div className="gw-card-alert gw-card-alert-note">
-                <span>{analysis.text}</span>
-              </div>
-            )}
-
-            {/* If analysis is currently running, show live progress here */}
-            {busy ? (
-              <div className="gw-card-progress" aria-live="polite">
-                <div className="gw-cprog-head">
-                  <div className="gw-cprog-title">
-                    <span className="gw-cprog-spinner" />
-                    <span>
-                      {analysis?.phase === 'embed' && (
-                        analysis.done === 0
-                          ? 'טוען את מודל הזיהוי…'
-                          : `קורא ${count(analysis.done)} מתוך ${count(analysis.total)} תמונות`
-                      )}
-                      {analysis?.phase === 'group' && 'מנתח ומחפש גבולות…'}
-                    </span>
-                  </div>
-                  {analysis?.phase === 'embed' && analysis.total > 0 && (
-                    <span className="gw-cprog-pct">
-                      {Math.round((analysis.done / analysis.total) * 100)}%
-                    </span>
-                  )}
-                </div>
-
-                <div className="gw-cprog-track">
-                  <div
-                    className={`gw-cprog-fill ${analysis?.phase === 'group' ? 'indeterminate' : ''}`}
-                    style={{
-                      width: analysis?.phase === 'embed' && analysis.total > 0
-                        ? `${Math.max(6, Math.round((analysis.done / analysis.total) * 100))}%`
-                        : '100%',
-                    }}
-                  />
-                </div>
-
-                <button
-                  type="button"
-                  className="gw-btn-stop"
-                  onClick={() => { stopAnalysis.current = true; }}
-                >
-                  עצור סריקה
+            {!busy && (suggest && suggest.boundaries.length > 0 ? (
+              <div className="gw-first-actions" data-tour="batches-suggest-results">
+                <span className="gw-first-found">
+                  נמצאו <b className="mono">{count(suggest.boundaries.length + 1)}</b> סשנים מוצעים
+                  {suggest.visualOnly && <small> · לפי מראה בלבד, בלי זמני צילום</small>}
+                </span>
+                <button type="button" className="btn btn-primary" onClick={acceptAll}>צור את הסשנים</button>
+                <button type="button" className="btn" onClick={() => setSuggest({ ...suggest, shown: !suggest.shown })}>
+                  {suggest.shown ? 'הסתר את הגבולות' : 'הצג את הגבולות'}
                 </button>
-              </div>
-            ) : suggest && suggest.boundaries.length > 0 ? (
-              /* Suggestions ready to accept right from the card */
-              <div className="gw-card-suggest-results" data-tour="batches-suggest-results">
-                <div className="gw-cresults-head">
-                  <strong>✨ נמצאו {count(suggest.boundaries.length)} סשנים מוצעים</strong>
-                  {suggest.visualOnly && <small>לפי מראה ויזואלי</small>}
-                </div>
-                <div className="gw-cresults-actions">
-                  <button type="button" className="btn btn-primary" onClick={acceptAll}>
-                    קבל את כל הסשנים
-                  </button>
-                  <button
-                    type="button"
-                    className="btn gw-btn-toggle"
-                    onClick={() => setSuggest({ ...suggest, shown: !suggest.shown })}
-                  >
-                    {suggest.shown ? 'הסתר גבולות' : 'הצג גבולות'}
-                  </button>
-                  <button type="button" className="gw-link" onClick={() => setSuggest(null)}>
-                    נקה
-                  </button>
-                </div>
+                <button type="button" className="gw-link" onClick={() => setSuggest(null)}>נקה</button>
               </div>
             ) : (
-              /* Default action buttons */
-              <div className="gw-empty-actions" data-tour="batches-suggest-start">
-                <button type="button" className="btn btn-primary gw-btn-suggest" onClick={suggestNow} disabled={busy}>
-                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+              <div className="gw-first-actions">
+                <button type="button" className="btn btn-primary gw-btn-suggest" onClick={suggestNow}>
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
                     <path d="m12 3-1.9 5.8a2 2 0 0 1-1.3 1.3L3 12l5.8 1.9a2 2 0 0 1 1.3 1.3L12 21l1.9-5.8a2 2 0 0 1 1.3-1.3L21 12l-5.8-1.9a2 2 0 0 1-1.3-1.3Z" />
                   </svg>
                   {W.suggest}
                 </button>
                 <button
                   type="button"
-                  className="btn gw-btn-manual"
+                  className="btn"
                   onClick={() => {
                     sheetRef.current?.focus();
                     const first = visible[0];
                     if (first) { setFocus(first.name); setAnchor(first.name); setSelected(new Set([first.name])); }
                   }}
                 >
-                  בחר ידנית
+                  אחלק בעצמי
                 </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
+
+      <section className="gw-gallery-pane" aria-label={`תמונות ב${viewTitle}`} data-tour="batches-photos">
+        {view !== 'all' && (
+          <div className="gw-viewbar">
+            <button type="button" className="gw-back" onClick={() => switchView('all')}>
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden><path d="m9 18 6-6-6-6" /></svg>
+              כל היום
+            </button>
+            <span className={`gw-swatch${activeGroup ? '' : ' is-none'}`} style={activeGroup ? { background: colorOf(activeGroup.id) } : undefined} />
+            {activeGroup ? (
+              <ViewName key={activeGroup.id} name={activeGroup.name} label={W.nameField} onRename={(name) => rename(activeGroup.id, name)} />
+            ) : (
+              <strong>{viewTitle}</strong>
+            )}
+            <span className="mono gw-sep-n">{count(inView.length)}</span>
+            {activeGroup && spanOf(inView) && <bdi dir="ltr" className="mono gw-sep-span">{spanOf(inView)}</bdi>}
+            {q && <span className="gw-filtered">· מוצגות <span className="mono">{count(visible.length)}</span></span>}
+            <span className="gw-sep-fill" />
+            {activeGroup && (
+              <button
+                type="button"
+                className="gw-icon gw-sep-more"
+                aria-label={`פעולות על ${activeGroup.name}`}
+                onClick={(e) => { setPop(null); setMenu({ kind: 'group', id: activeGroup.id, ...anchorOf(e.currentTarget) }); }}
+              >
+                ⋯
+              </button>
+            )}
+          </div>
+        )}
+
+        {!hinted && !firstRun && (
+          <p className="gw-hint">לחיצה על תמונה בוחרת אותה · Shift בוחר טווח · גרירת הבחירה לסשן במפה או ברשימה מעבירה אותה</p>
+        )}
+
+        <div className="gw-sheet-wrap">
+          {stickySep && stickySep.type === 'sep' && (
+            <div className="gw-sticky">{sepHeader(stickySep.gid, `sticky-${stickySep.key}`, true)}</div>
+          )}
+          <div
+            className="gw-sheet"
+            ref={sheetRef}
+            tabIndex={0}
+            role="grid"
+            aria-label={`${viewTitle} · ${count(visible.length)} תמונות`}
+            aria-multiselectable="true"
+            onScroll={onScroll}
+            onPointerDown={onSheetPointerDown}
+          >
+            {visible.length === 0 ? (
+              <div className="gw-sheet-empty">
+                {q ? (
+                  <p>אין תמונות שהשם שלהן מכיל „{query}”.</p>
+                ) : activeGroup ? (
+                  <>
+                    <strong>{W.empty}</strong>
+                    <p>גרור לכאן תמונות, או בחר תמונות בסשן אחר והעבר אותן לכאן.</p>
+                  </>
+                ) : (
+                  <p>כל התמונות כבר בסשנים — אין תמונות {W.none}.</p>
+                )}
+              </div>
+            ) : (
+              <div className="gw-sheet-inner" style={{ height: layout.total }}>
+                {windowRows.map((row) => {
+                  if (row.type === 'sep') {
+                    return (
+                      <div key={row.key} className="gw-sep" style={{ top: row.top, height: row.h }}>
+                        {sepHeader(row.gid, `in-${row.key}`)}
+                      </div>
+                    );
+                  }
+                  return (
+                    <div key={row.key} className="gw-row" style={{ top: row.top, height: row.h, gap: GAP }}>
+                      {row.items.map((f, c) => {
+                        const i = row.start + c;
+                        const prev = i > 0 ? visible[i - 1] : undefined;
+                        const owner = ownerOf(f);
+                        const sameAsPrev = !!prev && ownerOf(prev) === owner;
+                        const b = cutBefore?.get(f.name);
+                        const cut = b && prev && prev.name === b.afterFrame ? b : undefined;
+                        const group = owner ? groups.find((g) => g.id === owner) : undefined;
+                        return (
+                          <Cell
+                            key={f.name}
+                            f={f}
+                            w={row.ws[c]}
+                            h={row.ih}
+                            onAspect={onAspect}
+                            url={preview.url(f.path, thumbFor(row.ws[c] * (window.devicePixelRatio || 1)))}
+                            pending={preview.pending(f.path)}
+                            selected={selected.has(f.name)}
+                            focused={focus === f.name}
+                            cover={!!group && view === owner && group.cover === f.name}
+                            tint={colorOf(owner)}
+                            splittable={!q && sameAsPrev && owner !== null && !cut}
+                            cutStrength={cut?.strength}
+                            cutLabel={cut ? (cut.gapMinutes ? `${cut.gapMinutes} דק׳ הפסקה` : 'שינוי בסצנה') : undefined}
+                            cutTitle={cut ? (cut.gapMinutes
+                              ? `הצעה: פער של ${cut.gapMinutes} דקות ושינוי בסצנה`
+                              : 'הצעה: שינוי משמעותי בסצנה') : undefined}
+                            cutActionable={!!cut && sameAsPrev && owner !== null}
+                            onEvent={onCell}
+                          />
+                        );
+                      })}
+                    </div>
+                  );
+                })}
+                {rect && (
+                  <div
+                    className="gw-rect"
+                    style={{
+                      right: Math.min(rect.x0, rect.x1),
+                      top: Math.min(rect.y0, rect.y1),
+                      width: Math.abs(rect.x1 - rect.x0),
+                      height: Math.abs(rect.y1 - rect.y0),
+                    }}
+                  />
+                )}
               </div>
             )}
           </div>
         </div>
-      )}
-
-      </aside>
-      <section className="gw-gallery-pane" aria-label="תמונות במקבץ" data-tour="batches-photos">
-
-      {/* ---- toolbar ---- */}
-      <div className="gw-toolbar">
-        <div className="gw-view-title">
-          {activeGroup ? (
-            <ViewName
-              key={activeGroup.id}
-              name={activeGroup.name}
-              label={W.nameField}
-              onRename={(name) => rename(activeGroup.id, name)}
-            />
-          ) : (
-            <strong>{viewTitle}</strong>
-          )}
-          <span className="mono">{count(inView.length)}</span>
-          {activeGroup && <bdi dir="ltr" className="mono gw-span">{spanOf(inView)}</bdi>}
-          {q && <span className="gw-filtered">· מוצגות <span className="mono">{count(visible.length)}</span></span>}
-        </div>
-
-        <div className="gw-suggest" aria-live="polite">
-          {analysis?.phase === 'embed' && (
-            <>
-              <span className="mono">
-                {analysis.done === 0 ? 'טוען את מודל הזיהוי…' : `קורא ${count(analysis.done)} / ${count(analysis.total)}`}
-              </span>
-              <button type="button" className="btn" onClick={() => { stopAnalysis.current = true; }}>עצור</button>
-            </>
-          )}
-          {analysis?.phase === 'group' && <span>מחפש גבולות…</span>}
-          {analysis?.phase === 'error' && <span className="gw-error">{analysis.text}</span>}
-          {analysis?.phase === 'note' && <span>{analysis.text}</span>}
-          {suggest && suggest.boundaries.length > 0 && (
-            <>
-              <span>
-                <span className="mono">{count(suggest.boundaries.length)}</span> גבולות מוצעים
-                {suggest.unread > 0 && <> · <span className="mono">{count(suggest.unread)}</span> לא נקראו</>}
-                {suggest.visualOnly && <> · לפי מראה בלבד</>}
-              </span>
-              <button type="button" className="btn" onClick={() => setSuggest({ ...suggest, shown: !suggest.shown })}>
-                {suggest.shown ? 'הסתר' : 'הצג'}
-              </button>
-              <button type="button" className="btn btn-primary" onClick={acceptAll}>קבל הכל</button>
-              <button type="button" className="gw-link" onClick={() => setSuggest(null)}>נקה</button>
-            </>
-          )}
-          {!busy && !firstRun && !(suggest && suggest.boundaries.length) && (
-            <button type="button" className="btn" onClick={suggestNow} title="המערכת מציעה גבולות בין התמונות המוצגות. שום דבר לא נשמר עד שתאשר.">
-              {W.suggest}
-            </button>
-          )}
-        </div>
-
-        <div className="gw-sizes" role="radiogroup" aria-label="גודל תמונות" data-tour="batches-sizes">
-          {(['s', 'm', 'l'] as const).map((s) => (
-            <button
-              key={s}
-              type="button"
-              role="radio"
-              aria-checked={size === s}
-              className={size === s ? 'on' : ''}
-              onClick={() => { setSize(s); writePref('teza.groups.size', s); }}
-            >
-              {s === 's' ? 'קטן' : s === 'm' ? 'בינוני' : 'גדול'}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {!hinted && !firstRun && (
-        <p className="gw-hint">בחר תמונה. Shift בוחר טווח.</p>
-      )}
-
-      {/* ---- the contact sheet ---- */}
-      <div
-        className="gw-sheet"
-        ref={sheetRef}
-        tabIndex={0}
-        role="grid"
-        aria-label={`${viewTitle} · ${count(visible.length)} תמונות`}
-        aria-multiselectable="true"
-        onScroll={onScroll}
-        onPointerDown={onSheetPointerDown}
-      >
-        {visible.length === 0 ? (
-          <div className="gw-sheet-empty">
-            {q ? (
-              <p>אין תמונות שהשם שלהן מכיל „{query}”.</p>
-            ) : activeGroup ? (
-              <>
-                <strong>{W.empty}</strong>
-                <p>גרור לכאן תמונות או בחר תמונות מ{W.one} אחר.</p>
-              </>
-            ) : (
-              <p>אין תמונות {W.none}.</p>
-            )}
-          </div>
-        ) : (
-          <div className="gw-sheet-inner" style={{ height: layout.total }}>
-            {windowRows.map((row) => {
-              if (row.type === 'sep') {
-                const list = members.get(row.gid) ?? [];
-                return (
-                  <div key={row.key} className="gw-sep" style={{ top: row.top, height: row.h }}>
-                    <button
-                      type="button"
-                      className="gw-sep-name"
-                      onClick={() => switchView(row.gid ?? 'none')}
-                    >
-                      {nameOf(row.gid)}
-                    </button>
-                    <span className="mono">{count(list.length)}</span>
-                  </div>
-                );
-              }
-              return (
-                <div key={row.key} className="gw-row" style={{ top: row.top, height: row.h, gap: GAP }}>
-                  {row.items.map((f, c) => {
-                    const i = row.start + c;
-                    const prev = i > 0 ? visible[i - 1] : undefined;
-                    const owner = ownerOf(f);
-                    const sameAsPrev = !!prev && ownerOf(prev) === owner;
-                    const b = cutBefore?.get(f.name);
-                    const cut = b && prev && prev.name === b.afterFrame ? b : undefined;
-                    const group = owner ? groups.find((g) => g.id === owner) : undefined;
-                    return (
-                      <Cell
-                        key={f.name}
-                        f={f}
-                        w={row.ws[c]}
-                        h={row.ih}
-                        onAspect={onAspect}
-                        url={preview.url(f.path, thumbFor(row.ws[c] * (window.devicePixelRatio || 1)))}
-                        pending={preview.pending(f.path)}
-                        selected={selected.has(f.name)}
-                        focused={focus === f.name}
-                        cover={!!group && view === owner && group.cover === f.name}
-                        splittable={!q && sameAsPrev && owner !== null && !cut}
-                        cutStrength={cut?.strength}
-                        cutTitle={cut ? (cut.gapMinutes
-                          ? `הצעה: פער של ${cut.gapMinutes} דקות ושינוי בסצנה`
-                          : 'הצעה: שינוי משמעותי בסצנה') : undefined}
-                        cutActionable={!!cut && sameAsPrev && owner !== null}
-                        onEvent={onCell}
-                      />
-                    );
-                  })}
-                </div>
-              );
-            })}
-            {rect && (
-              <div
-                className="gw-rect"
-                style={{
-                  right: Math.min(rect.x0, rect.x1),
-                  top: Math.min(rect.y0, rect.y1),
-                  width: Math.abs(rect.x1 - rect.x0),
-                  height: Math.abs(rect.y1 - rect.y0),
-                }}
-              />
-            )}
-          </div>
-        )}
-      </div>
-
       </section>
-      </div>
 
       {/* ---- selection toolbar ---- */}
       {selected.size > 0 && (
@@ -1518,7 +1590,7 @@ export default function GroupWorkspace({ projectId }: { projectId: string }) {
         return (
           <Menu x={menu.x} y={menu.y} onClose={() => setMenu(null)} label={`פעולות על ${g.name}`} items={[
             { label: 'שינוי שם', hint: 'F2', onSelect: () => { setMenu(null); setRenaming(g.id); } },
-            { label: 'קבע תמונת שער', disabled: !focusIn, hint: focusIn ? undefined : 'סמן תמונה בקבוצה', onSelect: () => setCover(g.id, focus!) },
+            { label: 'קבע תמונת שער', disabled: !focusIn, hint: focusIn ? undefined : 'סמן תמונה בסשן', onSelect: () => setCover(g.id, focus!) },
             { label: W.split, disabled: !canSplit, hint: canSplit ? undefined : 'סמן את התמונה שממנה לפצל', onSelect: () => setPop({ type: 'split', x: menu.x, y: menu.y, above: false, groupId: g.id, from: focus! }) },
             { label: W.merge, disabled: groups.length < 2, onSelect: () => { setMenu(null); setPop({ type: 'merge', x: menu.x, y: menu.y, above: false, source: g.id }); } },
             { label: 'בחר את כל התמונות', disabled: !list.length, onSelect: () => {
@@ -1591,7 +1663,7 @@ export default function GroupWorkspace({ projectId }: { projectId: string }) {
         const hasLook = kind === 'edit' && (state.recipe.perBatch[g.id] ?? []).length > 0;
         return (
           <Dialog
-            title={kind === 'edit' ? 'למחוק את קבוצת העריכה?' : 'למחוק את הרצף?'}
+            title={`למחוק את הסשן „${g.name}”?`}
             onClose={() => setDialog(null)}
             actions={[
               { label: W.del, danger: true, onSelect: () => remove(g.id) },
@@ -1600,7 +1672,7 @@ export default function GroupWorkspace({ projectId }: { projectId: string }) {
           >
             <p>
               {n === 1 ? 'התמונה תחזור' : `${count(n)} התמונות יחזרו`} ל{W.none}.
-              {hasLook && ' עריכת הצבע הייחודית לקבוצה הזו תימחק.'}
+              {hasLook && ' עריכת הצבע הייחודית לסשן הזה תימחק.'}
             </p>
           </Dialog>
         );
@@ -1608,7 +1680,7 @@ export default function GroupWorkspace({ projectId }: { projectId: string }) {
 
       {dialog?.type === 'mergeRecipe' && (
         <Dialog
-          title="לשתי הקבוצות יש עריכות שונות. איזו עריכה לשמור?"
+          title="לשני הסשנים יש עריכות צבע שונות. איזו לשמור?"
           onClose={() => setDialog(null)}
           actions={[
             { label: `עריכת „${nameOf(dialog.source)}”`, onSelect: () => merge(dialog.source, dialog.target, 'source') },
@@ -1617,7 +1689,7 @@ export default function GroupWorkspace({ projectId }: { projectId: string }) {
             { label: 'ביטול', onSelect: () => setDialog(null) },
           ]}
         >
-          <p>התמונות של שתי הקבוצות יאוחדו לקבוצה אחת עם עריכה אחת.</p>
+          <p>התמונות של שני הסשנים יאוחדו לסשן אחד עם עריכת צבע אחת.</p>
         </Dialog>
       )}
 
@@ -1727,15 +1799,19 @@ interface CellProps {
   selected: boolean;
   focused: boolean;
   cover: boolean;
+  /** The colour of the session it belongs to — a thin bar under the picture. */
+  tint?: string;
   splittable: boolean;
   cutStrength?: 'strong' | 'medium';
+  /** The reason, short: "18 דק׳ הפסקה", "שינוי בסצנה". */
+  cutLabel?: string;
   cutTitle?: string;
   cutActionable: boolean;
   onEvent: (t: CellEvent, name: string, e: React.SyntheticEvent) => void;
 }
 
 const Cell = memo(function Cell({
-  f, w, h, onAspect, url, pending, selected, focused, cover, splittable, cutStrength, cutTitle, cutActionable, onEvent,
+  f, w, h, onAspect, url, pending, selected, focused, cover, tint, splittable, cutStrength, cutLabel, cutTitle, cutActionable, onEvent,
 }: CellProps) {
   const time = clock(f.shot, true);
   return (
@@ -1760,6 +1836,7 @@ const Cell = memo(function Cell({
         draggable={false}
         onLoad={(e) => { const im = e.currentTarget; if (im.naturalWidth && im.naturalHeight) onAspect(f.name, im.naturalWidth / im.naturalHeight); }}
       />
+      {tint && <i className="gw-tint" style={{ background: tint }} aria-hidden />}
       {!f.shot && <span className="gw-badge">ללא זמן</span>}
       {cover && <span className="gw-badge gw-badge-cover">שער</span>}
       <button
@@ -1779,7 +1856,7 @@ const Cell = memo(function Cell({
           className="gw-split"
           onClick={(e) => { e.stopPropagation(); onEvent('split', f.name, e); }}
           onDoubleClick={(e) => e.stopPropagation()}
-          title="פצל כאן: התמונה הזו והבאות אחריה יעברו לקבוצה חדשה"
+          title="פצל כאן: התמונה הזו והבאות אחריה יעברו לסשן חדש"
         >
           <span>פצל כאן</span>
         </button>
@@ -1787,22 +1864,23 @@ const Cell = memo(function Cell({
       {cutStrength && (
         <div className={`gw-cut ${cutStrength}`} title={cutTitle} data-tour="batches-cut">
           <span className="gw-cut-chip">
-            הצעה
-            {cutActionable ? (
+            <span className="gw-cut-why">{cutLabel ?? 'הצעה'}</span>
+            {cutActionable && (
               <button
                 type="button"
+                className="is-go"
                 aria-label="קבל את ההצעה ופצל כאן"
                 onClick={(e) => { e.stopPropagation(); onEvent('cutAccept', f.name, e); }}
               >
-                ✓
+                פצל
               </button>
-            ) : null}
+            )}
             <button
               type="button"
-              aria-label="דחה את ההצעה"
+              aria-label="התעלם מההצעה"
               onClick={(e) => { e.stopPropagation(); onEvent('cutReject', f.name, e); }}
             >
-              ✕
+              התעלם
             </button>
           </span>
         </div>
@@ -1811,11 +1889,15 @@ const Cell = memo(function Cell({
   );
 });
 
-function GroupTile({
-  group, members, active, dropping, dropBefore, dropAfter, renaming, graded, words, coverUrl,
+/** One session in the row under the day map: its colour, a small cover, the
+ *  name, the count. Click shows only it (again — back to the whole day);
+ *  double-click renames; drag reorders; photographs dropped on it move in. */
+function SessionChip({
+  group, color, members, active, dropping, dropBefore, dropAfter, renaming, graded, words, coverUrl,
   onSelect, onMenu, onContext, onRenameStart, onRename, onRenameCancel, onDragStart, onDragEnd, dropProps,
 }: {
   group: Group;
+  color: string;
   members: Frame[];
   active: boolean;
   dropping: boolean;
@@ -1846,7 +1928,8 @@ function GroupTile({
 
   return (
     <div
-      className={`gw-tile gw-tile-group${active ? ' on' : ''}${dropping ? ' drop' : ''}${dropBefore ? ' before' : ''}${dropAfter ? ' after' : ''}${members.length ? '' : ' empty'}`}
+      className={`gw-chip${active ? ' on' : ''}${dropping ? ' drop' : ''}${dropBefore ? ' before' : ''}${dropAfter ? ' after' : ''}${members.length ? '' : ' empty'}`}
+      style={{ ['--chip' as string]: color }}
       data-group-tile
       draggable={!renaming}
       onDragStart={onDragStart}
@@ -1856,42 +1939,42 @@ function GroupTile({
     >
       <button
         type="button"
-        className="gw-tile-hit"
+        className="gw-chip-hit"
         onClick={onSelect}
+        onDoubleClick={onRenameStart}
         aria-pressed={active}
         aria-label={`${group.name} · ${members.length} תמונות`}
+        title={active ? 'חזרה לכל היום' : `הצג רק את „${group.name}” · לחיצה כפולה לשינוי שם`}
       >
-        <span className="gw-tile-cover" aria-hidden>
-          {cover ? <img src={coverUrl(cover.path)} alt="" loading="lazy" draggable={false} /> : <i>{words.empty}</i>}
+        <span className="gw-chip-cover" aria-hidden>
+          {cover && <img src={coverUrl(cover.path)} alt="" loading="lazy" draggable={false} />}
         </span>
-      </button>
-      <span className="gw-tile-foot">
-        {renaming ? (
-          <input
-            className="gw-tile-input"
-            aria-label={words.nameField}
-            value={draft}
-            autoFocus
-            onFocus={(e) => { done.current = false; e.currentTarget.select(); }}
-            onChange={(e) => setDraft(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') { done.current = true; onRename(draft); }
-              if (e.key === 'Escape') { done.current = true; e.stopPropagation(); onRenameCancel(); }
-            }}
-            onBlur={() => { if (!done.current) onRename(draft); }}
-          />
-        ) : (
-          <span className="gw-tile-name" onDoubleClick={onRenameStart} title="לחיצה כפולה לשינוי שם">
-            {graded && <i className="gw-dot" title="לקבוצה יש עריכת צבע" />}
+        {!renaming && (
+          <span className="gw-chip-name">
             {group.name}
+            {graded && <i className="gw-dot" title="לסשן יש עריכת צבע" />}
           </span>
         )}
-        <span className="gw-tile-count mono">{count(members.length)}</span>
-        <bdi dir="ltr" className="gw-tile-span mono">{spanOf(members)}</bdi>
-      </span>
+        <span className="gw-chip-n mono">{count(members.length)}</span>
+      </button>
+      {renaming && (
+        <input
+          className="gw-chip-input"
+          aria-label={words.nameField}
+          value={draft}
+          autoFocus
+          onFocus={(e) => { done.current = false; e.currentTarget.select(); }}
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') { done.current = true; onRename(draft); }
+            if (e.key === 'Escape') { done.current = true; e.stopPropagation(); onRenameCancel(); }
+          }}
+          onBlur={() => { if (!done.current) onRename(draft); }}
+        />
+      )}
       <button
         type="button"
-        className="gw-tile-more"
+        className="gw-chip-more"
         aria-label={`פעולות על ${group.name}`}
         onClick={(e) => { e.stopPropagation(); onMenu(e.currentTarget); }}
       >
