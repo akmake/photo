@@ -442,3 +442,29 @@
 
 .gw-v3 .gw-link { color: var(--ink-2); }
 .gw-v3 .gw-link:hover { color: var(--gw-brand); }
+
+/* ---- calmer (09.10.2026, "עמוס ומבולגן"): one quiet map, no chip row, no bar
+ * under each photograph. The colour is a tint behind the session's name, not
+ * a slab of paint; the strongest thing on screen is the photographs. ---- */
+.gw-v3 .gw-day { padding: 10px 14px 8px; gap: 6px; }
+.gw-v3 .gw-map { height: 30px; gap: 3px; border-radius: 6px; }
+.gw-v3 .gw-map-run {
+  --run: var(--ink-3);
+  background: color-mix(in srgb, var(--run) 30%, var(--card));
+  box-shadow: inset 0 -2px 0 var(--run);
+  color: var(--ink);
+  text-shadow: none;
+  font-weight: 500;
+  font-size: 12px;
+  justify-content: center;
+  padding: 0 6px;
+  border-radius: 4px;
+}
+.gw-v3 .gw-map-run:hover { filter: none; background: color-mix(in srgb, var(--run) 45%, var(--card)); }
+.gw-v3 .gw-map-run.is-here { background: color-mix(in srgb, var(--run) 48%, var(--card)); }
+.gw-v3 .gw-map-run.is-on { box-shadow: inset 0 0 0 2px var(--run); background: color-mix(in srgb, var(--run) 48%, var(--card)); }
+.gw-v3 .gw-map-run.is-none { box-shadow: none; }
+.gw-v3 .gw-map-run.drop { box-shadow: inset 0 0 0 2px var(--ink); }
+.gw-v3 .gw-axis span { font-size: 10.5px; }
+.gw-v3 .gw-new-btn.drop { border-color: var(--gw-brand); color: var(--gw-brand); }
+.gw-v3 .gw-swatch { width: 10px; height: 10px; border-radius: 50%; }

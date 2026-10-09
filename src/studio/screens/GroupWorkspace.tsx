@@ -1166,6 +1166,17 @@ export default function GroupWorkspace({ projectId }: { projectId: string }) {
           )}
         </div>
 
+        <button
+          type="button"
+          className={`btn gw-new-btn ${dropTarget === 'plus' ? 'drop' : ''}`}
+          data-tour="batches-new"
+          onClick={(e) => openNew(selected.size ? selNames : [], anchorOf(e.currentTarget))}
+          title={selected.size ? `סשן חדש מ־${count(selected.size)} התמונות שנבחרו` : 'סשן חדש וריק'}
+          {...frameDropProps('plus', (names) => openNew(names, centre()))}
+        >
+          {W.plus}
+        </button>
+
         <div className="gw-head-actions" data-tour="batches-tools">
           <input
             type="search"
@@ -1240,14 +1251,20 @@ export default function GroupWorkspace({ projectId }: { projectId: string }) {
               <button
                 key={`${r.owner ?? 'none'}-${r.first}`}
                 type="button"
-                className={`gw-map-run${r.owner ? '' : ' is-none'}${here ? ' is-here' : ''}${dropTarget === `map-${r.first}` ? ' drop' : ''}`}
-                style={{ flexGrow: r.n, background: color }}
-                title={`${label} · ${count(r.n)} תמונות${spanOf(run) ? ` · ${spanOf(run)}` : ''}`}
+                className={`gw-map-run${r.owner ? '' : ' is-none'}${here ? ' is-here' : ''}${view === r.owner ? ' is-on' : ''}${dropTarget === `map-${r.first}` ? ' drop' : ''}`}
+                style={color ? { ['--run' as string]: color, flexGrow: r.n } : { flexGrow: r.n }}
+                title={`${label} · ${count(r.n)} תמונות${spanOf(run) ? ` · ${spanOf(run)}` : ''}\nלחיצה — קפוץ אליו · לחיצה כפולה — רק הוא`}
                 onClick={() => goToRun(r.first)}
+                onDoubleClick={() => switchView(r.owner ?? 'none')}
+                onContextMenu={(e) => {
+                  if (!r.owner) return;
+                  e.preventDefault();
+                  setPop(null);
+                  setMenu({ kind: 'group', id: r.owner, x: e.clientX, y: e.clientY });
+                }}
                 {...frameDropProps(`map-${r.first}`, (names) => move(names, r.owner))}
               >
-                {pct >= 9 && <span className="gw-map-label">{label}</span>}
-                {pct >= 15 && <span className="gw-map-n mono">{count(r.n)}</span>}
+                {pct >= 3 && <span className="gw-map-label">{label}</span>}
               </button>
             );
           })}
@@ -1280,61 +1297,7 @@ export default function GroupWorkspace({ projectId }: { projectId: string }) {
 
         {progressLine}
 
-        {groups.length > 0 ? (
-          <nav
-            className="gw-chips"
-            ref={stripRef}
-            dir="rtl"
-            aria-label={W.many}
-            data-tour="batches-strip"
-            onDragOver={onStripDragOver}
-            onDrop={onStripDrop}
-            onDragLeave={(e) => { if (e.currentTarget === e.target) setDropBefore(null); }}
-          >
-            {groups.map((g, i) => (
-              <SessionChip
-                key={g.id}
-                group={g}
-                color={HUES[i % HUES.length]}
-                members={members.get(g.id) ?? []}
-                active={view === g.id}
-                dropping={dropTarget === g.id}
-                dropBefore={dropBefore === i}
-                dropAfter={dropBefore === groups.length && i === groups.length - 1}
-                renaming={renaming === g.id}
-                graded={(state.recipe.perBatch[g.id] ?? []).some((t) => t.enabled)}
-                words={W}
-                coverUrl={(p) => preview.url(p, 120)}
-                onSelect={() => switchView(view === g.id ? 'all' : g.id)}
-                onMenu={(el) => { setPop(null); setMenu({ kind: 'group', id: g.id, ...anchorOf(el) }); }}
-                onContext={(x, y) => { setPop(null); setMenu({ kind: 'group', id: g.id, x, y }); }}
-                onRenameStart={() => setRenaming(g.id)}
-                onRename={(name) => rename(g.id, name)}
-                onRenameCancel={() => setRenaming(null)}
-                onDragStart={(e) => {
-                  dragRef.current = { type: 'group', id: g.id };
-                  e.dataTransfer.effectAllowed = 'move';
-                  e.dataTransfer.setData('text/plain', g.name);
-                }}
-                onDragEnd={() => { dragRef.current = null; setDropBefore(null); setDropTarget(null); }}
-                dropProps={frameDropProps(g.id, (names) => move(names, g.id))}
-              />
-            ))}
-            <button
-              type="button"
-              className={`gw-chip-plus ${dropTarget === 'plus' ? 'drop' : ''}`}
-              data-tour="batches-new"
-              onClick={(e) => openNew(selected.size ? selNames : [], anchorOf(e.currentTarget))}
-              title={selected.size ? `סשן חדש מ־${count(selected.size)} התמונות שנבחרו` : 'סשן חדש וריק'}
-              {...frameDropProps('plus', (names) => {
-                const el = stripRef.current?.querySelector('.gw-chip-plus');
-                openNew(names, el ? anchorOf(el) : centre());
-              })}
-            >
-              {W.plus}
-            </button>
-          </nav>
-        ) : (
+        {groups.length === 0 && (
           <div className="gw-first" data-tour="batches-suggest-start">
             <div className="gw-first-copy">
               <strong>הצילום עוד לא מחולק לסשנים</strong>
@@ -1408,7 +1371,7 @@ export default function GroupWorkspace({ projectId }: { projectId: string }) {
         )}
 
         {!hinted && !firstRun && (
-          <p className="gw-hint">לחיצה על תמונה בוחרת אותה · Shift בוחר טווח · גרירת הבחירה לסשן במפה או ברשימה מעבירה אותה</p>
+          <p className="gw-hint">לחיצה על תמונה בוחרת אותה · Shift בוחר טווח · גרירת הבחירה אל סשן במפה מעבירה אותה</p>
         )}
 
         <div className="gw-sheet-wrap">
@@ -1470,7 +1433,6 @@ export default function GroupWorkspace({ projectId }: { projectId: string }) {
                             selected={selected.has(f.name)}
                             focused={focus === f.name}
                             cover={!!group && view === owner && group.cover === f.name}
-                            tint={colorOf(owner)}
                             splittable={!q && sameAsPrev && owner !== null && !cut}
                             cutStrength={cut?.strength}
                             cutLabel={cut ? (cut.gapMinutes ? `${cut.gapMinutes} דק׳ הפסקה` : 'שינוי בסצנה') : undefined}
@@ -1888,101 +1850,6 @@ const Cell = memo(function Cell({
     </div>
   );
 });
-
-/** One session in the row under the day map: its colour, a small cover, the
- *  name, the count. Click shows only it (again — back to the whole day);
- *  double-click renames; drag reorders; photographs dropped on it move in. */
-function SessionChip({
-  group, color, members, active, dropping, dropBefore, dropAfter, renaming, graded, words, coverUrl,
-  onSelect, onMenu, onContext, onRenameStart, onRename, onRenameCancel, onDragStart, onDragEnd, dropProps,
-}: {
-  group: Group;
-  color: string;
-  members: Frame[];
-  active: boolean;
-  dropping: boolean;
-  dropBefore: boolean;
-  dropAfter: boolean;
-  renaming: boolean;
-  graded: boolean;
-  words: Words;
-  coverUrl: (path: string) => string;
-  onSelect: () => void;
-  onMenu: (el: Element) => void;
-  onContext: (x: number, y: number) => void;
-  onRenameStart: () => void;
-  onRename: (name: string) => void;
-  onRenameCancel: () => void;
-  onDragStart: (e: React.DragEvent) => void;
-  onDragEnd: () => void;
-  dropProps: {
-    onDragOver: (e: React.DragEvent) => void;
-    onDragLeave: () => void;
-    onDrop: (e: React.DragEvent) => void;
-  };
-}) {
-  const cover = G.coverOf(group, members);
-  const [draft, setDraft] = useState(group.name);
-  useEffect(() => { if (renaming) setDraft(group.name); }, [renaming, group.name]);
-  const done = useRef(false);
-
-  return (
-    <div
-      className={`gw-chip${active ? ' on' : ''}${dropping ? ' drop' : ''}${dropBefore ? ' before' : ''}${dropAfter ? ' after' : ''}${members.length ? '' : ' empty'}`}
-      style={{ ['--chip' as string]: color }}
-      data-group-tile
-      draggable={!renaming}
-      onDragStart={onDragStart}
-      onDragEnd={onDragEnd}
-      onContextMenu={(e) => { e.preventDefault(); onContext(e.clientX, e.clientY); }}
-      {...dropProps}
-    >
-      <button
-        type="button"
-        className="gw-chip-hit"
-        onClick={onSelect}
-        onDoubleClick={onRenameStart}
-        aria-pressed={active}
-        aria-label={`${group.name} · ${members.length} תמונות`}
-        title={active ? 'חזרה לכל היום' : `הצג רק את „${group.name}” · לחיצה כפולה לשינוי שם`}
-      >
-        <span className="gw-chip-cover" aria-hidden>
-          {cover && <img src={coverUrl(cover.path)} alt="" loading="lazy" draggable={false} />}
-        </span>
-        {!renaming && (
-          <span className="gw-chip-name">
-            {group.name}
-            {graded && <i className="gw-dot" title="לסשן יש עריכת צבע" />}
-          </span>
-        )}
-        <span className="gw-chip-n mono">{count(members.length)}</span>
-      </button>
-      {renaming && (
-        <input
-          className="gw-chip-input"
-          aria-label={words.nameField}
-          value={draft}
-          autoFocus
-          onFocus={(e) => { done.current = false; e.currentTarget.select(); }}
-          onChange={(e) => setDraft(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') { done.current = true; onRename(draft); }
-            if (e.key === 'Escape') { done.current = true; e.stopPropagation(); onRenameCancel(); }
-          }}
-          onBlur={() => { if (!done.current) onRename(draft); }}
-        />
-      )}
-      <button
-        type="button"
-        className="gw-chip-more"
-        aria-label={`פעולות על ${group.name}`}
-        onClick={(e) => { e.stopPropagation(); onMenu(e.currentTarget); }}
-      >
-        ⋯
-      </button>
-    </div>
-  );
-}
 
 /** The active group's name, editable where it is read. Enter or leaving the
  *  field saves (one undo step); Escape puts the old name back. */
