@@ -344,9 +344,12 @@ def select(rgb: np.ndarray, x: float, y: float, exclude=(), key=None, index=None
         if len(clicks) == 1:
             mask = _whole_person(small, mask.astype(bool), x, y).astype(np.uint8)
         mask = _drop_specks(mask)
+        grown = _grow_on_backdrop(small, _around(mask), mask) if mask.mean() <= CLICK_GROW_MAX else None
+        if grown is not None:
+            mask = grown
         candidates = candidates.copy()
         candidates[index] = mask
-        behind = _find_behind(small, mask.astype(bool))
+        behind = None if grown is not None else _find_behind(small, mask.astype(bool))
     sh, sw = small.shape[:2]
     alternatives = [
         {"maskPng": _mask_data(candidate), "coverage": round(float(candidate.mean()), 5),
@@ -404,6 +407,25 @@ BACKDROP_OBJ, BACKDROP_HALO = 12.0, 2.5
 #: How far past the rectangle the halo may reach (fraction of the rectangle)
 #: and how far from the object (fraction of the frame).
 BACKDROP_BAND, BACKDROP_REACH = 0.35, 0.025
+
+
+#: A clicked outline larger than this share of the frame is the backdrop or a
+#: person, not a piece of studio gear: it is not grown.
+CLICK_GROW_MAX = 0.05
+#: The rectangle a click stands for: the outline's bounds and this much of
+#: its size on every side — the clamp's orange tip, outside the outline, falls
+#: inside it.
+CLICK_BOX_PAD = 0.3
+
+
+def _around(mask: np.ndarray):
+    """(x0, y0, x1, y1) fractions: the outline's bounds, padded (CLICK_BOX_PAD)."""
+    h, w = mask.shape
+    ys, xs = np.nonzero(mask)
+    py = CLICK_BOX_PAD * (np.ptp(ys) + 1)
+    px = CLICK_BOX_PAD * (np.ptp(xs) + 1)
+    return (max(0.0, (xs.min() - px) / w), max(0.0, (ys.min() - py) / h),
+            min(1.0, (xs.max() + 1 + px) / w), min(1.0, (ys.max() + 1 + py) / h))
 
 
 def _lab100(rgb: np.ndarray) -> np.ndarray:
