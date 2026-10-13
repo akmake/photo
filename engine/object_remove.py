@@ -976,6 +976,14 @@ INSIDE_SHARE = 0.4
 #: 321A4954 0% — layered there left a light rectangle on the rump, plain fill
 #: gave rump, legs and tail.
 HIDDEN_SHARE = 0.08
+#: ...and the most it may take. A completion that fills most of the hole has
+#: run away, not found what is hidden: the father with his arm round his
+#: daughter in 321A9648 (2026-10-13) completed her outline to 43% of his
+#: hole, and the layers rebuilt her as a dark cloak where he had stood; the
+#: plain fill gave foliage and the girl untouched. Every completion judged
+#: right so far took 0-20% (guide before the horse 15%, stone 20%, guide
+#: beside the horse 12%). One runaway case sets this bound — revisit with more.
+HIDDEN_MAX = 0.3
 
 
 def _straddles(hole: np.ndarray, behind: np.ndarray) -> bool:
@@ -997,7 +1005,8 @@ def _straddles(hole: np.ndarray, behind: np.ndarray) -> bool:
         return False
     if float((behind & rim).sum()) / float(rim.sum()) >= INSIDE_SHARE:
         return False
-    return int(_complete_outline(behind, hole).sum()) >= HIDDEN_SHARE * int(hole.sum())
+    hidden = int(_complete_outline(behind, hole).sum())
+    return HIDDEN_SHARE * int(hole.sum()) <= hidden <= HIDDEN_MAX * int(hole.sum())
 
 
 #: How close (fraction of width) a removal must come to a drawn one to be drawn too.
