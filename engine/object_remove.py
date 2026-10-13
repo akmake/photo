@@ -372,9 +372,17 @@ def select_box(rgb: np.ndarray, box, key=None) -> dict:
 
     small = _small(rgb)
     mask = _drop_specks(box_select.mask_in_box(small, box))
+    grown = _grow_on_backdrop(small, box, mask)
     with _predict_lock:
         _hold(small, key)
-        behind = _find_behind(small, mask.astype(bool))
+        # On a studio backdrop nothing stands behind the clamp but the paper
+        # and the wall, and the probes took those for an object: 4 of 22
+        # clamps (254, 304, 322, 383) went to the layered fill, which rebuilt
+        # the wall's edge as a rounded lump and smeared grey under it. The
+        # plain fill continues a backdrop on its own.
+        behind = None if grown is not None else _find_behind(small, mask.astype(bool))
+    if grown is not None:
+        mask = grown
     sh, sw = small.shape[:2]
     one = {"maskPng": _mask_data(mask), "coverage": round(float(mask.mean()), 5), "score": 1.0}
     out = {**one, "width": sw, "height": sh, "margin": DEFAULT_MARGIN,
@@ -382,6 +390,91 @@ def select_box(rgb: np.ndarray, box, key=None) -> dict:
     if behind is not None:
         out["behind"] = {"maskPng": _mask_data(behind)}
     return out
+
+
+#: Texture of the backdrop around a rectangle (75th percentile of the L*
+#: gradient on the 1024 frame) below which it counts as a studio backdrop.
+#: Measured 2026-10-13: 22 clamps and stands on the newborn shoot's paper and
+#: fabric 0.8-4.3, the felt heart on the blanket 5.1; every scene with
+#: anything behind (table, foliage, gravel, a car) 11-34.
+SMOOTH_BACKDROP = 8.0
+#: CIELAB distance from every backdrop colour: what is surely object, and what
+#: is still not backdrop (its blur, its shadow, its colour cast).
+BACKDROP_OBJ, BACKDROP_HALO = 12.0, 2.5
+#: How far past the rectangle the halo may reach (fraction of the rectangle)
+#: and how far from the object (fraction of the frame).
+BACKDROP_BAND, BACKDROP_REACH = 0.35, 0.025
+
+
+def _lab100(rgb: np.ndarray) -> np.ndarray:
+    lab = cv2.cvtColor(rgb, cv2.COLOR_RGB2LAB).astype(np.float32)
+    lab[..., 0] *= 100 / 255.0
+    lab[..., 1:] -= 128
+    return lab
+
+
+def _grow_on_backdrop(small: np.ndarray, box, core: np.ndarray):
+    """On a smooth backdrop: everything in the rectangle that is not backdrop,
+    and the soft edge around it. None when the surroundings are not one
+    smooth backdrop (the segmenter's outline stays as it is).
+
+    The segmenter outlines an object's sharp core. A studio clamp is out of
+    focus: its blur, its shadow on the paper and the orange glow of its tip
+    reach well past that outline, and the fill CONTINUED them — a dark ghost
+    in the clamp's shape and an orange smear (chayamushka-383, 2026-10-13;
+    22 of 22 clamps on that shoot came back with a ghost or a piece left).
+    The backdrop's colours are read from a ring around the rectangle; inside
+    it, what they do not explain is the object; around it, a pixel still not
+    quite backdrop is the object's blur, taken while it touches the object.
+    Busy surroundings (a table of lemons, a teddy beside the jar) are not
+    one backdrop — there the colours explain nothing, the rectangle would take
+    its neighbours, and the segmenter's outline stays as it was.
+    """
+    h, w = core.shape
+    x0, y0, x1, y1 = box
+    X0, Y0 = int(x0 * w), int(y0 * h)
+    X1, Y1 = int(np.ceil(x1 * w)), int(np.ceil(y1 * h))
+    bw, bh = X1 - X0, Y1 - Y0
+    pad = max(6, int(BACKDROP_BAND * max(bw, bh)))
+    far = pad + max(6, pad // 2)
+    near = np.zeros((h, w), bool)
+    near[max(0, Y0 - pad):Y1 + pad, max(0, X0 - pad):X1 + pad] = True
+    ring = np.zeros((h, w), bool)
+    ring[max(0, Y0 - far):Y1 + far, max(0, X0 - far):X1 + far] = True
+    core = core > 0
+    ring &= ~near & ~(cv2.dilate(core.astype(np.uint8), np.ones((9, 9), np.uint8)) > 0)
+    if ring.sum() < 40:
+        return None
+    lab = _lab100(small)
+    grad = np.hypot(cv2.Sobel(lab[..., 0], cv2.CV_32F, 1, 0), cv2.Sobel(lab[..., 0], cv2.CV_32F, 0, 1))
+    if np.percentile(grad[ring], 75) > SMOOTH_BACKDROP:
+        return None
+    lab = cv2.GaussianBlur(lab, (0, 0), 1.0)
+    bg = _clusters(lab[ring], 6)
+    d = np.zeros((h, w), np.float32)
+    d[near] = _nearest(lab[near], bg)
+    inbox = np.zeros((h, w), bool)
+    inbox[Y0:Y1, X0:X1] = True
+    # inside the rectangle: what touches the object, or is a piece of its own
+    n, labels, stats, _ = cv2.connectedComponentsWithStats(
+        (((d > BACKDROP_OBJ) & inbox) | core).astype(np.uint8), connectivity=8)
+    keep = np.zeros(n, bool)
+    keep[np.unique(labels[core])] = True
+    keep |= stats[:, cv2.CC_STAT_AREA] > 0.02 * bw * bh
+    keep[0] = False
+    fg = keep[labels] | core
+    # around it: the blur, while it touches the object and stays near it
+    reach = max(3, round(BACKDROP_REACH * max(h, w)))
+    within = cv2.distanceTransform((~fg).astype(np.uint8), cv2.DIST_L2, 5) <= reach
+    may = (d > BACKDROP_HALO) & near & within
+    k = np.ones((3, 3), np.uint8)
+    for _ in range(pad):
+        grown = (cv2.dilate(fg.astype(np.uint8), k) > 0) & (may | fg)
+        if np.array_equal(grown, fg):
+            break
+        fg = grown
+    fg = cv2.dilate(fg.astype(np.uint8), k)                      # the anti-aliased rim
+    return cv2.morphologyEx(fg, cv2.MORPH_CLOSE, np.ones((5, 5), np.uint8))
 
 
 def select_painted(rgb: np.ndarray, strokes, key=None) -> dict:

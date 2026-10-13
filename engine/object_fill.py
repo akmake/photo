@@ -32,6 +32,19 @@ THIN = 0.009
 TILE, TILE_CONTEXT, TILE_OVERLAP = 512, 192, 96
 #: The guide for a thick hole: the network with the hole brought to this size.
 GUIDE_HOLE = 512
+#: ...and on a smooth backdrop, this. A large hole in out-of-focus paper or
+#: fabric, brought only to 512, came back from the network as soft blotches —
+#: a white disc, a grey cloud, an orange halo where a clamp stood — at export
+#: size, while the same removal at the edit window's 1400px (hole ~130px) was
+#: clean. 256 is clean at export size too (6 of 6 clamps, chayamushka 254-409,
+#: 2026-10-13). Textured surroundings keep 512: there the patches carry the
+#: texture and the network the structure (the set it was tuned on).
+SMOOTH_GUIDE_HOLE = 256
+#: Texture of the context (75th percentile of the L* gradient with the frame
+#: brought to 1024 on its long side) below which the backdrop counts as smooth.
+#: Same measure as object_remove.SMOOTH_BACKDROP: paper and fabric 0.8-5.1,
+#: anything with a scene behind it 11 and up.
+SMOOTH_CONTEXT = 8.0
 #: Detail bands (Gaussian differences, px at this frame's size) in which the
 #: network's fill and the patch synthesis are weighed against each other.
 BANDS = (1, 2, 4, 8, 16, 32)
@@ -119,7 +132,8 @@ def _seamless(win: np.ndarray, hole: np.ndarray, g: np.ndarray, s: float) -> np.
     return np.clip(out, 0, 255)
 
 
-def _fuse(win: np.ndarray, hole: np.ndarray, g: np.ndarray, synth: np.ndarray, seam: bool = True) -> np.ndarray:
+def _fuse(win: np.ndarray, hole: np.ndarray, g: np.ndarray, synth: np.ndarray, seam: bool = True,
+          work_hole: int = GUIDE_HOLE) -> np.ndarray:
     """The network's fill for light and form, the photo's patches for texture.
 
     Seen at 100% on the fixed set, neither is right alone. In a smooth blurred
@@ -141,12 +155,12 @@ def _fuse(win: np.ndarray, hole: np.ndarray, g: np.ndarray, synth: np.ndarray, s
     x0, x1 = max(0, xs.min() - m), min(hole.shape[1], xs.max() + m + 1)
     if (y0, x0, y1, x1) != (0, 0) + hole.shape:
         res = win.copy()
-        res[y0:y1, x0:x1] = _fuse(win[y0:y1, x0:x1], hole[y0:y1, x0:x1], g[y0:y1, x0:x1], synth[y0:y1, x0:x1], seam)
+        res[y0:y1, x0:x1] = _fuse(win[y0:y1, x0:x1], hole[y0:y1, x0:x1], g[y0:y1, x0:x1], synth[y0:y1, x0:x1], seam, work_hole)
         return res
     H = hole > 0
     known = ~(cv2.dilate(hole.astype(np.uint8), np.ones((9, 9), np.uint8)) > 0)
     # the native network meets the photo already; a reduced one needs its rim carried
-    gg = _seamless(win, hole, g, max(2.0, span / GUIDE_HOLE)) if seam else np.where(
+    gg = _seamless(win, hole, g, max(2.0, span / work_hole)) if seam else np.where(
         (hole > 0)[..., None], g, win).astype(np.float32)
     ss = win.astype(np.float32).copy()
     ss[H] = synth[H]
@@ -182,6 +196,19 @@ def _fuse(win: np.ndarray, hole: np.ndarray, g: np.ndarray, synth: np.ndarray, s
     return res
 
 
+def _smooth(win: np.ndarray, m: np.ndarray, long_side: int) -> bool:
+    """Is the context around the hole a smooth backdrop (SMOOTH_CONTEXT)?"""
+    s = min(1.0, 1024 / long_side)
+    small = cv2.resize(win, None, fx=s, fy=s, interpolation=cv2.INTER_AREA) if s < 1 else win
+    ms = cv2.resize(m.astype(np.uint8), (small.shape[1], small.shape[0]), interpolation=cv2.INTER_NEAREST)
+    ctx = ~(cv2.dilate(ms, np.ones((9, 9), np.uint8)) > 0)
+    if ctx.sum() < 40:
+        return False
+    L = cv2.cvtColor(small, cv2.COLOR_RGB2LAB)[..., 0].astype(np.float32) * (100 / 255.0)
+    grad = np.hypot(cv2.Sobel(L, cv2.CV_32F, 1, 0), cv2.Sobel(L, cv2.CV_32F, 0, 1))
+    return float(np.percentile(grad[ctx], 75)) <= SMOOTH_CONTEXT
+
+
 def _thick(rgb: np.ndarray, hole: np.ndarray, unknown: np.ndarray, avoid: np.ndarray = None) -> np.ndarray:
     ys, xs = np.nonzero(hole)
     bh, bw = ys.max() - ys.min() + 1, xs.max() - xs.min() + 1
@@ -197,8 +224,9 @@ def _thick(rgb: np.ndarray, hole: np.ndarray, unknown: np.ndarray, avoid: np.nda
     keep_out = u & (1 - m)
     if avoid is not None:
         keep_out = keep_out | (avoid[y0:y1, x0:x1] > 0).astype(np.uint8)
-    g = guide(win, u)
-    res = _fuse(win, m, g, patch_synth.synthesize(win, m, g, avoid=keep_out))
+    work_hole = SMOOTH_GUIDE_HOLE if _smooth(win, m, max(h, w)) else GUIDE_HOLE
+    g = guide(win, u, work_hole)
+    res = _fuse(win, m, g, patch_synth.synthesize(win, m, g, avoid=keep_out), work_hole=work_hole)
     out = rgb.copy()
     out[y0:y1, x0:x1][m > 0] = res[m > 0]
     return out
