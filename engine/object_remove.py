@@ -365,6 +365,44 @@ def select(rgb: np.ndarray, x: float, y: float, exclude=(), key=None, index=None
     return out
 
 
+#: A piece the click model adds to the rectangle's object may be at most this
+#: share of that object: a phone or a held lead, never the neighbour.
+HELD_MAX = 0.25
+
+
+def _held_pieces(small: np.ndarray, box, mask: np.ndarray) -> np.ndarray:
+    """The rectangle's object plus what it holds. Call under _predict_lock.
+
+    SAM 2.1 with a rectangle outlines the person and leaves out a thing in
+    the hand that lies over something else: the guide's phone over the
+    horse's flank in 321A4954 stayed floating in the air after the removal
+    (the photographer, 2026-10-13: "it used to work") — a click there took
+    the phone with the man. So the click model is asked once, at the
+    object's deepest point, and what it adds inside the rectangle, touching
+    the object and small beside it, joins.
+    """
+    h, w = mask.shape
+    d = cv2.distanceTransform(mask.astype(np.uint8), cv2.DIST_L2, 5)
+    py, px = np.unravel_index(int(np.argmax(d)), d.shape)
+    raw, scores, _ = _predictor.predict(point_coords=np.array([[px, py]]), point_labels=np.array([1]),
+                                        multimask_output=True, return_logits=True)
+    cands = (raw > MASK_THRESHOLD).astype(np.uint8)
+    click = cands[_choose_candidate(cands, scores)] > 0
+    x0, y0, x1, y1 = box
+    inbox = np.zeros((h, w), bool)
+    inbox[int(y0 * h):int(np.ceil(y1 * h)), int(x0 * w):int(np.ceil(x1 * w))] = True
+    extra = (click & inbox & ~(mask > 0)).astype(np.uint8)
+    n, labels, stats, _ = cv2.connectedComponentsWithStats(extra, connectivity=8)
+    touch = cv2.dilate(mask.astype(np.uint8), np.ones((5, 5), np.uint8)) > 0
+    out = mask.copy()
+    limit = HELD_MAX * int(mask.sum())
+    for i in range(1, n):
+        piece = labels == i
+        if stats[i, cv2.CC_STAT_AREA] <= limit and (piece & touch).any():
+            out[piece] = 1
+    return out
+
+
 def select_box(rgb: np.ndarray, box, key=None) -> dict:
     """The object inside a rectangle the photographer drew (box_select).
 
@@ -378,6 +416,8 @@ def select_box(rgb: np.ndarray, box, key=None) -> dict:
     grown = _grow_on_backdrop(small, box, mask)
     with _predict_lock:
         _hold(small, key)
+        if grown is None:
+            mask = _held_pieces(small, box, mask)
         # On a studio backdrop nothing stands behind the clamp but the paper
         # and the wall, and the probes took those for an object: 4 of 22
         # clamps (254, 304, 322, 383) went to the layered fill, which rebuilt
