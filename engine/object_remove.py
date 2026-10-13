@@ -1016,14 +1016,6 @@ INSIDE_SHARE = 0.4
 #: 321A4954 0% — layered there left a light rectangle on the rump, plain fill
 #: gave rump, legs and tail.
 HIDDEN_SHARE = 0.08
-#: ...and the most it may take. A completion that fills most of the hole has
-#: run away, not found what is hidden: the father with his arm round his
-#: daughter in 321A9648 (2026-10-13) completed her outline to 43% of his
-#: hole, and the layers rebuilt her as a dark cloak where he had stood; the
-#: plain fill gave foliage and the girl untouched. Every completion judged
-#: right so far took 0-20% (guide before the horse 15%, stone 20%, guide
-#: beside the horse 12%). One runaway case sets this bound — revisit with more.
-HIDDEN_MAX = 0.3
 
 
 def _straddles(hole: np.ndarray, behind: np.ndarray) -> bool:
@@ -1045,8 +1037,7 @@ def _straddles(hole: np.ndarray, behind: np.ndarray) -> bool:
         return False
     if float((behind & rim).sum()) / float(rim.sum()) >= INSIDE_SHARE:
         return False
-    hidden = int(_complete_outline(behind, hole).sum())
-    return HIDDEN_SHARE * int(hole.sum()) <= hidden <= HIDDEN_MAX * int(hole.sum())
+    return int(_complete_outline(behind, hole).sum()) >= HIDDEN_SHARE * int(hole.sum())
 
 
 #: How close (fraction of width) a removal must come to a drawn one to be drawn too.
@@ -1137,6 +1128,24 @@ def _remove_one(rgb: np.ndarray, selection: dict, drawn: np.ndarray = None, allo
     return object_fill.fill(rgb, mask), {"removedPx": count, "filler": "photo"}
 
 
+def _on_backdrop(rgb: np.ndarray, hole: np.ndarray) -> bool:
+    """Does the hole sit on a smooth studio backdrop (SMOOTH_BACKDROP)?"""
+    s = min(1.0, 1024 / max(hole.shape))
+    small = cv2.resize(rgb, None, fx=s, fy=s, interpolation=cv2.INTER_AREA) if s < 1 else rgb
+    hs = cv2.resize(hole.astype(np.uint8), (small.shape[1], small.shape[0]), interpolation=cv2.INTER_NEAREST)
+    ys, xs = np.nonzero(hs)
+    if not len(ys):
+        return False
+    pad = max(6, int(BACKDROP_BAND * max(np.ptp(ys), np.ptp(xs))))
+    near = cv2.dilate(hs, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2 * pad + 1,) * 2)) > 0
+    ring = near & ~(cv2.dilate(hs, np.ones((9, 9), np.uint8)) > 0)
+    if ring.sum() < 40:
+        return False
+    L = _lab100(small)[..., 0]
+    grad = np.hypot(cv2.Sobel(L, cv2.CV_32F, 1, 0), cv2.Sobel(L, cv2.CV_32F, 0, 1))
+    return float(np.percentile(grad[ring], 75)) <= SMOOTH_BACKDROP
+
+
 #: How many removals one photograph may carry.
 MAX_REMOVALS = 24
 
@@ -1200,10 +1209,32 @@ def apply(rgb: np.ndarray, params: dict):
         union = np.zeros(rgb.shape[:2], np.uint8)
         for _, hole in plain:
             union |= hole.astype(np.uint8)
+        filler = "photo"
         if union.any():
-            out = object_fill.fill(out, union)
+            if gen_fill.available() and not _on_backdrop(out, union > 0):
+                # Anything not on a studio backdrop is DRAWN when the model is
+                # installed. Measured 2026-10-13 on 17 removals from the farm
+                # and horse shoots (the photographer's verdicts on the copied
+                # fill: "smeared, you can see the removal"): drawn, the guides at
+                # the frame's edge leave tree and leaves instead of a dark
+                # trunk or a pale strip, the racket in the girl's hand leaves
+                # road instead of a dark smudge, the rump in 321A5078 closes;
+                # balls and rackets on the road equal. The hat on the
+                # soil/sand edge stays bad either way. A studio backdrop keeps
+                # the copied fill: 21 of 22 clamps there were judged right.
+                try:
+                    out = gen_fill.fill(out, union > 0)
+                    filler = "generative"
+                except gen_fill.GenFillError as exc:
+                    out = object_fill.fill(out, union)
+                    gen_error = str(exc)
+            else:
+                out = object_fill.fill(out, union)
         for _, hole in plain:
-            report.append({"removedPx": int(hole.sum()), "filler": "photo" if hole.any() else "none"})
+            meta = {"removedPx": int(hole.sum()), "filler": filler if hole.any() else "none"}
+            if filler == "photo" and gen_error:
+                meta["genError"] = gen_error
+            report.append(meta)
     for i, _ in layered_steps:
         step = steps[i]
         out, meta = _remove_one(out, step, allow_gen=False)

@@ -167,7 +167,15 @@ def fill(rgb: np.ndarray, hole: np.ndarray, behind: np.ndarray = None,
     # it is what the model continues (hiding it too made the leg a ghost).
     shown = rgb.copy()
     wide = cv2.dilate(hole.astype(np.uint8), np.ones((5, 5), np.uint8)) > 0
-    shown[wide] = cv2.blur(rgb, (31, 31))[wide]
+    # Filled from OUTSIDE the hole only. A blur of the photograph still holds
+    # the object's own colour - the model drew a pale ghost ball and a
+    # see-through hat where they had been (2026-10-13, 321A2782/2077).
+    import patch_synth
+    known = ~wide
+    shown = shown.astype(np.float32)
+    for c in range(3):
+        shown[..., c] = patch_synth._membrane(np.where(known, shown[..., c], 0).astype(np.float32), known)
+    shown = np.where(wide[..., None], shown, rgb).clip(0, 255).astype(np.uint8)
     cy, cx = (ys.min() + ys.max()) // 2, (xs.min() + xs.max()) // 2
     side = int(max(np.ptp(ys), np.ptp(xs), 64) * CONTEXT)
     y0, x0 = max(0, cy - side // 2), max(0, cx - side // 2)
