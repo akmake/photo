@@ -1139,6 +1139,9 @@ class Handler(BaseHTTPRequestHandler):
         if self.path == "/object/hover":
             self._object_hover()
             return
+        if self.path == "/object/leftovers":
+            self._object_leftovers()
+            return
         if self.path == "/object/paint":
             self._object_paint()
             return
@@ -1400,6 +1403,25 @@ class Handler(BaseHTTPRequestHandler):
                 _, img, _ = _working_frame(path, object_remove.SELECT_MAX_DIM, None)
                 return object_remove.select_painted(common.to_np(img), strokes,
                                                     key=(_photo_key(path), object_remove.SELECT_MAX_DIM))
+            self._json(200, on_worker(work))
+        except (KeyError, ValueError) as exc:
+            self._json(400, {"error": str(exc)})
+        except Exception as exc:  # noqa: BLE001
+            self._json(503, {"error": str(exc)})
+
+    def _object_leftovers(self):
+        """POST {path, selection}; what may stay behind when it goes - offered
+        to the photographer one by one (object_remove.leftovers)."""
+        try:
+            body = self._body()
+            path = body["path"]
+            if not os.path.isfile(path):
+                raise ValueError("Photograph not found")
+            selection = body["selection"]
+            def work():
+                _, img, _ = _working_frame(path, object_remove.SELECT_MAX_DIM, None)
+                return object_remove.leftovers(common.to_np(img), selection,
+                                               key=(_photo_key(path), object_remove.SELECT_MAX_DIM))
             self._json(200, on_worker(work))
         except (KeyError, ValueError) as exc:
             self._json(400, {"error": str(exc)})

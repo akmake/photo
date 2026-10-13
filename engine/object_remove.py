@@ -620,6 +620,74 @@ def _snap_under(small: np.ndarray, painted: np.ndarray):
     return extra if extra.any() else None
 
 
+#: How many leftover suggestions one selection may come back with.
+LEFTOVERS_MAX = 8
+
+
+def _line_like(c: np.ndarray, side: int) -> bool:
+    """A lead, a rein, a tail, a shadow line: narrow everywhere, and its area
+    is its length times that width - no body hanging off it (a horse's
+    skeleton is long too; _thin let whole horses through)."""
+    m8 = c.astype(np.uint8)
+    sk = cv2.ximgproc.thinning(m8 * 255) > 0
+    if sk.sum() < 0.03 * side:
+        return False
+    half = cv2.distanceTransform(m8, cv2.DIST_L2, 3)
+    hw = float(np.percentile(half[sk], 90))
+    return hw <= 0.006 * side and m8.sum() <= 2.6 * sk.sum() * max(1.0, hw)
+
+
+def leftovers(rgb: np.ndarray, selection: dict, key=None) -> dict:
+    """What may stay behind when the selection goes: the lead in the guide's
+    hand, the tip of a tail whose root is behind him, the shadow at his feet.
+
+    SUGGESTIONS for the photographer to accept with a click, never removed on
+    their own. Finding them automatically was tried four ways on 2026-10-13
+    and none told a cut tail from a fence rail passing behind the same man
+    (docs/OBJECT-REMOVE-TIMELINE.md); the photographer sees which is which in
+    a glance. Probes just outside the selection, as _find_behind does; keeps
+    an answer that is one thin piece, touches the selection, stays clear of
+    the frame's edge and is not mostly the selection itself.
+    """
+    small = _small(rgb)
+    h, w = small.shape[:2]
+    mask = _read_mask(selection["maskPng"], (h, w)) > 0
+    if not mask.any():
+        return {"width": w, "height": h, "suggestions": []}
+    r = max(2, round(0.006 * max(h, w)))
+    grown = cv2.dilate(mask.astype(np.uint8), cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2 * r + 1,) * 2))
+    contours, _ = cv2.findContours(grown, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
+    ring = max(contours, key=cv2.contourArea)[:, 0, :]
+    d = cv2.distanceTransform(mask.astype(np.uint8), cv2.DIST_L2, 5)
+    ny, nx = np.unravel_index(int(np.argmax(d)), d.shape)
+    touch = cv2.dilate(mask.astype(np.uint8), np.ones((2 * r + 3,) * 2, np.uint8)) > 0
+    found = []
+    with _predict_lock:
+        _hold(small, key)
+        for px, py in ring[np.linspace(0, len(ring) - 1, 48).astype(int)]:
+            raw, _, _ = _predictor.predict(point_coords=np.array([[px, py], [nx, ny]]),
+                                           point_labels=np.array([1, 0]), multimask_output=True,
+                                           return_logits=True)
+            for c in raw > 0:
+                c = c & ~mask
+                if c.sum() < 30 or c.mean() > 0.05 or not (c & touch).any():
+                    continue
+                n, _, st, _ = cv2.connectedComponentsWithStats(c.astype(np.uint8), connectivity=8)
+                if n < 2 or st[1:, cv2.CC_STAT_AREA].max() < 0.9 * c.sum():
+                    continue
+                if c[:2].any() or c[-2:].any() or c[:, :2].any() or c[:, -2:].any():
+                    continue
+                if not _line_like(c, max(h, w)):
+                    continue
+                if any((c & f).sum() > 0.5 * min(c.sum(), f.sum()) for f in found):
+                    continue
+                found.append(c)
+    found.sort(key=lambda f: -int(f.sum()))
+    return {"width": w, "height": h,
+            "suggestions": [{"maskPng": _mask_data(f), "coverage": round(float(f.mean()), 5)}
+                            for f in found[:LEFTOVERS_MAX]]}
+
+
 #: How far outside the removed object the ring of probe clicks sits.
 PROBE_RING = 0.02
 #: How many probes around it, and how many must name the same object.
