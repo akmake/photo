@@ -50,7 +50,9 @@ def main(model_dir: str) -> None:
             w, h = image.size
             # RORem's own settings: no prompt, no guidance, strength 0.99.
             # Fewer steps on the CPU, where each step costs ~9s at 1024.
-            steps = int(req.get("steps") or (30 if device == "cuda" else 10))
+            # 12 on the card: 3.2s against 6.8s at 30, no difference seen on
+            # 17 removals (2026-10-13, gen_fill.WORK_RES).
+            steps = int(req.get("steps") or (12 if device == "cuda" else 10))
             out = pipe(prompt="", image=image, mask_image=mask, height=h, width=w,
                        guidance_scale=1.0, num_inference_steps=steps, strength=0.99,
                        generator=torch.Generator(device="cpu").manual_seed(int(req.get("seed", 0)))

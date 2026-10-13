@@ -49,7 +49,16 @@ import paths
 
 CONFIG = paths.model_path("gen_fill.json")
 #: Long side of the crop the model works on, by device.
-WORK_RES = {"cuda": 1536, "cpu": 1024}
+#:
+#: 1024 on the graphics card too (was 1536). Measured 2026-10-13 on the
+#: photographer's RTX 5070 Ti laptop (12GB), 17 removals, model warm: 1536
+#: took 26s median (34s max) - SDXL at 1536 does not fit beside everything
+#: else on a 12GB card and spills into shared memory; he waited 88s for one
+#: removal on the first try and said so. 1024: 6.8s at 30 steps, 3.2s at 12.
+#: The drawn area is a little softer at 1024 (seen close up on the farm
+#: trees); at the edit window's size no difference was seen. Not judged at
+#: full export size yet.
+WORK_RES = {"cuda": 1024, "cpu": 1024}
 #: How much of the scene around the hole goes into the crop (x the hole's size).
 CONTEXT = 1.5
 #: Repainted band of the object behind, in px at 5472 width.
