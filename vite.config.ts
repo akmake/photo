@@ -1,13 +1,48 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import { resolve } from 'node:path';
+import { writeFile } from 'node:fs/promises';
+import type { Plugin } from 'vite';
+
+// Development only: the review pages under test-results/<round>/ save the
+// photographer's notes beside themselves (feedback.json), where the assistant
+// reads them. A browser page cannot write to disk on its own without a folder
+// picker; the dev server can, and it is already running. Never in the build.
+function reviewNotes(): Plugin {
+  return {
+    name: 'review-notes',
+    apply: 'serve',
+    configureServer(server) {
+      server.middlewares.use('/__review/save', (req, res) => {
+        const round = new URL(req.url ?? '', 'http://x').searchParams.get('round') ?? '';
+        if (req.method !== 'POST' || !/^review-[\w-]+$/.test(round)) {
+          res.statusCode = 400;
+          res.end('bad request');
+          return;
+        }
+        let body = '';
+        req.on('data', (chunk) => { body += chunk; });
+        req.on('end', async () => {
+          try {
+            JSON.parse(body);
+            await writeFile(resolve(__dirname, 'test-results', round, 'feedback.json'), body, 'utf8');
+            res.end('ok');
+          } catch (e) {
+            res.statusCode = 500;
+            res.end(String(e));
+          }
+        });
+      });
+    },
+  };
+}
 
 export default defineConfig({
   // The installed desktop app opens dist/index.html through file://. Absolute
   // /assets URLs point at the drive root there; relative URLs stay beside the
   // document in both the packaged app and the development build.
   base: './',
-  plugins: [react()],
+  plugins: [react(), reviewNotes()],
   build: {
     rollupOptions: {
       // The studio only. The client gallery moved to the website (ManagPhoto
