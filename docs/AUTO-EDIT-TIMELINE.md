@@ -191,7 +191,7 @@
   - **PhotoArtAgent (CVPR 2026, INSAIT):** מודל שמנתח, מתכנן, קורא את ההיסטוגרמה, קובע ערכים, בודק תוצאה ומתקן שוב. טוענים "דומה לאמן מקצועי" — בלי מספרים בעמוד, בלי קוד.
   - לקחים טכניים חוזרים: ניסיון אחד לא יציב — צריך לולאה של בדיקה ותיקון; סדר הפעולות קבוע (רעש → ניקוי → אור וצבע → מסכות); ערכים מוחלטים, לא תוספות.
   - **מחקר 2018 (AISTATS):** אין עריכה "נכונה" אחת לתמונה — עדיף להציע כמה אפשרויות.
-- **מסקנה:** אותה תמונה מכל השפות. כלים כאלה עובדים אצל צלמים מקצועיים כ**נקודת פתיחה**: חוסכים 40–75% מהזמן, ותמיד נשאר
+- **מסקנה (המשך למטה):** אותה תמונה מכל השפות. כלים כאלה עובדים אצל צלמים מקצועיים כ**נקודת פתיחה**: חוסכים 40–75% מהזמן, ותמיד נשאר
   תיקון — בעיקר גוון עור ואור מעורב. אף מקור לא מתאר כפתור שמסיים את העבודה לבד. מתאים למה שנאמר קודם.
 
 ### מקורות
@@ -213,3 +213,30 @@
 - Photoshop עוזר: https://community.adobe.com/announcements-698/photoshop-desktop-ai-assistant-early-beta-1628556 · https://petapixel.com/2026/03/10/photographers-can-now-tell-photoshop-how-to-edit-their-images/
 - Aftershoot: https://aftershoot.com/roadmap-2026/ · https://photorumors.com/2026/06/06/aftershoot-the-workflow-is-now-complete-and-ai-that-works-for-you-not-against-you/
 - Evoto: https://www.evoto.ai/features/stray-hair-remover · Imagen API: https://knowledge.imagen.io/developers-guide
+
+### 2026-10-13 (המשך) — הכלים שבהם השתמשו מי שבנו דבר כזה
+- **קלט:** הצלם: "רציתי שתביא מהם את הכלים שהם משתמשים".
+- **המוח (מי מחליט מה לעשות):**
+  | מי בנה | המוח | איפה רץ | רישיון | מה דווח |
+  |---|---|---|---|---|
+  | PhotoArtAgent (CVPR 2026) | GPT-4o (הכי טוב), GPT-4o-mini, Claude 3.5 Sonnet | ענן | — (אין קוד) | 125 מתנדבים עם ניסיון בצילום, ציון 0–10: **6.50** מול Lightroom אוטומטי 6.36 ומול רטושר מקצועי 6.33. ~$0.11 לתמונה, ~2 דקות, 76% מהתמונות צריכות כמה סבבים. ההיסטוגרמה נשלחת למודל כתמונה |
+  | ashla-lightroom | gpt-5.5 / gpt-4o | ענן | MIT | ערכים נחתכים לטווח בטוח; מכוון לעריכה חסרה |
+  | JarvisArt | Qwen2.5-VL-7B | מקומי, כרטיס מסך | לא מסחרי | 55 אלף דוגמאות אימון; מסכות של Lightroom עצמו |
+  | IEA | Qwen2.5-VL-7B + שופט Qwen3-0.6B | מקומי, כרטיס מסך | לא צוין | 16 כלים כלליים |
+  | MonetGPT | Qwen2-VL-7B | מקומי, כרטיס מסך | MIT | פעולות ב-numpy + GIMP |
+  | PhotoAgent | Qwen3-VL (מבין), Qwen2.5-VL (שופט) | — | לא צוין | כלים מציירים מחדש ברובם |
+  | חיבורי MCP ל-Claude/Codex | Claude / Codex | ענן | — | lightroom-classic-mcp (מק בלבד, 59 כלים, כולל auto_tone, auto_white_balance, מסכת AI), lightroom-cli (107 פקודות), darktable-mcp; ל-Photoshop: adb-mcp (Mike Chambers), photoshop-python-api-mcp (Windows) |
+- **הידיים (העורך שהמוח מפעיל):** כמעט כולם — Lightroom Classic דרך תוסף Lua. אחרים: GIMP + numpy (MonetGPT), darktable, Photoshop (UXP).
+  לקח מתיעוד Lightroom-CLI: ערכים מוחלטים ולא תוספות; לבדוק טווח לפני כתיבה; פלט JSON.
+- **"מוח" קל בלי מודל שפה (לומד צבע ואור מזוגות):**
+  - **Image-Adaptive 3DLUT** — **Apache-2.0**, פחות מ-600 אלף פרמטרים, פחות מ-2ms לתמונת 4K בכרטיס מסך, לומד גם מזוגות וגם בלי זוגות.
+    זו משפחת השיטות שהתעשייה (טלפונים, Lightroom אוטומטי) משתמשת בה. **הערה:** הפלט הוא טבלת צבע, לא ערכי סליידרים — הצלם לא רואה למה.
+  - AdaInt (רישיון לא אומת), Exposure (MIT, 2018).
+- **עיניים ומסכות:** SAM 2 / 2.1 (Apache; darktable 5.6 משתמש בו + SegNext, הכול מקומי), Grounding DINO (אצל JarvisArt רק ליצירת נתונים),
+  CLIP לתיוג (RapidRAW), MediaPipe (קוד Apache; רישיון המודלים עצמם לא אומת), face parsing + guided filter (ComfyUI; תלוי ב-YOLOv8 — רישיון AGPL, בעייתי למוצר סגור).
+- **הסרה/הוספה:** RapidRAW (AGPL) — דרך ComfyUI כרקע. (ההסרה שלנו — `OBJECT-REMOVE-TIMELINE.md`.)
+- **שופטים:** Qwen3-0.6B מאומן כשופט (IEA), היסטוגרמה שנשלחת למודל (PhotoArtAgent), GPT-4V כמדרג.
+- **חומר לימוד לפנים:** FFHQR (AutoRetouch, WACV 2021, ריטוש מקצועי) — רישיון לא אומת.
+- **עקרון של darktable (הצהרה רשמית):** רק מודלים קטנים שעושים עבודה אחת מוגדרת, הכול מקומי, כל פעולה ביוזמת המשתמש, "AI מתקן פגם טכני, לא משנה את מה שהיה מול המצלמה".
+- **מה מתאים לנו (מקומי, מותר מסחרית):** Qwen3-VL (Apache) כעיניים, SAM (יש לנו MobileSAM), 3DLUT (Apache) כלומד טעם קל — עם החיסרון שאינו על הסליידרים.
+  השיטה של PhotoArtAgent (מוח + היסטוגרמה + לולאת בדיקה על הסליידרים) אפשרית עם כל מוח. בענן: ~$0.11 לתמונה (מחיר GPT-4o של 2024–25, לא מחיר היום).
