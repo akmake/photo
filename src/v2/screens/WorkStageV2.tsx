@@ -24,6 +24,7 @@ import PhotoGrid from '../../components/photo-grid/PhotoGrid';
 import type { GridItem, GridSection, PhotoGridHandle } from '../../components/photo-grid/PhotoGrid';
 import { useDims } from '../../components/photo-grid/useDims';
 import { TourHelpButton } from '../../tour/TourProvider';
+import { useNativeWheel } from '../useNativeWheel';
 import './work-stage-v2.css';
 
 type Filter = 'all' | 'open' | 'keep' | 'maybe' | 'reject' | 'suggested';
@@ -990,6 +991,11 @@ function Viewer({
     setZoom(z);
   }, [maxZoom]);
 
+  useNativeWheel(stageRef, (e) => {
+    e.preventDefault();
+    zoomTo(zoom * (e.deltaY < 0 ? 1.15 : 1 / 1.15), e.clientX, e.clientY);
+  });
+
   /** Zoom straight onto one face: its height about half the window. */
   const zoomToFace = useCallback((b: { x: number; y: number; width: number; height: number }) => {
     const el = stageRef.current;
@@ -1042,7 +1048,6 @@ function Viewer({
         className={`tz-ws-v-stage${zoom > 1 ? ' is-zoomed' : ''}`}
         ref={stageRef}
         dir="ltr"
-        onWheel={(e) => { e.preventDefault(); zoomTo(zoom * (e.deltaY < 0 ? 1.15 : 1 / 1.15), e.clientX, e.clientY); }}
         onMouseDown={(e) => {
           if (zoom <= 1 || !stageRef.current) return;
           drag.current = { x: e.clientX, y: e.clientY, l: stageRef.current.scrollLeft, t: stageRef.current.scrollTop };
@@ -1566,16 +1571,17 @@ function BurstPane({
     onView({ z, fx: (box.w / 2 - (mx - px * w2)) / w2, fy: (box.h / 2 - (my - py * h2)) / h2 });
   };
 
+  useNativeWheel(boxRef, (e) => {
+    e.preventDefault();
+    const r = boxRef.current!.getBoundingClientRect();
+    zoomAt(view.z * (e.deltaY < 0 ? 1.15 : 1 / 1.15), e.clientX - r.left, e.clientY - r.top);
+  });
+
   return (
     <section className={`tz-ws-burst-pane${focused ? ' is-focused' : ''}${decision ? ` is-${decision}` : ''}`} onMouseDown={onFocus}>
       <div
         ref={boxRef}
         className={`tz-ws-burst-stage${view.z > 1 ? ' is-zoomed' : ''}`}
-        onWheel={(e) => {
-          e.preventDefault();
-          const r = e.currentTarget.getBoundingClientRect();
-          zoomAt(view.z * (e.deltaY < 0 ? 1.15 : 1 / 1.15), e.clientX - r.left, e.clientY - r.top);
-        }}
         onMouseDown={(e) => { drag.current = { x: e.clientX, y: e.clientY, fx, fy, moved: false }; }}
         onMouseMove={(e) => {
           const d = drag.current;

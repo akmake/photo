@@ -38,6 +38,7 @@ import ManualBrush, { DEFAULT_R, MAX_R, MIN_R } from './ManualBrush';
 import ObjectMaskPreview from './ObjectMaskPreview';
 import ObjectPickLayer, { type ObjectBox } from './ObjectPickLayer';
 import ToolsPanelV2 from './ToolsPanelV2';
+import { useNativeWheel } from '../useNativeWheel';
 import ColorMatchPanel from './ColorMatchPanel';
 import ExportDialog from './ExportDialog';
 import { computeDiff } from '../../design/Metering';
@@ -1192,6 +1193,16 @@ export default function GalleryEditV2({
     return () => cancelAnimationFrame(raf);
   }, [canvasZoom, fittedImage?.width, fittedImage?.height]);
 
+  useNativeWheel(canvasViewportRef, (event) => {
+    if (brushOn || maskPaintTool) return;
+    event.preventDefault();
+    const rect = canvasViewportRef.current!.getBoundingClientRect();
+    changeCanvasZoom(
+      event.deltaY < 0 ? 0.25 : -0.25,
+      { x: event.clientX - rect.left, y: event.clientY - rect.top },
+    );
+  });
+
   return (
     <div className="tz-ge-studio-root is-photos">
       {/* 1. TOP BAR: BATCH TABS & ACTIONS */}
@@ -1538,15 +1549,6 @@ export default function GalleryEditV2({
               canvasZoom > 1 && !brushOn && !maskPaintTool ? ' is-pannable' : ''
             }${panning ? ' is-panning' : ''}`}
             ref={canvasViewportRef}
-            onWheel={(event) => {
-              if (brushOn || maskPaintTool) return;
-              event.preventDefault();
-              const rect = event.currentTarget.getBoundingClientRect();
-              changeCanvasZoom(
-                event.deltaY < 0 ? 0.25 : -0.25,
-                { x: event.clientX - rect.left, y: event.clientY - rect.top },
-              );
-            }}
             onPointerDown={(event) => {
               if (event.button !== 0 || canvasZoom <= 1 || brushOn || maskPaintTool || objectMode) return;
               panRef.current = {

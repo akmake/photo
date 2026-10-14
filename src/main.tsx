@@ -15,6 +15,12 @@ import './design/desktop.css';
 // the first gallery screen already has it. Never blocks the first paint.
 void loadGallerySite();
 
+// Ctrl+wheel and a touchpad pinch (which arrives as Ctrl+wheel) zoom the whole
+// interface, not the photo. The installed app resets that in electron/main.cjs;
+// in the browser the page has to refuse it itself. The photo viewers still get
+// the event and zoom the photo.
+window.addEventListener('wheel', (e) => { if (e.ctrlKey) e.preventDefault(); }, { passive: false });
+
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     <LicenseGate><App /></LicenseGate>
