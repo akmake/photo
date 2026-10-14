@@ -6,7 +6,8 @@ environment is CPU-only and is what gets packaged. So this file is started as a
 separate long-lived process by engine/gen_fill.py with the runtime that has
 them, loads the pipeline ONCE (12-20s), and then answers requests on stdin:
 
-    {"image": <png path>, "mask": <png path>, "out": <png path>, "steps": 30}
+    {"image": <png path>, "mask": <png path>, "out": <png path>, "steps": 30,
+     "prompt": "...", "negative": "...", "guidance": 5.0}       (last three optional)
     -> {"ok": true, "seconds": 29.8}   or   {"ok": false, "error": "..."}
 
 One JSON object per line, UTF-8 both ways. Paths are files in a temp folder;
@@ -48,13 +49,15 @@ def main(model_dir: str) -> None:
             image = Image.open(req["image"]).convert("RGB")
             mask = Image.open(req["mask"]).convert("L")
             w, h = image.size
-            # RORem's own settings: no prompt, no guidance, strength 0.99.
+            # RORem's own settings: no prompt, no guidance, strength 0.99 —
+            # unless the engine sends a description (gen_fill.PROMPT).
             # Fewer steps on the CPU, where each step costs ~9s at 1024.
             # 12 on the card: 3.2s against 6.8s at 30, no difference seen on
             # 17 removals (2026-10-13, gen_fill.WORK_RES).
             steps = int(req.get("steps") or (12 if device == "cuda" else 10))
-            out = pipe(prompt="", image=image, mask_image=mask, height=h, width=w,
-                       guidance_scale=1.0, num_inference_steps=steps, strength=0.99,
+            out = pipe(prompt=req.get("prompt") or "", negative_prompt=req.get("negative") or None,
+                       image=image, mask_image=mask, height=h, width=w,
+                       guidance_scale=float(req.get("guidance") or 1.0), num_inference_steps=steps, strength=0.99,
                        generator=torch.Generator(device="cpu").manual_seed(int(req.get("seed", 0)))
                        ).images[0]
             out.save(req["out"])

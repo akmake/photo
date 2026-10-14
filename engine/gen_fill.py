@@ -63,6 +63,20 @@ WORK_RES = {"cuda": 1024, "cpu": 1024}
 CONTEXT = 1.5
 #: Repainted band of the object behind, in px at 5472 width.
 BAND = 45
+#: What the drawing is told, the same for every photograph — the photographer
+#: never writes anything. Without it (RORem's own setting: no words, no
+#: guidance) the trees behind the girl in 321A9582 came back as a smeared
+#: column, a third of the surrounding detail; second passes at full size,
+#: grain, patch copying and filling in sections all failed to fix it. The same
+#: model told what to draw, at guidance 5, drew leaves and branches
+#: (2026-10-14, docs/OBJECT-REMOVE-TIMELINE.md). Guidance 8 streaked, 3 left
+#: the column. None = the old behaviour.
+PROMPT = ("empty background, the scene behind continues naturally, same texture and detail as around it, "
+          "photograph")
+NEGATIVE = "person, people, figure, silhouette, smear, text, watermark"
+GUIDANCE = 5.0
+#: Steps with a description; guidance doubles the work of each step.
+PROMPT_STEPS = 20
 #: A request that takes longer than this is a hung worker.
 TIMEOUT_S = 900
 
@@ -154,7 +168,10 @@ def _ask(image: np.ndarray, mask: np.ndarray) -> np.ndarray:
         ip, mp, op = (os.path.join(tmp, n) for n in ("in.png", "mask.png", "out.png"))
         cv2.imwrite(ip, cv2.cvtColor(image, cv2.COLOR_RGB2BGR))
         cv2.imwrite(mp, mask)
-        req = json.dumps({"image": ip, "mask": mp, "out": op, "seed": 0}) + "\n"
+        ask = {"image": ip, "mask": mp, "out": op, "seed": 0}
+        if PROMPT:
+            ask.update(prompt=PROMPT, negative=NEGATIVE, guidance=GUIDANCE, steps=PROMPT_STEPS)
+        req = json.dumps(ask) + "\n"
         proc.stdin.write(req.encode("utf-8"))
         proc.stdin.flush()
         reply = _read(proc)
@@ -225,7 +242,8 @@ def fill(rgb: np.ndarray, hole: np.ndarray, behind: np.ndarray = None,
         small = cv2.resize(prompt, (cw, ch), interpolation=cv2.INTER_AREA)
         ms = (cv2.resize(mc.astype(np.uint8) * 255, (cw, ch), interpolation=cv2.INTER_LINEAR) > 60)
         ms = cv2.dilate(ms.astype(np.uint8), np.ones((9, 9), np.uint8)) * 255
-        key = hashlib.sha1(small.tobytes() + ms.tobytes()).hexdigest()
+        key = hashlib.sha1(small.tobytes() + ms.tobytes()
+                           + repr((PROMPT, NEGATIVE, GUIDANCE, PROMPT_STEPS)).encode()).hexdigest()
         got = _cache.get(key)
         if got is None:
             got = _ask(small, ms)
