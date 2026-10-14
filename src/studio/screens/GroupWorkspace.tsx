@@ -284,13 +284,21 @@ export default function GroupWorkspace({ projectId }: { projectId: string }) {
     return m;
   }, [frames, groups, ownerOf]);
   const unassigned = members.get(null)!;
+  /* כל התמונות, as the photographer organised it: every session as ONE block,
+   * in his order of the strip, its photographs in capture order inside it —
+   * including a photograph he moved in later from another hour. A session is
+   * his grouping, not a span of time. Photographs in no session come last. */
+  const dayOrder = useMemo(
+    () => [...groups.flatMap((g) => members.get(g.id) ?? []), ...unassigned],
+    [groups, members, unassigned],
+  );
 
   const activeGroup = view !== 'all' && view !== 'none' ? groups.find((g) => g.id === view) ?? null : null;
   useEffect(() => {
     if (view !== 'all' && view !== 'none' && !groupIds.has(view)) setView('all');
   }, [view, groupIds]);
 
-  const inView = view === 'all' ? frames : view === 'none' ? unassigned : members.get(view) ?? [];
+  const inView = view === 'all' ? dayOrder : view === 'none' ? unassigned : members.get(view) ?? [];
   const q = query.trim().toLowerCase();
   const visible = useMemo(
     () => (q ? inView.filter((f) => f.name.toLowerCase().includes(q)) : inView),
@@ -526,7 +534,9 @@ export default function GroupWorkspace({ projectId }: { projectId: string }) {
 
   async function suggestNow() {
     closeFloats();
-    const scope = inView;
+    // Boundaries are about the day's time, so they are looked for in capture
+    // order, whatever order the sheet shows.
+    const scope = view === 'all' ? frames : inView;
     if (scope.length < 2) {
       setAnalysis({ phase: 'note', text: 'צריך לפחות שתי תמונות כדי להציע גבולות.' });
       return;
@@ -615,20 +625,19 @@ export default function GroupWorkspace({ projectId }: { projectId: string }) {
     return i < 0 ? undefined : HUES[i % HUES.length];
   }, [groups]);
 
-  /* The whole shoot in capture order, as runs of one owner — exactly the
-   * blocks the sheet shows in כל התמונות, in miniature. A session split in two
-   * places shows twice, which is the truth about it. */
+  /* The whole shoot as runs of one owner — exactly the blocks the sheet shows
+   * in כל התמונות, in miniature: one block per session, in his order. */
   const runs = useMemo(() => {
     const out: { owner: string | null; first: string; from: number; n: number }[] = [];
-    frames.forEach((f, i) => {
+    dayOrder.forEach((f, i) => {
       const o = ownerOf(f);
       const last = out[out.length - 1];
       if (last && last.owner === o) last.n += 1;
       else out.push({ owner: o, first: f.name, from: i, n: 1 });
     });
     return out;
-  }, [frames, ownerOf]);
-  const frameIndex = useMemo(() => new Map(frames.map((f, i) => [f.name, i])), [frames]);
+  }, [dayOrder, ownerOf]);
+  const frameIndex = useMemo(() => new Map(dayOrder.map((f, i) => [f.name, i])), [dayOrder]);
 
   /* Where the sheet is: the first photograph on screen, as a place on the map. */
   // A header row at the top stands for the photographs right under it.
@@ -1246,7 +1255,7 @@ export default function GroupWorkspace({ projectId }: { projectId: string }) {
             const color = colorOf(r.owner);
             const here = hereIndex >= r.from && hereIndex < r.from + r.n;
             const label = nameOf(r.owner);
-            const run = frames.slice(r.from, r.from + r.n);
+            const run = dayOrder.slice(r.from, r.from + r.n);
             return (
               <button
                 key={`${r.owner ?? 'none'}-${r.first}`}
@@ -1285,13 +1294,13 @@ export default function GroupWorkspace({ projectId }: { projectId: string }) {
           {runs.map((r) => {
             const pct = (r.n / frames.length) * 100;
             const at = (r.from / frames.length) * 100;
-            const t = clock(frames[r.from]?.shot ?? 0);
+            const t = clock(dayOrder[r.from]?.shot ?? 0);
             return pct >= 7 && t ? (
               <span key={`t-${r.first}`} className="mono" style={{ insetInlineStart: `${at}%` }}>{t}</span>
             ) : null;
           })}
-          {frames.length > 0 && clock(frames[frames.length - 1].shot) && (
-            <span className="mono is-end">{clock(frames[frames.length - 1].shot)}</span>
+          {dayOrder.length > 0 && clock(dayOrder[dayOrder.length - 1].shot) && (
+            <span className="mono is-end">{clock(dayOrder[dayOrder.length - 1].shot)}</span>
           )}
         </div>
 
