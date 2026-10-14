@@ -13,39 +13,44 @@
    Screens list their own classes here instead of styling buttons themselves.
    ========================================================================== */
 
+/* 14.10.2026, second pass ("לא רואים שום שינוי"): the first pass filled the
+ * buttons with a grey one step off the old one. Now they are pills, solid,
+ * and a full step brighter than the panel — a button reads as a button. */
 .fo-app {
-  --b-h: 30px;
-  --b-h-sm: 26px;
-  --b-r: 7px;
-  --b-bg: #ffffff;
-  --b-bg-hover: #f2f2f4;
-  --b-bg-down: #e9e9ec;
-  --b-line: #c6c6cd;
-  --b-line-hover: #a8a8b0;
-  --b-ink: #18181b;
-  --b-lift: 0 1px 1px rgba(0, 0, 0, .06);
-  --b-quiet-hover: rgba(24, 24, 27, .07);
-  --b-quiet-down: rgba(24, 24, 27, .12);
-  --b-quiet-ink: #3f3f46;
-  --b-track: #e2e2e6;
-  --b-track-line: #d4d4d9;
-  --b-on-lift: 0 1px 2px rgba(0, 0, 0, .14);
+  --b-h: 32px;
+  --b-h-sm: 28px;
+  --b-r: 999px;
+  --b-bg: #e1e1e6;
+  --b-bg-hover: #d3d3da;
+  --b-bg-down: #c7c7cf;
+  --b-line: transparent;
+  --b-line-hover: transparent;
+  --b-ink: #111113;
+  --b-lift: none;
+  --b-quiet-bg: rgba(24, 24, 27, .05);
+  --b-quiet-hover: rgba(24, 24, 27, .11);
+  --b-quiet-down: rgba(24, 24, 27, .16);
+  --b-quiet-ink: #27272a;
+  --b-track: #e1e1e6;
+  --b-track-line: transparent;
+  --b-on-bg: #18181b;
+  --b-on-ink: #ffffff;
+  --b-on-lift: 0 1px 3px rgba(0, 0, 0, .25);
   --b-focus: 0 0 0 2px var(--fo-bg), 0 0 0 4px var(--fo-accent);
 }
 .fo-app[data-theme='dark'] {
-  --b-bg: #33333a;
-  --b-bg-hover: #3d3d45;
-  --b-bg-down: #2c2c32;
-  --b-line: #4a4a53;
-  --b-line-hover: #62626c;
-  --b-ink: #f2f2f4;
-  --b-lift: inset 0 1px 0 rgba(255, 255, 255, .06), 0 1px 2px rgba(0, 0, 0, .45);
-  --b-quiet-hover: rgba(255, 255, 255, .08);
-  --b-quiet-down: rgba(255, 255, 255, .13);
-  --b-quiet-ink: #c9c9cf;
-  --b-track: #141416;
-  --b-track-line: #2c2c31;
-  --b-on-lift: inset 0 1px 0 rgba(255, 255, 255, .07), 0 1px 3px rgba(0, 0, 0, .55);
+  --b-bg: #4a4a54;
+  --b-bg-hover: #575763;
+  --b-bg-down: #40404a;
+  --b-ink: #ffffff;
+  --b-quiet-bg: rgba(255, 255, 255, .07);
+  --b-quiet-hover: rgba(255, 255, 255, .15);
+  --b-quiet-down: rgba(255, 255, 255, .2);
+  --b-quiet-ink: #ececf0;
+  --b-track: #2e2e35;
+  --b-on-bg: #f4f4f6;
+  --b-on-ink: #111113;
+  --b-on-lift: 0 1px 3px rgba(0, 0, 0, .6);
 }
 
 /* ---- secondary ---- */
@@ -53,7 +58,7 @@
 .fo-app .fo-theme-btn,
 .fo-app .gw .btn {
   height: var(--b-h);
-  padding: 0 12px;
+  padding: 0 16px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -63,7 +68,7 @@
   background: var(--b-bg);
   box-shadow: var(--b-lift);
   color: var(--b-ink);
-  font: 500 13px var(--fo-sans);
+  font: 600 13.5px var(--fo-sans);
   white-space: nowrap;
   cursor: pointer;
   transition: background-color .12s, border-color .12s, filter .12s;
@@ -78,7 +83,7 @@
 .fo-app .fo-btn:active:not(:disabled),
 .fo-app .fo-theme-btn:active:not(:disabled),
 .fo-app .gw .btn:active:not(:disabled) { background: var(--b-bg-down); }
-.fo-app .fo-theme-btn { height: var(--b-h-sm); padding: 0 10px; font-size: 12px; }
+.fo-app .fo-theme-btn { height: var(--b-h-sm); padding: 0 12px; font-size: 12.5px; }
 
 /* ---- primary ---- */
 .fo-app .fo-btn.is-primary,
@@ -111,7 +116,7 @@
   justify-content: center;
   border: 0;
   border-radius: var(--b-r);
-  background: transparent;
+  background: var(--b-quiet-bg);
   box-shadow: none;
   color: var(--b-quiet-ink);
   cursor: pointer;
@@ -129,24 +134,24 @@
   display: inline-flex;
   align-items: center;
   gap: 2px;
-  padding: 2px;
-  border: 1px solid var(--b-track-line);
-  border-radius: calc(var(--b-r) + 1px);
+  padding: 3px;
+  border: 0;
+  border-radius: var(--b-r);
   background: var(--b-track);
 }
 .fo-app .gw-sizes button,
 .fo-app .gw-view-switch button {
   height: var(--b-h-sm);
-  padding: 0 10px;
+  padding: 0 13px;
   display: inline-flex;
   align-items: center;
   gap: 6px;
   border: 0;
-  border-radius: calc(var(--b-r) - 1px);
+  border-radius: var(--b-r);
   background: transparent;
   box-shadow: none;
-  color: var(--fo-text2);
-  font: 500 12.5px var(--fo-sans);
+  color: var(--b-quiet-ink);
+  font: 500 13px var(--fo-sans);
   white-space: nowrap;
   cursor: pointer;
   transition: background-color .12s, color .12s;
@@ -156,9 +161,9 @@
 .fo-app .gw-view-switch button:hover:not(.on) { background: var(--b-quiet-hover); color: var(--fo-text); }
 .fo-app .gw-sizes button.on,
 .fo-app .gw-view-switch button.on {
-  background: var(--b-bg);
+  background: var(--b-on-bg);
   box-shadow: var(--b-on-lift);
-  color: var(--b-ink);
+  color: var(--b-on-ink);
   font-weight: 600;
 }
 
