@@ -12,6 +12,10 @@
   --card: var(--fo-panel);
   --card-2: var(--fo-cull);
   --card-3: var(--fo-control);
+  /* menus and popovers: without these they kept the studio's white sheet
+   * under the frame's light dark-mode text — unreadable */
+  --float: var(--fo-raised);
+  --key-3: 0 1px 2px rgba(0, 0, 0, .08), 0 12px 32px -8px rgba(0, 0, 0, .22);
   --line: var(--fo-line);
   --line-strong: var(--fo-line2);
   --line-loud: var(--fo-text3);
@@ -468,3 +472,33 @@
 .gw-v3 .gw-axis span { font-size: 10.5px; }
 .gw-v3 .gw-new-btn.drop { border-color: var(--gw-brand); color: var(--gw-brand); }
 .gw-v3 .gw-swatch { width: 10px; height: 10px; border-radius: 50%; }
+
+/* ---- menus and popovers, in the frame's language ---- */
+.fo-app[data-theme='dark'] .gw {
+  --key-3: 0 1px 2px rgba(0, 0, 0, .5), 0 16px 40px -8px rgba(0, 0, 0, .7);
+  --danger-ink: #f08f84;
+}
+.fo-app .gw-float {
+  border: 1px solid var(--fo-line2);
+  border-radius: 8px;
+  overflow: hidden;
+}
+.fo-app .gw-menu [role='menu'] { padding: 5px; gap: 1px; }
+.fo-app .gw-menu button {
+  min-height: 32px;
+  padding: 0 10px;
+  border-radius: 5px;
+  font-size: 13px;
+  color: var(--fo-text);
+}
+.fo-app .gw-menu button:hover:not(:disabled),
+.fo-app .gw-menu button:focus-visible { background: var(--fo-control); }
+.fo-app .gw-menu button:disabled { color: var(--fo-text3); opacity: .6; }
+.fo-app .gw-float kbd {
+  min-width: 18px;
+  text-align: center;
+  color: var(--fo-text2);
+  border-color: var(--fo-line2);
+  border-radius: 4px;
+  padding: 1px 5px;
+}
