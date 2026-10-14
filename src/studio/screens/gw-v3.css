@@ -38,19 +38,6 @@
   font-size: 13px;
   -webkit-font-smoothing: antialiased;
 }
-.fo-app .gw .btn {
-  height: 28px;
-  padding: 0 11px;
-  border: 1px solid var(--fo-line2);
-  border-radius: 6px;
-  background: var(--fo-raised);
-  color: var(--fo-text);
-  font: 400 12.5px var(--fo-sans);
-  cursor: pointer;
-}
-.fo-app .gw .btn:hover { border-color: var(--fo-text3); }
-.fo-app .gw .btn.btn-primary { border-color: var(--fo-accent); background: var(--fo-accent); color: var(--fo-accent-ink); font-weight: 600; }
-.fo-app .gw .btn.btn-primary:hover { filter: brightness(1.08); }
 
 .fo-gw.tz-stage-groups { padding: 0; }
 
@@ -398,20 +385,6 @@
 .gw-v3 .gw-toast { bottom: 76px; border-radius: 8px; }
 
 /* ---- the bar's controls, in the frame's language (they were hard-coded light) ---- */
-.gw-v3 .gw-view-switch { padding: 2px; gap: 2px; border: 1px solid var(--line); border-radius: 13px; background: transparent; }
-.gw-v3 .gw-view-switch button {
-  flex: none;
-  height: 26px;
-  padding: 0 10px;
-  border: 0;
-  border-radius: 11px;
-  color: var(--ink-2);
-  font-weight: 400;
-  font-size: 12.5px;
-  box-shadow: none;
-}
-.gw-v3 .gw-view-switch button:hover { color: var(--ink); }
-.gw-v3 .gw-view-switch button.on { background: var(--card-3); color: var(--ink); font-weight: 600; box-shadow: none; }
 .gw-v3 .gw-view-switch button .mono { padding: 0; background: none; color: inherit; font-weight: 400; opacity: .75; }
 .gw-v3 .gw-view-switch button.on .mono { background: none; color: inherit; }
 .gw-v3 .gw-view-switch button.drop { box-shadow: inset 0 0 0 1px var(--gw-brand); color: var(--gw-brand); }
@@ -428,21 +401,6 @@
 .gw-v3 .gw-search::placeholder { color: var(--ink-3); }
 .gw-v3 .gw-search:focus { border-color: var(--gw-brand); box-shadow: none; }
 
-.gw-v3 .gw-icon {
-  width: 28px;
-  height: 28px;
-  border: 0;
-  border-radius: 6px;
-  background: transparent;
-  color: var(--ink-2);
-}
-.gw-v3 .gw-icon:hover:not(:disabled) { background: var(--card-3); color: var(--ink); border: 0; }
-.gw-v3 .gw-icon:disabled { background: transparent; color: var(--ink-3); opacity: .45; }
-
-.gw-v3 .gw-sizes { border: 1px solid var(--line); border-radius: 6px; }
-.gw-v3 .gw-sizes button { height: 26px; padding: 0 9px; color: var(--ink-2); }
-.gw-v3 .gw-sizes button.on { background: var(--card-3); color: var(--ink); }
-.gw-v3 .gw-sizes button + button { border-color: var(--line); }
 
 .gw-v3 .gw-link { color: var(--ink-2); }
 .gw-v3 .gw-link:hover { color: var(--gw-brand); }

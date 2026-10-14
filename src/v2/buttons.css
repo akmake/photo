@@ -1,0 +1,184 @@
+/* ==========================================================================
+   BUTTONS — one language for every button inside the FrameOps frame.
+   14.10.2026: there were 74 separate button styles, each screen its own, and
+   in the dark look many were near-invisible: a light outline on a dark field,
+   text at the strength of a label. The rule now:
+
+     primary     one per screen at most — the next step. Solid accent.
+     secondary   a real, filled button: surface, edge, a little lift.
+     quiet       icon and toolbar buttons: no box until you point at it.
+     segmented   a sunken track; the chosen option is a raised button in it.
+
+   Same heights everywhere (30 / 26), same corner, same focus ring.
+   Screens list their own classes here instead of styling buttons themselves.
+   ========================================================================== */
+
+.fo-app {
+  --b-h: 30px;
+  --b-h-sm: 26px;
+  --b-r: 7px;
+  --b-bg: #ffffff;
+  --b-bg-hover: #f2f2f4;
+  --b-bg-down: #e9e9ec;
+  --b-line: #c6c6cd;
+  --b-line-hover: #a8a8b0;
+  --b-ink: #18181b;
+  --b-lift: 0 1px 1px rgba(0, 0, 0, .06);
+  --b-quiet-hover: rgba(24, 24, 27, .07);
+  --b-quiet-down: rgba(24, 24, 27, .12);
+  --b-quiet-ink: #3f3f46;
+  --b-track: #e2e2e6;
+  --b-track-line: #d4d4d9;
+  --b-on-lift: 0 1px 2px rgba(0, 0, 0, .14);
+  --b-focus: 0 0 0 2px var(--fo-bg), 0 0 0 4px var(--fo-accent);
+}
+.fo-app[data-theme='dark'] {
+  --b-bg: #33333a;
+  --b-bg-hover: #3d3d45;
+  --b-bg-down: #2c2c32;
+  --b-line: #4a4a53;
+  --b-line-hover: #62626c;
+  --b-ink: #f2f2f4;
+  --b-lift: inset 0 1px 0 rgba(255, 255, 255, .06), 0 1px 2px rgba(0, 0, 0, .45);
+  --b-quiet-hover: rgba(255, 255, 255, .08);
+  --b-quiet-down: rgba(255, 255, 255, .13);
+  --b-quiet-ink: #c9c9cf;
+  --b-track: #141416;
+  --b-track-line: #2c2c31;
+  --b-on-lift: inset 0 1px 0 rgba(255, 255, 255, .07), 0 1px 3px rgba(0, 0, 0, .55);
+}
+
+/* ---- secondary ---- */
+.fo-app .fo-btn,
+.fo-app .fo-theme-btn,
+.fo-app .gw .btn {
+  height: var(--b-h);
+  padding: 0 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  border: 1px solid var(--b-line);
+  border-radius: var(--b-r);
+  background: var(--b-bg);
+  box-shadow: var(--b-lift);
+  color: var(--b-ink);
+  font: 500 13px var(--fo-sans);
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color .12s, border-color .12s, filter .12s;
+}
+.fo-app .fo-btn:hover:not(:disabled),
+.fo-app .fo-theme-btn:hover:not(:disabled),
+.fo-app .gw .btn:hover:not(:disabled) {
+  background: var(--b-bg-hover);
+  border-color: var(--b-line-hover);
+  color: var(--b-ink);
+}
+.fo-app .fo-btn:active:not(:disabled),
+.fo-app .fo-theme-btn:active:not(:disabled),
+.fo-app .gw .btn:active:not(:disabled) { background: var(--b-bg-down); }
+.fo-app .fo-theme-btn { height: var(--b-h-sm); padding: 0 10px; font-size: 12px; }
+
+/* ---- primary ---- */
+.fo-app .fo-btn.is-primary,
+.fo-app .gw .btn.btn-primary {
+  border-color: color-mix(in srgb, var(--fo-accent) 80%, #000);
+  background: var(--fo-accent);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .18), 0 1px 2px rgba(0, 0, 0, .25);
+  color: var(--fo-accent-ink);
+  font-weight: 600;
+}
+.fo-app .fo-btn.is-primary:hover:not(:disabled),
+.fo-app .gw .btn.btn-primary:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--fo-accent) 88%, #fff);
+  border-color: color-mix(in srgb, var(--fo-accent) 80%, #000);
+  color: var(--fo-accent-ink);
+  filter: none;
+}
+.fo-app .fo-btn.is-primary:active:not(:disabled),
+.fo-app .gw .btn.btn-primary:active:not(:disabled) {
+  background: color-mix(in srgb, var(--fo-accent) 88%, #000);
+}
+
+/* ---- quiet: icons and toolbar buttons ---- */
+.fo-app .fo-icon-btn,
+.fo-app .gw-icon {
+  width: var(--b-h);
+  height: var(--b-h);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: var(--b-r);
+  background: transparent;
+  box-shadow: none;
+  color: var(--b-quiet-ink);
+  cursor: pointer;
+  transition: background-color .12s, color .12s;
+}
+.fo-app .fo-icon-btn:hover:not(:disabled),
+.fo-app .gw-icon:hover:not(:disabled) { background: var(--b-quiet-hover); color: var(--fo-text); border: 0; }
+.fo-app .fo-icon-btn:active:not(:disabled),
+.fo-app .gw-icon:active:not(:disabled) { background: var(--b-quiet-down); }
+.fo-app .fo-icon-btn.is-on { background: var(--b-quiet-down); color: var(--fo-text); }
+
+/* ---- segmented ---- */
+.fo-app .gw-sizes,
+.fo-app .gw-view-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--b-track-line);
+  border-radius: calc(var(--b-r) + 1px);
+  background: var(--b-track);
+}
+.fo-app .gw-sizes button,
+.fo-app .gw-view-switch button {
+  height: var(--b-h-sm);
+  padding: 0 10px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 0;
+  border-radius: calc(var(--b-r) - 1px);
+  background: transparent;
+  box-shadow: none;
+  color: var(--fo-text2);
+  font: 500 12.5px var(--fo-sans);
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color .12s, color .12s;
+}
+.fo-app .gw-sizes button + button { border: 0; }
+.fo-app .gw-sizes button:hover:not(.on),
+.fo-app .gw-view-switch button:hover:not(.on) { background: var(--b-quiet-hover); color: var(--fo-text); }
+.fo-app .gw-sizes button.on,
+.fo-app .gw-view-switch button.on {
+  background: var(--b-bg);
+  box-shadow: var(--b-on-lift);
+  color: var(--b-ink);
+  font-weight: 600;
+}
+
+/* ---- every button: disabled and keyboard focus look the same ---- */
+.fo-app .fo-btn:disabled,
+.fo-app .fo-theme-btn:disabled,
+.fo-app .gw .btn:disabled,
+.fo-app .fo-icon-btn:disabled,
+.fo-app .gw-icon:disabled {
+  opacity: .4;
+  cursor: default;
+  filter: none;
+}
+.fo-app .fo-btn:focus-visible,
+.fo-app .fo-theme-btn:focus-visible,
+.fo-app .gw .btn:focus-visible,
+.fo-app .fo-icon-btn:focus-visible,
+.fo-app .gw-icon:focus-visible,
+.fo-app .gw-sizes button:focus-visible,
+.fo-app .gw-view-switch button:focus-visible {
+  outline: none;
+  box-shadow: var(--b-focus);
+}

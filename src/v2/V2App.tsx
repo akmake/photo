@@ -15,6 +15,7 @@ import '@fontsource/ibm-plex-sans-hebrew/500.css';
 import '@fontsource/ibm-plex-sans-hebrew/600.css';
 import './tz-exact.css';
 import './frame.css';
+import './buttons.css';
 import { TourProvider } from '../tour/TourProvider';
 import ProjectFrame from './ProjectFrame';
 import {
