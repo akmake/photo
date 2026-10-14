@@ -74,10 +74,11 @@ export function ProjectFrame({
   };
   const active = STAGE_ORDER.find((id) => !facts[id].done);
 
-  /* One row (14.10.2026, "נראה תקוע, לא קשור"): the project and its stages
-   * are the same line — a path through the work, not a separate slab above
-   * it. Where each stage stands is the thin line under its name; the words
-   * are on the current stage and in every stage's tooltip. */
+  /* The stages are the project's PROCESS, and must read as one (14.10.2026:
+   * a row of equal boxes "looks stuck, unrelated"; a thin row of words "is
+   * not clearly a process, and small"). The pattern is the sales "path":
+   * arrow-shaped steps that point to the next, done / now / next / later
+   * each its own colour, every step saying where it stands. */
   return (
     <div className="fo-pf">
       <div className="fo-pf-head">
@@ -85,40 +86,12 @@ export function ProjectFrame({
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="m9 18 6-6-6-6" /></svg>
           פרויקטים
         </button>
-        <span className="fo-pf-title" title={[project.client, project.event, project.location, project.date].filter(Boolean).join(' · ')}>
-          {project.client}
-        </span>
-
-        <nav className="fo-pf-stages" data-tour="project-stages" aria-label="שלבי הפרויקט">
-          {STAGE_ORDER.map((id, i) => {
-            const f = facts[id];
-            const cur = id === stage;
-            const isActive = id === active;
-            return (
-              <React.Fragment key={id}>
-                {i > 0 && <i className="fo-pf-join" aria-hidden />}
-                <button
-                  type="button"
-                  className={`fo-pf-stage${cur ? ' is-cur' : ''}${f.done ? ' is-done' : ''}${isActive ? ' is-active' : ''}`}
-                  aria-current={cur ? 'step' : undefined}
-                  data-tour={`stage-${id}`}
-                  title={`${PROJECT_STAGE_LABEL[id]} — ${f.sub}`}
-                  onClick={() => onStage(id)}
-                >
-                  <span className="fo-pf-label">
-                    {f.done && <span className="fo-pf-check" aria-hidden>✓</span>}
-                    {PROJECT_STAGE_LABEL[id]}
-                    {cur && <span className="fo-pf-stage-sub">{f.sub}</span>}
-                  </span>
-                  <span className="fo-pf-meter" aria-hidden>
-                    <span style={{ width: `${Math.round(f.part * 100)}%` }} />
-                  </span>
-                </button>
-              </React.Fragment>
-            );
-          })}
-        </nav>
-
+        <span className="fo-pf-slash">/</span>
+        <span className="fo-pf-title">{project.client}</span>
+        {(project.event || project.location) && (
+          <span className="fo-pf-sub">{[project.event, project.location].filter(Boolean).join(' · ')}</span>
+        )}
+        {project.date && <span className="fo-mono fo-pf-date">{project.date}</span>}
         <span className="fo-pf-spacer" />
         {total > 0 && (
           <span className="fo-pf-funnel">
@@ -135,6 +108,31 @@ export function ProjectFrame({
           </span>
         )}
       </div>
+
+      <nav className="fo-pf-stages" data-tour="project-stages" aria-label="שלבי הפרויקט">
+        {STAGE_ORDER.map((id, i) => {
+          const f = facts[id];
+          const cur = id === stage;
+          const isActive = id === active;
+          return (
+            <button
+              key={id}
+              type="button"
+              className={`fo-pf-stage${cur ? ' is-cur' : ''}${f.done ? ' is-done' : ''}${isActive ? ' is-active' : ''}`}
+              aria-current={cur ? 'step' : undefined}
+              data-tour={`stage-${id}`}
+              title={`${PROJECT_STAGE_LABEL[id]} — ${f.sub}`}
+              onClick={() => onStage(id)}
+            >
+              <span className="fo-pf-glyph" aria-hidden>{f.done ? '✓' : i + 1}</span>
+              <span className="fo-pf-copy">
+                <span className="fo-pf-label">{PROJECT_STAGE_LABEL[id]}</span>
+                <span className="fo-pf-stage-sub">{f.sub}</span>
+              </span>
+            </button>
+          );
+        })}
+      </nav>
     </div>
   );
 }

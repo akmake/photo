@@ -428,17 +428,16 @@
 }
 
 .fo-pf-head {
-  height: 48px;
+  height: 40px;
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 0 12px 0 14px;
+  padding: 0 12px 0 16px;
   background: var(--fo-panel);
-  border-bottom: 1px solid var(--fo-line);
   min-width: 0;
 }
 .fo-pf-back {
-  height: 28px;
+  height: 26px;
   padding: 0 8px;
   display: flex;
   align-items: center;
@@ -452,17 +451,10 @@
   flex: none;
 }
 .fo-pf-back:hover { background: var(--fo-raised); color: var(--fo-text); }
-.fo-pf-title {
-  flex: none;
-  max-width: 180px;
-  padding-inline-end: 12px;
-  border-inline-end: 1px solid var(--fo-line2);
-  font-size: 15px;
-  font-weight: 600;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
+.fo-pf-slash { color: var(--fo-text3); }
+.fo-pf-title { font-size: 15px; font-weight: 600; white-space: nowrap; }
+.fo-pf-sub { color: var(--fo-text2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.fo-pf-date { font-size: 12px; color: var(--fo-text3); flex: none; }
 .fo-pf-spacer { flex: 1; }
 .fo-pf-funnel { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--fo-text2); white-space: nowrap; flex: none; }
 .fo-pf-funnel .fo-mono { font-weight: 500; color: var(--fo-text); }
@@ -480,65 +472,89 @@
 }
 .fo-pf-path:hover { background: var(--fo-raised); color: var(--fo-text); }
 
-/* the stages: a path through the work, on the project's own line */
+/* ---- the process: arrow steps, each pointing to the next ----
+ * RTL: the work runs right to left, so each step's point is on its LEFT and
+ * the notch that receives the previous step is on its RIGHT. */
 .fo-pf-stages {
-  min-width: 0;
+  --pf-h: 52px;
+  --pf-tip: 16px;
+  --pf-done: color-mix(in srgb, var(--fo-green) 22%, var(--fo-panel));
+  --pf-done-hover: color-mix(in srgb, var(--fo-green) 32%, var(--fo-panel));
+  --pf-later: var(--fo-raised);
+  --pf-later-hover: var(--fo-control);
   display: flex;
-  align-items: center;
+  align-items: stretch;
+  gap: 0;
+  padding: 0 16px 12px;
+  background: var(--fo-panel);
+  border-bottom: 1px solid var(--fo-line);
   overflow-x: auto;
   scrollbar-width: none;
 }
-.fo-pf-join {
-  flex: none;
-  width: 14px;
-  height: 1px;
-  background: var(--fo-line2);
-}
 .fo-pf-stage {
-  flex: none;
-  height: 36px;
+  flex: 1 1 0;
+  min-width: 132px;
+  height: var(--pf-h);
   display: flex;
-  flex-direction: column;
+  align-items: center;
   justify-content: center;
-  gap: 6px;
-  padding: 0 12px;
+  gap: 10px;
+  padding: 0 calc(var(--pf-tip) + 10px);
+  margin-inline-start: calc(var(--pf-tip) * -1 + 4px);
   border: 0;
-  border-radius: 8px;
-  background: transparent;
-  color: var(--fo-text3);
+  background: var(--pf-later);
+  color: var(--fo-text2);
   font: inherit;
+  text-align: right;
   cursor: pointer;
+  clip-path: polygon(
+    var(--pf-tip) 0, 100% 0, calc(100% - var(--pf-tip)) 50%,
+    100% 100%, var(--pf-tip) 100%, 0 50%
+  );
   transition: background-color .12s, color .12s;
 }
-.fo-pf-stage:hover { background: var(--fo-raised); color: var(--fo-text); }
-.fo-pf-stage.is-cur { background: var(--fo-control); color: var(--fo-text); }
-.fo-pf-stage.is-done { color: var(--fo-text2); }
+.fo-pf-stage:first-child {
+  margin-inline-start: 0;
+  padding-inline-start: 16px;
+  border-radius: 0 10px 10px 0;
+  clip-path: polygon(var(--pf-tip) 0, 100% 0, 100% 100%, var(--pf-tip) 100%, 0 50%);
+}
+.fo-pf-stage:last-child {
+  padding-inline-end: 16px;
+  border-radius: 10px 0 0 10px;
+  clip-path: polygon(0 0, 100% 0, calc(100% - var(--pf-tip)) 50%, 100% 100%, 0 100%);
+}
+.fo-pf-stage:hover { background: var(--pf-later-hover); color: var(--fo-text); }
 
-.fo-pf-label {
+.fo-pf-stage.is-done { background: var(--pf-done); color: var(--fo-text); }
+.fo-pf-stage.is-done:hover { background: var(--pf-done-hover); }
+.fo-pf-stage.is-active { background: var(--fo-accent-soft); color: var(--fo-text); }
+.fo-pf-stage.is-cur,
+.fo-pf-stage.is-cur:hover { background: var(--fo-accent); color: var(--fo-accent-ink); }
+
+.fo-pf-glyph {
+  flex: none;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
   display: flex;
-  align-items: baseline;
-  gap: 6px;
-  font-size: 13px;
-  line-height: 1;
-  white-space: nowrap;
+  align-items: center;
+  justify-content: center;
+  border: 1.5px solid currentColor;
+  font: 600 12px var(--fo-mono);
+  opacity: .85;
 }
-.fo-pf-stage.is-cur .fo-pf-label { font-weight: 600; }
-.fo-pf-check { font-size: 11px; color: var(--fo-green); }
-.fo-pf-stage-sub { font: 400 11.5px var(--fo-mono); color: var(--fo-text2); }
+.fo-pf-stage.is-done .fo-pf-glyph { border-color: var(--fo-green); background: var(--fo-green); color: var(--fo-panel); opacity: 1; }
+.fo-pf-stage.is-active .fo-pf-glyph { border-color: var(--fo-accent); color: var(--fo-accent); opacity: 1; }
+.fo-pf-stage.is-cur .fo-pf-glyph { border-color: currentColor; background: transparent; color: inherit; opacity: 1; }
 
-.fo-pf-meter {
-  display: block;
-  height: 3px;
-  border-radius: 2px;
-  background: var(--fo-line2);
-  overflow: hidden;
-}
-.fo-pf-meter > span { display: block; height: 100%; border-radius: inherit; background: var(--fo-text3); }
-.fo-pf-stage.is-done .fo-pf-meter > span { background: var(--fo-green); }
-.fo-pf-stage.is-active .fo-pf-meter { background: color-mix(in srgb, var(--fo-accent) 25%, var(--fo-line2)); }
-.fo-pf-stage.is-active .fo-pf-meter > span,
-.fo-pf-stage.is-cur .fo-pf-meter > span { background: var(--fo-accent); }
+.fo-pf-copy { display: flex; flex-direction: column; gap: 3px; line-height: 1.15; min-width: 0; }
+.fo-pf-label { font-size: 14px; font-weight: 600; white-space: nowrap; }
+.fo-pf-stage-sub { font-size: 12px; opacity: .78; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.fo-pf-stage.is-active:not(.is-cur) .fo-pf-stage-sub { color: var(--fo-accent); opacity: 1; }
 
 @media (max-width: 1180px) {
   .fo-pf-funnel { display: none; }
+  .fo-pf-stage { min-width: 118px; gap: 8px; }
+  .fo-pf-glyph { display: none; }
 }
