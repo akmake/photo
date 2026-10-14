@@ -412,8 +412,12 @@ export async function renderRecipe(
 /** The removal tool was opened: have the engine start its drawing model now,
  *  so the first "הסר" does not wait for it to load. Fire and forget — the
  *  removal itself reports anything that goes wrong. */
-export function prepareObjectRemoval(): void {
-  void fetch(`${ENGINE}/object/prepare`, { method: 'POST' }).catch(() => undefined);
+export function prepareObjectRemoval(path?: string): void {
+  void fetch(`${ENGINE}/object/prepare`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(path ? { path } : {}),
+  }).catch(() => undefined);
 }
 
 export async function selectObjectAtPath(path: string, x: number, y: number,

@@ -13,6 +13,7 @@ import numpy as np
 
 import gen_fill
 import lama_fill
+import people
 import manual_clean
 import object_fill
 import paths
@@ -231,9 +232,19 @@ TAKES_PERSON = 0.25
 def hover(rgb: np.ndarray, x: float, y: float, key=None) -> dict:
     """What a click here would select — shown before the click."""
     small = _small(rgb)
+    # Over a person whose whole mask is already made (prepare_people / a click),
+    # the line shows the whole person — what the click will take.
+    whole = people.ready_at(key, x, y, small.shape) if key is not None else None
+    if whole is not None:
+        return {"maskPng": _mask_data(whole.astype(np.uint8))}
     with _predict_lock:
         candidates, _, index = _pick(small, [(x, y, True)], key)
     return {"maskPng": _mask_data(candidates[index])}
+
+
+def prepare_people(rgb: np.ndarray, key) -> int:
+    """Every person's whole mask, made before the first click (people.prepare)."""
+    return people.prepare(_small(rgb), key)
 
 
 def _whole_person(small: np.ndarray, base: np.ndarray, x: float, y: float) -> np.ndarray:
@@ -334,22 +345,40 @@ def select(rgb: np.ndarray, x: float, y: float, exclude=(), key=None, index=None
     """
     small = _small(rgb)
     clicks = [(x, y, True)] + [(float(ex), float(ey), False) for ex, ey in exclude]
+    # A click on a person takes the WHOLE person (people.py), from any part of
+    # them. The click model's own sizes follow it in the list, so a repeat click
+    # still steps down to a part — the hat, the bag. Anything else: as before.
+    person = None
+    if len(clicks) == 1:
+        try:
+            person = people.person_at(small, x, y, key=key)
+        except Exception:  # noqa: BLE001 - the click model answers as before
+            person = None
+    offset = 0 if person is None else 1
+    asked = None if index is None else int(index) - offset
+    use_person = person is not None and (index is None or int(index) == 0)
     with _predict_lock:
-        candidates, scores, index = _pick(small, clicks, key, index)
-    mask = candidates[index].astype(np.uint8)
+        candidates, scores, index = _pick(small, clicks, key, None if asked is None or asked < 0 else asked)
+    mask = (person if use_person else candidates[index]).astype(np.uint8)
     if not mask.any():
         raise RuntimeError("No object mask found at the selected point")
     with _predict_lock:
         _hold(small, key)  # another request may have set its own meanwhile
-        if len(clicks) == 1:
+        if len(clicks) == 1 and not use_person:
             mask = _whole_person(small, mask.astype(bool), x, y).astype(np.uint8)
         mask = _drop_specks(mask)
         grown = _grow_on_backdrop(small, _around(mask), mask) if mask.mean() <= CLICK_GROW_MAX else None
         if grown is not None:
             mask = grown
         candidates = candidates.copy()
-        candidates[index] = mask
+        if not use_person:
+            candidates[index] = mask
         behind = None if grown is not None else _find_behind(small, mask.astype(bool))
+    if person is not None:
+        whole = mask if use_person else person.astype(np.uint8)
+        candidates = np.concatenate([whole[None], candidates])
+        scores = np.concatenate([[1.0], scores])
+        index = 0 if use_person else index + 1
     sh, sw = small.shape[:2]
     alternatives = [
         {"maskPng": _mask_data(candidate), "coverage": round(float(candidate.mean()), 5),

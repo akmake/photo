@@ -146,6 +146,14 @@ def on_worker(fn, *args, **kwargs):
     return _WORKER.submit(fn, args, kwargs).result()
 
 
+def _quiet(fn, *args, **kwargs):
+    """Background work whose failure the next real request will report."""
+    try:
+        return fn(*args, **kwargs)
+    except Exception:  # noqa: BLE001
+        return None
+
+
 def on_worker_urgent(fn, *args, **kwargs):
     """Same, ahead of everything still waiting: the picture on screen now."""
     return _WORKER.submit(fn, args, kwargs, urgent=True).result()
@@ -1184,8 +1192,20 @@ class Handler(BaseHTTPRequestHandler):
             return
         if self.path == "/object/prepare":
             # The removal tab was opened: start the drawing model now, so the
-            # first "הסר" does not also wait ~20s for it to load. Answers at
-            # once; the loading happens beside everything else.
+            # first "הסר" does not also wait ~20s for it to load. With a path,
+            # also find every person in the photograph and make their whole
+            # masks, so the line under the pointer shows the whole person.
+            # Answers at once; the work happens beside everything else.
+            try:
+                path = (self._body() or {}).get("path")
+            except Exception:  # noqa: BLE001 - an empty body is fine
+                path = None
+            if path and os.path.isfile(path):
+                def people_work():
+                    _, img, _ = _working_frame(path, object_remove.SELECT_MAX_DIM, None)
+                    return object_remove.prepare_people(
+                        common.to_np(img), key=(_photo_key(path), object_remove.SELECT_MAX_DIM))
+                threading.Thread(target=lambda: _quiet(on_worker, people_work), daemon=True).start()
             self._json(200, {"preparing": gen_fill.prepare()})
             return
         if self.path == "/object/leftovers":

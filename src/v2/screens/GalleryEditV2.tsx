@@ -263,8 +263,6 @@ export default function GalleryEditV2({
   const [panning, setPanning] = useState(false);
   const [brushOn, setBrushOn] = useState(false);
   const [objectMode, setObjectMode] = useState<'select' | 'add' | 'subtract' | null>(null);
-  // The drawing model takes ~20s to load; start it as soon as a removal begins.
-  useEffect(() => { if (objectMode) prepareObjectRemoval(); }, [objectMode]);
   const [objectDraft, setObjectDraft] = useState<ToolInstance['objectSelection'] | null>(null);
   const [objectBusy, setObjectBusy] = useState(false);
   const [objectError, setObjectError] = useState<string | null>(null);
@@ -789,6 +787,9 @@ export default function GalleryEditV2({
    * slider move — the same pixels, on the same single engine worker, doubling
    * the wait for the picture that had actually changed. */
   const currentPath = currentFrame?.path ?? null;
+  // The drawing model takes ~20s to load; start it (and find the people
+  // in the photograph) as soon as a removal begins.
+  useEffect(() => { if (objectMode) prepareObjectRemoval(currentPath ?? undefined); }, [objectMode, currentPath]);
   const savedObject = frameEffectiveTools.find((t) => t.toolId === 'object-remove')?.objectSelection;
   const selectedObject = objectDraft ?? savedObject;
   useEffect(() => {

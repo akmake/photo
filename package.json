@@ -122,6 +122,7 @@
           "big-lama.pt",
           "lama-LICENSE.txt",
           "face_landmarker.task",
+          "efficientdet_lite0.tflite",
           "selfie_multiclass_256x256.tflite",
           "mobile_sam.pt",
           "sam2.1-hiera-small/**",

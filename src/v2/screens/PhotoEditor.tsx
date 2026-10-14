@@ -166,7 +166,7 @@ export default function PhotoEditor({
 }) {
   const [tab, setTab] = useState<EditorTab>(initialTab);
   // The drawing model takes ~20s to load; start it when the tab opens, not on "הסר".
-  useEffect(() => { if (tab === 'object') prepareObjectRemoval(); }, [tab]);
+  useEffect(() => { if (tab === 'object') prepareObjectRemoval(frame.path); }, [tab, frame.path]);
   const [edits, setEdits] = useState<Edits>({});
   const [image, setImage] = useState<string | null>(null);
   const [imageFor, setImageFor] = useState('');
