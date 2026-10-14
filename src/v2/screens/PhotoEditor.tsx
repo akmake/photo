@@ -18,7 +18,7 @@
  */
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { autoEnhance, EDIT_WIDTH, paintObjectAtPath, renderRecipeAtPath, selectObjectAtPath, Superseded, thumbUrl } from '../../api';
+import { autoEnhance, EDIT_WIDTH, paintObjectAtPath, prepareObjectRemoval, renderRecipeAtPath, selectObjectAtPath, Superseded, thumbUrl } from '../../api';
 import type { Frame } from '../../api';
 import {
   batchesOf, batchOfFrame, effectiveRecipe, frameSteps, framesInBatch, removeFrameStep, restoreFrameSteps, setFrameStep, setFrameSteps,
@@ -165,6 +165,8 @@ export default function PhotoEditor({
   initialTab?: EditorTab;
 }) {
   const [tab, setTab] = useState<EditorTab>(initialTab);
+  // The drawing model takes ~20s to load; start it when the tab opens, not on "הסר".
+  useEffect(() => { if (tab === 'object') prepareObjectRemoval(); }, [tab]);
   const [edits, setEdits] = useState<Edits>({});
   const [image, setImage] = useState<string | null>(null);
   const [imageFor, setImageFor] = useState('');

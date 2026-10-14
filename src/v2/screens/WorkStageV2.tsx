@@ -203,7 +203,16 @@ export default function WorkStageV2({
    * burst shows its cover), each with its proportions and its thumbnail —
    * the frame's own edit when it has one. */
   const dims = useDims(useMemo(() => frames.map((f) => f.path), [frames]));
-  const editedKeys = useEditedKeys(projectId);
+  const liveKeys = useEditedKeys(projectId);
+  /* While the edit window is open the grid and the viewer under it keep the
+   * pictures they had. Every saved step changes a frame's key, and each new key
+   * rendered the frame again — at 640 for the grid, at 2400 for the viewer —
+   * on the one engine worker, AHEAD of the edit window's own picture. One
+   * "הסר" was three removals and a 20s wait for a 6s one (2026-10-14). They
+   * catch up the moment the window closes. */
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const keysAtEdit = useMemo(() => liveKeys, [editing]);
+  const editedKeys = editing ? keysAtEdit : liveKeys;
   /* A burst is handled in its own window, not unfolded into the gallery: side
    * by side in the grid, near-identical frames are exactly what the eye cannot
    * tell apart. The window holds every burst of the view, in order, so the
@@ -690,6 +699,7 @@ export default function WorkStageV2({
       {viewer && sel && frameByName.get(sel) && (
         <Viewer
           projectId={projectId}
+          hold={editing}
           onEdit={(from) => { setEditFrom(from); setEditing(true); }}
           frame={frameByName.get(sel)!}
           faces={byName.get(sel)?.faces ?? []}
@@ -871,9 +881,11 @@ function preload(src: string): Promise<{ w: number; h: number }> {
 }
 
 function Viewer({
-  projectId, onEdit, frame, faces, quick, neighbors, name, position, total, decision, onClose, onStep, onDecide,
+  projectId, hold, onEdit, frame, faces, quick, neighbors, name, position, total, decision, onClose, onStep, onDecide,
 }: {
   projectId: string;
+  /** The edit window is open over it: keep the picture, render nothing new. */
+  hold: boolean;
   /** Called with the picture on screen when it is THIS frame's, else null. */
   onEdit: (onScreen: string | null) => void;
   frame: Frame;
@@ -911,7 +923,7 @@ function Viewer({
   }, []);
 
   // The photograph as it is now — with this frame's own edit when it has one.
-  const src = useEditedSrc(projectId, name, frame.path, 2400);
+  const src = useEditedSrc(projectId, name, frame.path, 2400, hold);
   // Only while it is this frame's: stepping keeps the previous picture up
   // until the next one has loaded.
   const onScreenRef = useRef<string | null>(null);
@@ -1752,7 +1764,7 @@ type ToolInstanceLike = { toolId: string };
  *  the engine under the recipe's key), otherwise the file. Null while the key
  *  is being asked for, so a caller can keep what is on screen until then. */
 const keyCache = new Map<string, string>();
-function useEditedSrc(projectId: string, name: string, path: string, width: number): string | null {
+function useEditedSrc(projectId: string, name: string, path: string, width: number, hold = false): string | null {
   const recipe = useRecipe(projectId);
   const own = recipe.perFrame[frameKey(name)];
   const steps = useMemo(
@@ -1777,6 +1789,10 @@ function useEditedSrc(projectId: string, name: string, path: string, width: numb
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sig]);
   const key = !sig ? '' : keyCache.get(sig) ?? (asked?.sig === sig ? asked.key : null);
-  if (key === null) return null;
-  return key ? previewUrl(path, width, key) : thumbUrl(path, width);
+  const src = key === null ? null : key ? previewUrl(path, width, key) : thumbUrl(path, width);
+  // While held, the picture asked for before stays — a new URL would be a new render.
+  const held = useRef<{ path: string; src: string } | null>(null);
+  if (hold && held.current?.path === path) return held.current.src;
+  if (src !== null) held.current = { path, src };
+  return src;
 }

@@ -15,7 +15,9 @@ import threading
 import time
 import urllib.parse
 from collections import OrderedDict
-from concurrent.futures import ThreadPoolExecutor
+import heapq
+import itertools
+from concurrent.futures import Future
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 # THE STARTUP NOISE IS NOT OURS, AND IT CANNOT BE TURNED OFF FROM HERE.
@@ -50,6 +52,7 @@ import presets
 import raw
 import render
 import object_remove
+import gen_fill
 import shotinfo
 import photo_tools
 import skin
@@ -100,12 +103,52 @@ PORT = int(os.environ.get("TEZA_PORT") or 8756)
 # One long-lived worker owns all image work: MediaPipe is always entered from
 # the same thread, and that thread never exits. The HTTP layer stays threaded
 # so /health still answers while a render is in flight.
-_WORKER = ThreadPoolExecutor(max_workers=1, thread_name_prefix="engine-image")
+#
+# The queue is ordered: URGENT work — the picture the photographer is looking
+# at in the edit window — goes ahead of everything waiting, then first come,
+# first served. Measured 2026-10-14 (docs/OBJECT-REMOVE-TIMELINE.md): one
+# "הסר" queued the edit window's render BEHIND two thumbnails of the same
+# frame; the removal took 5.9s and he waited 20s. Work already running is
+# never interrupted by this — only the waiting order changes.
+class _Worker:
+    def __init__(self):
+        self._heap = []
+        self._seq = itertools.count()
+        self._cond = threading.Condition()
+        threading.Thread(target=self._run, name="engine-image", daemon=True).start()
+
+    def submit(self, fn, args, kwargs, urgent=False):
+        fut = Future()
+        with self._cond:
+            heapq.heappush(self._heap, (0 if urgent else 1, next(self._seq), fut, fn, args, kwargs))
+            self._cond.notify()
+        return fut
+
+    def _run(self):
+        while True:
+            with self._cond:
+                while not self._heap:
+                    self._cond.wait()
+                _, _, fut, fn, args, kwargs = heapq.heappop(self._heap)
+            if not fut.set_running_or_notify_cancel():
+                continue
+            try:
+                fut.set_result(fn(*args, **kwargs))
+            except BaseException as exc:  # noqa: BLE001 - handed to the caller
+                fut.set_exception(exc)
+
+
+_WORKER = _Worker()
 
 
 def on_worker(fn, *args, **kwargs):
     """Run image work on the one thread allowed to touch the models."""
-    return _WORKER.submit(fn, *args, **kwargs).result()
+    return _WORKER.submit(fn, args, kwargs).result()
+
+
+def on_worker_urgent(fn, *args, **kwargs):
+    """Same, ahead of everything still waiting: the picture on screen now."""
+    return _WORKER.submit(fn, args, kwargs, urgent=True).result()
 
 
 # ------------------------------------------------------------------- lanes
@@ -1139,6 +1182,12 @@ class Handler(BaseHTTPRequestHandler):
         if self.path == "/object/hover":
             self._object_hover()
             return
+        if self.path == "/object/prepare":
+            # The removal tab was opened: start the drawing model now, so the
+            # first "הסר" does not also wait ~20s for it to load. Answers at
+            # once; the loading happens beside everything else.
+            self._json(200, {"preparing": gen_fill.prepare()})
+            return
         if self.path == "/object/leftovers":
             self._object_leftovers()
             return
@@ -1517,7 +1566,9 @@ class Handler(BaseHTTPRequestHandler):
 
             try:
                 with _INTERACTIVE:
-                    out, meta = on_worker(work)
+                    # The edit window's picture; a file being written waits its turn.
+                    run = on_worker if body.get("deliver") else on_worker_urgent
+                    out, meta = run(work)
             except render.Superseded:
                 # Not an error: a newer request in the same lane replaced it.
                 self._json(409, {"error": "superseded", "superseded": True})

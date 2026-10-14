@@ -113,6 +113,30 @@ def _worker():
     return _proc
 
 
+def prepare() -> bool:
+    """Start the worker in the background, ahead of the first fill.
+
+    Loading is the 12-20s of a first removal (measured 2026-10-14: the worker
+    came up inside the photographer's first "הסר"). The edit window asks for
+    this when the removal tab opens; by the time a selection is made and "הסר"
+    pressed the model is usually up. A fill that arrives while it is still
+    loading waits on the same lock — it never starts a second worker.
+    -> False when the generative fill is not installed (nothing to prepare).
+    """
+    if not available():
+        return False
+
+    def go():
+        try:
+            with _lock:
+                _worker()
+        except Exception:  # noqa: BLE001 - the fill itself will report it
+            pass
+
+    threading.Thread(target=go, name="gen-fill-prepare", daemon=True).start()
+    return True
+
+
 def _read(proc) -> dict:
     line = proc.stdout.readline()
     if not line:

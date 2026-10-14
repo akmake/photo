@@ -26,6 +26,7 @@ import {
   galleryResolve,
   learnColorModel,
   prepareFrames,
+  prepareObjectRemoval,
   renderRecipeAtPath,
   selectObjectAtPath,
   Superseded,
@@ -262,6 +263,8 @@ export default function GalleryEditV2({
   const [panning, setPanning] = useState(false);
   const [brushOn, setBrushOn] = useState(false);
   const [objectMode, setObjectMode] = useState<'select' | 'add' | 'subtract' | null>(null);
+  // The drawing model takes ~20s to load; start it as soon as a removal begins.
+  useEffect(() => { if (objectMode) prepareObjectRemoval(); }, [objectMode]);
   const [objectDraft, setObjectDraft] = useState<ToolInstance['objectSelection'] | null>(null);
   const [objectBusy, setObjectBusy] = useState(false);
   const [objectError, setObjectError] = useState<string | null>(null);

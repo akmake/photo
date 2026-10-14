@@ -409,6 +409,13 @@ export async function renderRecipe(
  *  `exclude` are "not this" points (Alt-click) that correct the guess. `box` —
  *  a rectangle dragged around the object; it says which object, so the point
  *  is only its centre (engine/box_select.py). */
+/** The removal tool was opened: have the engine start its drawing model now,
+ *  so the first "הסר" does not wait for it to load. Fire and forget — the
+ *  removal itself reports anything that goes wrong. */
+export function prepareObjectRemoval(): void {
+  void fetch(`${ENGINE}/object/prepare`, { method: 'POST' }).catch(() => undefined);
+}
+
 export async function selectObjectAtPath(path: string, x: number, y: number,
   exclude: Array<[number, number]> = [], index?: number,
   box?: [number, number, number, number]): Promise<{
