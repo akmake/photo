@@ -510,7 +510,11 @@ export async function exportAlbumForPrint(
     height: number;
     sha256: string;
   }> = [];
-  const total = items.length + 1;
+  /* A leather or linen cover is chosen by model number: there is no file to
+   * send, and sending one would only confuse the order. */
+  const printsCover = profile.coverMode !== 'material';
+  const total = items.length + (printsCover ? 1 : 0);
+  const firstIndex = Math.max(0, profile.firstIndex ?? 1);
 
   const finalize = async (sheet: Sheet, name: string) => {
     const lossless = await encode(sheet.canvas, 'image/png');
@@ -528,7 +532,7 @@ export async function exportAlbumForPrint(
 
   for (let index = 0; index < items.length; index += 1) {
     onProgress?.(index + 1, total);
-    const sequence = String(index + 1).padStart(3, '0');
+    const sequence = String(index + firstIndex).padStart(3, '0');
     await finalize(
       await renderSpread(items[index], photosById, profile, options),
       safeFileName(profile.namingPattern
@@ -537,8 +541,13 @@ export async function exportAlbumForPrint(
     );
   }
 
-  onProgress?.(total, total);
-  await finalize(await renderCover(project, photosById, profile, options), 'cover.jpg');
+  if (printsCover) {
+    onProgress?.(total, total);
+    await finalize(
+      await renderCover(project, photosById, profile, options),
+      safeFileName(profile.coverFileName ?? 'cover.jpg'),
+    );
+  }
 
   const manifest = JSON.stringify({
     kind: 'TEZA_ALBUM_PRINT_EXPORT',
@@ -558,8 +567,12 @@ export async function exportAlbumForPrint(
       format: profile.outputFormat,
       colorProfile: profile.colorProfile,
       verified: profile.verified,
+      labSpecId: profile.labSpecId ?? null,
+      trimInsideMm: profile.trimInsideMm ?? 0,
+      safeMarginMm: profile.safeMarginMm,
     },
     cover: {
+      mode: profile.coverMode ?? 'wrap',
       totalWidthMm: profile.coverSpec.totalWidthMm,
       totalHeightMm: profile.coverSpec.totalHeightMm,
       spineWidthMm: profile.coverSpec.spineWidthMm,

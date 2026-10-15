@@ -24,6 +24,20 @@ export interface PrintProductProfile {
   profileVersion: string;
   namingPattern: string;
   exportMode: 'spreads' | 'pages';
+  /* What a lab card (labs.ts) adds. Optional, so a profile saved before the
+   * card existed opens unchanged and behaves as it always did. */
+  labSpecId?: string;
+  /** What the lab cuts off the inside of a file sent at finished size. */
+  trimInsideMm?: number;
+  /** The first spread's number in a file name (משלי's block album starts at 002). */
+  firstIndex?: number;
+  coverFileName?: string;
+  /** 'material' = leather/linen by model number: no cover file is sent. */
+  coverMode?: 'material' | 'flat' | 'wrap';
+  /** 'page' = the book opens on a single page; half the first spread is endpaper. */
+  startsWith?: 'spread' | 'page';
+  endsWith?: 'spread' | 'page';
+  paper?: 'luster' | 'gloss' | 'matte' | 'fine-art';
   coverSpec: {
     totalWidthMm: number;
     totalHeightMm: number;

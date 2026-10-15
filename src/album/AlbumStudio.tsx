@@ -36,6 +36,7 @@ import type {
 } from './templates/types';
 import { analyzeAlbumPhoto } from '../api';
 import { exportAlbumForPrint, exportAlbumProof } from './exportEngine';
+import { LAB_SPECS, applyLabSpec, labOffersSize, labSpecOf, profileForAlbum } from './labs';
 import {
   COVER_SHEET_ID, coverSheetOf, coverTemplateOf, coverZonePlace, spineBand,
 } from './coverSheet';
@@ -587,8 +588,15 @@ export default function AlbumStudio({ job, onBack }: {
     return () => window.removeEventListener('keydown', onKey);
   });
 
-  const profile = printProfiles.find((item) => item.id === project.productProfileId)
-    ?? FIRST_PRINT_PROFILE;
+  /* The product as THIS album needs it: a lab's spine grows with the number
+   * of spreads, and the cover's width with the spine. Everything below —
+   * the cover sheet, the check, the export — reads this one. */
+  const profile = profileForAlbum(
+    printProfiles.find((item) => item.id === project.productProfileId) ?? FIRST_PRINT_PROFILE,
+    project.spreads.length,
+  );
+  const labSpec = labSpecOf(profile);
+  const labSizeOffered = labSpec ? labOffersSize(labSpec, profile) : undefined;
   /* THE SHEET BEING DESIGNED is a spread — or the cover, which is a designed
    * sheet of its own shape: back, spine and front on one piece of paper. It
    * holds a template instance exactly as a spread does, so everything below
@@ -2985,6 +2993,80 @@ export default function AlbumStudio({ job, onBack }: {
           </div>
           {showProfileEditor && (
             <div className="album-profile-editor">
+              {/* The lab first: everything below is ITS rules. Choosing one
+                * fills them from what the lab published, and says plainly
+                * what it did not publish. */}
+              <label>
+                <span>מעבדה</span>
+                <select
+                  value={profile.labSpecId ?? ''}
+                  onChange={(event) => {
+                    const spec = LAB_SPECS.find((item) => item.id === event.target.value);
+                    if (spec) {
+                      updatePrintProfile(applyLabSpec(profile, spec));
+                    } else {
+                      updatePrintProfile({
+                        labSpecId: undefined,
+                        labName: 'מעבדה אחרת — הגדרה ידנית',
+                        verified: false,
+                        profileVersion: 'טיוטה',
+                      });
+                    }
+                  }}
+                >
+                  <option value="">מעבדה אחרת — הגדרה ידנית</option>
+                  {LAB_SPECS.map((spec) => (
+                    <option key={spec.id} value={spec.id}>{spec.labName} · {spec.productName}</option>
+                  ))}
+                </select>
+              </label>
+              {labSpec && (
+                <div className="album-lab-card">
+                  <div className="album-lab-rules">
+                    <span>{labSpec.bleedMm ? `גלישה ${labSpec.bleedMm} מ״מ מחוץ לגודל` : `קובץ בגודל הסופי · נחתכים ${labSpec.trimInsideMm} מ״מ מבפנים`}</span>
+                    <span>תוכן חשוב {labSpec.safeMarginMm} מ״מ מהקצה · {labSpec.foldBandMm} מ״מ מהקפל</span>
+                    <span>{labSpec.startsWith === 'page' ? 'נפתח ונסגר בעמוד בודד' : 'נפתח ונסגר בכפולה'}</span>
+                    <span>שמות: {String(labSpec.firstIndex).padStart(3, '0')}.jpg, {String(labSpec.firstIndex + 1).padStart(3, '0')}.jpg… · כריכה: {labSpec.coverFileName}</span>
+                  </div>
+                  {labSizeOffered === false && (
+                    <div className="profile-blocker">
+                      המעבדה לא מציעה {profile.spreadHeightMm / 10}×{profile.spreadWidthMm / 10} ס״מ (גובה × כפולה פתוחה). הגדלים שלה:{' '}
+                      {labSpec.sizesCm.map((size) => `${size.heightCm}×${size.openWidthCm}`).join(' · ')}
+                    </div>
+                  )}
+                  {labSpec.gaps.length > 0 && (
+                    <ul className="album-lab-gaps">
+                      {labSpec.gaps.map((gap) => <li key={gap}>{gap}</li>)}
+                    </ul>
+                  )}
+                  <a href={labSpec.sourceUrl} target="_blank" rel="noreferrer">המפרט באתר המעבדה · נבדק {labSpec.checkedOn}</a>
+                </div>
+              )}
+              <label>
+                <span>כריכה</span>
+                <select
+                  value={profile.coverMode ?? 'wrap'}
+                  onChange={(event) => {
+                    const coverMode = event.target.value as NonNullable<typeof profile.coverMode>;
+                    updatePrintProfile({
+                      coverMode,
+                      coverSpec: {
+                        ...profile.coverSpec,
+                        verified: coverMode === 'material'
+                          || (coverMode === 'flat' && profile.labSpecId !== undefined),
+                      },
+                    });
+                  }}
+                >
+                  {(labSpec?.coverModes ?? ['wrap', 'flat', 'material']).map((mode) => (
+                    <option key={mode} value={mode}>
+                      {mode === 'material' ? 'כריכת חומר (עור, בד, עץ) — בלי קובץ'
+                        : mode === 'flat' ? 'כריכה מודפסת שטוחה, בגודל כפולה'
+                          : 'כריכה מודפסת עם שדרה'}
+                    </option>
+                  ))}
+                </select>
+              </label>
               <label>
                 <span>שם בית הדפוס</span>
                 <input
@@ -3929,7 +4011,40 @@ export default function AlbumStudio({ job, onBack }: {
                   <div className="album-gutter" />
                 </>
               )}
-              {showGuides && <><div className="album-bleed-guide" /><div className="album-safe-guide" /></>}
+              {/* The lab's own millimetres, not a picture of "a margin": where
+                * it cuts, where a face is safe, and the band around the fold. */}
+              {showGuides && (() => {
+                const across = (mm: number) => `${(mm / sheetWidthMm) * 100}%`;
+                const down = (mm: number) => `${(mm / sheetHeightMm) * 100}%`;
+                const trim = profile.trimInsideMm ?? 0;
+                const safe = editingCover ? profile.coverSpec.safeMarginMm : profile.safeMarginMm;
+                return (
+                  <>
+                    {trim > 0 && (
+                      <div
+                        className="album-bleed-guide"
+                        title={`המעבדה חותכת כאן — ${trim} מ״מ מהקצה`}
+                        style={{ inset: `${down(trim)} ${across(trim)}` }}
+                      />
+                    )}
+                    <div
+                      className="album-safe-guide"
+                      title={`אזור בטוח לפנים ולטקסט — ${safe} מ״מ מהקצה`}
+                      style={{ inset: `${down(safe)} ${across(safe)}` }}
+                    />
+                    {!editingCover && profile.gutterRiskMm > 0 && (
+                      <div
+                        className="album-fold-guide"
+                        title={`רצועת הקפל — ${profile.gutterRiskMm} מ״מ מכל צד`}
+                        style={{
+                          left: `calc(50% - ${across(profile.gutterRiskMm)})`,
+                          width: across(profile.gutterRiskMm * 2),
+                        }}
+                      />
+                    )}
+                  </>
+                );
+              })()}
               {frameGuides && <SmartGuideOverlay guides={frameGuides} />}
 
               {activeTemplate && spread.templateInstance && (

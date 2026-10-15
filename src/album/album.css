@@ -1211,6 +1211,35 @@
   line-height: 1.4;
 }
 
+/* The lab card: what the lab published, then what it did not. */
+.album-lab-card {
+  display: grid;
+  gap: 7px;
+  padding: 9px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  background: var(--card);
+  font-size: var(--t-xs);
+  line-height: 1.4;
+}
+
+.album-lab-rules {
+  display: grid;
+  gap: 3px;
+  color: var(--ink);
+}
+
+.album-lab-gaps {
+  margin: 0;
+  padding-inline-start: 16px;
+  color: var(--ink-3, var(--ink-2));
+}
+
+.album-lab-card a {
+  color: var(--ink-2);
+  text-decoration: underline;
+}
+
 .album-center {
   grid-area: canvas;
   min-width: 0;
@@ -1531,13 +1560,21 @@
 }
 
 .album-bleed-guide {
-  inset: 1.3%;
   border: 1px dashed rgba(232, 126, 46, 0.85);
 }
 
 .album-safe-guide {
-  inset: 3.8% 2.5%;
   border: 1px dashed rgba(89, 83, 75, 0.48);
+}
+
+/* The fold band: two hairlines, never a fill over the photographs. */
+.album-fold-guide {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  z-index: 8;
+  pointer-events: none;
+  border-inline: 1px dotted rgba(232, 126, 46, 0.7);
 }
 
 .album-frame {

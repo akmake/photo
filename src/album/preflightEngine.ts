@@ -51,7 +51,10 @@ export function runAlbumPreflight(
     });
   }
 
-  if (!profile.coverSpec.verified) {
+  /* A leather or linen cover is ordered by model number — there is no cover
+   * file, so nothing about a printed cover can be wrong. */
+  const printsCover = profile.coverMode !== 'material';
+  if (printsCover && !profile.coverSpec.verified) {
     issues.push({
       id: 'cover-spec-unverified',
       severity: 'blocker',
@@ -62,13 +65,13 @@ export function runAlbumPreflight(
     });
   }
   const coverSpec = profile.coverSpec;
-  if (
+  if (printsCover && (
     coverSpec.totalWidthMm <= coverSpec.spineWidthMm
     || coverSpec.totalHeightMm <= 0
     || coverSpec.spineWidthMm < 0
     || coverSpec.bleedMm < 0
     || coverSpec.safeMarginMm < coverSpec.bleedMm
-  ) {
+  )) {
     issues.push({
       id: 'cover-spec-invalid',
       severity: 'blocker',
@@ -84,8 +87,8 @@ export function runAlbumPreflight(
    * Vault placed on the cover can have any number, and they are all checked. */
   const coverSheet = coverSheetOf(project, profile);
   const coverDesign = coverTemplateOf(coverSheet, profile, project.openingDirection ?? 'rtl');
-  const coverPlaces = coverDesign ? templateSlots(coverDesign) : [];
-  if (!coverSheet.photoIds.some(Boolean)) {
+  const coverPlaces = printsCover && coverDesign ? templateSlots(coverDesign) : [];
+  if (printsCover && !coverSheet.photoIds.some(Boolean)) {
     issues.push({
       id: 'cover-photo-missing',
       severity: 'blocker',
@@ -133,7 +136,7 @@ export function runAlbumPreflight(
       });
     }
   });
-  if (!(coverSheet.templateInstance?.texts.title ?? '').trim()) {
+  if (printsCover && !(coverSheet.templateInstance?.texts.title ?? '').trim()) {
     issues.push({
       id: 'cover-title-missing',
       severity: 'warning',
