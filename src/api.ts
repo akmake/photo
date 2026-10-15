@@ -874,9 +874,10 @@ export function thumbUrl(path: string, width = 320, version?: string): string {
  *  own embedded preview — which on a 56cm spread is the difference between a
  *  print and an excuse. `longEdge` is a cap: a file smaller than its place
  *  comes back at its own size, never enlarged. */
-export function albumSourceUrl(path: string, longEdge: number): string {
+export function albumSourceUrl(path: string, longEdge: number, paper?: string, ppi?: number): string {
   const cap = Math.max(0, Math.round(longEdge));
-  return `${ENGINE}/album/source?path=${encodeURIComponent(path)}&w=${cap}`;
+  const print = paper ? `&paper=${encodeURIComponent(paper)}&ppi=${Math.round(ppi ?? 300)}` : '';
+  return `${ENGINE}/album/source?path=${encodeURIComponent(path)}&w=${cap}${print}`;
 }
 
 /* ------------------------------------------------------- the project's recipe

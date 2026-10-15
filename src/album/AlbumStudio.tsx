@@ -2576,7 +2576,9 @@ export default function AlbumStudio({ job, onBack }: {
         (current, total) => setNotice(`מייצא לדפוס כפולה ${current} מתוך ${total}…`),
       );
       setNotice(
-        `חבילת הדפוס מוכנה · ${result.files} קבצים · ${result.pixelSize.width}×${result.pixelSize.height}px`,
+        `חבילת הדפוס מוכנה · ${result.files} קבצים · ${result.pixelSize.width}×${result.pixelSize.height}px`
+          + (result.archive ? ` · להעלאה: ${result.archive}` : ' · הקבצים גדולים מדי לקובץ ZIP אחד — להעלות את הקבצים עצמם')
+          + ' · סקירת האלבום בתיקייה "_לבדיקה-לא-להדפסה"',
       );
     } catch (error) {
       if (error instanceof DOMException && error.name === 'AbortError') {

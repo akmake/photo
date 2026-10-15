@@ -4,9 +4,11 @@ file, and the final encoding of a print-ready sRGB JPEG."""
 import base64
 import io
 
-from PIL import Image, ImageCms
+from PIL import Image, ImageCms, ImageFilter
 
 import common
+import icc_profiles
+import raw
 
 
 def _encode_print_jpeg(image, ppi: int):
@@ -59,7 +61,79 @@ def finalize_sheet(data: bytes, ppi: int = 300):
     return _encode_print_jpeg(image, ppi)
 
 
-def source_jpeg(path: str, long_edge: int = 0) -> bytes:
+_SRGB = ImageCms.createProfile("sRGB")
+_ADOBE_RGB = icc_profiles.adobe_rgb_1998_icc()
+
+# Output sharpening, per paper — the last of Fraser & Schewe's three passes,
+# applied at the size the photo is printed. Radius scales with the resolution
+# so the halo stays ~1/100 inch, what the eye resolves at reading distance
+# (measured: a 4px edge band at 300 PPI). The paper changes the AMOUNT, not
+# the width: matte and fine-art papers spread the ink and want more; gloss and
+# luster less. THESE AMOUNTS ARE A STARTING POINT, NOT YET JUDGED ON A PRINTED
+# PAGE — see docs/ALBUM-PRINT-TIMELINE.md.
+_OUTPUT_SHARPEN = {
+    "gloss": (0.9, 70),
+    "luster": (0.9, 80),
+    "matte": (0.9, 120),
+    "fine-art": (0.9, 140),
+}
+
+
+def _embedded_profile(path: str):
+    """The colour space the file says it is in, as ICC bytes — or None for
+    sRGB and for files that say nothing (which ARE sRGB by convention).
+
+    A camera set to Adobe RGB usually embeds no profile; it marks the file
+    instead (EXIF ColorSpace = uncalibrated, interoperability index R03).
+    """
+    if raw.is_raw(path):
+        return None  # the decoder hands over sRGB
+    with Image.open(path) as image:
+        icc = image.info.get("icc_profile")
+        if icc:
+            try:
+                name = ImageCms.getProfileDescription(
+                    ImageCms.ImageCmsProfile(io.BytesIO(icc))
+                )
+            except Exception:  # noqa: BLE001 — unreadable profile: do not guess
+                return None
+            return None if "srgb" in name.lower().replace(" ", "") else icc
+        try:
+            exif = image.getexif()
+            if exif.get_ifd(0x8769).get(0xA001) == 0xFFFF:
+                if exif.get_ifd(0xA005).get(0x0001) == "R03":
+                    return _ADOBE_RGB
+        except Exception:  # noqa: BLE001
+            pass
+    return None
+
+
+def to_srgb(image, icc: bytes):
+    """Convert pixels from the space `icc` describes into sRGB — the numbers
+    change so the COLOUR stays. Labelling them sRGB without converting is the
+    bug this exists to stop: an Adobe RGB frame printed that way comes out dull."""
+    transform = ImageCms.buildTransform(
+        ImageCms.ImageCmsProfile(io.BytesIO(icc)),
+        _SRGB,
+        "RGB",
+        "RGB",
+        renderingIntent=ImageCms.Intent.RELATIVE_COLORIMETRIC,
+        flags=ImageCms.Flags.BLACKPOINTCOMPENSATION,
+    )
+    return ImageCms.applyTransform(image.convert("RGB"), transform)
+
+
+def output_sharpen(image, paper: str, ppi: int):
+    setting = _OUTPUT_SHARPEN.get(paper or "")
+    if not setting:
+        return image
+    radius, percent = setting
+    return image.filter(ImageFilter.UnsharpMask(
+        radius=radius * max(72, int(ppi)) / 300.0, percent=percent, threshold=2,
+    ))
+
+
+def source_jpeg(path: str, long_edge: int = 0, paper: str = "", ppi: int = 300) -> bytes:
     """The pixels an album export draws with — the FILE, at export quality.
 
     /thumb is the wrong door for this and always was: it serves quality 82
@@ -75,6 +149,9 @@ def source_jpeg(path: str, long_edge: int = 0) -> bytes:
     the file never had, and the print check upstairs is what must say so.
     """
     image = common.load_image(path)
+    icc = _embedded_profile(path)
+    if icc:
+        image = to_srgb(image, icc)
     cap = int(long_edge or 0)
     if cap > 0 and max(image.size) > cap:
         scale = cap / float(max(image.size))
@@ -82,6 +159,10 @@ def source_jpeg(path: str, long_edge: int = 0) -> bytes:
             (max(1, round(image.width * scale)), max(1, round(image.height * scale))),
             Image.LANCZOS,
         )
+    # Sharpened only at the size it is printed: a photo smaller than its place
+    # is enlarged later, in the browser, and would carry the halo up with it.
+    if paper and cap > 0 and max(image.size) >= cap * 0.9:
+        image = output_sharpen(image, paper, ppi)
     output = io.BytesIO()
     image.save(output, "JPEG", quality=96, subsampling=0, optimize=True)
     return output.getvalue()

@@ -935,10 +935,14 @@ class Handler(BaseHTTPRequestHandler):
             args = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
             path = (args.get("path") or [""])[0]
             width = int((args.get("w") or ["0"])[0])
+            # The print export names the lab's paper, so the photo arrives
+            # sharpened for it; the proof sends none.
+            paper = (args.get("paper") or [""])[0]
+            ppi = int((args.get("ppi") or ["300"])[0])
             if not path or not os.path.isfile(path):
                 self._json(404, {"error": "not found"})
                 return
-            data = on_worker(album_export.source_jpeg, path, width)
+            data = on_worker(album_export.source_jpeg, path, width, paper, ppi)
             self.send_response(200)
             self.send_header("Content-Type", "image/jpeg")
             self.send_header("Content-Length", str(len(data)))

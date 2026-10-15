@@ -10,6 +10,7 @@ import { elementUrl } from './templates/elementStore';
 import { drawTemplateSpread, missingPhotos } from './templates/raster';
 import { jpegPagesToPdf, type PdfPage } from './pdf';
 import { coverSheetOf, coverTemplateOf } from './coverSheet';
+import { ZIP_LIMIT_BYTES, ZipStream } from './zipWriter';
 
 /* Getting the album out of the screen — to the couple as a proof, to the lab
  * as files it can print.
@@ -44,13 +45,14 @@ interface SpreadExportItem {
 
 interface WritableFileHandle {
   createWritable(): Promise<{
-    write(data: Blob | string): Promise<void>;
+    write(data: Blob | string | BufferSource): Promise<void>;
     close(): Promise<void>;
   }>;
 }
 
 interface WritableDirectoryHandle {
   getFileHandle(name: string, options: { create: boolean }): Promise<WritableFileHandle>;
+  getDirectoryHandle(name: string, options: { create: boolean }): Promise<WritableDirectoryHandle>;
 }
 
 interface DirectoryPickerWindow extends Window {
@@ -61,6 +63,8 @@ export interface ProofExportResult {
   files: number;
   destination: 'folder' | 'downloads';
   pixelSize: { width: number; height: number };
+  /** The upload archive's name, when one was written. */
+  archive?: string;
 }
 
 /** A proof is looked at on a screen and, at most, printed on A4 to be marked
@@ -76,6 +80,9 @@ interface SheetOptions {
    *  album as it will be cut, not as it is printed. */
   bleedMm: number;
   watermark: boolean;
+  /** The lab's paper — set only on the press road, where every photo arrives
+   *  from the engine sharpened for it at the size it is printed. */
+  paper?: string;
 }
 
 interface Sheet {
@@ -123,10 +130,11 @@ function sourceLongEdge(photo: AlbumPhoto, need: { width: number; height: number
 function exportBitmap(
   photo: AlbumPhoto,
   need: { width: number; height: number },
+  options?: SheetOptions,
 ): Promise<ImageBitmap> {
   return loadBitmap(
     photo.exportPath
-      ? albumSourceUrl(photo.exportPath, sourceLongEdge(photo, need))
+      ? albumSourceUrl(photo.exportPath, sourceLongEdge(photo, need), options?.paper, options?.ppi)
       : photo.url,
   );
 }
@@ -156,6 +164,7 @@ async function drawPhoto(
   profile: PrintProductProfile,
   canvasWidth: number,
   canvasHeight: number,
+  options?: SheetOptions,
 ) {
   const frame = {
     x: Math.round(slot.x * canvasWidth),
@@ -174,7 +183,7 @@ async function drawPhoto(
   const bitmap = await exportBitmap(photo, {
     width: frame.width * zoom,
     height: frame.height * zoom,
-  });
+  }, options);
 
   context.save();
   context.beginPath();
@@ -288,7 +297,7 @@ async function renderSpread(
       instance: item.spread.templateInstance,
       spread: item.spread,
       photos,
-      bitmapOf: (photo, need) => exportBitmap(photo, need).catch(() => null),
+      bitmapOf: (photo, need) => exportBitmap(photo, need, options).catch(() => null),
       elementBitmapOf: async (assetId) => {
         const url = elementUrl(assetId);
         return url ? await loadBitmap(url).catch(() => null) : null;
@@ -317,6 +326,7 @@ async function renderSpread(
       profile,
       trimWidth,
       trimHeight,
+      options,
     );
   }
   context.restore();
@@ -359,7 +369,7 @@ async function renderCover(
       instance: cover.templateInstance,
       spread: cover,
       photos: [...photosById.values()],
-      bitmapOf: (photo, need) => exportBitmap(photo, need).catch(() => null),
+      bitmapOf: (photo, need) => exportBitmap(photo, need, options).catch(() => null),
       elementBitmapOf: async (assetId) => {
         const url = elementUrl(assetId);
         return url ? await loadBitmap(url).catch(() => null) : null;
@@ -503,6 +513,7 @@ export async function exportAlbumForPrint(
     ppi: profile.targetPpi,
     bleedMm: profile.bleedMm,
     watermark: false,
+    paper: profile.paper ?? 'luster',
   };
   const written: Array<{
     name: string;
@@ -516,12 +527,31 @@ export async function exportAlbumForPrint(
   const total = items.length + (printsCover ? 1 : 0);
   const firstIndex = Math.max(0, profile.firstIndex ?? 1);
 
-  const finalize = async (sheet: Sheet, name: string) => {
+  /* ONE ARCHIVE for the upload form, beside the loose files: some labs take
+   * only an archive, the rest take one file more easily than forty. */
+  const albumName = safeFileName(`${project.name} — לדפוס`, '.zip');
+  const zip = new ZipStream(
+    await (await directory.getFileHandle(albumName, { create: true })).createWritable(),
+  );
+  let zipSkipped = false;
+
+  /* THE OVERVIEW: every sheet small, in order, named — so the photographer
+   * and the lab see the sequence at a glance. It goes in its own folder, never
+   * in the archive: a lab that prints every JPEG it is sent must not print it. */
+  const overview = newOverview(items.length + (printsCover ? 1 : 0), profile);
+
+  const finalize = async (sheet: Sheet, name: string, cell: number) => {
+    drawOverviewCell(overview, sheet.canvas, cell, name);
     const lossless = await encode(sheet.canvas, 'image/png');
     sheet.canvas.width = 0;
     sheet.canvas.height = 0;
     const finished = await finalizeAlbumSheet(lossless, options.ppi);
     await writeFile(directory, name, finished.blob);
+    if (!zipSkipped && zip.size + finished.blob.size < ZIP_LIMIT_BYTES) {
+      await zip.add(name, finished.blob);
+    } else {
+      zipSkipped = true;
+    }
     written.push({
       name,
       width: finished.widthPx,
@@ -538,6 +568,7 @@ export async function exportAlbumForPrint(
       safeFileName(profile.namingPattern
         .replace('{index}', sequence)
         .replace('{pageStart}', String(items[index].spread.pageStart))),
+      index + (printsCover ? 1 : 0),
     );
   }
 
@@ -546,6 +577,7 @@ export async function exportAlbumForPrint(
     await finalize(
       await renderCover(project, photosById, profile, options),
       safeFileName(profile.coverFileName ?? 'cover.jpg'),
+      0,
     );
   }
 
@@ -579,12 +611,66 @@ export async function exportAlbumForPrint(
       bleedMm: profile.coverSpec.bleedMm,
     },
     files: written,
+    archive: zipSkipped ? null : albumName,
   }, null, 2);
   await writeFile(directory, 'print-manifest.json', manifest);
+  if (!zipSkipped) {
+    await zip.add('print-manifest.json', new Blob([manifest], { type: 'application/json' }));
+  }
+  await zip.close();
+
+  const checkFolder = await directory.getDirectoryHandle('_לבדיקה-לא-להדפסה', { create: true });
+  await writeFile(checkFolder, 'סקירת-האלבום.jpg', await encode(overview.canvas, 'image/jpeg', 0.86));
 
   return {
     files: written.length + 1,
     destination: 'folder',
     pixelSize: { width: written[0]?.width ?? 0, height: written[0]?.height ?? 0 },
+    archive: zipSkipped ? undefined : albumName,
   };
+}
+
+interface Overview {
+  canvas: HTMLCanvasElement;
+  context: CanvasRenderingContext2D;
+  cellWidth: number;
+  cellHeight: number;
+  columns: number;
+}
+
+const OVERVIEW_CELL = 520;
+const OVERVIEW_LABEL = 30;
+const OVERVIEW_GAP = 16;
+
+function newOverview(count: number, profile: PrintProductProfile): Overview {
+  const columns = 4;
+  const rows = Math.max(1, Math.ceil(count / columns));
+  const cellWidth = OVERVIEW_CELL;
+  const cellHeight = Math.round(OVERVIEW_CELL * (profile.spreadHeightMm / profile.spreadWidthMm));
+  const canvas = document.createElement('canvas');
+  canvas.width = columns * cellWidth + (columns + 1) * OVERVIEW_GAP;
+  canvas.height = rows * (cellHeight + OVERVIEW_LABEL) + (rows + 1) * OVERVIEW_GAP;
+  const context = canvas.getContext('2d')!;
+  context.fillStyle = '#f2f1ee';
+  context.fillRect(0, 0, canvas.width, canvas.height);
+  return { canvas, context, cellWidth, cellHeight, columns };
+}
+
+/** One sheet into its place on the overview, right to left like the book. */
+function drawOverviewCell(overview: Overview, sheet: HTMLCanvasElement, cell: number, name: string) {
+  const { context, cellWidth, cellHeight, columns, canvas } = overview;
+  const row = Math.floor(cell / columns);
+  const column = cell % columns;
+  const x = canvas.width - OVERVIEW_GAP - (column + 1) * cellWidth - column * OVERVIEW_GAP;
+  const y = OVERVIEW_GAP + row * (cellHeight + OVERVIEW_LABEL + OVERVIEW_GAP);
+  const scale = Math.min(cellWidth / sheet.width, cellHeight / sheet.height);
+  const width = sheet.width * scale;
+  const height = sheet.height * scale;
+  context.imageSmoothingQuality = 'high';
+  context.drawImage(sheet, x + (cellWidth - width) / 2, y + (cellHeight - height) / 2, width, height);
+  context.fillStyle = '#3b3833';
+  context.font = '18px Arial';
+  context.textAlign = 'center';
+  context.textBaseline = 'top';
+  context.fillText(name, x + cellWidth / 2, y + cellHeight + 6);
 }
