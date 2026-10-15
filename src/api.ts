@@ -874,6 +874,33 @@ export function thumbUrl(path: string, width = 320, version?: string): string {
  *  own embedded preview — which on a 56cm spread is the difference between a
  *  print and an excuse. `longEdge` is a cap: a file smaller than its place
  *  comes back at its own size, never enlarged. */
+export interface SoftProofResult {
+  image: string;
+  gamut: string;
+  outOfGamutPercent: number;
+  outOfGamutPixelPercent: number;
+  profile: { description: string; colorSpace: string; deviceClass: string };
+}
+
+/** The spread as the lab's paper shows it (engine/soft_proof.py). */
+export async function softProofSpread(
+  image: string,
+  icc: string,
+  intent: 'relative' | 'perceptual',
+  simulatePaper: boolean,
+): Promise<SoftProofResult> {
+  const response = await fetch(`${ENGINE}/album/soft-proof`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ image, icc, intent, simulatePaper }),
+  });
+  const body = await response.json().catch(() => null);
+  if (!response.ok || !body) {
+    throw new Error(body?.error ?? 'מנוע התצוגה המקומי אינו זמין — יש להפעיל אותו מחדש');
+  }
+  return body as SoftProofResult;
+}
+
 export function albumSourceUrl(path: string, longEdge: number, paper?: string, ppi?: number): string {
   const cap = Math.max(0, Math.round(longEdge));
   const print = paper ? `&paper=${encodeURIComponent(paper)}&ppi=${Math.round(ppi ?? 300)}` : '';

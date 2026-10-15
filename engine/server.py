@@ -66,6 +66,7 @@ import recipe_fit
 import pixel_color
 import album_analysis
 import album_export
+import soft_proof
 import album_render
 import cull
 import triage
@@ -1299,6 +1300,9 @@ class Handler(BaseHTTPRequestHandler):
         if self.path.startswith("/album/finalize-sheet"):
             self._album_finalize_sheet()
             return
+        if self.path == "/album/soft-proof":
+            self._album_soft_proof()
+            return
         if self.path == "/album/finalize-jpeg":
             self._album_finalize_jpeg()
             return
@@ -2491,6 +2495,25 @@ if ($path) {
             self.wfile.write(data)
         except Exception as e:  # noqa: BLE001
             self._json(500, {"error": str(e)})
+
+    def _album_soft_proof(self):
+        """POST /album/soft-proof — { image: PNG data URL of a spread, icc:
+        base64 of the lab's paper profile, intent, simulatePaper } → the spread
+        as that paper shows it, plus a hairline contour of what it cannot print."""
+        try:
+            body = self._body()
+            image = base64.b64decode(str(body["image"]).split(",", 1)[-1])
+            icc = base64.b64decode(str(body["icc"]).split(",", 1)[-1])
+            result = on_worker(
+                soft_proof.soft_proof,
+                image,
+                icc,
+                str(body.get("intent") or "relative"),
+                bool(body.get("simulatePaper")),
+            )
+            self._json(200, result)
+        except Exception as e:  # noqa: BLE001
+            self._json(500, {"error": f"לא ניתן לבנות תצוגת נייר מהקובץ הזה: {e}"})
 
     def _album_finalize_jpeg(self):
         """Encode a rendered spread as full-quality JPEG with embedded sRGB."""

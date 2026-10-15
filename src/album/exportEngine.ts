@@ -83,6 +83,9 @@ interface SheetOptions {
   /** The lab's paper — set only on the press road, where every photo arrives
    *  from the engine sharpened for it at the size it is printed. */
   paper?: string;
+  /** A working picture for the screen (the paper preview): no proof stamp,
+   *  and an empty place is drawn empty rather than refused. */
+  draft?: boolean;
 }
 
 interface Sheet {
@@ -289,7 +292,7 @@ async function renderSpread(
      * as the screen does — refusing to make a proof is refusing the one thing
      * that would let anyone see the gap. The press file is another matter and
      * says no. */
-    if (missing.length && !options.watermark) {
+    if (missing.length && !options.watermark && !options.draft) {
       throw new Error(`חסרות ${missing.length} תמונות בכפולה ${pages}`);
     }
     await drawTemplateSpread(context, trimWidth, trimHeight, {
@@ -315,7 +318,7 @@ async function renderSpread(
   for (let index = 0; index < item.layout.slots.length; index += 1) {
     const photo = photosById.get(item.layout.photoIds[index]);
     if (!photo) {
-      if (!options.watermark) throw new Error(`חסרה תמונה בכפולה ${pages}`);
+      if (!options.watermark && !options.draft) throw new Error(`חסרה תמונה בכפולה ${pages}`);
       continue;
     }
     await drawPhoto(
@@ -483,6 +486,28 @@ export async function exportAlbumProof(
     destination: 'downloads',
     pixelSize: { width: pages[0]?.widthPx ?? 0, height: pages[0]?.heightPx ?? 0 },
   };
+}
+
+/** One spread as a picture about `widthPx` wide, drawn by the same renderer
+ *  as the press file — for the paper preview, which must show exactly what
+ *  will be printed, only smaller. */
+export async function renderSpreadImage(
+  item: SpreadExportItem,
+  photos: AlbumPhoto[],
+  profile: PrintProductProfile,
+  widthPx = 1800,
+): Promise<string> {
+  const ppi = widthPx / (profile.spreadWidthMm / 25.4);
+  const sheet = await renderSpread(
+    item,
+    new Map(photos.map((photo) => [photo.id, photo])),
+    profile,
+    { ppi, bleedMm: 0, watermark: false, draft: true },
+  );
+  const url = sheet.canvas.toDataURL('image/png');
+  sheet.canvas.width = 0;
+  sheet.canvas.height = 0;
+  return url;
 }
 
 /** The press package: one file per spread at the printer's resolution, with

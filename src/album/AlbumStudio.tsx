@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   IcBook, IcCheck, IcChevron, IcDownload, IcEye, IcGallery,
   IcSparkle, IcUndo,
@@ -35,7 +35,8 @@ import type {
   AlbumTemplate, ImageLayer, LayerBox, PhotoFade, PlaceStyle, ShapeLayer, SpreadTemplateInstance, TextLayer,
 } from './templates/types';
 import { analyzeAlbumPhoto } from '../api';
-import { exportAlbumForPrint, exportAlbumProof } from './exportEngine';
+import { exportAlbumForPrint, exportAlbumProof, renderSpreadImage } from './exportEngine';
+import SoftProofView from './SoftProofView';
 import { LAB_SPECS, applyLabSpec, labOffersSize, labSpecOf, profileForAlbum } from './labs';
 import {
   COVER_SHEET_ID, coverSheetOf, coverTemplateOf, coverZonePlace, spineBand,
@@ -211,6 +212,17 @@ export default function AlbumStudio({ job, onBack }: {
     return () => window.clearTimeout(t);
   }, [notice]);
   const [showProfileEditor, setShowProfileEditor] = useState(false);
+  /* The lab's paper profile (ICC), per product — kept on this computer. A
+   * printer profile is a few hundred KB; one that does not fit in local
+   * storage is kept for this session only, and the screen says so. */
+  const [paperIccs, setPaperIccs] = useState<Record<string, { name: string; data: string }>>(() => {
+    try {
+      return JSON.parse(localStorage.getItem('album-paper-icc') ?? '{}');
+    } catch {
+      return {};
+    }
+  });
+  const [showSoftProof, setShowSoftProof] = useState(false);
   /* `organize` is the album; `design` is one spread. The module opens on the
    * album, because that is the question a photographer actually asks first. */
   const [mode, setMode] = useState<'organize' | 'design'>('organize');
@@ -519,7 +531,6 @@ export default function AlbumStudio({ job, onBack }: {
       window.clearTimeout(start);
       window.clearTimeout(timer);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [job?.id, activeAlbumId, isHydrated, placedKey]);
 
   /** The photographs as they go to print. Every placed one is first brought up
@@ -609,6 +620,18 @@ export default function AlbumStudio({ job, onBack }: {
     ? -1
     : project.spreads.findIndex((item) => item.id === project.activeSpreadId);
   const spread = editingCover ? coverSheet : (project.spreads[spreadIndex] ?? project.spreads[0]);
+  const paperIcc = paperIccs[profile.id];
+  /* The paper preview draws the spread through the export renderer, from the
+   * real files — taken once each time the preview opens, so what it shows is
+   * the spread as it stands at that moment. */
+  const renderActiveSpreadImage = useCallback(async () => {
+    const item = createExportItems().find((candidate) => candidate.spread.id === spread?.id);
+    if (!item) throw new Error('הכפולה לא נמצאה');
+    /* Drawn at the screen's own pixel count, so the one-pixel outline of an
+     * out-of-gamut area lands on one screen pixel instead of being scaled away. */
+    const widthPx = Math.round(Math.min(2400, window.innerWidth * (window.devicePixelRatio || 1)));
+    return renderSpreadImage(item, await photosForExport(), profile, widthPx);
+  }, [showSoftProof]);
   /* What the shape dialog shows: a real spread of his own, with photographs on
    * it — the one he is looking at when there is one, otherwise the first that
    * has anything to show. */
@@ -2511,6 +2534,30 @@ export default function AlbumStudio({ job, onBack }: {
     setNotice(`נוספו ${imported.length} תמונות · הניתוח המקומי התחיל`);
   }
 
+  function loadPaperIcc(file: File) {
+    const reader = new FileReader();
+    reader.onerror = () => setNotice('לא ניתן לקרוא את קובץ ה-ICC');
+    reader.onload = () => {
+      const data = String(reader.result ?? '');
+      const next = { ...paperIccs, [profile.id]: { name: file.name, data } };
+      setPaperIccs(next);
+      try {
+        localStorage.setItem('album-paper-icc', JSON.stringify(next));
+        setNotice(`קובץ הנייר נשמר · ${file.name}`);
+      } catch {
+        setNotice(`קובץ הנייר גדול מדי לשמירה קבועה — נטען לעבודה הנוכחית בלבד · ${file.name}`);
+      }
+    };
+    reader.readAsDataURL(file);
+  }
+
+  function removePaperIcc() {
+    const next = { ...paperIccs };
+    delete next[profile.id];
+    setPaperIccs(next);
+    try { localStorage.setItem('album-paper-icc', JSON.stringify(next)); } catch { /* nothing kept */ }
+  }
+
   function createExportItems() {
     return project.spreads.map((item) => {
       const candidates = buildAlbumLayoutCandidates(
@@ -2643,6 +2690,17 @@ export default function AlbumStudio({ job, onBack }: {
         onUpdate={(next) => commitProject(next)}
         onNewVersion={createReviewVersion}
         onClose={() => setShowReview(false)}
+      />
+    );
+  }
+
+  if (showSoftProof && paperIcc && !editingCover && spread) {
+    return (
+      <SoftProofView
+        renderImage={renderActiveSpreadImage}
+        icc={paperIcc}
+        title={`עמודים ${spread.pageStart}–${spread.pageStart + 1}`}
+        onClose={() => setShowSoftProof(false)}
       />
     );
   }
@@ -3047,6 +3105,42 @@ export default function AlbumStudio({ job, onBack }: {
                   <a href={labSpec.sourceUrl} target="_blank" rel="noreferrer">המפרט באתר המעבדה · נבדק {labSpec.checkedOn}</a>
                 </div>
               )}
+              {/* The lab's paper file: what lets the screen show the album as
+                * that paper prints it. Labs hand it out on request. */}
+              <div className="album-paper-icc">
+                <span>קובץ הנייר של המעבדה (ICC)</span>
+                {paperIcc ? (
+                  <div className="album-paper-icc-row">
+                    <strong title={paperIcc.name}>{paperIcc.name}</strong>
+                    <button type="button" onClick={removePaperIcc}>הסרה</button>
+                  </div>
+                ) : (
+                  <small>אין עדיין. מבקשים מהמעבדה את קובץ ה-ICC של הנייר שבו האלבום יודפס.</small>
+                )}
+                <div className="album-paper-icc-row">
+                  <label className="album-file-button">
+                    {paperIcc ? 'החלפת קובץ' : 'טעינת קובץ ICC'}
+                    <input
+                      type="file"
+                      accept=".icc,.icm"
+                      hidden
+                      onChange={(event) => {
+                        const file = event.target.files?.[0];
+                        if (file) loadPaperIcc(file);
+                        event.target.value = '';
+                      }}
+                    />
+                  </label>
+                  <button
+                    type="button"
+                    disabled={!paperIcc || editingCover}
+                    title={editingCover ? 'תצוגת נייר זמינה לכפולות' : !paperIcc ? 'צריך קודם קובץ ICC של הנייר' : undefined}
+                    onClick={() => setShowSoftProof(true)}
+                  >
+                    תצוגת נייר לכפולה הזו
+                  </button>
+                </div>
+              </div>
               <label>
                 <span>כריכה</span>
                 <select

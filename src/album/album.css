@@ -1211,6 +1211,182 @@
   line-height: 1.4;
 }
 
+/* The lab's paper file, and the door to the paper preview. */
+.album-paper-icc {
+  display: grid;
+  gap: 5px;
+  color: var(--ink-2);
+  font-size: var(--t-xs);
+}
+
+.album-paper-icc small {
+  line-height: 1.4;
+}
+
+.album-paper-icc-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.album-paper-icc-row strong {
+  overflow: hidden;
+  min-width: 0;
+  flex: 1;
+  color: var(--ink);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.album-paper-icc-row button,
+.album-file-button {
+  display: inline-flex;
+  align-items: center;
+  height: 28px;
+  padding: 0 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-sm);
+  background: var(--card);
+  color: var(--ink);
+  font-size: var(--t-xs);
+  cursor: pointer;
+}
+
+.album-paper-icc-row button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* THE PAPER PREVIEW — full screen, like the print check. */
+.softproof-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: grid;
+  grid-template-rows: auto auto 1fr auto;
+  background: var(--page);
+  color: var(--ink);
+}
+
+.softproof-overlay > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 18px;
+  border-bottom: 1px solid var(--line);
+}
+
+.softproof-overlay > header div {
+  display: grid;
+  gap: 2px;
+}
+
+.softproof-overlay > header span {
+  color: var(--ink-2);
+  font-size: var(--t-xs);
+}
+
+.softproof-overlay button {
+  height: 30px;
+  padding: 0 12px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-sm);
+  background: var(--card);
+  color: var(--ink);
+  font-size: var(--t-sm);
+  cursor: pointer;
+}
+
+.softproof-overlay button.on {
+  border-color: var(--ink);
+  background: var(--ink);
+  color: var(--card);
+}
+
+.softproof-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 18px;
+  border-bottom: 1px solid var(--line);
+}
+
+.softproof-divider {
+  width: 1px;
+  height: 20px;
+  margin: 0 4px;
+  background: var(--line);
+}
+
+.softproof-stage {
+  display: grid;
+  min-height: 0;
+  padding: 18px;
+  place-items: center;
+  overflow: auto;
+}
+
+.softproof-stage figure {
+  position: relative;
+  margin: 0;
+  max-width: 100%;
+  max-height: 100%;
+}
+
+.softproof-stage figure img {
+  display: block;
+  max-width: 100%;
+  max-height: calc(100vh - 210px);
+  box-shadow: 0 2px 18px rgba(0, 0, 0, 0.18);
+}
+
+.softproof-stage .softproof-gamut {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  box-shadow: none;
+  pointer-events: none;
+  image-rendering: pixelated;
+}
+
+.softproof-busy,
+.softproof-wait {
+  color: var(--ink-2);
+  font-size: var(--t-sm);
+}
+
+.softproof-busy {
+  position: absolute;
+  top: 8px;
+  inset-inline-start: 8px;
+  padding: 4px 8px;
+  border-radius: var(--r-sm);
+  background: var(--card);
+}
+
+.softproof-error,
+.softproof-warn {
+  color: var(--danger-ink);
+}
+
+.softproof-error {
+  padding: 10px 14px;
+  border-radius: var(--r-sm);
+  background: var(--danger-soft);
+}
+
+.softproof-footer {
+  display: grid;
+  gap: 4px;
+  padding: 10px 18px 14px;
+  border-top: 1px solid var(--line);
+  font-size: var(--t-sm);
+}
+
 /* The lab card: what the lab published, then what it did not. */
 .album-lab-card {
   display: grid;
