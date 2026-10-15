@@ -192,6 +192,8 @@ export default function AlbumStudio({ job, onBack }: {
   const [cropIndex, setCropIndex] = useState<number | null>(null);
   const [photoFilter, setPhotoFilter] = useState<PhotoTrayFilter>('unused');
   const [showGuides, setShowGuides] = useState(false);
+  /** The thing a print-check issue is about, outlined on its spread. */
+  const [issueMark, setIssueMark] = useState<{ spreadId: string; box: NonNullable<PreflightIssue['box']> } | null>(null);
   const [notice, setNotice] = useState('הטיוטה נשמרה מקומית');
   /* A message is shown for as long as it is news, then the bar goes quiet. */
   const [noticeShown, setNoticeShown] = useState(false);
@@ -1413,6 +1415,7 @@ export default function AlbumStudio({ job, onBack }: {
     setShowPreflight(false);
     if (issue.target === 'spread' && issue.spreadId) {
       setProject((current) => ({ ...current, activeSpreadId: issue.spreadId! }));
+      setIssueMark(issue.box ? { spreadId: issue.spreadId, box: issue.box } : null);
       setSelectedSlotIndex(null);
       setNotice(issue.title);
       return;
@@ -4046,6 +4049,18 @@ export default function AlbumStudio({ job, onBack }: {
                 );
               })()}
               {frameGuides && <SmartGuideOverlay guides={frameGuides} />}
+              {issueMark && issueMark.spreadId === project.activeSpreadId && (
+                <div
+                  className="album-issue-mark"
+                  aria-hidden="true"
+                  style={{
+                    left: `${issueMark.box.x * 100}%`,
+                    top: `${issueMark.box.y * 100}%`,
+                    width: `${issueMark.box.width * 100}%`,
+                    height: `${issueMark.box.height * 100}%`,
+                  }}
+                />
+              )}
 
               {activeTemplate && spread.templateInstance && (
                 <TemplateDecor template={activeTemplate} instance={spread.templateInstance} hideLayerId={editingTextId} />

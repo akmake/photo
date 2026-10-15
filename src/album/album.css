@@ -1567,6 +1567,17 @@
   border: 1px dashed rgba(89, 83, 75, 0.48);
 }
 
+/* A print-check issue, outlined where it is — a hairline, never a fill, so
+ * the face it is about stays fully visible and the frame under it clickable.
+ * It stays until the next check is opened. */
+.album-issue-mark {
+  position: absolute;
+  z-index: 9;
+  pointer-events: none;
+  outline: 1px solid var(--danger, #c0392b);
+  outline-offset: 2px;
+}
+
 /* The fold band: two hairlines, never a fill over the photographs. */
 .album-fold-guide {
   position: absolute;

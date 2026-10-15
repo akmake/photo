@@ -3,6 +3,7 @@ import { buildAlbumLayoutCandidates } from './layoutEngine';
 import { spreadTemplate, templateSlots } from './templates/library';
 import type { AlbumPhoto, AlbumProject, PrintProductProfile } from './model';
 import { coverSheetOf, coverTemplateOf } from './coverSheet';
+import { albumChecks, sheetChecks } from './printChecks';
 
 export interface PreflightIssue {
   id: string;
@@ -13,6 +14,8 @@ export interface PreflightIssue {
   spreadId?: string;
   photoId?: string;
   target: 'spread' | 'cover' | 'profile' | 'review';
+  /** What the issue is about, in fractions of the sheet — drawn as a hairline. */
+  box?: { x: number; y: number; width: number; height: number };
 }
 
 export function runAlbumPreflight(
@@ -147,7 +150,9 @@ export function runAlbumPreflight(
     });
   }
 
-  project.spreads.forEach((spread) => {
+  const placed: Array<{ spread: (typeof project.spreads)[number]; photoIds: string[] }> = [];
+  const direction = project.openingDirection ?? 'rtl';
+  project.spreads.forEach((spread, spreadIndex) => {
     const template = spreadTemplate(spread, profile.spreadWidthMm / profile.spreadHeightMm);
     if (spread.templateInstance && !template) {
       issues.push({
@@ -282,6 +287,19 @@ export function runAlbumPreflight(
       }
     });
 
+    placed.push({ spread, photoIds });
+    const last = project.spreads.length - 1;
+    issues.push(...sheetChecks({
+      spread,
+      slots,
+      photoIds,
+      photoMap,
+      template,
+      profile,
+      direction,
+      position: last === 0 ? 'only' : spreadIndex === 0 ? 'first' : spreadIndex === last ? 'last' : 'middle',
+    }));
+
     (template ? [] : slots).forEach((slot, index) => {
       slots.slice(index + 1).forEach((other, otherIndex) => {
         const width = Math.min(slot.x + slot.width, other.x + other.width)
@@ -303,5 +321,6 @@ export function runAlbumPreflight(
     });
   });
 
+  issues.push(...albumChecks(project, profile, placed));
   return issues;
 }
