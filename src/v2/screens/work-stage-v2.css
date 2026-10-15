@@ -302,6 +302,7 @@
   background: var(--ws-paper);
 }
 .tz-ws-v-top { border-bottom: 1px solid var(--ws-line); }
+.tz-ws-edit-actions { display: flex; align-items: center; gap: 8px; }
 .tz-ws-v-bottom { border-top: 1px solid var(--ws-line); }
 .tz-ws-v-spacer { display: block; }
 .tz-ws-v-icon {

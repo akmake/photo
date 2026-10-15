@@ -551,7 +551,7 @@ def _recall_recipe(key):
 # differently, and a cache that outlives the code it came from serves
 # yesterday's pixels under today's key. Caught exactly that way: a sizing fix
 # looked like it had not worked, because the stale proxy was still being served.
-_PROXY_VERSION = 3
+_PROXY_VERSION = 4
 
 # THE ONE SIZE A GRADED FRAME IS EVER RENDERED AT.
 #
@@ -633,10 +633,6 @@ def _render_proxy(path, width, recipe, should_stop=None):
     im, source_long = _decode_small(
         path, width, develop=raw.develop_of(recipe), fast=not recipe
     )
-    # Decided BEFORE rendering, from the frame as decoded — so the answer does
-    # not depend on how many times the image was resized on the way here.
-    out_size = _fit_size(im.size, width)
-
     if recipe:
         # Rendered a little larger than it is shown: face and subject masks get
         # unreliable below a few hundred pixels, and a proxy that disagrees with
@@ -649,6 +645,9 @@ def _render_proxy(path, width, recipe, should_stop=None):
             should_stop=should_stop,
         )
 
+    # Geometry may rotate or crop the frame. Fit the rendered image's own
+    # proportions; the source dimensions would stretch it back to its old shape.
+    out_size = _fit_size(im.size, width)
     if im.size != out_size:
         im = im.resize(out_size, Image.LANCZOS)
     buf = io.BytesIO()

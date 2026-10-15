@@ -87,6 +87,15 @@ export default function WorkStageV2({
   const [undo, setUndo] = useState<Undo | null>(null);
   const [viewer, setViewer] = useState(false);
   const [editing, setEditing] = useState(false);
+  const [editName, setEditName] = useState<string | null>(null);
+  const [editSequence, setEditSequence] = useState<string[] | undefined>();
+  const openSequenceEditor = (name: string, names?: string[]) => {
+    setEditName(name);
+    setSel(name);
+    setEditFrom(null);
+    setEditSequence(names);
+    setEditing(true);
+  };
   // The picture the viewer had up when עריכה was pressed — the editor shows it
   // at once instead of a dimmed wait while its own render is made.
   const [editFrom, setEditFrom] = useState<string | null>(null);
@@ -700,7 +709,8 @@ export default function WorkStageV2({
         <Viewer
           projectId={projectId}
           hold={editing}
-          onEdit={(from) => { setEditFrom(from); setEditing(true); }}
+          onEdit={(from) => { setEditName(sel); setEditFrom(from); setEditSequence(undefined); setEditing(true); }}
+          onEditSequence={bursts.find((b) => b.names.includes(sel)) ? () => openSequenceEditor(sel, bursts.find((b) => b.names.includes(sel))!.names) : undefined}
           frame={frameByName.get(sel)!}
           faces={byName.get(sel)?.faces ?? []}
           quick={srcOf(sel, 640)}
@@ -727,6 +737,7 @@ export default function WorkStageV2({
           cull={cull}
           aspectOf={(n) => { const f = frameByName.get(n); return (f && dims.get(f.path)) || 1.5; }}
           srcOf={srcOf}
+          onEdit={openSequenceEditor}
           onDecide={(n, d) => decide([n], cull[n] === d ? null : d, `${n} · ${cull[n] === d ? 'ההחלטה בוטלה' : WORD[d]}`)}
           onApply={(sets, label, next) => {
             decideSets(sets, label);
@@ -745,21 +756,23 @@ export default function WorkStageV2({
           frames={frameByName}
           cull={cull}
           active={compareActive}
+          onEdit={(name, sequence) => openSequenceEditor(name, sequence ? bursts.find((b) => b.names.includes(name))?.names ?? compare : undefined)}
           onActive={setCompareActive}
           onDecide={(n, d) => decide([n], cull[n] === d ? null : d, `${n} · ${cull[n] === d ? 'ההחלטה בוטלה' : WORD[d]}`)}
           onClose={() => { setCompare(null); setComparePick(null); }}
         />
       )}
 
-      {editing && sel && frameByName.get(sel) && (
+      {editing && editName && frameByName.get(editName) && (
         <PhotoEditor
           projectId={projectId}
-          frame={frameByName.get(sel)!}
-          name={sel}
+          frame={frameByName.get(editName)!}
+          name={editName}
           placeholder={editFrom ?? undefined}
+          sequenceNames={editSequence}
           onClose={() => setEditing(false)}
           onAppliedToBatch={({ count, batchName, undo: restore }) => setUndo({
-            label: `העריכה הוחלה על ${count.toLocaleString('he-IL')} תמונות נוספות${batchName ? ` בסשן „${batchName}”` : ' בסשן'}`,
+            label: `העריכה הוחלה על ${count.toLocaleString('he-IL')} תמונות נוספות${batchName === 'הרצף' ? ' ברצף' : batchName ? ` בסשן „${batchName}”` : ' בסשן'}`,
             restore,
           })}
         />
@@ -881,13 +894,14 @@ function preload(src: string): Promise<{ w: number; h: number }> {
 }
 
 function Viewer({
-  projectId, hold, onEdit, frame, faces, quick, neighbors, name, position, total, decision, onClose, onStep, onDecide,
+  projectId, hold, onEdit, onEditSequence, frame, faces, quick, neighbors, name, position, total, decision, onClose, onStep, onDecide,
 }: {
   projectId: string;
   /** The edit window is open over it: keep the picture, render nothing new. */
   hold: boolean;
   /** Called with the picture on screen when it is THIS frame's, else null. */
   onEdit: (onScreen: string | null) => void;
+  onEditSequence?: () => void;
   frame: Frame;
   faces: TriageFrame['faces'];
   /** This frame as the grid shows it (edit included), already loaded there. */
@@ -1039,12 +1053,15 @@ function Viewer({
   return (
     <div className={`tz-ws-viewer${decision ? ` is-${decision}` : ''}`} role="dialog" aria-modal="true" aria-label="תצוגה מלאה" data-tour="work-viewer">
       <header className="tz-ws-v-top">
+        <div className="tz-ws-edit-actions">
+        {onEditSequence && <button type="button" className="tz-ws-v-edit" onClick={onEditSequence}>עריכה לכל הרצף</button>}
         <button type="button" className="tz-ws-v-edit" onClick={() => onEdit(onScreenRef.current)} title="עריכה (E)" data-tour="viewer-edit">
           <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
             <rect x="3" y="3" width="14" height="14" rx="2" /><path d="M13 21l1.5-4.5L21 10l-3-3-6.5 6.5L7 15" />
           </svg>
           ערוך
         </button>
+        </div>
         <div className="tz-ws-v-name" data-tour="viewer-name">
           <b dir="ltr">{name}</b>
           <span>{(position + 1).toLocaleString('he-IL')} מתוך {total.toLocaleString('he-IL')}</span>
@@ -1205,7 +1222,7 @@ function surveyColumns(n: number, box: { w: number; h: number }, aspect: number,
 }
 
 function BurstPanel({
-  names, position, total, triage, cull, aspectOf, srcOf, onDecide, onApply, undoLabel, onUndo, onStep, onClose,
+  names, position, total, triage, cull, aspectOf, srcOf, onEdit, onDecide, onApply, undoLabel, onUndo, onStep, onClose,
 }: {
   names: string[];
   position: number;
@@ -1214,6 +1231,7 @@ function BurstPanel({
   cull: Record<string, CullDecision>;
   aspectOf: (name: string) => number;
   srcOf: (name: string, w: number) => string | null;
+  onEdit: (name: string, names?: string[]) => void;
   onDecide: (name: string, d: CullDecision) => void;
   /** Several decisions as one step (one undo); `next` then brings the next burst. */
   onApply: (sets: [string[], CullDecision][], label: string, next: boolean) => void;
@@ -1347,6 +1365,8 @@ function BurstPanel({
     <div className="tz-ws-burst" role="dialog" aria-modal="true" aria-label="רצף" data-tour="work-burst">
       <header className="tz-ws-v-top">
         <span className="tz-ws-v-tools">
+          <button type="button" className="tz-ws-v-edit" onClick={() => onEdit((mode === 'all' ? focusName : panes[focus]) ?? names[0])}>עריכה</button>
+          <button type="button" className="tz-ws-v-edit" onClick={() => onEdit((mode === 'all' ? focusName : panes[focus]) ?? names[0], names)}>עריכה לכל הרצף</button>
           <button type="button" className="tz-ws-v-icon" onClick={onClose} aria-label="סגור" title="סגור">✕</button>
           <TourHelpButton tour="work-burst" className="tz-ws-v-icon" />
         </span>
@@ -1661,12 +1681,13 @@ function FaceList({
  * one in focus is framed; the keys decide it and stay on it — comparing is
  * about choosing between these, not moving on. */
 function Compare({
-  names, frames, cull, active, onActive, onDecide, onClose,
+  names, frames, cull, active, onActive, onDecide, onClose, onEdit,
 }: {
   names: string[];
   frames: Map<string, Frame>;
   cull: Record<string, CullDecision>;
   active: number;
+  onEdit: (name: string, sequence: boolean) => void;
   onActive: (i: number) => void;
   onDecide: (name: string, d: CullDecision) => void;
   onClose: () => void;
@@ -1675,6 +1696,8 @@ function Compare({
     <div className="tz-ws-compare" role="dialog" aria-modal="true" aria-label="השוואה" data-tour="work-compare-view">
       <header className="tz-ws-v-top">
         <span className="tz-ws-v-tools">
+          <button type="button" className="tz-ws-v-edit" onClick={() => onEdit(names[active], false)}>עריכה</button>
+          <button type="button" className="tz-ws-v-edit" onClick={() => onEdit(names[active], true)}>עריכה לכל הרצף</button>
           <button type="button" className="tz-ws-v-icon" onClick={onClose} aria-label="סגור (Esc)" title="סגור (Esc)">✕</button>
           <TourHelpButton tour="work-compare-view" className="tz-ws-v-icon" />
         </span>

@@ -149,6 +149,7 @@ export default function PhotoEditor({
   onAppliedToBatch,
   initialTab = 'adjust',
   placeholder,
+  sequenceNames,
 }: {
   projectId: string;
   frame: Frame;
@@ -162,6 +163,7 @@ export default function PhotoEditor({
   /** A picture of this frame the caller already has loaded — shown at once,
    *  undimmed, until the editor's own render arrives. */
   placeholder?: string;
+  sequenceNames?: string[];
   initialTab?: EditorTab;
 }) {
   const [tab, setTab] = useState<EditorTab>(initialTab);
@@ -321,6 +323,21 @@ export default function PhotoEditor({
     });
     onClose();
   }, [batch, commit, onAppliedToBatch, onClose, projectId, sharedSteps]);
+  const sequenceSteps = useMemo(() => {
+    const own = frameSteps(projectId, name);
+    return [...SHARED_TOOLS, 'geometry']
+      .map((id) => edits[id] ? stepFor(id, edits[id]) : own.find((t) => t.toolId === id))
+      .filter((t): t is ToolInstance => Boolean(t));
+  }, [edits, name, projectId, stepFor]);
+  const saveToSequence = () => {
+    const others = [...new Set(sequenceNames ?? [])].filter((n) => n !== name);
+    if (!others.length || !sequenceSteps.length) return;
+    const before = Object.fromEntries([name, ...others].map((n) => [n, frameSteps(projectId, n)]));
+    commit();
+    setFrameSteps(projectId, others, sequenceSteps, true);
+    onAppliedToBatch?.({ count: others.length, batchName: 'הרצף', undo: () => restoreFrameSteps(projectId, before) });
+    onClose();
+  };
 
   const cancel = useCallback(() => {
     if (dirty && !window.confirm('לצאת בלי לשמור את השינויים?')) return;
@@ -588,6 +605,7 @@ export default function PhotoEditor({
             איפוס
           </button>
           <button type="button" className="tz-pe-btn" onClick={cancel}>ביטול</button>
+          {sequenceNames && sequenceNames.length > 1 && <button type="button" className="tz-pe-btn" onClick={saveToSequence} disabled={!sequenceSteps.length} title="מחיל התאמות, סנן, רקע וחיתוך או סיבוב על תמונות הרצף. מחיקה וסימון נשארים בתמונה הנוכחית.">החל על כל הרצף · {sequenceNames.length}</button>}
           {batch && (
             <button
               type="button"
